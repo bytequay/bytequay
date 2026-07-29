@@ -50,6 +50,17 @@ public interface ReviewStore
      *  clobber it — same discipline as {@code setPassHost}. */
     void setPassTaskStage(String passId, String taskStageId);
 
+    /** Freeze the remote PR coordinates read during seating. Publication is
+     *  later authorized from these database facts and never re-discovers its
+     *  subject inside the user command transaction. */
+    default void setPassRemoteSubject(
+            String passId,
+            String baseRepositoryId,
+            String headRepositoryId,
+            String headRef)
+    {
+    }
+
     Optional<ReviewPass> findPassById(String id);
 
     /** All passes for a thread, oldest first. A {@code flow='review'}

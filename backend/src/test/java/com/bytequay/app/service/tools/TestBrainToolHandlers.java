@@ -14,9 +14,6 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.Actor;
-import com.bytequay.app.domain.PR;
-import com.bytequay.app.domain.PRComment;
-import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageType;
@@ -31,9 +28,6 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.tools.BrainToolHandlers.CheckCoverageArgs;
 import com.bytequay.app.service.tools.BrainToolHandlers.CountOperationsArgs;
 import com.bytequay.app.service.tools.BrainToolHandlers.PanelFindingsArgs;
@@ -70,13 +64,7 @@ class TestBrainToolHandlers
     @Autowired
     private BrainToolHandlers tools;
     @Autowired
-    private TaskPhaseMachine machine;
-    @Autowired
-    private PlanStageService planStageService;
-    @Autowired
     private StageStore stageStore;
-    @Autowired
-    private PRService prService;
     @Autowired
     private TaskStore taskStore;
     @Autowired
@@ -113,8 +101,9 @@ class TestBrainToolHandlers
     void readPhaseHistoryReturnsTransitions()
     {
         String taskId = seedTask();
-        approvePlan(taskId);
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
+        taskStore.appendPhaseEvent(
+                taskId, TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING,
+                Instant.parse("2026-06-20T09:01:00Z"), "ready", Actor.AGENT);
 
         ToolOutcome.Completed out = completed(tools.readPhaseHistory(
                 new PhaseHistoryArgs(taskId, null), CALL));
@@ -130,19 +119,11 @@ class TestBrainToolHandlers
         stageStore.saveReviewComment(new ReviewComment(
                 null, taskId, "src/Foo.java", 12, "nit", Instant.parse("2026-06-20T10:00:00Z"),
                 ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null, "RIGHT", null, null));
-        PR pr = prService.createForTask(taskId, "dev/" + taskId, "main", "Brain tools PR", "");
-        prService.addComment(
-                pr.id(),
-                PRComment.ORIGIN_LOCAL,
-                PRComment.SCOPE_FILE_LINE,
-                "src/Bar.java",
-                14,
-                "RIGHT",
-                null,
-                null,
-                PRTimelineEntry.ACTOR_AGENT,
-                "agent note",
-                null);
+        stageStore.saveReviewComment(new ReviewComment(
+                null, taskId, "src/Bar.java", 14, "agent note",
+                Instant.parse("2026-06-20T10:01:00Z"),
+                ReviewCommentSource.LOCAL_AGENT, null, false, null, null, null, null,
+                "RIGHT", null, null));
 
         ToolOutcome.Completed all = completed(tools.listUnresolvedComments(
                 new UnresolvedCommentsArgs(taskId, null), CALL));
@@ -209,11 +190,14 @@ class TestBrainToolHandlers
     void cannedScenariosAnswerCanonicalQuestionsFromState()
     {
         String taskId = seedTask();
-        approvePlan(taskId);
         stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
         stageStore.openStage(taskId, StageType.REVIEW_MONITOR_STAGE, null);
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+        taskStore.appendPhaseEvent(
+                taskId, TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING,
+                Instant.parse("2026-06-20T09:01:00Z"), "ready", Actor.AGENT);
+        taskStore.appendPhaseEvent(
+                taskId, TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW,
+                Instant.parse("2026-06-20T09:02:00Z"), "validated", Actor.AGENT);
 
         // "What's the status of CiFixingStage / the review monitor?"
         ToolOutcome.Completed metrics = completed(tools.readStageMetrics(
@@ -239,14 +223,6 @@ class TestBrainToolHandlers
     private static ToolOutcome.Completed completed(ToolOutcome outcome)
     {
         return (ToolOutcome.Completed) outcome;
-    }
-
-    /** Approve a plan so the DevelopmentStage opens and the task is at
-     *  IMPLEMENTING — the precondition for the dev-phase walk. */
-    private void approvePlan(String taskId)
-    {
-        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        planStageService.approve(taskId, "rev-1");
     }
 
     private String seedTask()

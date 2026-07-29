@@ -14,10 +14,13 @@
 package com.bytequay.app.developmentflow.execution.agentturn;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.OutputCodeSubject;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+
+import java.util.Objects;
 
 import static java.util.Objects.requireNonNull;
 
@@ -25,11 +28,14 @@ import static java.util.Objects.requireNonNull;
 public final class AgentTurnOwnerResultCodec
 {
     private final ObjectReader reader;
+    private final ObjectReader evidenceReader;
 
     public AgentTurnOwnerResultCodec(ObjectMapper mapper)
     {
         requireNonNull(mapper, "mapper is null");
         this.reader = mapper.readerFor(AgentTurnOperationHandler.RawResult.class)
+                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        this.evidenceReader = mapper.readerFor(AgentTurnOperationHandler.Evidence.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     }
 
@@ -59,8 +65,32 @@ public final class AgentTurnOwnerResultCodec
         if (!owner.id().equals(payload.turnId()) || owner.kind() != payload.ownerKind()) {
             throw new IllegalArgumentException("Agent Turn result owner is stale");
         }
+        requireOutputEvidence(payload, rawResult.evidenceJson());
         requireCompatible(rawResult.outcome(), payload.disposition());
         return new OwnerResult(owner, expectedFence, rawResult.outcome(), payload);
+    }
+
+    private void requireOutputEvidence(
+            AgentTurnOperationHandler.RawResult payload,
+            String evidenceJson)
+    {
+        if (payload.outputCodeSubject() == null) {
+            return;
+        }
+        try {
+            AgentTurnOperationHandler.Evidence evidence =
+                    evidenceReader.readValue(evidenceJson);
+            if (evidence.disposition() != payload.disposition()
+                    || !payload.outputCodeSubject().equals(
+                            evidence.outputCodeSubject())) {
+                throw new IllegalArgumentException(
+                        "Agent Turn output evidence differs from its payload");
+            }
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                    "Agent Turn output evidence is invalid", e);
+        }
     }
 
     private static void requireCompatible(
@@ -106,6 +136,22 @@ public final class AgentTurnOwnerResultCodec
             requireNonNull(fence, "fence is null");
             requireNonNull(outcome, "outcome is null");
             requireNonNull(payload, "payload is null");
+        }
+
+        /** Validates only immutable result/DB facts; never reopens the worktree. */
+        public OutputCodeSubject requireOutputCodeSubject(String expectedBaseSha)
+        {
+            OutputCodeSubject output = requireNonNull(
+                    payload.outputCodeSubject(),
+                    "Agent Turn output code subject is missing");
+            if (owner.kind() != DispatchTicket.OwnerKind.STAGE_TURN
+                    || outcome != DispatchTicket.Outcome.SUCCEEDED
+                    || !Objects.equals(expectedBaseSha, output.baseSha())
+                    || !Objects.equals(expectedBaseSha, output.mergeBaseSha())) {
+                throw new IllegalArgumentException(
+                        "Agent Turn output is not based on its exact frozen base");
+            }
+            return output;
         }
     }
 }

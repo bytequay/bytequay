@@ -61,6 +61,12 @@ class PrDetailEntity
 
     private String headSha;
 
+    @Column(name = "base_sha")
+    private String baseSha;
+
+    @Column(name = "merge_commit_sha")
+    private String mergeCommitSha;
+
     @Column(name = "head_ref")
     private String headRef;
 
@@ -132,6 +138,12 @@ class PrDetailEntity
 
     String getHeadSha() { return headSha; }
     void setHeadSha(String headSha) { this.headSha = headSha; }
+
+    String getBaseSha() { return baseSha; }
+    void setBaseSha(String baseSha) { this.baseSha = baseSha; }
+
+    String getMergeCommitSha() { return mergeCommitSha; }
+    void setMergeCommitSha(String mergeCommitSha) { this.mergeCommitSha = mergeCommitSha; }
 
     String getHeadRef() { return headRef; }
     void setHeadRef(String headRef) { this.headRef = headRef; }

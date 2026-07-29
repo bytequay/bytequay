@@ -97,6 +97,7 @@ public class AgentRunController
                             HttpStatusCode.valueOf(404), "no run: " + runId));
         }
         return runs.findById(runId)
+                .filter(run -> !run.isReviewCompatibilityHeader())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no run: " + runId));
     }

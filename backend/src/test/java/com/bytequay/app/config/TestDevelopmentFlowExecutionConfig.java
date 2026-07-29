@@ -14,12 +14,8 @@
 package com.bytequay.app.config;
 
 import com.bytequay.app.developmentflow.execution.CapacityManager;
-import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
-import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
-import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
-import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
 import com.bytequay.app.developmentflow.execution.ResultDeliveryRouter;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
@@ -38,13 +34,22 @@ import com.bytequay.app.developmentflow.execution.provisioning.SqliteProvisionTa
 import com.bytequay.app.developmentflow.execution.publish.GitHubPublishEffects;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
+import com.bytequay.app.developmentflow.execution.quality.QualityIssuePublishOperationHandler;
+import com.bytequay.app.developmentflow.execution.quality.SqliteQualityIssuePublishStore;
+import com.bytequay.app.developmentflow.execution.quality.V2QualityIssuePublishRuntime;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteEffects;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteObserver;
+import com.bytequay.app.developmentflow.execution.remote.GitHubReviewBuildCommentGateway;
 import com.bytequay.app.developmentflow.execution.remote.GitHubUserRemoteActionGateway;
 import com.bytequay.app.developmentflow.execution.remote.RemoteFeedbackEffectOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.ReviewBuildCommentOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.ReviewPublicationOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteReviewBuildCommentStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteReviewPassPublicationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
@@ -59,6 +64,8 @@ import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.ManualPrValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.ManualPrValidationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
@@ -93,6 +100,7 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
+import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -103,14 +111,19 @@ import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.InvestigationReviewService;
-import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
+import com.bytequay.app.service.review.ReviewSessionSnapshotOperationHandler;
+import com.bytequay.app.service.review.ReviewSessionSnapshotResultDeliveryPort;
+import com.bytequay.app.service.review.TaskReviewRoundSnapshotOperationHandler;
+import com.bytequay.app.service.review.TaskReviewRoundSnapshotResultDeliveryPort;
+import com.bytequay.app.service.review.TaskReviewSnapshotOperationHandler;
+import com.bytequay.app.service.review.TaskReviewSnapshotResultDeliveryPort;
 import com.bytequay.app.service.skills.RoleRegistry;
-import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
@@ -141,43 +154,6 @@ import static org.mockito.Mockito.when;
 
 class TestDevelopmentFlowExecutionConfig
 {
-    @Test
-    void dispatchPauseKeepsDurableV2ControlsButStartsNoExecutor()
-    {
-        contextRunner()
-                .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
-                .run(context -> {
-                    assertThat(context).hasSingleBean(CapacityManager.class);
-                    assertThat(context).hasSingleBean(LegacyCapacityBridge.class);
-                    assertThat(context).hasSingleBean(LegacyCapacityLeaseMaintainer.class);
-                    assertThat(context).hasSingleBean(WorktreeWriterLeaseManager.class);
-                    assertThat(context).hasSingleBean(DispatchTicketControl.class);
-                    assertThat(context).hasSingleBean(V2TaskControlService.class);
-                    assertThat(context).hasSingleBean(PlanningBaseTurnRuntime.class);
-                    assertThat(context).hasSingleBean(V2ThreadControlService.class);
-                    assertThat(context).hasSingleBean(ReviewAssignmentTurnRuntime.class);
-                    assertThat(context).hasSingleBean(V2UserRemoteActionRuntime.class);
-                    assertThat(context).hasSingleBean(V2ReadinessAssistanceRuntime.class);
-                    assertThat(context).doesNotHaveBean(
-                            UserRemoteActionOperationHandler.class);
-                    assertThat(context).doesNotHaveBean(ExecutionDispatcher.class);
-                });
-    }
-
-    @Test
-    void legacySagaAdmissionAndExactScopeResolverAreProductionBeans()
-    {
-        contextRunner()
-                .withUserConfiguration(
-                        DevelopmentFlowExecutionConfig.class,
-                        LegacyTaskScopeResolver.class,
-                        LegacySagaCapacity.class)
-                .run(context -> {
-                    assertThat(context).hasSingleBean(LegacyTaskScopeResolver.class);
-                    assertThat(context).hasSingleBean(LegacySagaCapacity.class);
-                });
-    }
-
     @Test
     void enablingDeclaresTheCompleteExecutionGraphAndRequiredRemoteGateways()
     {
@@ -210,6 +186,7 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteFeedbackValidationOperationHandler.class,
                 RemoteFeedbackEffectOperationHandler.class,
                 UserRemoteActionOperationHandler.class,
+                ReviewBuildCommentOperationHandler.class,
                 RemoteMarkReadyOperationHandler.class,
                 RemoteObservationOperationHandler.class,
                 RemoteEffectOperationHandler.class,
@@ -239,6 +216,14 @@ class TestDevelopmentFlowExecutionConfig
                 ReviewAssignmentTurnOperationHandler.class);
         LocalValidationOperationHandler localValidation = mock(
                 LocalValidationOperationHandler.class);
+        ManualPrValidationOperationHandler manualValidation = mock(
+                ManualPrValidationOperationHandler.class);
+        TaskReviewSnapshotOperationHandler taskReviewSnapshots = mock(
+                TaskReviewSnapshotOperationHandler.class);
+        TaskReviewRoundSnapshotOperationHandler taskReviewRoundSnapshots = mock(
+                TaskReviewRoundSnapshotOperationHandler.class);
+        ReviewSessionSnapshotOperationHandler reviewSessionSnapshots = mock(
+                ReviewSessionSnapshotOperationHandler.class);
         PublishOperationHandler publish = mock(PublishOperationHandler.class);
         CleanupOperationHandler cleanup = mock(CleanupOperationHandler.class);
         RemoteFeedbackValidationOperationHandler remoteValidation = mock(
@@ -247,6 +232,10 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteFeedbackEffectOperationHandler.class);
         UserRemoteActionOperationHandler userRemoteActions = mock(
                 UserRemoteActionOperationHandler.class);
+        ReviewBuildCommentOperationHandler reviewBuildComments = mock(
+                ReviewBuildCommentOperationHandler.class);
+        QualityIssuePublishOperationHandler qualityIssuePublishes = mock(
+                QualityIssuePublishOperationHandler.class);
         RemoteMarkReadyOperationHandler markReady = mock(
                 RemoteMarkReadyOperationHandler.class);
         RemoteObservationOperationHandler observations = mock(
@@ -257,8 +246,12 @@ class TestDevelopmentFlowExecutionConfig
 
         ExecutionPorts.OperationHandlerRegistry registry = config.v2OperationHandlers(
                 provisioning, turns, threadTurns, planningBase, reviewTurns,
-                localValidation, publish, cleanup, remoteValidation,
-                remoteEffects, userRemoteActions, markReady, observations,
+                localValidation, manualValidation, taskReviewSnapshots,
+                taskReviewRoundSnapshots, reviewSessionSnapshots,
+                publish, cleanup, remoteValidation,
+                remoteEffects, userRemoteActions, reviewBuildComments,
+                qualityIssuePublishes,
+                markReady, observations,
                 finiteEffects, merge);
 
         assertThat(registry.require(ProvisionTaskOperationHandler.OPERATION_KIND))
@@ -273,12 +266,24 @@ class TestDevelopmentFlowExecutionConfig
         assertThat(registry.require(ThreadTurnOperationHandler.OPERATION_KIND))
                 .isSameAs(threadTurns);
         assertThat(registry.require(
+                TaskReviewSnapshotOperationHandler.OPERATION_KIND))
+                .isSameAs(taskReviewSnapshots);
+        assertThat(registry.require(
+                TaskReviewRoundSnapshotOperationHandler.OPERATION_KIND))
+                .isSameAs(taskReviewRoundSnapshots);
+        assertThat(registry.require(
+                ReviewSessionSnapshotOperationHandler.OPERATION_KIND))
+                .isSameAs(reviewSessionSnapshots);
+        assertThat(registry.require(
                 PlanningBaseRefreshOperationHandler.OPERATION_KIND))
                 .isSameAs(planningBase);
         assertThat(registry.require(ReviewAssignmentTurnOperationHandler.OPERATION_KIND))
                 .isSameAs(reviewTurns);
         assertThat(registry.require(LocalValidationOperationHandler.OPERATION_KIND))
                 .isSameAs(localValidation);
+        assertThat(registry.require(
+                ManualPrValidationOperationHandler.OPERATION_KIND))
+                .isSameAs(manualValidation);
         assertThat(registry.require(PublishOperationHandler.OPERATION_KIND))
                 .isSameAs(publish);
         assertThat(registry.require(CleanupOperationHandler.OPERATION_KIND))
@@ -292,6 +297,15 @@ class TestDevelopmentFlowExecutionConfig
                 .READINESS_ASSISTANCE_OPERATION_KIND)).isSameAs(remoteEffects);
         assertThat(registry.require(UserRemoteActionOperationHandler.OPERATION_KIND))
                 .isSameAs(userRemoteActions);
+        assertThat(registry.require(
+                ReviewBuildCommentOperationHandler.OPERATION_KIND))
+                .isSameAs(reviewBuildComments);
+        assertThat(registry.require(
+                ReviewBuildCommentOperationHandler.REVIEW_PASS_OPERATION_KIND))
+                .isSameAs(reviewBuildComments);
+        assertThat(registry.require(
+                QualityIssuePublishOperationHandler.OPERATION_KIND))
+                .isSameAs(qualityIssuePublishes);
         assertThat(registry.require(RemoteMarkReadyOperationHandler.OPERATION_KIND))
                 .isSameAs(markReady);
         assertThat(registry.require(RemoteObservationOperationHandler.OPERATION_KIND))
@@ -345,7 +359,12 @@ class TestDevelopmentFlowExecutionConfig
                 mock(TaskOutcomeSummaryRuntime.class),
                 mock(TaskBrainConversationRuntime.class),
                 mock(V2UserRemoteActionRuntime.class),
+                mock(V2QualityIssuePublishRuntime.class),
                 mock(V2ReadinessAssistanceRuntime.class),
+                mock(ManualPrValidationResultDeliveryPort.class),
+                mock(TaskReviewSnapshotResultDeliveryPort.class),
+                mock(TaskReviewRoundSnapshotResultDeliveryPort.class),
+                mock(ReviewSessionSnapshotResultDeliveryPort.class),
                 mock(ObjectProvider.class),
                 mock(JdbcTemplate.class),
                 new ObjectMapper());
@@ -358,6 +377,8 @@ class TestDevelopmentFlowExecutionConfig
         Map<String, ExecutionPorts.ResultDeliveryPort> routes =
                 (Map<String, ExecutionPorts.ResultDeliveryPort>)
                         ReflectionTestUtils.getField(router, "routes");
+        assertThat(routes).containsKey(
+                TaskReviewSnapshotOperationHandler.CALLBACK_ROUTE);
         assertThat(routes).isNotNull();
         assertThat(routes.keySet()).containsExactlyInAnyOrder(
                 PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE,
@@ -365,6 +386,10 @@ class TestDevelopmentFlowExecutionConfig
                 PlanRuntimeCoordinator.TURN_CALLBACK,
                 LocalDevelopmentRuntimeCoordinator.TURN_CALLBACK,
                 LocalValidationOperationHandler.CALLBACK_ROUTE,
+                ManualPrValidationOperationHandler.CALLBACK_ROUTE,
+                TaskReviewSnapshotOperationHandler.CALLBACK_ROUTE,
+                TaskReviewRoundSnapshotOperationHandler.CALLBACK_ROUTE,
+                ReviewSessionSnapshotOperationHandler.CALLBACK_ROUTE,
                 PublishOperationHandler.CALLBACK_ROUTE,
                 CleanupOperationHandler.CALLBACK_ROUTE,
                 RemoteFeedbackRuntimeCoordinator.TURN_CALLBACK,
@@ -388,6 +413,10 @@ class TestDevelopmentFlowExecutionConfig
                 "BRANCH_SYNC_PUSH_RESULT",
                 ReviewAssignmentTurnOperationHandler.CALLBACK_ROUTE,
                 UserRemoteActionOperationHandler.CALLBACK_ROUTE,
+                UserRemoteActionOperationHandler.EXTERNAL_CALLBACK_ROUTE,
+                ReviewBuildCommentOperationHandler.CALLBACK_ROUTE,
+                ReviewBuildCommentOperationHandler.REVIEW_PASS_CALLBACK_ROUTE,
+                QualityIssuePublishOperationHandler.CALLBACK_ROUTE,
                 RemoteFeedbackEffectOperationHandler
                         .READINESS_ASSISTANCE_CALLBACK_ROUTE,
                 MergeOperationHandler.CALLBACK_ROUTE);
@@ -411,9 +440,20 @@ class TestDevelopmentFlowExecutionConfig
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("github is null");
         assertThatThrownBy(() -> config.v2UserRemoteActionOperationHandler(
-                mock(SqliteUserRemoteActionStore.class), null, json))
+                mock(SqliteUserRemoteActionStore.class),
+                mock(SqliteExternalPrActionStore.class),
+                null,
+                json))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("gateway is null");
+        assertThatThrownBy(() -> config.reviewBuildCommentOperationHandler(
+                mock(ReviewPublicationOperationStore.class), null, json))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("gateway is null");
+        assertThatThrownBy(() -> config.qualityIssuePublishOperationHandler(
+                mock(SqliteQualityIssuePublishStore.class), null, json))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("github is null");
     }
 
     @Test
@@ -460,6 +500,12 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(handlers.require(
                             UserRemoteActionOperationHandler.OPERATION_KIND))
                             .isInstanceOf(UserRemoteActionOperationHandler.class);
+                    assertThat(handlers.require(
+                            UserRemoteActionOperationHandler.EXTERNAL_OPERATION_KIND))
+                            .isInstanceOf(UserRemoteActionOperationHandler.class);
+                    assertThat(handlers.require(
+                            QualityIssuePublishOperationHandler.OPERATION_KIND))
+                            .isInstanceOf(QualityIssuePublishOperationHandler.class);
                     assertThat(handlers.require(
                             RemoteMarkReadyOperationHandler.OPERATION_KIND))
                             .isInstanceOf(RemoteMarkReadyOperationHandler.class);
@@ -508,7 +554,7 @@ class TestDevelopmentFlowExecutionConfig
     @Test
     void everyNonAgentLaneHasAnExplicitConfigurableLimit()
     {
-        contextRunner()
+        v2ContextRunner()
                 .withPropertyValues(
                         "bytequay.development-flow.capacity.validation=11",
                         "bytequay.development-flow.capacity.review=12",
@@ -517,7 +563,13 @@ class TestDevelopmentFlowExecutionConfig
                         "bytequay.development-flow.capacity.remote-observation=15",
                         "bytequay.development-flow.capacity.merge=16",
                         "bytequay.development-flow.capacity.cleanup=17")
-                .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
+                .withBean(
+                        RemoteFeedbackEffectOperationHandler.EffectGateway.class,
+                        () -> mock(
+                                RemoteFeedbackEffectOperationHandler.EffectGateway.class))
+                .withBean(
+                        RemoteMarkReadyOperationHandler.MarkReadyGateway.class,
+                        () -> mock(RemoteMarkReadyOperationHandler.MarkReadyGateway.class))
                 .run(context -> {
                     CapacityManager.CapacityPolicy policy = context.getBean(
                                     CapacityManager.CapacityPolicySource.class)
@@ -594,6 +646,16 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteReadinessAssistanceStore.class))
                 .withBean(SqliteUserRemoteActionStore.class,
                         () -> mock(SqliteUserRemoteActionStore.class))
+                .withBean(SqliteExternalPrActionStore.class,
+                        () -> mock(SqliteExternalPrActionStore.class))
+                .withBean(SqliteReviewBuildCommentStore.class,
+                        () -> mock(SqliteReviewBuildCommentStore.class))
+                .withBean(SqliteReviewPassPublicationStore.class,
+                        () -> mock(SqliteReviewPassPublicationStore.class))
+                .withBean(ReviewPublicationOperationStore.class,
+                        () -> mock(ReviewPublicationOperationStore.class))
+                .withBean(GitHubReviewBuildCommentGateway.class,
+                        () -> mock(GitHubReviewBuildCommentGateway.class))
                 .withBean(PRService.class, () -> mock(PRService.class))
                 .withBean(InvestigationReviewService.class,
                         () -> mock(InvestigationReviewService.class))
@@ -623,8 +685,6 @@ class TestDevelopmentFlowExecutionConfig
                 .thenReturn(List.of());
 
         return contextRunner()
-                .withPropertyValues(
-                        "bytequay.development-flow.v2-dispatch-enabled=true")
                 .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
                 .withBean(PlanRuntimeCoordinator.class,
                         () -> mock(PlanRuntimeCoordinator.class))
@@ -668,6 +728,10 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteProvisionTaskOperationStore.class))
                 .withBean(GitRunnerProvisioningGit.class,
                         () -> mock(GitRunnerProvisioningGit.class))
+                .withBean(PullRequestRepository.class,
+                        () -> mock(PullRequestRepository.class))
+                .withBean(PatResolver.class,
+                        () -> mock(PatResolver.class))
                 .withBean(SqliteAgentTurnOperationStore.class,
                         () -> mock(SqliteAgentTurnOperationStore.class))
                 .withBean(SqliteThreadTurnOperationStore.class,
@@ -685,6 +749,22 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(CodeFingerprints.class,
                         () -> mock(CodeFingerprints.class))
                 .withBean(GitRunner.class, () -> mock(GitRunner.class))
+                .withBean(ManualPrValidationOperationHandler.class,
+                        () -> mock(ManualPrValidationOperationHandler.class))
+                .withBean(ManualPrValidationResultDeliveryPort.class,
+                        () -> mock(ManualPrValidationResultDeliveryPort.class))
+                .withBean(TaskReviewSnapshotOperationHandler.class,
+                        () -> mock(TaskReviewSnapshotOperationHandler.class))
+                .withBean(TaskReviewSnapshotResultDeliveryPort.class,
+                        () -> mock(TaskReviewSnapshotResultDeliveryPort.class))
+                .withBean(TaskReviewRoundSnapshotOperationHandler.class,
+                        () -> mock(TaskReviewRoundSnapshotOperationHandler.class))
+                .withBean(TaskReviewRoundSnapshotResultDeliveryPort.class,
+                        () -> mock(TaskReviewRoundSnapshotResultDeliveryPort.class))
+                .withBean(ReviewSessionSnapshotOperationHandler.class,
+                        () -> mock(ReviewSessionSnapshotOperationHandler.class))
+                .withBean(ReviewSessionSnapshotResultDeliveryPort.class,
+                        () -> mock(ReviewSessionSnapshotResultDeliveryPort.class))
                 .withBean(SqlitePublishOperationStore.class,
                         () -> mock(SqlitePublishOperationStore.class))
                 .withBean(GitHubPublishEffects.class,
@@ -701,6 +781,12 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteRemoteMarkReadyOperationStore.class))
                 .withBean(GitHubUserRemoteActionGateway.class,
                         () -> mock(GitHubUserRemoteActionGateway.class))
+                .withBean(SqliteQualityIssuePublishStore.class,
+                        () -> mock(SqliteQualityIssuePublishStore.class))
+                .withBean(QualityIssuePublishOperationHandler.Gateway.class,
+                        () -> mock(QualityIssuePublishOperationHandler.Gateway.class))
+                .withBean(V2QualityIssuePublishRuntime.class,
+                        () -> mock(V2QualityIssuePublishRuntime.class))
                 .withBean(SqliteRemoteRuntimeStore.class,
                         () -> mock(SqliteRemoteRuntimeStore.class))
                 .withBean(GitHubRemoteObserver.class,

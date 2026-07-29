@@ -70,6 +70,7 @@ class TestReviewAssignmentTurnOperationHandler
                 AgentTurnProviderSession.ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY);
         assertThat(provider.request.toolEndpoint().ownerId())
                 .isEqualTo("review-turn-1");
+        assertThat(provider.request.maxCostUsdMilli()).isEqualTo(500L);
     }
 
     @Test
@@ -86,6 +87,19 @@ class TestReviewAssignmentTurnOperationHandler
                 context(envelope(Set.of(REVIEW, API)), true));
         assertThat(canceled.outcome()).isEqualTo(DispatchTicket.Outcome.CANCELED);
         assertThat(provider.opens).isZero();
+    }
+
+    @Test
+    void providerCannotReportSuccessPastTheFrozenTurnCap()
+            throws Exception
+    {
+        provider.costUsdMilli = 501;
+
+        DispatchTicket.DispatchResult result = handler.execute(
+                context(envelope(Set.of(REVIEW, API)), false));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(result.error()).contains("exceeded the frozen review Turn cost cap");
     }
 
     @Test
@@ -155,7 +169,7 @@ class TestReviewAssignmentTurnOperationHandler
                 "review-turn-1", "review-assignment-1", "review-round-1",
                 "review-1", "investigate", "review-assignment-1", null,
                 "REQUESTED", "review-operation-1",
-                1, "head-1", input, "RUNNING", "ACTIVE", "workspace-1",
+                1, "head-1", input, 500, "RUNNING", "ACTIVE", "workspace-1",
                 "trunk-1", "task-1", 1L, "ACTIVE", "head-1");
     }
 
@@ -202,6 +216,7 @@ class TestReviewAssignmentTurnOperationHandler
         private Request request;
         private int opens;
         private int starts;
+        private long costUsdMilli = 1;
 
         @Override
         public Session open(Request request, Observer observer)
@@ -216,7 +231,7 @@ class TestReviewAssignmentTurnOperationHandler
                     starts++;
                     return new Result(
                             Completion.SUCCEEDED, "review-provider-session-1",
-                            "review complete", 2, 3, 1, 123L, null);
+                            "review complete", 2, 3, costUsdMilli, 123L, null);
                 }
 
                 @Override

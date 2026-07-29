@@ -58,12 +58,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -153,8 +150,6 @@ public class BrainReviewServiceImpl
                     WorkKind.ROUND, task.id(), round.id(), run.id(), null);
         }
     }
-
-    private record PrOpenResult(PR pr, DeferredWork work) {}
 
     private record ResumeResult(boolean resumed, DeferredWork work) {}
 
@@ -258,41 +253,22 @@ public class BrainReviewServiceImpl
         if (task == null) {
             return prService.requestUserReview(prId, actor);
         }
-        if (taskRuntimeStopped(task)) {
-            return pr;
+        String workflowVersion = taskStore.findWorkflowVersion(task.id())
+                .orElse("LEGACY");
+        if ("V2".equals(workflowVersion)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "V2 Task review is owned by the typed Local Review runtime");
         }
-        PrOpenResult result = commands.execute(task.id(), () -> {
-            PR current = prService.findById(prId).orElse(pr);
-            Task currentTask = taskStore.findTaskById(task.id()).orElse(task);
-            if (!PR.STATUS_LOCAL_DRAFTED.equals(current.status())
-                    || taskRuntimeStopped(currentTask)) {
-                return new PrOpenResult(current, null);
-            }
-            Optional<ReviewRound> existing = roundStore.findByTask(currentTask.id()).stream()
-                    .filter(r -> ReviewRound.ORIGIN_BRAIN.equals(r.origin()))
-                    .findFirst();
-            if (existing.isEmpty()) {
-                return new PrOpenResult(
-                        current, openBrainRoundInCommand(currentTask, prId));
-            }
-            ReviewRound round = existing.get();
-            if (round.isLive()) {
-                return new PrOpenResult(current, null);
-            }
-            if (ReviewRound.STATUS_PAUSED.equals(round.status())) {
-                return new PrOpenResult(current, null);
-            }
-            // Already reviewed (approved or escalated) in an earlier call — perform
-            // the deferred flip now.
-            return new PrOpenResult(prService.requestUserReview(prId, actor), null);
-        });
-        runDeferred(result.work());
-        return result.pr();
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "LEGACY Task review is read-only; use a typed V2 Task control");
     }
 
     @Override
     public void reviewAfterLocalComments(String prId)
     {
+        rejectLegacyMutation();
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown local PR: " + prId));
         if (!PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
@@ -325,32 +301,13 @@ public class BrainReviewServiceImpl
     @Transactional
     public boolean ownsParkedResume(String taskId)
     {
-        List<ReviewRound> rounds = roundStore.findByTask(taskId);
-        if (rounds.stream().anyMatch(round -> ReviewRound.STATUS_PAUSED.equals(round.status()))) {
-            return true;
-        }
-        Task task = taskStore.findTaskById(taskId).orElse(null);
-        boolean liveRound = rounds.stream().anyMatch(ReviewRound::isLive);
-        boolean pendingPlanReview = planSelfReviewPending(task);
-        if (task != null && task.status() == TaskStatus.PAUSED
-                && (liveRound || pendingPlanReview)) {
-            return true;
-        }
-        String parkReason = latestNeedsAttentionReason(taskId).orElse("");
-        if (liveRound && isReviewCoordinatorReason(parkReason)) {
-            return true;
-        }
-        return task != null
-                && (task.phase() == TaskPhase.NEEDS_ATTENTION
-                        || task.status() == TaskStatus.NEEDS_ATTENTION)
-                && (planReviewWasLatestPark(taskId)
-                        || ("scheduler_turn_conflict".equals(parkReason)
-                                && planSelfReviewOwed(taskId)));
+        return false;
     }
 
     @Override
     public boolean pauseActiveReview(String taskId, String reason)
     {
+        rejectLegacyMutation();
         return commands.execute(taskId, () -> {
             ReviewRound round = roundStore.findLiveByTask(taskId).orElse(null);
             if (round != null) {
@@ -369,6 +326,7 @@ public class BrainReviewServiceImpl
     @Override
     public boolean resumeParkedReview(String taskId)
     {
+        rejectLegacyMutation();
         Boolean validationPassed = validationForResume(taskId);
         ResumeResult result = commands.execute(taskId,
                 () -> resumeParkedReviewInCommand(taskId, validationPassed));
@@ -607,6 +565,12 @@ public class BrainReviewServiceImpl
     @Override
     public void reviewBeforeRoundGate(ReviewRound round, Task task)
     {
+        rejectLegacyMutation();
+        if (taskStore.isV2Task(task.id())) {
+            log.warn("brain-review: ignored legacy round {} for V2 task {}",
+                    round.id(), task.id());
+            return;
+        }
         if (taskRuntimeStopped(task)) {
             return;
         }
@@ -621,6 +585,7 @@ public class BrainReviewServiceImpl
     @Override
     public void recordVerdict(String taskId, String stageId, String agentRunId, String scope, String verdict)
     {
+        rejectLegacyMutation();
         if ("plan".equals(scope)) {
             commands.executeVoid(taskId, () -> {
                 if (!ReviewRound.VERDICT_APPROVED.equals(verdict)
@@ -664,11 +629,7 @@ public class BrainReviewServiceImpl
     @Override
     public boolean isBudgetExhaustedEscalation(String taskId)
     {
-        return roundStore.findByTask(taskId).stream()
-                .anyMatch(round -> ReviewRound.ORIGIN_BRAIN.equals(round.origin())
-                        && ReviewRound.STATUS_CLOSED.equals(round.status())
-                        && ReviewRound.VERDICT_CHANGES_REQUESTED.equals(round.brainVerdict())
-                        && round.brainBudgetExhausted());
+        return false;
     }
 
     private boolean matchesRunStage(ReviewRound round, String stageId)
@@ -714,9 +675,9 @@ public class BrainReviewServiceImpl
      * {@link #reviewBeforeRoundGate} once (iteration 0, no verdict yet);
      * every subsequent turn on that round's stage is ours.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> handleTurnFinished(event));
     }
 
@@ -808,21 +769,21 @@ public class BrainReviewServiceImpl
         });
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onRoundOpened(ReviewRoundOpenedEvent event)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> driveRound(event.roundId()));
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onRoundTransitioned(ReviewRoundTransitionedEvent event)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> driveRound(event.roundId()));
     }
 
-    @EventListener
     public void onRoundTurnStatusChanged(TaskTurnStatusChanged event)
     {
+        rejectLegacyMutation();
         if (event.status() != ThreadTurnStatus.RUNNING) {
             return;
         }
@@ -837,9 +798,9 @@ public class BrainReviewServiceImpl
         });
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onRoundValidationFinished(ReviewRoundValidationFinishedEvent event)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> finishRoundValidation(event));
     }
 
@@ -859,9 +820,9 @@ public class BrainReviewServiceImpl
         }
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onRoundGateValidationFinished(ReviewRoundGateValidationFinishedEvent event)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> finishRoundGateValidation(event));
     }
 
@@ -884,6 +845,7 @@ public class BrainReviewServiceImpl
     /** Reload-and-drive entry point shared by transition listeners and the sweep. */
     public void driveRound(String roundId)
     {
+        rejectLegacyMutation();
         ReviewRound snapshot = roundStore.findById(roundId).orElse(null);
         if (snapshot == null) {
             return;
@@ -1120,9 +1082,9 @@ public class BrainReviewServiceImpl
         }
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onTurnBudgetPaused(TaskTurnBudgetPausedEvent event)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> handleTurnBudgetPaused(event));
     }
 
@@ -1314,9 +1276,9 @@ public class BrainReviewServiceImpl
 
     /** Recover a self-review whose completion event was missed, retry one
      *  failed/cancelled/unverdicted turn, and otherwise preserve the mandatory checkpoint. */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
     public void reconcilePlanSelfReviews()
     {
+        rejectLegacyMutation();
         List<String> taskIds = taskStore.listByPhases(List.of(TaskPhase.PLANNING), 100).stream()
                 .map(Task::id)
                 .toList();
@@ -1520,9 +1482,9 @@ public class BrainReviewServiceImpl
 
     /** Backstop for missed transition notifications. Each candidate enters
      * the same reload-and-drive path as the normal event listener. */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
     public void reconcileStalledRounds()
     {
+        rejectLegacyMutation();
         roundStore.findAllLive().forEach(round -> driveRound(round.id()));
     }
 
@@ -1567,9 +1529,9 @@ public class BrainReviewServiceImpl
                 task.id(), scope, parked.iteration(), parked.id(), reason, attemptId);
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void stopRoundRuntimeAfterCommit(RoundRuntimeStopRequested request)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> stopRoundRuntime(request));
     }
 
@@ -1666,10 +1628,17 @@ public class BrainReviewServiceImpl
         }
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void deliverNeedsAttention(NeedsAttentionNotice notice)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.dispatchAfterCommit(() -> notifyNeedsAttention(notice));
+    }
+
+    private static void rejectLegacyMutation()
+    {
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "LEGACY Brain review is read-only; use a typed V2 review control");
     }
 
     private void notifyNeedsAttention(NeedsAttentionNotice notice)

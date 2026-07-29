@@ -16,10 +16,6 @@ package com.bytequay.app.service.checks;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
 
 import static java.util.Objects.requireNonNull;
 
@@ -33,7 +29,6 @@ import static java.util.Objects.requireNonNull;
  * finished event fires when the owned pass completes, and the phase
  * machine's existing listener consumes it exactly as before.
  */
-@Component
 public class RoundValidationListener
 {
     private static final Logger log = LoggerFactory.getLogger(RoundValidationListener.class);
@@ -48,8 +43,6 @@ public class RoundValidationListener
     // Lowest precedence so a minute-long verify runs after the other
     // turn-finished listeners rather than delaying them (they're fast and
     // mostly no-op for a code-editing turn).
-    @EventListener
-    @Order(Ordered.LOWEST_PRECEDENCE)
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {
         if (event.failed() || !event.codeChanged()) {

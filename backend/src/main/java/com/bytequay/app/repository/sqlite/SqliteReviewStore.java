@@ -114,6 +114,22 @@ class SqliteReviewStore
     }
 
     @Override
+    @Transactional
+    public void setPassRemoteSubject(
+            String passId,
+            String baseRepositoryId,
+            String headRepositoryId,
+            String headRef)
+    {
+        passes.findById(passId).ifPresent(entity -> {
+            entity.setBaseRepositoryId(baseRepositoryId);
+            entity.setHeadRepositoryId(headRepositoryId);
+            entity.setHeadRef(headRef);
+            passes.save(entity);
+        });
+    }
+
+    @Override
     public Optional<ReviewPass> findPassById(String id)
     {
         return passes.findById(id).map(SqliteReviewStore::toPass);

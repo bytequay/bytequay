@@ -87,6 +87,40 @@ public class SqliteProvisionTaskOperationStore
                     assignment.head_ref AS assignment_head_ref,
                     assignment.remote_base_sha AS assignment_remote_base_sha,
                     assignment.remote_head_sha AS assignment_remote_head_sha,
+                    assignment.pr_number AS assignment_pr_number,
+                    selection.review_pass_id AS selection_review_pass_id,
+                    selection.pr_number AS selection_pr_number,
+                    selection.reviewed_head_sha AS selection_reviewed_head_sha,
+                    selection.base_repository_id AS selection_base_repository_id,
+                    selection.head_repository_id AS selection_head_repository_id,
+                    selection.base_ref AS selection_base_ref,
+                    selection.head_ref AS selection_head_ref,
+                    selection.selection_digest AS selection_digest,
+                    CASE WHEN selection.thread_id IS NULL THEN 0
+                      WHEN (SELECT COUNT(*)
+                            FROM task_assignment_review_finding assigned
+                            WHERE assigned.assignment_id = assignment.id)
+                           <> (SELECT COUNT(*)
+                               FROM review_build_selection_item frozen
+                               WHERE frozen.thread_id = selection.thread_id)
+                        THEN 0
+                      WHEN EXISTS (
+                            SELECT 1
+                            FROM review_build_selection_item frozen
+                            LEFT JOIN task_assignment_review_finding assigned
+                              ON assigned.assignment_id = assignment.id
+                             AND assigned.source_review_id = frozen.review_pass_id
+                             AND assigned.finding_id = frozen.finding_id
+                             AND assigned.finding_revision = frozen.finding_revision
+                             AND assigned.content_digest = frozen.content_digest
+                            JOIN review_findings current
+                              ON current.id = frozen.finding_id
+                            WHERE frozen.thread_id = selection.thread_id
+                              AND (assigned.finding_id IS NULL
+                                OR current.review_pass_id <> frozen.review_pass_id
+                                OR current.revision <> frozen.finding_revision
+                                OR current.status <> 'agreed'))
+                        THEN 0 ELSE 1 END AS selection_current,
                     watched.local_clone_path
                 FROM provision_task_operation operation
                 JOIN tasks task ON task.id = operation.task_id
@@ -98,6 +132,9 @@ public class SqliteProvisionTaskOperationStore
                     = lower(context.repository_id)
                 JOIN task_provision_target target ON target.task_id = task.id
                 JOIN task_assignment assignment ON assignment.id = context.assignment_id
+                LEFT JOIN review_build_selection selection
+                  ON selection.thread_id = task.thread_id
+                 AND selection.review_pass_id = assignment.source_id
                 LEFT JOIN watched_repos watched
                   ON lower(watched.owner || '/' || watched.repo)
                     = lower(context.repository_id)
@@ -148,7 +185,20 @@ public class SqliteProvisionTaskOperationStore
                         result.getString("assignment_head_ref"),
                         result.getString("assignment_remote_base_sha"),
                         result.getString("assignment_remote_head_sha"),
-                        result.getString("local_clone_path")),
+                        result.getString("local_clone_path"),
+                        result.getInt("assignment_pr_number"),
+                        result.getString("selection_review_pass_id") == null
+                                ? null
+                                : new ProvisionTaskOperationHandler.ReviewSelectionFence(
+                                        result.getString("selection_review_pass_id"),
+                                        result.getInt("selection_pr_number"),
+                                        result.getString("selection_reviewed_head_sha"),
+                                        result.getString("selection_base_repository_id"),
+                                        result.getString("selection_head_repository_id"),
+                                        result.getString("selection_base_ref"),
+                                        result.getString("selection_head_ref"),
+                                        result.getString("selection_digest"),
+                                        result.getInt("selection_current") == 1)),
                 operationId);
         if (rows.size() != 1) {
             throw new IllegalStateException(

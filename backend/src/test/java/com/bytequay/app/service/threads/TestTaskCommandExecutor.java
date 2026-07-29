@@ -104,11 +104,8 @@ class TestTaskCommandExecutor
     }
 
     @Test
-    void afterCommitDispatchLeavesSpringCompletionThread()
-            throws Exception
+    void afterCommitDispatchFailsClosedInsteadOfStartingAnUnownedWorker()
     {
-        String taskId = seedTask();
-        CountDownLatch completed = new CountDownLatch(1);
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
@@ -118,22 +115,18 @@ class TestTaskCommandExecutor
                             @Override
                             public void afterCompletion(int completionStatus)
                             {
-                                TaskCommandExecutor.dispatchAfterCommit(() -> {
-                                    try {
-                                        executor.executeVoid(taskId, () -> {});
-                                    }
-                                    catch (RuntimeException e) {
-                                        failure.set(e);
-                                    }
-                                    finally {
-                                        completed.countDown();
-                                    }
-                                });
+                                try {
+                                    TaskCommandExecutor.dispatchAfterCommit(() -> {});
+                                }
+                                catch (RuntimeException e) {
+                                    failure.set(e);
+                                }
                             }
                         }));
 
-        assertThat(completed.await(10, TimeUnit.SECONDS)).isTrue();
-        assertThat(failure.get()).isNull();
+        assertThat(failure.get())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("DispatchTicket");
     }
 
     @Test

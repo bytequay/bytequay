@@ -84,6 +84,15 @@ class ReviewPassEntity
     @Column(name = "task_stage_id")
     private String taskStageId;
 
+    @Column(name = "base_repository_id")
+    private String baseRepositoryId;
+
+    @Column(name = "head_repository_id")
+    private String headRepositoryId;
+
+    @Column(name = "head_ref")
+    private String headRef;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -141,4 +150,13 @@ class ReviewPassEntity
 
     String getTaskStageId() { return taskStageId; }
     void setTaskStageId(String taskStageId) { this.taskStageId = taskStageId; }
+
+    String getBaseRepositoryId() { return baseRepositoryId; }
+    void setBaseRepositoryId(String baseRepositoryId) { this.baseRepositoryId = baseRepositoryId; }
+
+    String getHeadRepositoryId() { return headRepositoryId; }
+    void setHeadRepositoryId(String headRepositoryId) { this.headRepositoryId = headRepositoryId; }
+
+    String getHeadRef() { return headRef; }
+    void setHeadRef(String headRef) { this.headRef = headRef; }
 }

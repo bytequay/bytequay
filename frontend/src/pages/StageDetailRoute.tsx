@@ -881,8 +881,7 @@ export function StageDetailRoute({
           : undefined,
         images,
         onImagesChange: setImages,
-        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'stage', stageId }}
-          agentLockPending={working} />,
+        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'stage', stageId }} />,
         meta: `Stage ${stagePosition} of ${Math.max(1, topLevelStages.length)} · ${formatDuration(stageDurationSec)}`,
       }}
       run={{

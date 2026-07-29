@@ -112,7 +112,10 @@ function fixture(status: 'RUNNING' | 'COMPLETED_WITH_QUESTIONS'): {
   return { data, round };
 }
 
-function renderConversation(status: 'RUNNING' | 'COMPLETED_WITH_QUESTIONS') {
+function renderConversation(
+  status: 'RUNNING' | 'COMPLETED_WITH_QUESTIONS',
+  preparationError?: string,
+) {
   const { data, round } = fixture(status);
   const onBack = vi.fn();
   const onTogglePanel = vi.fn();
@@ -125,6 +128,7 @@ function renderConversation(status: 'RUNNING' | 'COMPLETED_WITH_QUESTIONS') {
       data={data}
       round={round}
       roundNumber={2}
+      preparationError={preparationError}
       onBack={onBack}
       onTogglePanel={onTogglePanel}
       onStopRound={onStopRound}
@@ -138,6 +142,17 @@ function renderConversation(status: 'RUNNING' | 'COMPLETED_WITH_QUESTIONS') {
 }
 
 describe('AgentReviewConversation', () => {
+  it('keeps the previous round visible when the next source preparation fails', () => {
+    const { container } = renderConversation(
+      'COMPLETED_WITH_QUESTIONS',
+      'The reviewed head changed during capture.',
+    );
+
+    expect(within(container).getByRole('alert').textContent)
+      .toContain('The reviewed head changed during capture.');
+    expect(container.querySelector('[data-agent-review-state="finished"]')).not.toBeNull();
+  });
+
   it('renders and steers a running round with done, live, and queued investigators', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-07-12T12:12:00Z'));
     const { container, onTogglePanel, onStopRound, onSendMessage } = renderConversation('RUNNING');

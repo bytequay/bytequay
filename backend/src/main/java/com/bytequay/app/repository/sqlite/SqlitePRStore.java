@@ -247,30 +247,6 @@ class SqlitePRStore
                 rs.getString("task_id"), rs.getString("thread_id"), rs.getString("workspace_id")),
                 toPrId).stream().findFirst();
 
-        owner.ifPresent(taskOwner -> {
-            // Runs are accounted to the surviving development task once the
-            // formerly standalone review becomes part of that task's history.
-            jdbc.update("""
-                    UPDATE agent_run
-                    SET task_id = ?, workspace_id = ?, thread_id = ?
-                    WHERE id IN (
-                        SELECT r.agent_run_id
-                        FROM review_round r
-                        JOIN review_session s ON s.id = r.session_id
-                        WHERE s.pr_id = ?)
-                    """, taskOwner.taskId(), taskOwner.workspaceId(), taskOwner.threadId(), fromPrId);
-            jdbc.update("""
-                    UPDATE agent_run
-                    SET task_id = ?, workspace_id = ?, thread_id = ?
-                    WHERE id IN (
-                        SELECT v.verifier_run_id
-                        FROM finding_verification v
-                        JOIN finding f ON f.id = v.finding_id
-                        JOIN review_session s ON s.id = f.session_id
-                        WHERE s.pr_id = ?)
-                    """, taskOwner.taskId(), taskOwner.workspaceId(), taskOwner.threadId(), fromPrId);
-        });
-
         Optional<String> targetReviewId = jdbc.queryForList("""
                 SELECT id FROM review_session
                 WHERE pr_id = ? AND status IN ('ACTIVE', 'STALE')

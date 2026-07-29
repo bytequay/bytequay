@@ -23,9 +23,13 @@ import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
+import com.bytequay.app.service.agents.ToolExposurePolicy.V2Profile;
+import com.bytequay.app.service.checks.CodeFingerprints;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.skills.RoleDefinition;
 import com.bytequay.app.service.skills.RoleRegistry;
+import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.tools.PermissionResolver;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -33,6 +37,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -68,6 +73,8 @@ public final class AgentTurnOperationHandler
     private final Store store;
     private final AgentTurnProviderSession provider;
     private final WorktreeWriterLeaseManager writerLeases;
+    private final CodeFingerprints fingerprints;
+    private final GitRunner git;
     private final ActiveAgentContextRegistry activeContexts;
     private final ToolExposurePolicy tools;
     private final ObjectMapper mapper;
@@ -77,6 +84,8 @@ public final class AgentTurnOperationHandler
             Store store,
             AgentTurnProviderSession provider,
             WorktreeWriterLeaseManager writerLeases,
+            CodeFingerprints fingerprints,
+            GitRunner git,
             ActiveAgentContextRegistry activeContexts,
             ToolExposurePolicy tools,
             ObjectMapper mapper)
@@ -84,22 +93,13 @@ public final class AgentTurnOperationHandler
         this.store = requireNonNull(store, "store is null");
         this.provider = requireNonNull(provider, "provider is null");
         this.writerLeases = requireNonNull(writerLeases, "writerLeases is null");
+        this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
+        this.git = requireNonNull(git, "git is null");
         this.activeContexts = requireNonNull(activeContexts, "activeContexts is null");
         this.tools = requireNonNull(tools, "tools is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.launchReader = mapper.readerFor(LaunchInput.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    }
-
-    /** Compatibility constructor for focused operation-handler tests. */
-    public AgentTurnOperationHandler(
-            Store store,
-            AgentTurnProviderSession provider,
-            WorktreeWriterLeaseManager writerLeases,
-            ObjectMapper mapper)
-    {
-        this(store, provider, writerLeases, new ActiveAgentContextRegistry(),
-                new ToolExposurePolicy(), mapper);
     }
 
     @Override
@@ -203,8 +203,8 @@ public final class AgentTurnOperationHandler
                             "typed Agent Turn provider stop hook was not attached");
                 }
                 ProviderRun run = writerLease == null
-                        ? new ProviderRun(session.startAndAwait(null), null)
-                        : runWithWriterFence(context, writerLease, session);
+                        ? new ProviderRun(session.startAndAwait(null), null, null)
+                        : runWithWriterFence(context, writerLease, session, turn);
                 AgentTurnProviderSession.Result result = run.result();
                 context.recordUsage(
                         result.inputTokens(), result.outputTokens(), result.costUsdMilli());
@@ -257,7 +257,26 @@ public final class AgentTurnOperationHandler
                 stageType, definition.capabilities(), List.of(), List.of(),
                 definition.resources(), completionSummary(turn)
                         ? tools.completionSummaryTools()
-                        : tools.activeTools(role, stageType));
+                        : tools.v2Tools(v2Profile(turn)));
+    }
+
+    private static V2Profile v2Profile(ExactTurn turn)
+    {
+        if (turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN) {
+            if ("PLAN_DRAFT".equals(turn.purpose())
+                    || "PLAN_SELF_REVIEW".equals(turn.purpose())) {
+                return V2Profile.PLAN_PROTOCOL;
+            }
+            return V2Profile.TASK_BRAIN_READ_ONLY;
+        }
+        return switch (turn.stageKind()) {
+            case "PLAN" -> V2Profile.PLAN_PROTOCOL;
+            case "LOCAL_DEVELOPMENT" -> V2Profile.LOCAL_DEVELOPMENT;
+            case "REMOTE_DEVELOPMENT" -> V2Profile.REMOTE_DEVELOPMENT;
+            case "CLEANUP" -> V2Profile.CLEANUP;
+            default -> throw new IllegalArgumentException(
+                    "unknown V2 Stage tool profile: " + turn.stageKind());
+        };
     }
 
     private static PermissionResolver.RunningScope runningScope(ExactTurn turn)
@@ -285,7 +304,8 @@ public final class AgentTurnOperationHandler
     private ProviderRun runWithWriterFence(
             ExecutionContext context,
             WorktreeWriterLeaseManager.Lease writerLease,
-            AgentTurnProviderSession.Session session)
+            AgentTurnProviderSession.Session session,
+            ExactTurn turn)
             throws Exception
     {
         WorktreeWriterLeaseManager.WriterAuthorization authorization =
@@ -300,8 +320,15 @@ public final class AgentTurnOperationHandler
                                 fence.taskEpoch(),
                                 fence.fencingToken());
                 try {
-                    return new ProviderRun(
-                            session.startAndAwait(providerFence), providerFence);
+                    AgentTurnProviderSession.Result result =
+                            session.startAndAwait(providerFence);
+                    OutputCodeSubject output = null;
+                    if (result.completion()
+                            == AgentTurnProviderSession.Completion.SUCCEEDED) {
+                        checkpointProviderChanges(turn);
+                        output = observeOutput(turn);
+                    }
+                    return new ProviderRun(result, providerFence, output);
                 }
                 catch (Exception e) {
                     throw new ProviderRunException(e);
@@ -310,6 +337,56 @@ public final class AgentTurnOperationHandler
         }
         catch (ProviderRunException e) {
             throw e.failure();
+        }
+    }
+
+    private void checkpointProviderChanges(ExactTurn turn)
+    {
+        Path worktree = Path.of(turn.worktreePath());
+        try {
+            if (!git.hasUncommittedChanges(worktree)) {
+                return;
+            }
+            git.stageAll(worktree, List.of(WorktreeService.HOOK_DIR_REL));
+            git.commit(worktree, checkpointMessage(turn));
+        }
+        catch (IOException e) {
+            throw new IllegalStateException(
+                    "could not checkpoint Agent Turn output", e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Agent Turn output checkpoint was interrupted", e);
+        }
+    }
+
+    private static String checkpointMessage(ExactTurn turn)
+    {
+        return "ByteQuay checkpoint: " + turn.purpose();
+    }
+
+    private OutputCodeSubject observeOutput(ExactTurn turn)
+    {
+        Path worktree = Path.of(turn.worktreePath());
+        try {
+            String headSha = git.headSha(worktree);
+            boolean clean = !git.hasUncommittedChanges(worktree);
+            String mergeBaseSha = turn.expectedBaseSha() == null
+                    ? null
+                    : git.mergeBase(worktree, headSha, turn.expectedBaseSha())
+                            .orElse(null);
+            return new OutputCodeSubject(
+                    fingerprints.fingerprint(worktree), headSha,
+                    turn.expectedBaseSha(), clean, mergeBaseSha);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("could not capture Agent Turn output", e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Agent Turn output capture was interrupted", e);
         }
     }
 
@@ -372,13 +449,16 @@ public final class AgentTurnOperationHandler
                 result.costUsdMilli(),
                 result.processPid(),
                 disposition,
-                result.error());
+                result.error(),
+                null,
+                run.outputCodeSubject());
         Evidence evidence = new Evidence(
                 PAYLOAD_VERSION,
                 disposition,
                 digest(turn.launchInput()),
                 run.writerFence(),
-                result.error());
+                result.error(),
+                run.outputCodeSubject());
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), succeeded ? SUCCEEDED : FAILED,
                 json(payload), json(evidence), result.error());
@@ -426,7 +506,7 @@ public final class AgentTurnOperationHandler
         RawResult payload = new RawResult(
                 PAYLOAD_VERSION, turn.turnId(), turn.ownerKind(), turn.purpose(),
                 input.transport(), input.provider(), null, "", 0, 0, 0, null,
-                Disposition.USER_WAIT, null, wait);
+                Disposition.USER_WAIT, null, wait, null);
         Evidence evidence = new Evidence(
                 PAYLOAD_VERSION, Disposition.USER_WAIT, digest(turn.launchInput()),
                 writerFence, wait.kind() + ":" + wait.id());
@@ -821,7 +901,8 @@ public final class AgentTurnOperationHandler
             Long processPid,
             Disposition disposition,
             String error,
-            UserWaitRef userWait)
+            UserWaitRef userWait,
+            OutputCodeSubject outputCodeSubject)
     {
         public RawResult(
                 int schemaVersion,
@@ -841,7 +922,29 @@ public final class AgentTurnOperationHandler
         {
             this(schemaVersion, turnId, ownerKind, purpose, transport, provider,
                     providerSessionId, finalText, inputTokens, outputTokens,
-                    costUsdMilli, processPid, disposition, error, null);
+                    costUsdMilli, processPid, disposition, error, null, null);
+        }
+
+        public RawResult(
+                int schemaVersion,
+                String turnId,
+                DispatchTicket.OwnerKind ownerKind,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String providerSessionId,
+                String finalText,
+                long inputTokens,
+                long outputTokens,
+                long costUsdMilli,
+                Long processPid,
+                Disposition disposition,
+                String error,
+                UserWaitRef userWait)
+        {
+            this(schemaVersion, turnId, ownerKind, purpose, transport, provider,
+                    providerSessionId, finalText, inputTokens, outputTokens,
+                    costUsdMilli, processPid, disposition, error, userWait, null);
         }
 
         public RawResult
@@ -861,6 +964,33 @@ public final class AgentTurnOperationHandler
             if ((disposition == Disposition.USER_WAIT) != (userWait != null)) {
                 throw new IllegalArgumentException(
                         "USER_WAIT disposition and reference disagree");
+            }
+            if ((ownerKind == DispatchTicket.OwnerKind.STAGE_TURN
+                    && disposition == Disposition.PROVIDER_SUCCEEDED)
+                    != (outputCodeSubject != null)) {
+                throw new IllegalArgumentException(
+                        "successful StageTurn and output code subject disagree");
+            }
+        }
+    }
+
+    /** Immutable worktree facts captured before the writer CapacityLease ends. */
+    public record OutputCodeSubject(
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            boolean clean,
+            String mergeBaseSha)
+    {
+        public OutputCodeSubject
+        {
+            requireText(codeFingerprint, "codeFingerprint");
+            requireText(headSha, "headSha");
+            if (baseSha != null && baseSha.isBlank()) {
+                throw new IllegalArgumentException("baseSha is blank");
+            }
+            if (mergeBaseSha != null && mergeBaseSha.isBlank()) {
+                throw new IllegalArgumentException("mergeBaseSha is blank");
             }
         }
     }
@@ -882,8 +1012,20 @@ public final class AgentTurnOperationHandler
             Disposition disposition,
             String launchInputDigest,
             AgentTurnProviderSession.WriterFence writerFence,
-            String detail)
+            String detail,
+            OutputCodeSubject outputCodeSubject)
     {
+        public Evidence(
+                int schemaVersion,
+                Disposition disposition,
+                String launchInputDigest,
+                AgentTurnProviderSession.WriterFence writerFence,
+                String detail)
+        {
+            this(schemaVersion, disposition, launchInputDigest, writerFence,
+                    detail, null);
+        }
+
         public Evidence
         {
             if (schemaVersion != PAYLOAD_VERSION) {
@@ -893,12 +1035,19 @@ public final class AgentTurnOperationHandler
             if (launchInputDigest != null && launchInputDigest.length() != 64) {
                 throw new IllegalArgumentException("launchInputDigest must be SHA-256");
             }
+            if (outputCodeSubject != null
+                    && (disposition != Disposition.PROVIDER_SUCCEEDED
+                    || writerFence == null)) {
+                throw new IllegalArgumentException(
+                        "output code subject requires successful writer evidence");
+            }
         }
     }
 
     private record ProviderRun(
             AgentTurnProviderSession.Result result,
-            AgentTurnProviderSession.WriterFence writerFence)
+            AgentTurnProviderSession.WriterFence writerFence,
+            OutputCodeSubject outputCodeSubject)
     {
         private ProviderRun
         {

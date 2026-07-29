@@ -14,26 +14,21 @@
 package com.bytequay.app.scheduler;
 
 import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.Snapshot;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.State;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.RepoIssue;
-import com.bytequay.app.domain.StageEvent;
-import com.bytequay.app.domain.StageEventType;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
-import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceAutomationState;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceAutomationStateStore;
 import com.bytequay.app.service.RepoService;
-import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
 import com.bytequay.app.service.workspaces.WorkspaceIssueService;
@@ -52,7 +47,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 import static com.bytequay.app.scheduler.WorkspaceIssueIntakeMonitor.AUTOMATION_KIND;
 import static com.bytequay.app.scheduler.WorkspaceIssueIntakeMonitor.Route.AUTO_IMPLEMENT;
@@ -70,6 +64,17 @@ import static org.mockito.Mockito.when;
 
 class TestWorkspaceIssueIntakeMonitor
 {
+    @Test
+    void dependsOnTypedV2PlanOwnerOnly()
+    {
+        assertThat(WorkspaceIssueIntakeMonitor.class.getConstructors()[0]
+                .getParameterTypes())
+                .extracting(Class::getSimpleName)
+                .doesNotContain(
+                        "StageStore", "PlanStageService", "TaskService",
+                        "RetiredThreadTurnScheduler");
+    }
+
     @Test
     void onlyHighConfidenceLowRiskSmallPlansStartImplementation()
             throws Exception
@@ -157,27 +162,17 @@ class TestWorkspaceIssueIntakeMonitor
         fixture.configure(workspace, clone);
         fixture.states.save(new WorkspaceAutomationState(
                 workspace.id(), AUTOMATION_KIND, 10, null, Instant.now()));
-        Task task = triageTask("task", "thread", 11);
-        when(fixture.tasks.listByPhaseAndOrigin(
-                TaskPhase.PLANNING, Task.ORIGIN_ISSUE_MONITOR)).thenReturn(List.of(task));
-        Thread thread = mock(Thread.class);
-        when(thread.workspaceId()).thenReturn("workspace");
-        when(fixture.threads.find("thread")).thenReturn(Optional.of(thread));
-        UUID stageId = UUID.randomUUID();
-        StageInstance stage = new StageInstance(
-                stageId, "task", StageType.PLAN_STAGE, StageState.OPEN,
-                Instant.now(), null, null);
-        when(fixture.stages.findActiveStage("task")).thenReturn(Optional.of(stage));
         JsonNode safePlan = plan("high", "low", "small");
-        when(fixture.stages.findEventsByStage(stageId)).thenReturn(List.of(new StageEvent(
-                UUID.randomUUID(), stageId, "task", StageEventType.PLAN_RECORDED,
-                Instant.now(), safePlan.toString())));
+        Snapshot snapshot = snapshot(safePlan);
+        when(fixture.plans.listCurrent(
+                "workspace", Task.ORIGIN_ISSUE_MONITOR, TRIAGE_TASK_TYPE))
+                .thenReturn(List.of(snapshot));
 
         WorkspaceIssueIntakeMonitor monitor = fixture.monitor();
         monitor.tick();
 
-        verify(fixture.plans).approveByAutomation(stageId, safePlan);
-        verifyNoInteractions(fixture.taskService);
+        verify(fixture.plans).approveIssueIntake(snapshot);
+        verifyNoInteractions(fixture.taskControls);
         WorkspaceIssueIntakeMonitor.MonitorStatus status = monitor.status("workspace");
         assertThat(status.implementationsStarted()).isEqualTo(1);
         assertThat(status.lastOutcome()).isEqualTo("SUCCESS");
@@ -193,20 +188,10 @@ class TestWorkspaceIssueIntakeMonitor
         fixture.configure(workspace, clone);
         fixture.states.save(new WorkspaceAutomationState(
                 workspace.id(), AUTOMATION_KIND, 10, null, Instant.now()));
-        Task task = triageTask("task", "thread", 11);
-        when(fixture.tasks.listByPhaseAndOrigin(
-                TaskPhase.PLANNING, Task.ORIGIN_ISSUE_MONITOR)).thenReturn(List.of(task));
-        Thread thread = mock(Thread.class);
-        when(thread.workspaceId()).thenReturn("workspace");
-        when(fixture.threads.find("thread")).thenReturn(Optional.of(thread));
-        UUID stageId = UUID.randomUUID();
-        StageInstance stage = new StageInstance(
-                stageId, "task", StageType.PLAN_STAGE, StageState.OPEN,
-                Instant.now(), null, null);
-        when(fixture.stages.findActiveStage("task")).thenReturn(Optional.of(stage));
-        when(fixture.stages.findEventsByStage(stageId)).thenReturn(List.of(new StageEvent(
-                UUID.randomUUID(), stageId, "task", StageEventType.PLAN_RECORDED,
-                Instant.now(), plan("medium", "low", "small").toString())));
+        Snapshot snapshot = snapshot(plan("medium", "low", "small"));
+        when(fixture.plans.listCurrent(
+                "workspace", Task.ORIGIN_ISSUE_MONITOR, TRIAGE_TASK_TYPE))
+                .thenReturn(List.of(snapshot));
 
         fixture.monitor().tick();
 
@@ -217,22 +202,21 @@ class TestWorkspaceIssueIntakeMonitor
                 "Do not create a backlog item yet",
                 "ask_user_question",
                 "https://github.com/acme/repo/issues/11");
-        var ordered = inOrder(fixture.taskService, fixture.threads);
-        ordered.verify(fixture.taskService).cancelTask("thread", "task");
+        var ordered = inOrder(fixture.taskControls, fixture.threads);
+        ordered.verify(fixture.taskControls).cancelByAutomation(
+                "task", AUTOMATION_KIND);
         ordered.verify(fixture.threads).sendTrunkUnattended(
                 eq("thread"), any(), eq("remote-issue-backlog-permission"));
-        verify(fixture.plans, never()).approveByAutomation(eq(stageId), any());
+        verify(fixture.plans, never()).approveIssueIntake(any());
     }
 
-    private static Task triageTask(String id, String threadId, int issueNumber)
+    private static Snapshot snapshot(JsonNode plan)
     {
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(id);
-        when(task.threadId()).thenReturn(threadId);
-        when(task.taskType()).thenReturn(TRIAGE_TASK_TYPE);
-        when(task.origin()).thenReturn(Task.ORIGIN_ISSUE_MONITOR);
-        when(task.linkedIssueNumber()).thenReturn(issueNumber);
-        return task;
+        return new Snapshot(
+                "task", "thread", "workspace", Task.ORIGIN_ISSUE_MONITOR,
+                TRIAGE_TASK_TYPE, 11, Instant.now(), 1, 7,
+                "plan-stage", 1L, 8L, "revision", plan.toString(),
+                "self-review", State.REVIEWED, null);
     }
 
     private static JsonNode plan(String confidence, String risk, String complexity)
@@ -288,9 +272,9 @@ class TestWorkspaceIssueIntakeMonitor
         private final WorkspaceIssueService workspaceIssues = mock(WorkspaceIssueService.class);
         private final ThreadService threads = mock(ThreadService.class);
         private final TaskStore tasks = mock(TaskStore.class);
-        private final StageStore stages = mock(StageStore.class);
-        private final TaskService taskService = mock(TaskService.class);
-        private final PlanStageService plans = mock(PlanStageService.class);
+        private final V2TaskControlService taskControls =
+                mock(V2TaskControlService.class);
+        private final V2AutomationPlanService plans = mock(V2AutomationPlanService.class);
         private final MemoryStates states = new MemoryStates();
         private final ObjectMapper mapper = new ObjectMapper();
 
@@ -300,7 +284,7 @@ class TestWorkspaceIssueIntakeMonitor
             when(settings.remoteIssueIntakeEnabled()).thenReturn(true);
             when(configuration.settings(any())).thenReturn(settings);
             when(configuration.detached(any())).thenReturn(false);
-            when(tasks.listByPhaseAndOrigin(any(), any())).thenReturn(List.of());
+            when(plans.listCurrent(any(), any(), any())).thenReturn(List.of());
         }
 
         private void configure(Workspace workspace, Path clone)
@@ -327,8 +311,7 @@ class TestWorkspaceIssueIntakeMonitor
                     workspaceIssues,
                     threads,
                     tasks,
-                    stages,
-                    taskService,
+                    taskControls,
                     plans,
                     states,
                     mapper,

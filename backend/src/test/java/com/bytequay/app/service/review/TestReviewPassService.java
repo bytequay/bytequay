@@ -103,7 +103,7 @@ class TestReviewPassService
     private LeadOrchestrator leadOrchestrator;
     private ReviewerSeat reviewerSeat;
     private LeadToolset leadToolset;
-    private LegacyReviewAdmission reviewAdmission;
+    private ReviewCallContext reviewAdmission;
     private ReviewBudgetMeter budgetMeter;
     private ReviewPassService service;
     private final List<Object> publishedEvents = new ArrayList<>();
@@ -124,7 +124,7 @@ class TestReviewPassService
         leadOrchestrator = mock(LeadOrchestrator.class);
         reviewerSeat = mock(ReviewerSeat.class);
         leadToolset = mock(LeadToolset.class);
-        reviewAdmission = mock(LegacyReviewAdmission.class);
+        reviewAdmission = mock(ReviewCallContext.class);
 
         when(registry.all()).thenReturn(List.of(reviewer));
         when(reviewer.providerId()).thenReturn("claude");
@@ -142,9 +142,9 @@ class TestReviewPassService
         // Admission runs fan-out batches inline so tests stay
         // deterministic and single-threaded.
         when(reviewAdmission.invokeAll(any())).thenAnswer(inv -> {
-            List<LegacyReviewAdmission.Work<Object>> work = inv.getArgument(0);
+            List<ReviewCallContext.Work<Object>> work = inv.getArgument(0);
             List<Object> results = new ArrayList<>();
-            for (LegacyReviewAdmission.Work<Object> item : work) {
+            for (ReviewCallContext.Work<Object> item : work) {
                 results.add(item.work().call());
             }
             return results;
@@ -260,7 +260,7 @@ class TestReviewPassService
         service.startReviewOnPr("acme/widget", 42, WS_OPTS);
 
         ArgumentCaptor<Thread> threadCaptor = ArgumentCaptor.forClass(Thread.class);
-        verify(threadStore).saveThread(threadCaptor.capture());
+        verify(threadStore).saveV2Thread(threadCaptor.capture());
         assertThat(threadCaptor.getValue().flow()).isEqualTo(ThreadFlow.REVIEW);
 
         List<ReviewParticipant> participants =
@@ -915,74 +915,21 @@ class TestReviewPassService
     // ── Gated publish ───────────────────────────────────────────────
 
     @Test
-    void publishPassPostsTheSelectedFindingsAsAGitHubReviewAndTransitionsThePass()
+    void directPublishSeamIsRetiredWithoutCallingGitHub()
     {
         ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
-        seedSummaryMessage(pass, "Mostly fine — one nit and one whole-PR note.");
         ReviewFinding inline = seedFinding(pass, "src/foo.ts", 12,
                 ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Inline.");
-        ReviewFinding wholePr = seedFinding(pass, null, null,
-                ReviewFindingSeverity.QUESTION, ReviewFindingStatus.AGREED, "Whole PR.");
-
-        ReviewPassDetail published = service.publishPass(
-                pass.id(), ReviewVerdict.COMMENT, List.of(inline.id(), wholePr.id()));
-
-        ArgumentCaptor<CreateReviewCommand> commandCaptor =
-                ArgumentCaptor.forClass(CreateReviewCommand.class);
-        verify(pullRequests).createReview(
-                eq("ghp_secret"), any(PullRequestRef.class), commandCaptor.capture());
-        CreateReviewCommand command = commandCaptor.getValue();
-        assertThat(command.event()).isEqualTo("COMMENT");
-        assertThat(command.body()).isPresent();
-        assertThat(command.body().get()).contains("Mostly fine");
-        assertThat(command.body().get()).contains("Whole PR");
-        assertThat(command.comments()).hasSize(1);
-        assertThat(command.comments().get(0).path()).isEqualTo("src/foo.ts");
-        assertThat(command.comments().get(0).line()).contains(12);
-
-        assertThat(published.pass().phase()).isEqualTo(ReviewPhase.PUBLISHED);
-        assertThat(published.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
-        assertThat(published.pass().endedAt()).isNotNull();
-        assertThat(published.findings())
-                .allMatch(f -> f.status() == ReviewFindingStatus.POSTED);
-    }
-
-    @Test
-    void publishPassDropsUnselectedFindingsFromThePayloadButLeavesThemAgreedOnTheRow()
-    {
-        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
-        seedSummaryMessage(pass, "Two nits.");
-        ReviewFinding keep = seedFinding(pass, "src/a.ts", 1,
-                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Keep.");
-        ReviewFinding drop = seedFinding(pass, "src/b.ts", 2,
-                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Drop.");
-
-        ReviewPassDetail published = service.publishPass(
-                pass.id(), ReviewVerdict.COMMENT, List.of(keep.id()));
-
-        ArgumentCaptor<CreateReviewCommand> commandCaptor =
-                ArgumentCaptor.forClass(CreateReviewCommand.class);
-        verify(pullRequests).createReview(
-                eq("ghp_secret"), any(PullRequestRef.class), commandCaptor.capture());
-        assertThat(commandCaptor.getValue().comments()).hasSize(1);
-        assertThat(commandCaptor.getValue().comments().get(0).body()).contains("Keep");
-
-        assertThat(findingById(published, keep.id()).status())
-                .isEqualTo(ReviewFindingStatus.POSTED);
-        assertThat(findingById(published, drop.id()).status())
-                .isEqualTo(ReviewFindingStatus.AGREED);
-    }
-
-    @Test
-    void publishPassRefusesWithA409WhenThePassIsAlreadyPublished()
-    {
-        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
-        service.publishPass(pass.id(), ReviewVerdict.APPROVE, List.of());
 
         assertThatThrownBy(() -> service.publishPass(
-                pass.id(), ReviewVerdict.APPROVE, List.of()))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("already published");
+                pass.id(), ReviewVerdict.COMMENT, List.of(inline.id())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("durable V2 command");
+        verify(pullRequests, never()).createReview(
+                anyString(), any(PullRequestRef.class),
+                any(CreateReviewCommand.class));
+        assertThat(reviewStore.findPassById(pass.id()).orElseThrow().phase())
+                .isEqualTo(ReviewPhase.TERMINATE);
     }
 
     @Test
@@ -1006,44 +953,11 @@ class TestReviewPassService
     @Test
     void completePassRefusesWithA409WhenThePassAlreadyPublished()
     {
-        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
-        service.publishPass(pass.id(), ReviewVerdict.APPROVE, List.of());
+        ReviewPass pass = seedPass(ReviewPhase.PUBLISHED);
 
         assertThatThrownBy(() -> service.completePass(pass.id()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("already published");
-    }
-
-    @Test
-    void publishPassSurfacesA502WhenGitHubRejectsTheReview()
-    {
-        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
-        doThrow(new RuntimeException("422 — head_sha out of date"))
-                .when(pullRequests).createReview(
-                        anyString(), any(PullRequestRef.class), any(CreateReviewCommand.class));
-
-        assertThatThrownBy(() -> service.publishPass(
-                pass.id(), ReviewVerdict.APPROVE, List.of()))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("GitHub rejected the review");
-
-        // The pass stays at TERMINATE so the user can retry — it would
-        // be wrong to mark it PUBLISHED when nothing landed on GitHub.
-        assertThat(reviewStore.findPassById(pass.id()).orElseThrow().phase())
-                .isEqualTo(ReviewPhase.TERMINATE);
-    }
-
-    @Test
-    void publishPassRefusesWhenPassIsAtArbitrate()
-    {
-        ReviewPass pass = seedPass(ReviewPhase.ARBITRATE);
-        seedFinding(pass, "src/a.ts", 1,
-                ReviewFindingSeverity.NIT, ReviewFindingStatus.DISPUTED, "Open.");
-
-        assertThatThrownBy(() -> service.publishPass(
-                pass.id(), ReviewVerdict.COMMENT, List.of()))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("ARBITRATE");
     }
 
     // ── Static helpers under test ────────────────────────────────────

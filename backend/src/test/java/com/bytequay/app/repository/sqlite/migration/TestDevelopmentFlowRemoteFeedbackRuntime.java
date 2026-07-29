@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.EffectDraft;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.EffectKind;
@@ -22,8 +25,10 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmen
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.PayloadKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.Provenance;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
-import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore.NewTurn;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore.ReplyDraft;
+import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,8 +37,11 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
+import java.lang.reflect.Constructor;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.acceptSnapshot;
@@ -100,23 +108,58 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
                 .orElseThrow());
         assertThat(batch.items()).hasSize(1);
 
-        transaction.executeWithoutResult(ignored -> {
-            jdbc.update("""
-                    UPDATE stage
-                    SET version = version + 1,
-                        checkpoint = 'ADDRESSING_REMOTE_FEEDBACK'
-                    WHERE id = 'remote-stage-1'
-                    """);
-            loop.markAddressing("batch-1");
-            loop.insertTurn(new NewTurn(
-                    "request-1", "batch-1", "turn-1", "turn-operation-1",
-                    "turn-ticket-1", 1, null, "workspace-1", "trunk-1",
-                    "task-1", 1, "remote-stage-1", 1, "fingerprint-1",
-                    "head-1", "base-1", "CLI", 1, "{}",
-                    SqliteRemoteDevelopmentRuntimeStore.digest("prompt"),
-                    "runtime", now));
-        });
-        var turn = loop.requireStageTurnContext("turn-1", "turn-operation-1");
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
+        TaskManager tasks = new TaskManager(commands, reflectStore(
+                "com.bytequay.app.developmentflow.task.persistence.V2TaskStore",
+                TaskManager.Store.class, jdbc));
+        RemoteDevelopmentStageManager stage = new RemoteDevelopmentStageManager(
+                commands, reflectStore(
+                        "com.bytequay.app.developmentflow.stage.persistence.V2StageStore",
+                        StageManager.Store.class, jdbc), remote);
+        RemoteFeedbackRuntimeCoordinator coordinator =
+                new RemoteFeedbackRuntimeCoordinator(
+                        commands, tasks, stage, remote, loop,
+                        new ObjectMapper(), Clock.fixed(now, ZoneOffset.UTC),
+                        53123);
+
+        var request = coordinator.start("task-1", "batch-1");
+        assertThat(coordinator.start("task-1", "batch-1")).isEqualTo(request);
+        assertThat(request.attempt()).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT status FROM remote_feedback_batch WHERE id = 'batch-1'
+                """, String.class)).isEqualTo("ADDRESSING");
+        assertThat(jdbc.queryForObject("""
+                SELECT checkpoint FROM stage WHERE id = 'remote-stage-1'
+                """, String.class)).isEqualTo("ADDRESSING_REMOTE_FEEDBACK");
+        assertThat(jdbc.queryForObject("""
+                SELECT purpose || '|' || status || '|' || task_epoch || '|'
+                    || stage_generation || '|' || expected_code_fingerprint || '|'
+                    || expected_head_sha || '|' || expected_base_sha
+                FROM stage_turn WHERE id = ? AND operation_id = ?
+                """, String.class, request.turnId(), request.operationId()))
+                .isEqualTo("ADDRESS_REMOTE_FEEDBACK|QUEUED|1|1|"
+                        + "fingerprint-1|head-1|base-1");
+        assertThat(jdbc.queryForObject("""
+                SELECT owner_kind || '|' || owner_id || '|' || callback_route
+                    || '|' || task_id || '|' || task_epoch || '|' || stage_id
+                    || '|' || stage_generation || '|' || attempt
+                FROM dispatch_ticket WHERE id = ? AND operation_id = ?
+                """, String.class, request.ticketId(), request.operationId()))
+                .isEqualTo("STAGE_TURN|" + request.turnId()
+                        + "|REMOTE_FEEDBACK_TURN_RESULT|task-1|1|"
+                        + "remote-stage-1|1|1");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM remote_feedback_batch_item
+                WHERE remote_feedback_batch_id = 'batch-1'
+                  AND remote_inbox_item_id = 'inbox-1'
+                  AND external_revision = 1
+                  AND frozen_body = 'please fix'
+                """, Integer.class)).isOne();
+
+        var turn = loop.requireStageTurnContext(
+                request.turnId(), request.operationId());
         transaction.executeWithoutResult(ignored -> {
             loop.finishStageTurn(turn, "SUCCEEDED", null, now.plusMillis(1));
             loop.insertRepairAndValidation(
@@ -209,5 +252,15 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
                 InboxKind.TOP_LEVEL_COMMENT, "observed-key", headSha, "base-1",
                 "reviewer", Provenance.EXTERNAL, false, null, "comment-2",
                 null, null, body, null, null, null, observedAt, raw);
+    }
+
+    private static <T> T reflectStore(
+            String className, Class<T> storeType, JdbcTemplate jdbc)
+            throws Exception
+    {
+        Constructor<?> constructor = Class.forName(className)
+                .getDeclaredConstructor(JdbcTemplate.class);
+        constructor.setAccessible(true);
+        return storeType.cast(constructor.newInstance(jdbc));
     }
 }

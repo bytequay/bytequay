@@ -14,14 +14,25 @@
 package com.bytequay.app.service.agents;
 
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.service.agents.ToolExposurePolicy.V2Profile;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestToolExposurePolicy
 {
     private final ToolExposurePolicy policy = new ToolExposurePolicy();
+
+    @Test
+    void trunkCannotSeeRetiredQueueTools()
+    {
+        assertThat(policy.activeTools(ByteQuayRole.TRUNK, null))
+                .contains("create_task")
+                .doesNotContain("queue_task", "reorder_queue", "drop_queued_task");
+    }
 
     @Test
     void developmentHandsOffOnlyThroughTheLocalPrWorkflow()
@@ -70,5 +81,37 @@ class TestToolExposurePolicy
                 .doesNotContain(
                         "create_task", "record_plan", "record_review_verdict",
                         "approval_prompt", "ask_user_question", "push");
+    }
+
+    @Test
+    void everyV2CatalogExcludesLegacyLifecycleAndArtifactMutators()
+    {
+        Set<String> retired = Set.of(
+                "create_task", "record_plan", "record_review_verdict",
+                "record_round_reply", "validate", "record_iteration_summary",
+                "record_dev_report", "record_pr_progress",
+                "record_pr_description", "record_pr_commit",
+                "record_pr_check", "record_local_review",
+                "record_pr_comment", "resolve_pr_comment",
+                "resolve_review_comment", "ship_task", "push",
+                "request_review", "mark_ready");
+
+        for (V2Profile profile : V2Profile.values()) {
+            assertThat(policy.v2Tools(profile))
+                    .as("V2 profile %s", profile)
+                    .doesNotContainAnyElementsOf(retired);
+        }
+    }
+
+    @Test
+    void v2ProfilesExposeOnlyTheirRequiredObservationAndCheckTools()
+    {
+        assertThat(policy.v2Tools(V2Profile.LOCAL_DEVELOPMENT))
+                .contains("approval_prompt", "ask_user_question", "run_checks");
+        assertThat(policy.v2Tools(V2Profile.REMOTE_DEVELOPMENT))
+                .contains("approval_prompt", "ask_user_question", "run_checks",
+                        "read_remote_pr_status", "read_ci_log");
+        assertThat(policy.v2Tools(V2Profile.PLAN_PROTOCOL)).isEmpty();
+        assertThat(policy.v2Tools(V2Profile.CLEANUP)).isEmpty();
     }
 }

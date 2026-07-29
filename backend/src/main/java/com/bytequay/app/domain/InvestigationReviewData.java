@@ -46,7 +46,8 @@ public record InvestigationReviewData(
         List<KnowledgeProvenanceRow> knowledgeProvenance,
         List<ActivityFactRow> activityFacts,
         List<PRCommentDto> prComments,
-        List<PRTimelineEntryDto> prTimelineEvents)
+        List<PRTimelineEntryDto> prTimelineEvents,
+        SnapshotPreparation snapshotPreparation)
 {
     public InvestigationReviewData(
             AgentReviewRow review,
@@ -72,8 +73,11 @@ public record InvestigationReviewData(
         this(review, rounds, List.of(), List.of(), Map.of(), runs, criteria, objectives, assignments,
                 hypotheses, steps, observations, findings, evidence, verifications, relations,
                 outcomes, knowledgeItems, knowledgeProvenance, activityFacts, prComments,
-                prTimelineEvents);
+                prTimelineEvents, null);
     }
+
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public record SnapshotPreparation(String status, String error, String scope) {}
 
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record AgentReviewRow(
@@ -126,8 +130,22 @@ public record InvestigationReviewData(
         {
             return new ReviewCapabilities(
                     "remote-only",
-                    List.of("pr_diff", "file_blobs", "commits", "checks"),
-                    List.of("repository_callers", "code_graph", "local_tests", "git_history"));
+                    List.of("pr_diff", "commits", "checks"),
+                    List.of("file_blobs", "repository_source", "repository_callers",
+                            "code_graph", "local_tests", "git_history"));
+        }
+
+        /** Durable evidence available after a full round releases its source
+         * lease. Complete bodies exist only for files changed by the frozen
+         * diff; arbitrary repository reads and history are intentionally not
+         * claimed. */
+        public static ReviewCapabilities frozenChangedFiles()
+        {
+            return new ReviewCapabilities(
+                    "frozen-changed-files",
+                    List.of("pr_diff", "changed_file_bodies"),
+                    List.of("repository_source", "repository_callers",
+                            "code_graph", "local_tests", "git_history"));
         }
     }
 

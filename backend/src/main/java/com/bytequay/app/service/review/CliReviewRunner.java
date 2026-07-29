@@ -160,16 +160,7 @@ public class CliReviewRunner
         return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null);
     }
 
-    /** Run when {@link com.bytequay.app.service.threads.AgentScheduler} has
-     * already acquired the shared CLI lane. Ordinary reviewer seats acquire
-     * their exact shared review lease before calling {@link #run}. */
-    public Result runWithSchedulerCapacity(
-            Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
-    {
-        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null);
-    }
-
-    public Result runWithSchedulerCapacity(
+    public Result run(
             Provider provider, String prompt, String resumeSessionId, Path workingDir,
             McpEndpoint mcp, int costCapCents)
     {

@@ -25,7 +25,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -86,6 +85,7 @@ public class StageBudgetService
     @Transactional
     public void onStageOpened(StageInstance stage)
     {
+        rejectLegacyMutation();
         switch (stage.type()) {
             case CI_FIXING_STAGE -> writeMetrics(stage.id(),
                     StageMetrics.empty().withBudget(AutoPushBudget.fresh(DEFAULT_AUTO_PUSH_BUDGET)));
@@ -97,10 +97,10 @@ public class StageBudgetService
         }
     }
 
-    @EventListener
     @Transactional
     public void onAutoPush(TaskAutoPushEvent event)
     {
+        rejectLegacyMutation();
         Optional<StageInstance> active = stageStore.findActiveStage(event.taskId())
                 .filter(s -> s.type() == StageType.CI_FIXING_STAGE);
         if (active.isEmpty()) {
@@ -129,6 +129,7 @@ public class StageBudgetService
     @Transactional
     public StageMetrics extendBudget(UUID stageId, Integer additional)
     {
+        rejectLegacyMutation();
         int bump = additional == null || additional <= 0 ? DEFAULT_BUDGET_EXTENSION : additional;
         StageInstance stage = requireExhaustedStage(stageId);
         StageMetrics metrics = readMetrics(stageId);
@@ -155,6 +156,7 @@ public class StageBudgetService
     @Transactional
     public StageMetrics fallbackToReview(UUID stageId)
     {
+        rejectLegacyMutation();
         StageInstance stage = requireExhaustedStage(stageId);
         StageMetrics updated = readMetrics(stageId)
                 .withInternalReviewEnabled(true)
@@ -165,6 +167,13 @@ public class StageBudgetService
         payload.put("decision", "fallback_to_internal_review");
         stageStore.recordEvent(stageId, stage.taskId(), StageEventType.BUDGET_EXHAUSTED_DECISION, payload);
         return updated;
+    }
+
+    private static void rejectLegacyMutation()
+    {
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "LEGACY stage budgets are read-only; use typed V2 CI-repair recovery");
     }
 
     private StageInstance requireExhaustedStage(UUID stageId)

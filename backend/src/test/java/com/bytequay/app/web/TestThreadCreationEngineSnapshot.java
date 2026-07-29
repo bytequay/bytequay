@@ -19,7 +19,6 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
@@ -59,8 +58,6 @@ class TestThreadCreationEngineSnapshot
     private JdbcTemplate jdbc;
     @Autowired
     private WorkspaceStore workspaces;
-    @Autowired
-    private ThreadStore threads;
     @Autowired
     private WorkspaceConfigurationService workspaceSettings;
     @Autowired
@@ -136,7 +133,7 @@ class TestThreadCreationEngineSnapshot
         }
         finally {
             if (threadId != null && !threadId.isBlank()) {
-                threads.deleteThread(threadId);
+                threadService.delete(threadId);
             }
             workspaces.deleteWorkspace(workspaceId);
         }
@@ -191,7 +188,7 @@ class TestThreadCreationEngineSnapshot
         }
         finally {
             if (threadId != null && !threadId.isBlank()) {
-                threads.deleteThread(threadId);
+                threadService.delete(threadId);
             }
             workspaces.deleteWorkspace(workspaceId);
         }

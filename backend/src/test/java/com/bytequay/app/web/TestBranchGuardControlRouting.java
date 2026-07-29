@@ -19,8 +19,10 @@ import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.service.review.BranchGuardService;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,7 +32,7 @@ import static org.mockito.Mockito.when;
 class TestBranchGuardControlRouting
 {
     @Test
-    void keepsLegacyTaskOnTheLegacyGuardOwner()
+    void keepsLegacyGuardReadableButRejectsMutation()
     {
         BranchGuardService legacy = mock(BranchGuardService.class);
         V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
@@ -40,19 +42,17 @@ class TestBranchGuardControlRouting
                 V2BranchGuardProjection.class);
         BranchGuard expected = BranchGuard.disabled("legacy-task");
         when(legacy.get("legacy-task")).thenReturn(expected);
-        when(legacy.update("legacy-task", true, "nightly"))
-                .thenReturn(expected.withEnabled(true));
-
         BranchGuardController controller = controller(
                 legacy, routes, policies, projection);
 
         assertThat(controller.guard("legacy-task")).isEqualTo(expected);
-        assertThat(controller.updateGuard(
+        assertThatThrownBy(() -> controller.updateGuard(
                 "legacy-task",
                 new BranchGuardController.GuardPatch(true, "nightly")))
-                .isEqualTo(expected.withEnabled(true));
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
         verify(legacy).get("legacy-task");
-        verify(legacy).update("legacy-task", true, "nightly");
+        verify(legacy, never()).update("legacy-task", true, "nightly");
         verifyNoInteractions(policies, projection);
     }
 

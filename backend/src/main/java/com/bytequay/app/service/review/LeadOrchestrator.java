@@ -47,7 +47,7 @@ import static java.util.Objects.requireNonNull;
 public class LeadOrchestrator
 {
     /** Bound on one Lead round's internal tool loop. One "round" can
-     *  still fan out many seat dispatches — this caps chained
+     *  still contain many serial seat dispatches — this caps chained
      *  tool-call iterations inside the single provider turn. */
     private static final int MAX_TOOL_ITERATIONS = 8;
     private static final int MAX_OUTPUT_TOKENS = 4_096;
@@ -58,7 +58,7 @@ public class LeadOrchestrator
     private final ReviewProviderEndpoints endpoints;
     private final ReviewBudgetMeter budget;
     private final ReviewStore reviewStore;
-    private final LegacyReviewAdmission admission;
+    private final ReviewCallContext calls;
     private final ObjectMapper mapper;
 
     public LeadOrchestrator(
@@ -68,7 +68,7 @@ public class LeadOrchestrator
             ReviewProviderEndpoints endpoints,
             ReviewBudgetMeter budget,
             ReviewStore reviewStore,
-            LegacyReviewAdmission admission,
+            ReviewCallContext calls,
             ObjectMapper mapper)
     {
         this.runner = requireNonNull(runner, "runner is null");
@@ -77,14 +77,14 @@ public class LeadOrchestrator
         this.endpoints = requireNonNull(endpoints, "endpoints is null");
         this.budget = requireNonNull(budget, "budget is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
-        this.admission = requireNonNull(admission, "admission is null");
+        this.calls = requireNonNull(calls, "calls is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     /**
      * Run one Lead round: full-transcript context + the round
-     * directive in, one bounded provider turn (which may fan out
-     * reviewer dispatches) out. The Lead's closing text persists as
+     * directive in, one bounded provider turn (which may run several
+     * reviewer dispatches serially) out. The Lead's closing text persists as
      * its transcript message; the spend lands on the pass budget.
      */
     public TurnResult runRound(
@@ -141,11 +141,11 @@ public class LeadOrchestrator
             }
         };
 
-        String attemptId = LegacyReviewAdmission.attemptId(
+        String attemptId = ReviewCallContext.attemptId(
                 "lead", leadSeat.participantId(), phase, round, directive);
-        TurnResult result = admission.invoke(
+        TurnResult result = calls.invoke(
                 pass,
-                LegacyReviewAdmission.ProviderLane.API,
+                ReviewCallContext.ProviderLane.API,
                 attemptId,
                 () -> runner.runTurn(
                         new TurnSpec(
@@ -185,7 +185,7 @@ public class LeadOrchestrator
                 and drive consensus. You orchestrate; the reviewers verify. Your tools:
                 set_agenda (once, at kickoff), mark_phase_in_progress / mark_phase_done, \
                 dispatch_to_reviewer (the body MUST @-mention the reviewer's label; \
-                several dispatches in one turn run in parallel), mark_consensus (classify \
+                several dispatches in one turn run serially in dispatch order), mark_consensus (classify \
                 a finding agreed / disputed / dropped after weighing the panel), \
                 record_dissent, and the read-only code tools. Reviewers only see what you \
                 address to them — quote another reviewer's point explicitly when you want \

@@ -27,6 +27,7 @@ import com.bytequay.app.service.concepts.ConceptScope;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
 import com.bytequay.app.service.review.InvestigationReviewService;
+import com.bytequay.app.service.review.ReviewSessionPurge;
 import com.bytequay.app.service.threads.ThreadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,6 +104,7 @@ public class WorkspaceService
     private final WatchedRepoStore watchedRepos;
     private final ThreadService threadService;
     private final InvestigationReviewService investigationReviews;
+    private final ReviewSessionPurge reviewSessionPurge;
     private final WorkspaceDataPurger dataPurger;
 
     public WorkspaceService(
@@ -116,6 +118,7 @@ public class WorkspaceService
             // context). The teardown only needs ThreadService at delete time.
             @Lazy ThreadService threadService,
             @Lazy InvestigationReviewService investigationReviews,
+            ReviewSessionPurge reviewSessionPurge,
             WorkspaceDataPurger dataPurger)
     {
         this.store = requireNonNull(store, "store is null");
@@ -126,6 +129,8 @@ public class WorkspaceService
         this.threadService = requireNonNull(threadService, "threadService is null");
         this.investigationReviews = requireNonNull(
                 investigationReviews, "investigationReviews is null");
+        this.reviewSessionPurge = requireNonNull(
+                reviewSessionPurge, "reviewSessionPurge is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
     }
 
@@ -306,7 +311,8 @@ public class WorkspaceService
         for (Thread thread : threads) {
             threadService.purge(thread.id());
         }
-        investigationReviews.purgeByWorkspace(workspaceId);
+        reviewSessionPurge.purgeWorkspace(workspaceId,
+                () -> investigationReviews.purgeByWorkspace(workspaceId));
         dataPurger.purgeWorkspaceScoped(workspaceId);
         store.deleteWorkspace(workspaceId);
         log.info("deleted workspace {} and purged {} thread(s)", workspaceId, threads.size());

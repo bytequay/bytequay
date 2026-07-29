@@ -100,6 +100,12 @@ class ReviewRoundServiceImpl
     public void reconcile(Task task)
     {
         requireNonNull(task, "task is null");
+        // V2 remote feedback is owned by RemoteFeedbackRuntimeCoordinator.
+        // Never let the legacy ReviewRound path create a second owner for it.
+        if (taskStore.isV2Task(task.id())) {
+            return;
+        }
+        rejectLegacyMutation();
         ReviewRound handoff = commands.execute(task.id(), () -> reconcileInCommand(task.id()));
         if (handoff != null) {
             taskStore.findTaskById(task.id()).ifPresent(current ->
@@ -112,6 +118,9 @@ class ReviewRoundServiceImpl
         TaskCommandExecutor.requireCurrent(taskId);
         Task task = taskStore.findTaskById(taskId).orElse(null);
         if (task == null) {
+            return null;
+        }
+        if (taskStore.isV2Task(task.id())) {
             return null;
         }
         if (!reviewTaskRunnable(task)) {
@@ -211,12 +220,14 @@ class ReviewRoundServiceImpl
     @Override
     public void closeOpenRounds(String taskId, String reason)
     {
+        rejectLegacyMutation();
         commands.executeVoid(taskId, () -> closeOpenRoundsInCommand(taskId, reason));
     }
 
     @Override
     public void closeOpenRoundsInCommand(String taskId, String reason)
     {
+        rejectLegacyMutation();
         TaskCommandExecutor.requireCurrent(taskId);
         for (ReviewRound round : roundStore.findByTask(taskId)) {
             if (ReviewRound.STATUS_CLOSED.equals(round.status())) {
@@ -229,12 +240,14 @@ class ReviewRoundServiceImpl
     @Override
     public ReviewRound approve(String roundId)
     {
+        rejectLegacyMutation();
         return gateSaga.approve(roundId);
     }
 
     @Override
     public void recomputeStats(String roundId)
     {
+        rejectLegacyMutation();
         UUID id;
         try {
             id = UUID.fromString(roundId);
@@ -260,6 +273,13 @@ class ReviewRoundServiceImpl
             roundStore.updateStats(
                     round.id(), new ReviewRound.ReviewRoundStats(fixed, replied, 0, open));
         });
+    }
+
+    private static void rejectLegacyMutation()
+    {
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "LEGACY review rounds are read-only; use typed V2 review controls");
     }
 
     private Instant now()

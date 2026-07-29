@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.LocalReviewSubmission;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageInstance;
@@ -32,7 +31,6 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
-import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
@@ -55,9 +53,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The P1b insert-vs-targeted-update contract on the four lifecycle
- * stores: status moves only through compare-and-set that touches nothing
- * else, and metadata updates can never write status.
+ * Insert-vs-targeted-update contracts for the remaining lifecycle stores:
+ * status moves only through compare-and-set that touches nothing else, and
+ * metadata updates can never write status.
  */
 @SpringBootTest
 @TestExecutionListeners(
@@ -79,8 +77,6 @@ class TestLifecycleTargetedUpdates
     private ReviewRoundStore roundStore;
     @Autowired
     private StageStore stageStore;
-    @Autowired
-    private AgentRunStore runStore;
     @Autowired
     private LocalReviewSubmissionStore submissionStore;
 
@@ -357,31 +353,6 @@ class TestLifecycleTargetedUpdates
         assertThat(reopened.closedAt()).isEmpty();
     }
 
-    @Test
-    void runStatusCasAndMetadataUpdatesAreIndependent()
-    {
-        AgentRun run = seedRun(seedTask());
-
-        assertThat(runStore.updateStatusIf(
-                run.id(), AgentRun.STATUS_QUEUED, AgentRun.STATUS_SUCCEEDED, NOW)).isFalse();
-
-        runStore.updateProgress(run.id(), 3, 1500L, 200L, 100L);
-        runStore.updateBudget(run.id(), 7);
-        runStore.updateHeadline(run.id(), "fixing checks", "in progress");
-
-        AgentRun reloaded = runStore.findById(run.id()).orElseThrow();
-        assertThat(reloaded.status()).isEqualTo(AgentRun.STATUS_RUNNING);
-        assertThat(reloaded.iterations()).isEqualTo(3);
-        assertThat(reloaded.budget()).isEqualTo(7);
-        assertThat(reloaded.headline()).isEqualTo("fixing checks");
-
-        assertThat(runStore.updateStatusIf(
-                run.id(), AgentRun.STATUS_RUNNING, AgentRun.STATUS_SUCCEEDED, NOW)).isTrue();
-        AgentRun succeeded = runStore.findById(run.id()).orElseThrow();
-        assertThat(succeeded.status()).isEqualTo(AgentRun.STATUS_SUCCEEDED);
-        assertThat(succeeded.finishedAt()).isEqualTo(NOW);
-    }
-
     private String seedTask()
     {
         Thread thread = new Thread(
@@ -405,14 +376,5 @@ class TestLifecycleTargetedUpdates
                 ReviewRound.STATUS_TRIAGING, ReviewRound.ReviewRoundStats.empty(),
                 null, NOW, null, null,
                 ReviewRound.ORIGIN_BRAIN, null, 1, 5));
-    }
-
-    private AgentRun seedRun(String taskId)
-    {
-        return runStore.save(new AgentRun(
-                UUID.randomUUID().toString(), taskId, AgentRun.KIND_CI_FIX, AgentRun.SOURCE_LOCAL,
-                null, null, null, AgentRun.STATUS_RUNNING, 0, 5, null, null,
-                NOW, null, "ws-default", null, "claude-code", "claude-sonnet-4.6",
-                0L, 0L, 0L, 0, null, null, null));
     }
 }

@@ -97,6 +97,34 @@ class TestReviewBuildSelectionStore
     }
 
     @Test
+    void freezesHumanIncludedArbitratedFindingAtItsExactRevision()
+    {
+        JdbcTemplate jdbc = database();
+        jdbc.update("""
+                UPDATE review_findings
+                SET status = 'arbitrated', resolution = 'include'
+                WHERE id = 'finding-1'
+                """);
+        ReviewBuildSelectionStore store = new ReviewBuildSelectionStore(
+                jdbc, new ObjectMapper().findAndRegisterModules());
+        ReviewFinding included = new ReviewFinding(
+                "finding-1", "review-pass", "src/Main.java", 17,
+                ReviewFindingSeverity.BLOCKER, ReviewFindingStatus.ARBITRATED,
+                "Fix the exact race", "include", null,
+                Instant.ofEpochMilli(3));
+
+        ReviewBuildSelectionStore.Selection selection = store.freeze(
+                "build-thread", "review-pass", "acme/widget", 42,
+                "head-1", spawn(), List.of(included),
+                Instant.ofEpochMilli(4));
+
+        assertThat(selection.findings()).singleElement()
+                .satisfies(finding -> assertThat(finding.findingRevision())
+                        .isEqualTo(2));
+        assertThat(store.matchesCurrent(selection)).isTrue();
+    }
+
+    @Test
     void mixedLegacyAndV2TasksShareOneCaseInsensitiveActivePrFence()
     {
         JdbcTemplate jdbc = database();

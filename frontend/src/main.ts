@@ -16,8 +16,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomUUID } from 'node:crypto';
-import { Agent, setGlobalDispatcher } from 'undici';
+import { Agent, type Dispatcher, setGlobalDispatcher } from 'undici';
+import {
+  isPendingManualValidationResponse,
+  PrRemoteCommandKeys,
+} from './prRemoteCommandKeys';
+import type { LocalPrReviewPublicationDto } from './types';
 
 // Pin Node's fetch timeouts explicitly so a future Node default
 // change can't quietly flip behaviour under us. 30s for headers
@@ -27,13 +31,17 @@ import { Agent, setGlobalDispatcher } from 'undici';
 // handful of endpoints that stream a large payload over HTTP/1
 // keep-alive (PR diff fetches in particular).
 //
-// Streaming SSE endpoints (thread event stream) bypass this via
-// their own AbortController + signal — they need long-lived
-// connections by design.
+// Streaming SSE endpoints and explicitly bounded long operations use their
+// own dispatcher/signal instead of weakening this fail-fast default.
 setGlobalDispatcher(new Agent({
   headersTimeout: 30_000,
   bodyTimeout: 60_000,
 }));
+
+const manualValidationDispatcher = new Agent({
+  headersTimeout: 11 * 60_000,
+  bodyTimeout: 11 * 60_000,
+});
 
 const execFileAsync = promisify(execFile);
 
@@ -41,26 +49,64 @@ const execFileAsync = promisify(execFile);
 // user retry replays the durable backend result instead of authorizing a
 // second GitHub effect. A completed or definitively rejected HTTP request
 // closes that intent; a later click is then a new command.
-const pendingPrRemoteCommands = new Map<string, string>();
+let prRemoteCommandKeys: PrRemoteCommandKeys;
 
 async function fetchPrRemoteCommand(
   intent: string,
   url: string,
   init: RequestInit,
+  dispatcher?: Dispatcher,
 ): Promise<Response> {
-  const commandId = pendingPrRemoteCommands.get(intent) ?? randomUUID();
-  pendingPrRemoteCommands.set(intent, commandId);
+  const commandId = prRemoteCommandKeys.acquire(intent);
   const headers = new Headers(init.headers);
   headers.set('Idempotency-Key', commandId);
-  const response = await fetch(url, { ...init, headers });
+  const request: RequestInit & { dispatcher?: Dispatcher } = {
+    ...init,
+    headers,
+    dispatcher,
+  };
+  const response = await fetch(url, request);
   if (response.status >= 400 && response.status < 500) {
-    pendingPrRemoteCommands.delete(intent);
+    prRemoteCommandKeys.complete(intent);
   }
   return response;
 }
 
 function completePrRemoteCommand(intent: string): void {
-  pendingPrRemoteCommands.delete(intent);
+  prRemoteCommandKeys.complete(intent);
+}
+
+function isLocalPrReviewPublication(value: unknown): value is LocalPrReviewPublicationDto {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.prId === 'string'
+    && (typeof candidate.reviewId === 'string' || candidate.reviewId === null)
+    && typeof candidate.commandId === 'string'
+    && typeof candidate.status === 'string'
+    && ['QUEUED', 'PUBLISHING', 'PUBLISHED', 'FAILED', 'INDETERMINATE']
+      .includes(candidate.status)
+    && typeof candidate.terminal === 'boolean'
+    && typeof candidate.finalized === 'boolean'
+    && typeof candidate.blocksNewPublication === 'boolean';
+}
+
+function completeTerminalReviewPublication(publication: LocalPrReviewPublicationDto): void {
+  if (publication.finalized
+    && (publication.status === 'PUBLISHED' || publication.terminal)) {
+    prRemoteCommandKeys.completeCommand(publication.commandId);
+  }
+}
+
+async function runPrRemoteCommand(
+  intent: string,
+  url: URL | string,
+  init: RequestInit,
+): Promise<Response> {
+  const response = await fetchPrRemoteCommand(intent, url.toString(), init);
+  if (response.ok) {
+    completePrRemoteCommand(intent);
+  }
+  return response;
 }
 import started from 'electron-squirrel-startup';
 import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './backendProcess';
@@ -77,7 +123,7 @@ app.setName('ByteQuay');
 // without a cap two open embeds plus our renderer can easily climb to
 // 8–10 GB. 1 GB per V8 heap is enough for our use (the heaviest page
 // is the diff viewer, which we've measured around ~400 MB). Combined
-// with the ~2 GB JVM cap and the scheduler's 4-way CLI lane (capped
+// with the ~2 GB JVM cap and CapacityManager's 4-way CLI lane (capped
 // to 512 MB heap each), a busy session lands around ~7.8 GB. Must be
 // set before app `ready` so every spawned renderer picks it up.
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
@@ -1052,24 +1098,37 @@ function registerIpc(): void {
     return res.json();
   });
   ipcMain.handle('pr:push', async (_event, prId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/push`, { method: 'POST' });
+    const intent = `push:${prId}`;
+    const res = await fetchPrRemoteCommand(
+      intent,
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/push`,
+      { method: 'POST' },
+    );
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend PR push returned ${res.status}: ${body}`);
     }
-    return res.json();
+    const result = await res.json();
+    completePrRemoteCommand(intent);
+    return result;
   });
   ipcMain.handle('pr:merge', async (_event, prId: string, method: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/merge`, {
+    const payload = JSON.stringify({ method });
+    const intent = `merge:${prId}:${payload}`;
+    const res = await fetchPrRemoteCommand(
+      intent,
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/merge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method }),
+      body: payload,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend PR merge returned ${res.status}: ${body}`);
     }
-    return res.json();
+    const result = await res.json();
+    completePrRemoteCommand(intent);
+    return result;
   });
   ipcMain.handle('pr:dequeue', async (_event, prId: string) => {
     const intent = `dequeue:${prId}`;
@@ -1134,7 +1193,30 @@ function registerIpc(): void {
       throw new Error(extractMessage(body) || `Could not publish review (${res.status})`);
     }
     const result = await res.json();
-    completePrRemoteCommand(intent);
+    if (isLocalPrReviewPublication(result)) {
+      completeTerminalReviewPublication(result);
+    }
+    else {
+      // Task-owned PRs retain their existing runtime projection.
+      completePrRemoteCommand(intent);
+    }
+    return result;
+  });
+  ipcMain.handle('pr:reviewPublication:get', async (_event, prId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/review-publication`,
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body)
+        || `Could not load review publication (${res.status})`);
+    }
+    const result: unknown = await res.json();
+    if (!isLocalPrReviewPublication(result)) {
+      throw new Error('Backend returned an invalid review publication');
+    }
+    completeTerminalReviewPublication(result);
     return result;
   });
   ipcMain.handle('agentReview:get', async (_event, prId: string) => {
@@ -1161,30 +1243,80 @@ function registerIpc(): void {
 
   ipcMain.handle('quickReview:start', async (_event, prId: string) => {
     const res = await fetch(
-      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/quick-review/start`,
-      { method: 'POST' },
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/agent-review`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset: 'quick' }),
+      },
     );
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Quick review start failed (${res.status}): ${body}`);
     }
-    return res.json();
+    await res.json();
+    return { state: 'RUNNING' };
   });
 
   ipcMain.handle('quickReview:status', async (_event, prId: string) => {
     const res = await fetch(
-      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/quick-review/status`,
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/agent-review`,
     );
+    if (res.status === 404) return { state: 'IDLE', error: null };
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Quick review status failed (${res.status}): ${body}`);
     }
-    return res.json();
+    const review = await res.json() as {
+      snapshot_preparation?: {
+        scope?: string;
+        status?: string;
+        error?: string | null;
+      } | null;
+      rounds?: Array<{ scope?: string; status?: string }>;
+    };
+    const preparation = review.snapshot_preparation?.scope === 'quick'
+      ? review.snapshot_preparation
+      : null;
+    if (preparation?.status === 'REQUESTED') {
+      return { state: 'RUNNING', error: null };
+    }
+    if (preparation !== null
+      && ['FAILED', 'CANCELED', 'SUPERSEDED'].includes(preparation.status ?? '')) {
+      return {
+        state: 'FAILED',
+        error: preparation.error
+          ?? (preparation.status === 'CANCELED'
+            ? 'Quick review was canceled.'
+            : preparation.status === 'SUPERSEDED'
+              ? 'Quick review source changed before it could start.'
+              : 'Quick review preparation failed.'),
+      };
+    }
+    const rounds = (review.rounds ?? []).filter(round => round.scope === 'quick');
+    if (rounds.some(round => round.status === 'QUEUED' || round.status === 'RUNNING')) {
+      return { state: 'RUNNING', error: null };
+    }
+    const latest = rounds.at(-1);
+    if (latest === undefined) {
+      return preparation?.status === 'COMPLETED'
+        ? { state: 'FAILED', error: 'Quick review preparation completed without a review round.' }
+        : { state: 'IDLE', error: null };
+    }
+    if (latest.status?.startsWith('COMPLETED') === true) {
+      return { state: 'DONE', error: null };
+    }
+    return {
+      state: 'FAILED',
+      error: latest.status === 'CANCELLED'
+        ? 'Quick review was canceled.'
+        : 'Quick review did not complete. Retry to start a new durable turn.',
+    };
   });
 
   ipcMain.handle('quickReview:latest', async (_event, prId: string) => {
     const res = await fetch(
-      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/quick-review/latest`,
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/agent-review`,
     );
     if (res.status === 404) return null;
     if (!res.ok) {
@@ -1344,16 +1476,27 @@ function registerIpc(): void {
     return res.json();
   });
   ipcMain.handle('pr:runTests', async (_event, prId: string) => {
-    // A full test suite can run for minutes — no client-side timeout here;
-    // the backend's own runner is what bounds the wall-clock (5 min).
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/run-tests`, {
-      method: 'POST',
-    });
+    // The backend waits for its durable operation, so this request gets a
+    // matching bounded timeout without weakening every other backend call.
+    const intent = `run-tests:${prId}`;
+    const res = await fetchPrRemoteCommand(
+      intent,
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/run-tests`,
+      { method: 'POST' },
+      manualValidationDispatcher,
+    );
+    if (isPendingManualValidationResponse(res.status)) {
+      throw new Error('Manual PR validation is still queued or running; retry to check its result');
+    }
+    // Terminal success or failure closes this intent. A later click may then
+    // authorize a fresh operation; transport failure and HTTP 202 retain it.
+    completePrRemoteCommand(intent);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend PR run-tests returned ${res.status}: ${text}`);
     }
-    return res.json();
+    const result = await res.json();
+    return result;
   });
 
   ipcMain.handle('pr:dashboardList', async () => {
@@ -1583,7 +1726,11 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/rerun-checks`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'POST' });
+    const res = await runPrRemoteCommand(
+      `rerun-checks:${repo}#${number}`,
+      url,
+      { method: 'POST' },
+    );
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend /prs/rerun-checks returned ${res.status}: ${body}`);
@@ -1595,7 +1742,11 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/trigger-ci`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'POST' });
+    const res = await runPrRemoteCommand(
+      `trigger-ci:${repo}#${number}`,
+      url,
+      { method: 'POST' },
+    );
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend /prs/trigger-ci returned ${res.status}: ${body}`);
@@ -1648,10 +1799,11 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/draft`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ draft });
+    const res = await runPrRemoteCommand(`set-draft:${repo}#${number}:${payload}`, url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ draft }),
+      body: payload,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -1664,10 +1816,11 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/title`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ title });
+    const res = await runPrRemoteCommand(`update-title:${repo}#${number}:${payload}`, url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title }),
+      body: payload,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -1764,25 +1917,28 @@ const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
   });
 
   ipcMain.handle('backend:approvePr', async (_event, prId: number, repo: string, number: number) => {
-const url = new URL(`${BACKEND_BASE}/prs/approve`);
+    const url = new URL(`${BACKEND_BASE}/prs/approve`);
     url.searchParams.set('id', String(prId));
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'POST' });
+    const intent = `dashboard-approve:${repo}#${number}`;
+    const res = await fetchPrRemoteCommand(intent, url.toString(), { method: 'POST' });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Approve failed (${res.status}): ${body}`);
     }
+    completePrRemoteCommand(intent);
   });
 
   ipcMain.handle('backend:updatePrBody', async (_event, repo: string, number: number, body: string) => {
 const url = new URL(`${BACKEND_BASE}/prs/body`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ body });
+    const res = await runPrRemoteCommand(`update-body:${repo}#${number}:${payload}`, url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
+      body: payload,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -1791,78 +1947,108 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
   });
 
   ipcMain.handle('backend:commentPr', async (_event, prId: number, repo: string, number: number, body: string, close: boolean) => {
-const url = new URL(`${BACKEND_BASE}/prs/comment`);
+    const url = new URL(`${BACKEND_BASE}/prs/comment`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
     url.searchParams.set('id', String(prId));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ body, close });
+    const intent = `dashboard-comment:${repo}#${number}:${payload}`;
+    const res = await fetchPrRemoteCommand(intent, url.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, close }),
+      body: payload,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Comment failed (${res.status}): ${text}`);
     }
+    completePrRemoteCommand(intent);
   });
 
   ipcMain.handle('backend:replyToReviewThread', async (_event, repo: string, number: number, rootCommentId: number, body: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-threads/${rootCommentId}/reply`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ body });
+    const res = await runPrRemoteCommand(
+      `reply-thread:${repo}#${number}:${rootCommentId}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Reply failed (${res.status}): ${text}`);
     }
   });
 
-  ipcMain.handle('backend:editIssueComment', async (_event, repo: string, commentId: number, body: string) => {
+  ipcMain.handle('backend:editIssueComment', async (_event, repo: string, number: number, commentId: number, body: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/issue-comments/${commentId}/body`);
     url.searchParams.set('repo', repo);
-    const res = await fetch(url, {
+    url.searchParams.set('number', String(number));
+    const payload = JSON.stringify({ body });
+    const res = await runPrRemoteCommand(
+      `edit-issue-comment:${repo}#${number}:${commentId}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Edit comment failed (${res.status}): ${text}`);
     }
   });
 
-  ipcMain.handle('backend:editReviewComment', async (_event, repo: string, commentId: number, body: string) => {
+  ipcMain.handle('backend:editReviewComment', async (_event, repo: string, number: number, commentId: number, body: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}/body`);
     url.searchParams.set('repo', repo);
-    const res = await fetch(url, {
+    url.searchParams.set('number', String(number));
+    const payload = JSON.stringify({ body });
+    const res = await runPrRemoteCommand(
+      `edit-review-comment:${repo}#${number}:${commentId}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Edit comment failed (${res.status}): ${text}`);
     }
   });
 
-  ipcMain.handle('backend:deleteIssueComment', async (_event, repo: string, commentId: number) => {
+  ipcMain.handle('backend:deleteIssueComment', async (_event, repo: string, number: number, commentId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/issue-comments/${commentId}`);
     url.searchParams.set('repo', repo);
-    const res = await fetch(url, { method: 'DELETE' });
+    url.searchParams.set('number', String(number));
+    const res = await runPrRemoteCommand(
+      `delete-issue-comment:${repo}#${number}:${commentId}`,
+      url,
+      { method: 'DELETE' },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Delete comment failed (${res.status}): ${text}`);
     }
   });
 
-  ipcMain.handle('backend:deleteReviewComment', async (_event, repo: string, commentId: number) => {
+  ipcMain.handle('backend:deleteReviewComment', async (_event, repo: string, number: number, commentId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}`);
     url.searchParams.set('repo', repo);
-    const res = await fetch(url, { method: 'DELETE' });
+    url.searchParams.set('number', String(number));
+    const res = await runPrRemoteCommand(
+      `delete-review-comment:${repo}#${number}:${commentId}`,
+      url,
+      { method: 'DELETE' },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Delete comment failed (${res.status}): ${text}`);
@@ -1872,54 +2058,77 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
   ipcMain.handle('pr:addPullRequestReaction', async (_event, repo: string, number: number, content: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/${number}/reactions`);
     url.searchParams.set('repo', repo);
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ content });
+    const res = await runPrRemoteCommand(
+      `react-pr:${repo}#${number}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Reaction failed (${res.status}): ${text}`);
     }
   });
 
-  ipcMain.handle('pr:addReviewReaction', async (_event, repo: string, commentId: number, content: string) => {
+  ipcMain.handle('pr:addReviewReaction', async (_event, repo: string, number: number, commentId: number, content: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}/reactions`);
     url.searchParams.set('repo', repo);
-    const res = await fetch(url, {
+    url.searchParams.set('number', String(number));
+    const payload = JSON.stringify({ content });
+    const res = await runPrRemoteCommand(
+      `react-review-comment:${repo}#${number}:${commentId}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Reaction failed (${res.status}): ${text}`);
     }
   });
 
-  ipcMain.handle('pr:addIssueReaction', async (_event, repo: string, commentId: number, content: string) => {
+  ipcMain.handle('pr:addIssueReaction', async (_event, repo: string, number: number, commentId: number, content: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/issue-comments/${commentId}/reactions`);
     url.searchParams.set('repo', repo);
-    const res = await fetch(url, {
+    url.searchParams.set('number', String(number));
+    const payload = JSON.stringify({ content });
+    const res = await runPrRemoteCommand(
+      `react-issue-comment:${repo}#${number}:${commentId}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Reaction failed (${res.status}): ${text}`);
     }
   });
 
-  ipcMain.handle('pr:setThreadResolved', async (_event, repo: string, prId: number, rootCommentId: number, resolved: boolean) => {
+  ipcMain.handle('pr:setThreadResolved', async (_event, repo: string, number: number, prId: number, rootCommentId: number, resolved: boolean) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-threads/${rootCommentId}/resolved`);
     url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
     url.searchParams.set('prId', String(prId));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ resolved });
+    const res = await runPrRemoteCommand(
+      `resolve-thread:${repo}#${number}:${rootCommentId}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ resolved }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Resolve failed (${res.status}): ${text}`);
@@ -1931,7 +2140,11 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
     url.searchParams.set('reviewer', reviewer);
-    const res = await fetch(url, { method: 'POST' });
+    const res = await runPrRemoteCommand(
+      `add-reviewer:${repo}#${number}:${reviewer}`,
+      url,
+      { method: 'POST' },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Add reviewer failed (${res.status}): ${text}`);
@@ -1943,7 +2156,11 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
     url.searchParams.set('reviewer', reviewer);
-    const res = await fetch(url, { method: 'DELETE' });
+    const res = await runPrRemoteCommand(
+      `remove-reviewer:${repo}#${number}:${reviewer}`,
+      url,
+      { method: 'DELETE' },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Remove reviewer failed (${res.status}): ${text}`);
@@ -1978,11 +2195,16 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     const url = new URL(`${BACKEND_BASE}/prs/assignees`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ value: login, selected });
+    const res = await runPrRemoteCommand(
+      `set-assignee:${repo}#${number}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: login, selected }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Update assignee failed (${res.status}): ${text}`);
@@ -1993,11 +2215,16 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     const url = new URL(`${BACKEND_BASE}/prs/labels`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ value: label, selected });
+    const res = await runPrRemoteCommand(
+      `set-label:${repo}#${number}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: label, selected }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Update label failed (${res.status}): ${text}`);
@@ -2021,11 +2248,16 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     // startLine / startSide are optional; null when single-line. The
     // backend treats startLine===line the same as null and strips both
     // before forwarding to GitHub.
-    const res = await fetch(url, {
+    const payload = JSON.stringify({ body, path, line, side, startLine, startSide });
+    const res = await runPrRemoteCommand(
+      `inline-comment:${repo}#${number}:${payload}`,
+      url,
+      {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, path, line, side, startLine, startSide }),
-    });
+      body: payload,
+      },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Inline review comment failed (${res.status}): ${text}`);
@@ -2038,12 +2270,15 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
     if (strategy) url.searchParams.set('strategy', strategy);
-    const res = await fetch(url, { method: 'POST' });
+    const intent = `dashboard-merge:${repo}#${number}:${strategy ?? ''}`;
+    const res = await fetchPrRemoteCommand(intent, url.toString(), { method: 'POST' });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Merge failed (${res.status}): ${body}`);
     }
-    return res.json();
+    const result = await res.json();
+    completePrRemoteCommand(intent);
+    return result;
   });
 
   ipcMain.handle('backend:enableAutoMerge', async (_event, prId: number, repo: string, number: number, strategy?: string) => {
@@ -2078,12 +2313,15 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     url.searchParams.set('id', String(prId));
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'DELETE' });
+    const intent = `dashboard-dequeue:${repo}#${number}`;
+    const res = await fetchPrRemoteCommand(intent, url.toString(), { method: 'DELETE' });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Remove from queue failed (${res.status}): ${body}`);
     }
-    return res.json();
+    const result = await res.json();
+    completePrRemoteCommand(intent);
+    return result;
   });
 
   ipcMain.handle('repos:list', async () => {
@@ -3725,19 +3963,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
-  ipcMain.handle('threads:resume', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/resume`,
-      { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/threads/${id}/resume returned ${res.status}: ${text}`);
-    }
-  });
-
   ipcMain.handle('threads:delete', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -4488,6 +4713,27 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:publication:get', async (_event, passId: unknown) => {
+    if (typeof passId !== 'string' || passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    const normalizedPassId = passId.trim();
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(normalizedPassId)}/publication`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `backend GET /api/reviews/${normalizedPassId}/publication returned ${res.status}: ${text}`,
+      );
+    }
+    const publication = await res.json() as { status?: unknown; terminal?: unknown };
+    if (publication.status === 'PUBLISHED' || publication.terminal === true) {
+      completePrRemoteCommand(`review-pass-publish:${normalizedPassId}`);
+    }
+    return publication;
+  });
+
   ipcMain.handle('reviews:scheduled:get', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/reviews/scheduled-settings`);
     if (!res.ok) {
@@ -5096,6 +5342,46 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:buildComments:get', async (_event, passId: unknown) => {
+    const id = requireString(passId, 'passId');
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(id)}/build-comments`,
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET build-comments returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  const decideReviewBuildComments = async (
+    decision: 'approve' | 'discard', args: unknown,
+  ) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error(`reviews:buildComments:${decision} args must be an object`);
+    }
+    const a = args as { passId?: unknown; commandId?: unknown };
+    const passId = requireString(a.passId, 'passId');
+    const commandId = requireString(a.commandId, 'commandId');
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(passId)}/build-comments/${decision}`,
+      { method: 'POST', headers: { 'Idempotency-Key': commandId } },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `backend POST build-comments/${decision} returned ${res.status}: ${text}`,
+      );
+    }
+    return res.json();
+  };
+
+  ipcMain.handle('reviews:buildComments:approve', (_event, args: unknown) =>
+    decideReviewBuildComments('approve', args));
+  ipcMain.handle('reviews:buildComments:discard', (_event, args: unknown) =>
+    decideReviewBuildComments('discard', args));
+
   ipcMain.handle('reviews:publish', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:publish args must be an object');
@@ -5110,18 +5396,23 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!Array.isArray(a.findingIds) || a.findingIds.some(id => typeof id !== 'string')) {
       throw new Error('findingIds must be an array of strings');
     }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/publish`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ verdict: a.verdict, findingIds: a.findingIds }),
-      });
+    const passId = a.passId.trim();
+    const intent = `review-pass-publish:${passId}`;
+    const url = `${BACKEND_BASE}/api/reviews/${encodeURIComponent(passId)}/publish`;
+    const res = await fetchPrRemoteCommand(intent, url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ verdict: a.verdict, findingIds: a.findingIds }),
+    });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/reviews/${a.passId}/publish returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/reviews/${passId}/publish returned ${res.status}: ${text}`);
     }
-    return res.json();
+    const publication = await res.json() as { status?: unknown; terminal?: unknown };
+    if (publication.status === 'PUBLISHED' || publication.terminal === true) {
+      completePrRemoteCommand(intent);
+    }
+    return publication;
   });
 
   ipcMain.handle('workspaces:repos:list', async (_event, workspaceId: unknown) => {
@@ -5133,37 +5424,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend GET /api/workspaces/${workspaceId}/repos returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('threads:tasks:ship', async (_event, args: unknown) => {
-    const params = args as {
-      threadId?: unknown;
-      taskId?: unknown;
-      opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' };
-    };
-    const threadId = params?.threadId;
-    const taskId = params?.taskId;
-    if (typeof threadId !== 'string' || threadId.trim().length === 0
-        || typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('threadId and taskId must be non-empty strings');
-    }
-    const body = {
-      nextTitle: params.opts?.nextTitle ?? null,
-      baseMode: params.opts?.baseMode ?? 'MAIN',
-    };
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
-        + `/tasks/${encodeURIComponent(taskId)}/ship`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /tasks/${taskId}/ship returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -5703,25 +5963,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('threads:send', async (_event, payload: unknown) => {
-    const { id, taskId, input } = (payload ?? {}) as { id?: string; taskId?: string; input?: string };
-    if (!id || !taskId || typeof input !== 'string' || input.trim().length === 0) {
-      throw new Error('id, taskId, and non-empty input are required');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/messages`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, input }),
-      });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/threads/${id}/messages returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-
   ipcMain.handle('threads:decide', async (_event, payload: unknown) => {
     const { id, callId, decision, preApprove, expectedRevision } =
       (payload ?? {}) as {
@@ -5934,23 +6175,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('threads:setWorkModel', async (_event, args: unknown) => {
-    const { threadId, model } = args as { threadId: string; model: unknown };
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/work-model`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workModel: model }),
-      },
-    );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `setThreadWorkModel returned ${res.status}`);
-    }
-    return res.json();
-  });
-
   ipcMain.handle('threads:getTaskWorkModel', async (_event, args: unknown) => {
     const { threadId, taskId } = args as { threadId: string; taskId: string };
     const res = await fetch(
@@ -5963,27 +6187,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('threads:setTaskWorkModel', async (_event, args: unknown) => {
-    const { threadId, taskId, model } = args as {
-      threadId: string;
-      taskId: string;
-      model: unknown;
-    };
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/work-model`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workModel: model }),
-      },
-    );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `setTaskWorkModel returned ${res.status}`);
-    }
-    return res.json();
-  });
-
   ipcMain.handle('threads:getStageWorkModel', async (_event, args: unknown) => {
     const { stageId } = args as { stageId: string };
     const res = await fetch(
@@ -5992,23 +6195,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       throw new Error(detail || `getStageWorkModel returned ${res.status}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('threads:setStageWorkModel', async (_event, args: unknown) => {
-    const { stageId, model } = args as { stageId: string; model: unknown };
-    const res = await fetch(
-      `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/work-model`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workModel: model }),
-      },
-    );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `setStageWorkModel returned ${res.status}`);
     }
     return res.json();
   });
@@ -6173,155 +6359,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('ai:run', async (_event, prId: number, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/ai/review`);
-    url.searchParams.set('prId', String(prId));
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`AI review failed (${res.status}): ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('ai:latest', async (_event, prId: number) => {
-    const url = new URL(`${BACKEND_BASE}/ai/review/latest`);
-    url.searchParams.set('prId', String(prId));
-    const res = await fetch(url);
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`backend /ai/review/latest returned ${res.status}`);
-    return res.json();
-  });
-
-  ipcMain.handle('ai:delete', async (_event, draftId: number) => {
-    const res = await fetch(`${BACKEND_BASE}/ai/review/${draftId}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error(`Delete draft failed (${res.status})`);
-  });
-
-  // Async start: returns immediately while the backend runs the review on its
-  // executor; pair with ai:status polling and ai:latest to fetch the result.
-  ipcMain.handle('ai:start', async (_event, prId: number, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/ai/review/start`);
-    url.searchParams.set('prId', String(prId));
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`AI review start failed (${res.status}): ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('ai:status', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/ai/review/status`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /ai/review/status returned ${res.status}`);
-    return res.json();
-  });
-
-  ipcMain.handle('ai:publish', async (_event, draftId: number, event: string, body: string | null) => {
-    const url = new URL(`${BACKEND_BASE}/ai/review/${draftId}/publish`);
-    url.searchParams.set('event', event);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body: body ?? null }),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      throw new Error(`Publish failed (${res.status}): ${errBody}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('ai:publishForPr', async (_event, payload: {
-    prId: number;
-    repo: string;
-    number: number;
-    headSha: string | null;
-    event: string;
-    body: string | null;
-  }) => {
-    const url = `${BACKEND_BASE}/ai/review/publish-for-pr`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      throw new Error(`Publish failed (${res.status}): ${errBody}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('ai:editComment', async (_event, draftId: number, commentId: number, editedBody: string | null) => {
-    const url = `${BACKEND_BASE}/ai/review/${draftId}/comments/${commentId}`;
-    const res = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ editedBody }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Edit comment failed (${res.status}): ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('ai:deleteComment', async (_event, draftId: number, commentId: number) => {
-    const url = `${BACKEND_BASE}/ai/review/${draftId}/comments/${commentId}`;
-    const res = await fetch(url, { method: 'DELETE' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Delete comment failed (${res.status}): ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('ai:dismissComment', async (_event, draftId: number, commentId: number, dismissed: boolean) => {
-    const url = `${BACKEND_BASE}/ai/review/${draftId}/comments/${commentId}/dismissed`;
-    const res = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dismissed }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Dismiss comment failed (${res.status}): ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('ai:stageComment', async (_event, payload: {
-    prId: number;
-    repo: string;
-    number: number;
-    headSha: string | null;
-    filePath: string;
-    line: number;
-    side: 'LEFT' | 'RIGHT';
-    startLine?: number | null;
-    startSide?: 'LEFT' | 'RIGHT' | null;
-    body: string;
-  }) => {
-    const url = `${BACKEND_BASE}/ai/review/stage`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Stage comment failed (${res.status}): ${body}`);
-    }
-    return res.json();
-  });
 }
 
 async function bootstrapSync(): Promise<void> {
@@ -6340,6 +6377,10 @@ app.on('ready', async () => {
     applyDevDockIcon();
     installApplicationMenu();
     configureAboutPanel();
+    prRemoteCommandKeys = new PrRemoteCommandKeys(
+      undefined,
+      path.join(app.getPath('userData'), 'pending-pr-remote-command-keys-v1.json'),
+    );
     registerIpc();
     spawnBackend();
     if (app.isPackaged) {

@@ -26,7 +26,6 @@ import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.review.CliReviewException;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -44,7 +43,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.Callable;
 
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -52,8 +50,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Ephemeral, provider-neutral extraction call: one bounded model turn per
  * analyzed PR that distills durable lessons from the evidence bundle. Runs
- * through {@link AgentScheduler} so extraction respects the same CLI/API
- * lane capacity and cost controls as other model calls; the provider comes
+ * synchronously in the bounded project-learning owner; the provider comes
  * from the workspace's resolved review engine, so the same default used by
  * ordinary workspace sessions also applies here.
  * No tools, one round, strict JSON out — and {@code {"lessons": []}} is an
@@ -75,7 +72,6 @@ public class LessonExtractor
     private static final int MAX_EXISTING = 12;
 
     private final TurnRunner runner;
-    private final AgentScheduler scheduler;
     private final ReviewProviderEndpoints endpoints;
     private final WorkModelResolver workModels;
     private final CliReviewRunner cliRunner;
@@ -83,14 +79,12 @@ public class LessonExtractor
 
     public LessonExtractor(
             TurnRunner runner,
-            AgentScheduler scheduler,
             ReviewProviderEndpoints endpoints,
             WorkModelResolver workModels,
             CliReviewRunner cliRunner,
             ObjectMapper mapper)
     {
         this.runner = requireNonNull(runner, "runner is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.endpoints = requireNonNull(endpoints, "endpoints is null");
         this.workModels = requireNonNull(workModels, "workModels is null");
         this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
@@ -152,16 +146,15 @@ public class LessonExtractor
                 return costSoFarMilliUsd >= COST_CAP_MILLI_USD;
             }
         };
-        Callable<TurnResult> work = () -> runner.runTurn(
-                new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
-                        endpoint.modelId(),
-                        endpoint.transport() == TurnSpec.Transport.ANTHROPIC ? system : null,
-                        messages, mapper.createArrayNode(),
-                        MAX_OUTPUT_TOKENS, 1),
-                executor, hooks);
         TurnResult result;
         try {
-            result = scheduler.invokeAll(List.of(work)).get(0);
+            result = runner.runTurn(
+                    new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
+                            endpoint.modelId(),
+                            endpoint.transport() == TurnSpec.Transport.ANTHROPIC ? system : null,
+                            messages, mapper.createArrayNode(),
+                            MAX_OUTPUT_TOKENS, 1),
+                    executor, hooks);
         }
         catch (RuntimeException e) {
             throw new ExtractionFailedException(
@@ -179,10 +172,10 @@ public class LessonExtractor
         CliReviewRunner.Provider provider = cliProvider(workModel.agentOrProvider());
         CliReviewRunner.Result result;
         try {
-            result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
+            result = cliRunner.run(
                     provider, system + "\n\n" + prompt, null,
                     Path.of(System.getProperty("java.io.tmpdir")), null,
-                    toIntExact(COST_CAP_MILLI_USD / 10)));
+                    toIntExact(COST_CAP_MILLI_USD / 10));
         }
         catch (CliReviewException e) {
             throw new ExtractionUnavailableException(

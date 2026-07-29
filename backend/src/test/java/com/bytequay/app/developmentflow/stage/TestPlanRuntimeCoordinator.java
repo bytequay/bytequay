@@ -32,9 +32,8 @@ import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
-import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
-import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
@@ -62,6 +61,7 @@ import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestPlanRuntimeCoordinator
 {
@@ -1294,13 +1294,12 @@ class TestPlanRuntimeCoordinator
                 commands, stageStore, localEvidence);
         PlanToLocalHandoff planToLocal = new PlanToLocalHandoff(
                 commands, plan, tasks, local);
-        GitRunner git = new GitRunner();
         ObjectMapper json = new ObjectMapper();
         LocalDevelopmentRuntimeCoordinator localRuntime =
                 new LocalDevelopmentRuntimeCoordinator(
                         commands, tasks, local,
                         new SqliteLocalDevelopmentRuntimeStore(jdbc),
-                        new CodeFingerprints(git), git, json,
+                        mock(PRService.class), json,
                         Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC), 53123);
         TaskCreationHandoff creation = new TaskCreationHandoff(
                 commands, trunks, tasks, new IdGenerator(ignored -> 1));

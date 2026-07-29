@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.AssignmentBudget;
 import com.bytequay.app.domain.InvestigationReviewData.CriterionRow;
@@ -56,12 +57,30 @@ import java.util.Set;
 public class InvestigationReviewStore
 {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
+    private static final TypeReference<List<DiffFile>> DIFF_FILE_LIST = new TypeReference<>() {};
+    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {};
 
     /** One task-owned review-round charge for workspace spend charts. */
     public record TaskReviewSpend(long costMilli, Instant occurredAt) {}
 
     /** One AgentReview round for the monthly AI usage ledger. */
     public record AgentReviewSpend(String provider, String runner, long costMilli, long calls) {}
+
+    /** Immutable code subject consumed by every turn in one review round. */
+    public record ReviewRoundSnapshot(
+            String roundId, String repository, Integer remotePrNumber,
+            String baseBranch, String prTitle, String prDescription,
+            String baseCommit, String headCommit, String diff,
+            List<DiffFile> files, Map<String, String> fileContents,
+            String localRoot, String repositoryRoot,
+            ReviewCapabilities capabilities, long createdAtMs)
+    {
+        public ReviewRoundSnapshot
+        {
+            files = List.copyOf(files);
+            fileContents = Map.copyOf(fileContents);
+        }
+    }
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
@@ -95,6 +114,21 @@ public class InvestigationReviewStore
                                          WHERE r.session_id = s.id
                                            AND (r.status IN ('QUEUED', 'RUNNING')
                                                 OR r.lifecycle_finalized = 0))
+                                 OR EXISTS (
+                                     SELECT 1
+                                     FROM task_review_snapshot_operation_v286 snapshot
+                                     WHERE snapshot.review_id = s.id
+                                       AND snapshot.status = 'REQUESTED')
+                                 OR EXISTS (
+                                     SELECT 1
+                                     FROM task_review_round_snapshot_operation_v293 snapshot
+                                     WHERE snapshot.review_id = s.id
+                                       AND snapshot.status = 'REQUESTED')
+                                 OR EXISTS (
+                                     SELECT 1
+                                     FROM review_session_snapshot_operation_v293 snapshot
+                                     WHERE snapshot.review_id = s.id
+                                       AND snapshot.status = 'REQUESTED')
                             THEN 'running' ELSE 'done' END AS dashboard_state
                 FROM review_session s
                 WHERE s.status IN ('ACTIVE','STALE')
@@ -430,6 +464,47 @@ public class InvestigationReviewStore
                 row.costCents(), json(row.capabilitiesJson()), row.triggerStageId(),
                 row.reviewId(), now.toEpochMilli());
         return findRound(row.id()).orElseThrow();
+    }
+
+    @Transactional
+    public void insertRoundSnapshot(ReviewRoundSnapshot snapshot)
+    {
+        jdbc.update("""
+                INSERT INTO review_round_snapshot_v291(
+                    round_id, repository, remote_pr_number, base_branch,
+                    pr_title, pr_description,
+                    base_commit, head_commit, diff, files_json, file_contents_json,
+                    local_root, repository_root, capabilities_json, created_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, snapshot.roundId(), snapshot.repository(),
+                snapshot.remotePrNumber(), snapshot.baseBranch(),
+                snapshot.prTitle(), snapshot.prDescription(),
+                snapshot.baseCommit(), snapshot.headCommit(),
+                snapshot.diff(), json(snapshot.files()),
+                json(snapshot.fileContents()), snapshot.localRoot(),
+                snapshot.repositoryRoot(), json(snapshot.capabilities()),
+                snapshot.createdAtMs());
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<ReviewRoundSnapshot> findRoundSnapshot(String roundId)
+    {
+        return jdbc.query("""
+                SELECT * FROM review_round_snapshot_v291 WHERE round_id = ?
+                """, this::roundSnapshot, roundId).stream().findFirst();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<ReviewRoundSnapshot> findRoundSnapshotByAssignment(
+            String assignmentId)
+    {
+        return jdbc.query("""
+                SELECT snapshot.*
+                FROM review_round_snapshot_v291 snapshot
+                JOIN review_assignment assignment
+                  ON assignment.round_id = snapshot.round_id
+                WHERE assignment.id = ?
+                """, this::roundSnapshot, assignmentId).stream().findFirst();
     }
 
     @Transactional
@@ -885,6 +960,16 @@ public class InvestigationReviewStore
                 """, assignmentId) == 1;
     }
 
+    @Transactional(readOnly = true)
+    public boolean assignmentUsesQuickReviewScope(String assignmentId)
+    {
+        return count("""
+                SELECT COUNT(*) FROM review_assignment assignment
+                JOIN review_round round ON round.id = assignment.round_id
+                WHERE assignment.id = ? AND round.scope = 'quick'
+                """, assignmentId) == 1;
+    }
+
     /** Run one artifact mutation behind the same SQLite write lock as round
      * cancellation. If cancellation won first, no child artifact is written;
      * if this mutation won, cancellation waits and its terminal fence runs
@@ -1332,6 +1417,23 @@ public class InvestigationReviewStore
                 rs.getString("trigger_stage_id"), rs.getInt("message_gate_open") != 0);
     }
 
+    private ReviewRoundSnapshot roundSnapshot(ResultSet rs, int ignored)
+            throws SQLException
+    {
+        return new ReviewRoundSnapshot(
+                rs.getString("round_id"), rs.getString("repository"),
+                integer(rs, "remote_pr_number"), rs.getString("base_branch"),
+                rs.getString("pr_title"), rs.getString("pr_description"),
+                rs.getString("base_commit"),
+                rs.getString("head_commit"), rs.getString("diff"),
+                diffFiles(rs.getString("files_json")),
+                stringMap(rs.getString("file_contents_json")),
+                rs.getString("local_root"),
+                rs.getString("repository_root"),
+                value(rs.getString("capabilities_json"), ReviewCapabilities.class),
+                rs.getLong("created_at_ms"));
+    }
+
     private ReviewRoundMessageRow roundMessage(ResultSet rs, int ignored) throws SQLException
     {
         long completedAt = rs.getLong("completed_at_ms");
@@ -1382,6 +1484,26 @@ public class InvestigationReviewStore
         }
         catch (JsonProcessingException e) {
             throw new IllegalStateException("corrupt review string list", e);
+        }
+    }
+
+    private List<DiffFile> diffFiles(String json)
+    {
+        try {
+            return mapper.readValue(json, DIFF_FILE_LIST);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("corrupt review diff-file list", e);
+        }
+    }
+
+    private Map<String, String> stringMap(String json)
+    {
+        try {
+            return mapper.readValue(json, STRING_MAP);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("corrupt review string map", e);
         }
     }
 

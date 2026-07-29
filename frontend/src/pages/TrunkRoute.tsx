@@ -96,8 +96,6 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
   const [busy, setBusy] = useState(false);
   const [awaitedAt, setAwaitedAt] = useState<number | null>(null);
   const [awaitedTurnId, setAwaitedTurnId] = useState<string | null>(null);
-  const [resuming, setResuming] = useState(false);
-  const [resumeError, setResumeError] = useState<string | null>(null);
 
   // The caller switches threads by passing a new id (no remount, since
   // <TrunkRoute> isn't keyed). Reset synchronously so a stale-while-
@@ -125,8 +123,6 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
     setMergeReadyIds(new Set());
     setAwaitedAt(null);
     setAwaitedTurnId(null);
-    setResuming(false);
-    setResumeError(null);
   }
   // Clear the "working" indicator once a new assistant reply lands, not when
   // the user's own message persists into the planning slice.
@@ -153,8 +149,8 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
       setAwaitedTurnId(null);
     }
   }, [replyCount, awaitedAt, awaitedTurnId, turns]);
-  // /turns is the compatibility projection over legacy scheduler turns and
-  // typed V2 turns. Only a Trunk-scoped row (taskId === null) can make this
+  // /turns is the compatibility projection over retained legacy rows and typed
+  // V2 turns. Only a Trunk-scoped row (taskId === null) can make this
   // route busy; running Task/Stage siblings remain isolated.
   const activeTrunkTurn = turns.find(
     turn => turn.taskId === null && turn.status === 'RUNNING')
@@ -205,23 +201,6 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
     }
     catch { /* leave the last loaded state */ }
   }, [threadId, onWorkspaceResolved]);
-
-  const resume = useCallback(async () => {
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (bridge?.resumeTask === undefined) return;
-    setResuming(true);
-    setResumeError(null);
-    try {
-      await bridge.resumeTask(threadId);
-      await load();
-    }
-    catch (error) {
-      setResumeError(error instanceof Error ? error.message : String(error));
-    }
-    finally {
-      setResuming(false);
-    }
-  }, [threadId, load]);
 
   // Poll so the agent's reply (and any task it cuts) lands without a manual
   // reload — also a fallback if the live stream can't connect.
@@ -480,9 +459,6 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
         branch: tasks.find(task => !TERMINAL_TASK_STATUSES.has(task.status))?.branchName ?? null,
         workspaceId: thread?.workspaceId,
       }}
-      onResume={resume}
-      resuming={resuming}
-      resumeError={resumeError}
       conversation={conversation}
       conversationIndex={(
         <ConvIndex
@@ -497,8 +473,7 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
         placeholder: 'Do anything — ask the brain, cut a task, or paste an error…',
         suggestedReply,
         images, onImagesChange: setImages,
-        modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} variant="workspace-v2"
-          agentLockPending={working} />,
+        modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} variant="workspace-v2" />,
       }}
       tasks={{ active, closed }}
       historyTasks={historyTasks}

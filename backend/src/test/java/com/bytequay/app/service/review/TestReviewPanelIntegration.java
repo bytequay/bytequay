@@ -48,8 +48,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,8 +59,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Panel-of-5 round-trip through the REAL lead + seat compositions
- * (only the provider wire is faked): KICKOFF → INDEPENDENT (parallel
- * fan-out through the real scheduler) → CROSS_REVIEW (one Lead round
+ * (only the provider wire is faked): KICKOFF → INDEPENDENT (serial
+ * calls through the exact call context) → CROSS_REVIEW (one Lead round
  * dispatching all five seats) → CONSENSUS → DEBATE → TERMINATE.
  *
  * <p>Also the SAFETY WALL: across the whole run, the GitHub repository
@@ -121,24 +119,7 @@ class TestReviewPanelIntegration
         });
         when(registry.all()).thenReturn(List.copyOf(reviewers));
 
-        LegacyReviewAdmission admission = mock(LegacyReviewAdmission.class);
-        when(admission.invoke(any(), any(), any(), any())).thenAnswer(invocation ->
-                invocation.<Callable<Object>>getArgument(3).call());
-        when(admission.invokeAll(any())).thenAnswer(invocation -> {
-            List<LegacyReviewAdmission.Work<Object>> work = invocation.getArgument(0);
-            return work.stream()
-                    .map(item -> CompletableFuture.supplyAsync(() -> {
-                        try {
-                            return item.work().call();
-                        }
-                        catch (Exception e) {
-                            throw new IllegalStateException(e);
-                        }
-                    }))
-                    .toList().stream()
-                    .map(CompletableFuture::join)
-                    .toList();
-        });
+        ReviewCallContext admission = new ReviewCallContext();
 
         // Endpoint resolution is faked (no credentials in tests); the
         // wire itself is the scripted TurnRunner below.
@@ -207,9 +188,8 @@ class TestReviewPanelIntegration
                 .toList();
         assertThat(dispatches).hasSize(5);
 
-        // The cross-review fan-out genuinely overlapped (parallel via
-        // the scheduler's API lane, capped at 6).
-        assertThat(seatTurnPeak.get()).isGreaterThan(1);
+        // Compatibility review seats deliberately share one serial call context.
+        assertThat(seatTurnPeak.get()).isEqualTo(1);
 
         // Per-seat costs: every reviewer seat spent within its slice
         // and the pass total is within the cap.
@@ -267,9 +247,8 @@ class TestReviewPanelIntegration
             return new TurnResult("Agenda set.", 100, 20, 5L, 1, TurnResult.End.COMPLETED);
         }
         if (directive.contains("'" + ReviewPassService.AGENDA_CROSS_REVIEW + "'")) {
-            // One round, five parallel dispatches — the real runner
-            // announces the batch first, which prefetches through the
-            // scheduler; execute() then drains the results.
+            // One round, five serial dispatches. The real runner announces
+            // the batch first; execute() then drains the ordered results.
             List<ToolCall> batch = new ArrayList<>();
             for (int i = 0; i < LABELS.size(); i++) {
                 String participantId = reviewerSeatIds().get(i);
@@ -306,9 +285,6 @@ class TestReviewPanelIntegration
         int now = seatTurnsRunning.incrementAndGet();
         seatTurnPeak.accumulateAndGet(now, Math::max);
         try {
-            // Tiny pause so genuinely parallel dispatches overlap and
-            // the peak-concurrency assertion means something.
-            Thread.sleep(15);
             String directive = lastUserText(spec);
             if (directive.contains("independent review")) {
                 String label = labelOf(spec);
@@ -320,10 +296,6 @@ class TestReviewPanelIntegration
             }
             return new TurnResult("I agree with the claim as quoted.", 90, 15, 4L, 1,
                     TurnResult.End.COMPLETED);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
         }
         finally {
             seatTurnsRunning.decrementAndGet();
@@ -348,7 +320,7 @@ class TestReviewPanelIntegration
     private static String agendaArgs()
     {
         return "{\"phases\":["
-                + "{\"id\":\"" + ReviewPassService.AGENDA_INDEPENDENT + "\",\"title\":\"Run 5 parallel reviews\"},"
+                + "{\"id\":\"" + ReviewPassService.AGENDA_INDEPENDENT + "\",\"title\":\"Run 5 serial reviews\"},"
                 + "{\"id\":\"" + ReviewPassService.AGENDA_CROSS_REVIEW + "\",\"title\":\"Cross-examine\"},"
                 + "{\"id\":\"" + ReviewPassService.AGENDA_CONSENSUS + "\",\"title\":\"Classify consensus\"},"
                 + "{\"id\":\"" + ReviewPassService.AGENDA_DEBATE + "\",\"title\":\"Debate disputes\"}]}";

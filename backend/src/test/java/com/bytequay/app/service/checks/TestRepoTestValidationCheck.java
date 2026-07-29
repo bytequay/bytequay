@@ -121,6 +121,27 @@ class TestRepoTestValidationCheck
     }
 
     @Test
+    void detachedRunReturnsTypedEvidenceWithoutProjectingAPrCheck()
+            throws InterruptedException
+    {
+        when(detector.detect(worktree)).thenReturn(Optional.of(
+                new TestRunnerDetector.Detected(
+                        "maven", List.of("mvn", "-q", "verify"))));
+        when(shellRunner.runArgv(eq(worktree), any(), anyLong(), any(Integer.class)))
+                .thenReturn(new ShellRunner.Result(
+                        true, 0, "BUILD SUCCESS", false, null));
+
+        RepoTestValidationCheck.TestRun run =
+                check.runWithoutRecording(worktree).orElseThrow();
+
+        assertThat(run.ecosystem()).isEqualTo("maven");
+        assertThat(run.passed()).isTrue();
+        assertThat(run.failures()).isEmpty();
+        verify(prSync, never()).syncFromTask(any());
+        verify(prService, never()).recordCheck(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void interruptedRunReturnsAFailureAndRestoresTheInterruptFlag()
             throws InterruptedException
     {

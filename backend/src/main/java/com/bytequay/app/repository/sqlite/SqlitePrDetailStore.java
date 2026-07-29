@@ -105,7 +105,9 @@ public class SqlitePrDetailStore
                 d.getBaseRef(),
                 d.getBaseRepo(),
                 d.getState(),
-                d.isMerged());
+                d.isMerged(),
+                d.getBaseSha(),
+                d.getMergeCommitSha());
 
         List<PrReviewState> reviews = reviewRepo.findByPrId(prId).stream()
                 .map(r -> new PrReviewState(r.getLogin(), r.getState(), r.getSubmittedAt()))
@@ -328,6 +330,8 @@ public class SqlitePrDetailStore
         entity.setRequestedReviewerCount(raw.requestedReviewerCount());
         entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of());
         entity.setHeadSha(raw.headSha());
+        entity.setBaseSha(raw.baseSha());
+        entity.setMergeCommitSha(raw.mergeCommitSha());
         entity.setHeadRef(raw.headRef());
         entity.setHeadRepo(raw.headRepo());
         entity.setBaseRef(raw.baseRef());

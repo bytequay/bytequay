@@ -14,14 +14,11 @@
 package com.bytequay.app.scheduler;
 
 import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
-import com.bytequay.app.domain.StageEvent;
-import com.bytequay.app.domain.StageEventType;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
-import com.bytequay.app.domain.StageType;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.Snapshot;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.State;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -31,13 +28,11 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceAutomationState;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceAutomationStateStore;
 import com.bytequay.app.service.threads.ParkedProposalService;
-import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
@@ -56,7 +51,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -70,6 +64,17 @@ class TestWorkspaceQualityScanCoordinator
 {
     @TempDir
     private Path clone;
+
+    @Test
+    void dependsOnTypedV2PlanOwnerOnly()
+    {
+        assertThat(WorkspaceQualityScanCoordinator.class.getConstructors()[0]
+                .getParameterTypes())
+                .extracting(Class::getSimpleName)
+                .doesNotContain(
+                        "StageStore", "PlanStageService", "TaskService",
+                        "RetiredThreadTurnScheduler");
+    }
 
     @Test
     void enabledWorkspaceQueuesAttributedPlannerTaskThroughThreadService()
@@ -144,33 +149,45 @@ class TestWorkspaceQualityScanCoordinator
     void failedPlanningTaskIsCancelledAndReportedInsteadOfBlockingForever()
     {
         Fixture fixture = fixture(enabledSettings());
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn("scan-task");
-        when(task.threadId()).thenReturn("quality-thread");
-        when(task.status()).thenReturn(TaskStatus.RUNNING);
-        when(task.createdAt()).thenReturn(Instant.now());
-        when(fixture.taskStore().listByPhaseAndOrigin(
-                TaskPhase.PLANNING, Task.ORIGIN_QUALITY_SCAN)).thenReturn(List.of(task));
-        when(fixture.threadStore().findThreadById("quality-thread"))
-                .thenReturn(Optional.of(fixture.thread()));
-        UUID stageId = UUID.randomUUID();
-        StageInstance stage = new StageInstance(
-                stageId, "scan-task", StageType.PLAN_STAGE, StageState.OPEN,
-                Instant.now(), null, null);
-        when(fixture.stages().findActiveStage("scan-task")).thenReturn(Optional.of(stage));
-        when(fixture.stages().findEventsByStage(stageId)).thenReturn(List.of(new StageEvent(
-                UUID.randomUUID(), stageId, "scan-task", StageEventType.PLAN_FAILED,
-                Instant.now(), "{}")));
+        when(fixture.plans().listCurrent(
+                "w1", Task.ORIGIN_QUALITY_SCAN,
+                WorkspaceQualityScanCoordinator.TASK_TYPE))
+                .thenReturn(List.of(snapshot(State.FAILED, "{}")));
 
         fixture.coordinator().tick();
 
-        verify(fixture.taskService()).cancelTask("quality-thread", "scan-task");
+        verify(fixture.taskControls()).cancelByAutomation(
+                "scan-task", WorkspaceQualityScanCoordinator.KIND);
         ArgumentCaptor<WorkspaceAutomationState> state =
                 ArgumentCaptor.forClass(WorkspaceAutomationState.class);
         verify(fixture.states()).save(state.capture());
         assertThat(state.getValue().lastRunJson())
                 .contains("\"outcome\":\"FAILED\"", "planning turn failed");
         verify(fixture.threads(), never()).materialiseTask(any(), any());
+    }
+
+    @Test
+    void reviewedFindingClosesV2TaskBeforeParkingUserGatedIssue()
+            throws Exception
+    {
+        Fixture fixture = fixture(enabledSettings());
+        JsonNode finding = new ObjectMapper().readTree("""
+                {"status":"finalized","goal":"Avoid repeated scans",
+                 "understanding":{"summary":"The service scans every row."},
+                 "intent":{"steps":[{"action":"Cache by repository id."}]},
+                 "signals":{"confidence":"high"}}
+                """);
+        when(fixture.plans().listCurrent(
+                "w1", Task.ORIGIN_QUALITY_SCAN,
+                WorkspaceQualityScanCoordinator.TASK_TYPE))
+                .thenReturn(List.of(snapshot(State.REVIEWED, finding.toString())));
+        fixture.coordinator().tick();
+
+        verify(fixture.taskControls()).cancelByAutomation(
+                "scan-task", WorkspaceQualityScanCoordinator.KIND);
+        verify(fixture.parked()).parkReadOnlyV2Proposal(
+                eq("quality-thread"), eq("scan-task"), any());
+        verify(fixture.parked(), never()).park(any(), any());
     }
 
     private Fixture fixture(WorkspaceSettingsDto settings)
@@ -183,8 +200,8 @@ class TestWorkspaceQualityScanCoordinator
         ThreadStore threadStore = mock(ThreadStore.class);
         TaskStore taskStore = mock(TaskStore.class);
         ThreadService threads = mock(ThreadService.class);
-        StageStore stages = mock(StageStore.class);
-        TaskService taskService = mock(TaskService.class);
+        V2AutomationPlanService plans = mock(V2AutomationPlanService.class);
+        V2TaskControlService taskControls = mock(V2TaskControlService.class);
         ParkedProposalService parked = mock(ParkedProposalService.class);
         WorkspaceAutomationStateStore states = mock(WorkspaceAutomationStateStore.class);
         Instant now = Instant.now();
@@ -204,8 +221,7 @@ class TestWorkspaceQualityScanCoordinator
         when(watchedRepos.find("acme", "widget")).thenReturn(Optional.of(
                 new WatchedRepo(1, "acme", "widget", 0, clone.toString(), null, null)));
         when(threadStore.listThreadsByWorkspace("w1")).thenReturn(List.of());
-        when(taskStore.listByPhaseAndOrigin(
-                TaskPhase.PLANNING, Task.ORIGIN_QUALITY_SCAN)).thenReturn(List.of());
+        when(plans.listCurrent(any(), any(), any())).thenReturn(List.of());
         when(threads.create(any())).thenReturn(thread);
         when(states.find("w1", WorkspaceQualityScanCoordinator.KIND))
                 .thenReturn(Optional.empty());
@@ -217,11 +233,20 @@ class TestWorkspaceQualityScanCoordinator
                                 WorkModelResolver.Source.WORKSPACE, "w1", "workspace Widget")));
         WorkspaceQualityScanCoordinator coordinator = new WorkspaceQualityScanCoordinator(
                 workspaces, configuration, resolver, watchedRepos, threadStore,
-                taskStore, threads, stages, taskService, parked, states,
+                taskStore, threads, plans, taskControls, parked, states,
                 new ObjectMapper(), Runnable::run, workModels);
         return new Fixture(
-                coordinator, threads, states, taskStore, threadStore, stages,
-                taskService, thread);
+                coordinator, threads, states, taskStore, threadStore, plans,
+                taskControls, parked, thread);
+    }
+
+    private static Snapshot snapshot(State state, String content)
+    {
+        return new Snapshot(
+                "scan-task", "quality-thread", "w1", Task.ORIGIN_QUALITY_SCAN,
+                WorkspaceQualityScanCoordinator.TASK_TYPE, null, Instant.now(),
+                1, 4, "plan-stage", 1L, 3L, "revision", content,
+                "self-review", state, state == State.FAILED ? "PLAN_REVIEW_FAILURE" : null);
     }
 
     private static WorkspaceSettingsDto enabledSettings()
@@ -238,7 +263,8 @@ class TestWorkspaceQualityScanCoordinator
             WorkspaceAutomationStateStore states,
             TaskStore taskStore,
             ThreadStore threadStore,
-            StageStore stages,
-            TaskService taskService,
+            V2AutomationPlanService plans,
+            V2TaskControlService taskControls,
+            ParkedProposalService parked,
             Thread thread) {}
 }

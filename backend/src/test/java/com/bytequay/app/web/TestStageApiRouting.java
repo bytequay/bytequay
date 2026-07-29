@@ -17,25 +17,29 @@ import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.compatibility.V2StageApiService;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageRuntimeService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -43,11 +47,12 @@ import static org.mockito.Mockito.when;
 class TestStageApiRouting
 {
     private final StageDetailService legacyDetail = mock(StageDetailService.class);
-    private final StageRuntimeService legacyRuntime = mock(StageRuntimeService.class);
     private final StageSteeringService steering = mock(StageSteeringService.class);
     private final StageService stages = mock(StageService.class);
     private final V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
     private final V2StageApiService v2 = mock(V2StageApiService.class);
+    private final StageStore stageStore = mock(StageStore.class);
+    private final TaskStore taskStore = mock(TaskStore.class);
     private final StageController controller = controller();
 
     @Test
@@ -60,7 +65,7 @@ class TestStageApiRouting
         assertThat(controller.stage(stageId.toString())).isSameAs(detail);
 
         verify(stages).getStageDetail(stageId);
-        verifyNoInteractions(legacyDetail, legacyRuntime, v2);
+        verifyNoInteractions(legacyDetail, v2);
     }
 
     @Test
@@ -81,26 +86,57 @@ class TestStageApiRouting
         verify(v2).detail("task-v2", stageId.toString());
         verify(v2).subscribe(eq("task-v2"), eq(stageId.toString()), any());
         verify(v2).interrupt("task-v2", stageId.toString());
-        verifyNoInteractions(legacyDetail, legacyRuntime);
+        verifyNoInteractions(legacyDetail);
     }
 
     @Test
-    void legacyDetailStreamAndInterruptKeepTheirExistingOwners()
+    void legacyDetailRemainsReadableButRuntimeEndpointsAreRejected()
     {
         UUID stageId = UUID.randomUUID();
         StageDetailData detail = mock(StageDetailData.class);
         when(routes.taskForStage(stageId.toString())).thenReturn(Optional.empty());
         when(legacyDetail.getDetail(stageId)).thenReturn(detail);
-        when(legacyRuntime.subscribe(eq(stageId), any())).thenReturn(() -> {});
 
         assertThat(controller.stageDetail(stageId.toString())).isSameAs(detail);
-        controller.stream(stageId.toString());
-        controller.interrupt(stageId.toString());
+        assertThatThrownBy(() -> controller.stream(stageId.toString()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
+        assertThatThrownBy(() -> controller.interrupt(stageId.toString()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
         verify(legacyDetail).getDetail(stageId);
-        verify(legacyRuntime).subscribe(eq(stageId), any());
-        verify(legacyRuntime).interrupt(stageId);
         verifyNoInteractions(v2);
+    }
+
+    @Test
+    void stageWorkModelMutationCannotWriteEitherLegacyOrV2StageRows()
+    {
+        UUID legacyId = UUID.randomUUID();
+        UUID v2Id = UUID.randomUUID();
+        StageInstance legacyStage = mock(StageInstance.class);
+        StageInstance v2Stage = mock(StageInstance.class);
+        Task legacyTask = mock(Task.class);
+        Task v2Task = mock(Task.class);
+        when(legacyTask.id()).thenReturn("task-legacy");
+        when(v2Task.id()).thenReturn("task-v2");
+        when(legacyStage.taskId()).thenReturn("task-legacy");
+        when(v2Stage.taskId()).thenReturn("task-v2");
+        when(stageStore.findStageById(legacyId)).thenReturn(Optional.of(legacyStage));
+        when(stageStore.findStageById(v2Id)).thenReturn(Optional.of(v2Stage));
+        when(taskStore.findTaskById("task-legacy")).thenReturn(Optional.of(legacyTask));
+        when(taskStore.findTaskById("task-v2")).thenReturn(Optional.of(v2Task));
+        when(taskStore.isV2Task("task-v2")).thenReturn(true);
+
+        assertThatThrownBy(() -> controller.setWorkModel(legacyId.toString(), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
+        assertThatThrownBy(() -> controller.setWorkModel(v2Id.toString(), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("frozen at creation");
+
+        verify(stageStore, never())
+                .updateWorkModel(any(), any());
     }
 
     @Test
@@ -136,9 +172,9 @@ class TestStageApiRouting
     private StageController controller()
     {
         StageController result = new StageController(
-                stages, legacyDetail, steering, legacyRuntime,
-                mock(PlanStageService.class), mock(StageStore.class),
-                mock(TaskStore.class), mock(ThreadStore.class),
+                stages, legacyDetail, steering,
+                mock(PlanStageService.class), stageStore,
+                taskStore, mock(ThreadStore.class),
                 mock(WorkModelResolver.class));
         result.setV2Stages(routes, v2);
         return result;

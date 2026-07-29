@@ -453,9 +453,7 @@ export default function ThreadsPage({
   // surface in the tile within that window.
   const onTileSend = useCallback(async (threadId: string, input: string) => {
     try {
-      const taskId = (await window.bridge.listTasksForThread(threadId)).at(-1)?.id;
-      if (!taskId) throw new Error('This thread has no task to receive the message.');
-      await window.bridge.sendTaskMessage(threadId, taskId, input);
+      await window.bridge.sendTrunkMessage(threadId, input);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));

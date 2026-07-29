@@ -17,9 +17,6 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager.PublishCommand;
 import com.bytequay.app.developmentflow.stage.RemoteMergeRuntimeCoordinator.Command;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore.AuthorityKind;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -27,7 +24,6 @@ import org.mockito.MockedStatic;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
-import java.nio.file.Path;
 import java.sql.ResultSet;
 import java.time.Clock;
 import java.time.Instant;
@@ -54,12 +50,9 @@ class TestV2PrRemoteControlService
     private final TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
     private final LocalDevelopmentStageManager local = mock(LocalDevelopmentStageManager.class);
     private final RemoteMergeRuntimeCoordinator merges = mock(RemoteMergeRuntimeCoordinator.class);
-    private final GitRunner git = mock(GitRunner.class);
-    private final CodeFingerprints fingerprints = mock(CodeFingerprints.class);
-    private final PatResolver pats = mock(PatResolver.class);
 
     @Test
-    void approveAndShipBuildsOneTypedPublishGraphAndMovesOnlyTheLocalManager()
+    void approveAndShipSynchronouslyPersistsOneTypedPublishGraph()
             throws Exception
     {
         RecordingJdbc jdbc = RecordingJdbc.publish();
@@ -68,20 +61,13 @@ class TestV2PrRemoteControlService
             invocation.getArgument(1, Runnable.class).run();
             return null;
         }).when(commands).executeVoid(eq("task-1"), any(Runnable.class));
-        when(git.isGitWorkingTree(Path.of("/tmp"))).thenReturn(true);
-        when(git.currentBranch(Path.of("/tmp"))).thenReturn("dev/task-1");
-        when(git.headSha(Path.of("/tmp"))).thenReturn("head-1");
-        when(git.statusPorcelainZ(Path.of("/tmp"))).thenReturn("");
-        when(git.commitCountUniqueTo(Path.of("/tmp"), "HEAD", "base-1"))
-                .thenReturn(1);
-        when(fingerprints.fingerprint(Path.of("/tmp"))).thenReturn("fp-1");
-        when(pats.resolve("acme/widget")).thenReturn("token");
         when(local.authorizePublishInCommand(any()))
                 .thenReturn(CommandResult.applied(mock(StageManager.State.class)));
 
         try (MockedStatic<TaskCommandExecutor> ignored =
                 mockStatic(TaskCommandExecutor.class)) {
-            service.approveAndShip("task-1", "pr-1", true);
+            service.approveAndShip(
+                    "publish-command", "task-1", "pr-1", true);
         }
 
         assertThat(jdbc.updates()).anyMatch(sql -> sql.contains("INSERT INTO promotion_manifest"));
@@ -109,7 +95,7 @@ class TestV2PrRemoteControlService
         RecordingJdbc jdbc = RecordingJdbc.merge("SUPPORTED");
         V2PrRemoteControlService service = service(jdbc);
 
-        service.merge("task-1", "rebase");
+        service.merge("merge-command", "task-1", "rebase");
 
         ArgumentCaptor<Command> command = ArgumentCaptor.forClass(Command.class);
         verify(merges).start(command.capture());
@@ -126,7 +112,7 @@ class TestV2PrRemoteControlService
         RecordingJdbc jdbc = RecordingJdbc.merge("UNSUPPORTED");
         V2PrRemoteControlService service = service(jdbc);
 
-        service.merge("task-1", "rebase");
+        service.merge("merge-command", "task-1", "rebase");
 
         ArgumentCaptor<Command> command = ArgumentCaptor.forClass(Command.class);
         verify(merges).start(command.capture());
@@ -136,8 +122,7 @@ class TestV2PrRemoteControlService
     private V2PrRemoteControlService service(JdbcTemplate jdbc)
     {
         return new V2PrRemoteControlService(
-                jdbc, commands, local, merges, git, fingerprints, pats,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                jdbc, commands, local, merges, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static final class RecordingJdbc

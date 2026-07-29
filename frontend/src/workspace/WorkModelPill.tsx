@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ResolvedWorkModelDto, WorkModelDto, WorkModelOptionsDto } from '../types';
+import type { ResolvedWorkModelDto, WorkModelOptionsDto } from '../types';
 
 /** Fixed popover width — used both for the box and for clamping it
  *  inside the viewport when the pill sits near the right edge (the
@@ -37,32 +37,24 @@ type Scope =
 
 type Props = {
   scope: Scope;
-  /** Optional callback when the override changes — the parent uses
-   *  this to refresh any cached resolved-model display elsewhere on
-   *  the page. */
-  onChange?: (resolved: ResolvedWorkModelDto) => void;
   variant?: 'default' | 'workspace-v2';
-  /** Locks immediately while the first turn is being dispatched, before the
-   *  persisted response has had a chance to report agentLocked=true. */
-  agentLockPending?: boolean;
 };
 
 /**
- * Compact "current work model" chip with a click-to-pick popover.
+ * Compact read-only "current work model" chip.
  *
  * <p>Reads {@code ResolvedWorkModelDto} from the matching bridge
  * method (thread or task) and renders both the effective label and a
  * subtle inheritance hint (e.g. "Inherited from workspace ByteQuay").
- * The engine itself belongs to the workspace, so the popover shows it
- * read-only and offers only the reasoning-effort levels the model
- * supports; picking one commits through the matching {@code set*} method.
+ * V2 freezes engine and reasoning effort when the owning Trunk, Task, or
+ * Stage is created, so this component deliberately exposes no mutation.
  *
  * <p>Esc + outside-click dismiss; focus returns to the pill. The
- * picker writes go through the same bridge as the workspace settings
- * page so the per-scope cascade stays consistent across surfaces.
+ * workspace settings page remains the place to change defaults for future
+ * work.
  */
 export function WorkModelPill({
-  scope, onChange, variant = 'default', agentLockPending = false,
+  scope, variant = 'default',
 }: Props) {
   const workspaceVariant = variant === 'workspace-v2';
   const [resolved, setResolved] = useState<ResolvedWorkModelDto | null>(null);
@@ -110,7 +102,7 @@ export function WorkModelPill({
     }
   }, [scope]);
 
-  useEffect(() => { void load(); }, [load, agentLockPending]);
+  useEffect(() => { void load(); }, [load]);
 
   // Options give the effective model's human name for the pill label and
   // feed the picker. Non-refresh read — served from the backend's cached
@@ -173,30 +165,12 @@ export function WorkModelPill({
     };
   }, [open]);
 
-  const commit = useCallback(async (next: WorkModelDto | null) => {
-    try {
-      const updated = scope.kind === 'thread'
-        ? await window.bridge.setThreadWorkModel(scope.threadId, next)
-        : scope.kind === 'task'
-          ? await window.bridge.setTaskWorkModel(scope.threadId, scope.taskId, next)
-          : await window.bridge.setStageWorkModel(scope.stageId, next);
-      setResolved(updated);
-      onChange?.(updated);
-      setOpen(false);
-      triggerRef.current?.focus();
-    }
-    catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [scope, onChange]);
-
   const label = useMemo(() => formatLabel(resolved, options), [resolved, options]);
   const hint = useMemo(() => formatHint(resolved), [resolved]);
   const modelEntry = useMemo(() => findModelEntry(resolved, options), [resolved, options]);
-  const efforts = modelEntry?.supportedReasoningEfforts ?? [];
   const selectedEffort = resolved?.effective.reasoningEffort
     ?? modelEntry?.defaultReasoningEffort
-    ?? '';
+    ?? 'default';
 
   if (resolved === null && error === null) {
     return (
@@ -234,7 +208,7 @@ export function WorkModelPill({
           if (!open) place();
           setOpen((prev) => !prev);
         }}
-        title={hint ?? 'Pick the work model'}
+        title={hint ?? 'View the frozen work model'}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
@@ -248,49 +222,27 @@ export function WorkModelPill({
           role="dialog"
           aria-label="Work model picker"
         >
-          {options === null || resolved === null
-            ? <div style={loadingStyle}>Loading models…</div>
+          {resolved === null
+            ? <div style={loadingStyle}>Loading model…</div>
             : (
               <>
                 <div style={engineRowStyle}>
                   <span style={engineNameStyle}>{label}</span>
                   <span style={engineNoteStyle}>
-                    Engine is set for the whole workspace — change it in
-                    Workspace settings → Agents.
+                    Engine and effort were fixed when this {scope.kind} was created.
+                    Change Workspace settings → Agents for future work.
                   </span>
                 </div>
-                {efforts.length === 0
-                  ? <div style={loadingStyle}>This model has one reasoning level.</div>
-                  : efforts.map(effort => (
-                    <button
-                      key={effort.id}
-                      type="button"
-                      style={effortRowStyle(effort.id === selectedEffort)}
-                      title={effort.description ?? undefined}
-                      onClick={() => {
-                        void commit({ ...resolved.effective, reasoningEffort: effort.id });
-                      }}
-                    >
-                      <span aria-hidden style={inheritanceGlyphStyle}>
-                        {effort.id === selectedEffort ? '●' : '○'}
-                      </span>
-                      {displayEffort(effort.id)}
-                    </button>
-                  ))}
+                <div style={frozenValueStyle}>
+                  <span>Reasoning effort</span>
+                  <strong>{displayEffort(selectedEffort)}</strong>
+                </div>
               </>
             )}
           {hint !== null && (
             <div style={inheritanceHintStyle}>
               <span aria-hidden style={inheritanceGlyphStyle}>↰</span>
               {hint}
-            </div>
-          )}
-          {scope.kind === 'stage' && (
-            <div style={inheritanceHintStyle}>
-              <span aria-hidden style={inheritanceGlyphStyle}>⏳</span>
-              A stage's agent runs one session for its whole lifetime —
-              this applies next time this stage starts a new one, not to
-              a session already running.
             </div>
           )}
         </div>,
@@ -378,22 +330,16 @@ const engineNoteStyle: React.CSSProperties = {
   lineHeight: 1.4,
 };
 
-function effortRowStyle(active: boolean): React.CSSProperties {
-  return {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    width: '100%',
-    padding: '7px 10px',
-    border: 'none',
-    background: active ? 'rgba(0,0,0,0.06)' : 'transparent',
-    borderRadius: 7,
-    cursor: 'pointer',
-    font: 'inherit',
-    fontSize: 12.5,
-    textAlign: 'left',
-  };
-}
+const frozenValueStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  padding: '7px 10px',
+  background: 'rgba(0,0,0,0.04)',
+  borderRadius: 7,
+  fontSize: 12.5,
+};
 
 function pillStyle(active: boolean, workspaceVariant = false): React.CSSProperties {
   if (workspaceVariant) {

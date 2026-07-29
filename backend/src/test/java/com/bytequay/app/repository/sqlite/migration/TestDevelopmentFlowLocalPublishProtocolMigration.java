@@ -22,9 +22,6 @@ import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -35,7 +32,6 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -45,7 +41,6 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class TestDevelopmentFlowLocalPublishProtocolMigration
 {
@@ -53,32 +48,21 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     private Path tempDir;
 
     @Test
-    void approveAndShipCreatesARealPublishGraphAcceptedByCurrentTriggers()
+    void approveAndShipCreatesOneReplaySafeGraphAcceptedByCurrentTriggers()
             throws Exception
     {
-        Path worktree = tempDir.resolve("worktree");
-        Files.createDirectories(worktree);
+        Path worktree = tempDir.resolve("missing-worktree");
         String url = migrated("approve-and-ship-runtime.db");
         try (Connection connection = connect(url)) {
             seedApprovedLocalSubject(connection, false, worktree.toString());
         }
-        migrate(url, "259");
+        migrate(url, "280");
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
-        GitRunner git = mock(GitRunner.class);
-        CodeFingerprints fingerprints = mock(CodeFingerprints.class);
-        PatResolver pats = mock(PatResolver.class);
-        when(git.isGitWorkingTree(worktree)).thenReturn(true);
-        when(git.currentBranch(worktree)).thenReturn("dev/task-1");
-        when(git.headSha(worktree)).thenReturn("head-1");
-        when(git.statusPorcelainZ(worktree)).thenReturn("");
-        when(git.commitCountUniqueTo(worktree, "HEAD", "base-1")).thenReturn(1);
-        when(fingerprints.fingerprint(worktree)).thenReturn("fp-1");
-        when(pats.resolve("acme/widget")).thenReturn("token");
 
         try (StageStores stores = stageStores(dataSource)) {
             LocalDevelopmentStageManager local =
@@ -86,10 +70,10 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                             commands, stores.stage(), stores.evidence());
             V2PrRemoteControlService controls = new V2PrRemoteControlService(
                     jdbc, commands, local,
-                    mock(RemoteMergeRuntimeCoordinator.class),
-                    git, fingerprints, pats);
+                    mock(RemoteMergeRuntimeCoordinator.class));
 
-            controls.approveAndShip("task-1", "pr-1", false);
+            controls.approveAndShip("publish-command", "task-1", "pr-1", false);
+            controls.approveAndShip("publish-command", "task-1", "pr-1", false);
         }
 
         assertThat(jdbc.queryForObject(
@@ -104,6 +88,15 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         assertThat(jdbc.queryForObject(
                 "SELECT policy_revision_id FROM publish_authorization",
                 String.class)).isEqualTo("policy-1");
+        assertThat(worktree).doesNotExist();
+        assertThat(jdbc.queryForList(
+                "SELECT name FROM pragma_table_info('promotion_manifest')",
+                String.class))
+                .contains("require_clean_worktree", "minimum_commits_ahead",
+                        "require_branch_match", "require_base_match",
+                        "require_publish_permission")
+                .doesNotContain("worktree_clean", "commits_ahead",
+                        "branch_verified", "base_verified", "permission_clear");
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM dispatch_ticket
                 WHERE operation_kind = 'PUBLISH_LOCAL_DEVELOPMENT'

@@ -17,9 +17,6 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.EffectKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore.AuthorityKind;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
@@ -28,9 +25,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Clock;
@@ -39,7 +33,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.UUID;
 
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.digest;
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.id;
@@ -56,9 +49,6 @@ public final class V2PrRemoteControlService
     private final TaskCommandExecutor commands;
     private final LocalDevelopmentStageManager local;
     private final RemoteMergeRuntimeCoordinator merges;
-    private final GitRunner git;
-    private final CodeFingerprints fingerprints;
-    private final PatResolver pats;
     private final Clock clock;
 
     @Autowired
@@ -66,13 +56,9 @@ public final class V2PrRemoteControlService
             JdbcTemplate jdbc,
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
-            RemoteMergeRuntimeCoordinator merges,
-            GitRunner git,
-            CodeFingerprints fingerprints,
-            PatResolver pats)
+            RemoteMergeRuntimeCoordinator merges)
     {
-        this(jdbc, commands, local, merges, git, fingerprints, pats,
-                Clock.systemUTC());
+        this(jdbc, commands, local, merges, Clock.systemUTC());
     }
 
     V2PrRemoteControlService(
@@ -80,35 +66,34 @@ public final class V2PrRemoteControlService
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             RemoteMergeRuntimeCoordinator merges,
-            GitRunner git,
-            CodeFingerprints fingerprints,
-            PatResolver pats,
             Clock clock)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.commands = requireNonNull(commands, "commands is null");
         this.local = requireNonNull(local, "local is null");
         this.merges = requireNonNull(merges, "merges is null");
-        this.git = requireNonNull(git, "git is null");
-        this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
-        this.pats = requireNonNull(pats, "pats is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
     /** Freezes one exact local subject and leaves its Git/GitHub work to the dispatcher. */
-    public void approveAndShip(String taskId, String prId, boolean humanOverride)
+    public void approveAndShip(
+            String commandId, String taskId, String prId, boolean humanOverride)
     {
+        requireText(commandId, "commandId");
         requireText(taskId, "taskId");
         requireText(prId, "prId");
-        if (hasLivePublish(taskId, prId)) {
+        String operationId = id(
+                "manual-publish-operation", taskId + ":" + commandId);
+        if (replayPublish(operationId, taskId, prId, humanOverride)) {
             return;
         }
+        if (hasLivePublish(taskId, prId)) {
+            throw conflict("another Approve & ship command already owns this PR");
+        }
         PublishCandidate observed = requirePublishCandidate(taskId, prId);
-        LocalProof proof = proveLocalSubject(observed);
-        String operationId = UUID.randomUUID().toString();
         try {
             commands.executeVoid(taskId, () -> startPublishInCommand(
-                    observed, proof, operationId, humanOverride));
+                    observed, commandId, operationId, humanOverride));
         }
         catch (DataAccessException failure) {
             throw conflict("Approve & ship no longer matches the exact Local Review subject");
@@ -116,22 +101,27 @@ public final class V2PrRemoteControlService
     }
 
     /** Consumes only the latest accepted exact-head readiness evidence. */
-    public void merge(String taskId, String method)
+    public void merge(String commandId, String taskId, String method)
     {
+        requireText(commandId, "commandId");
         requireText(taskId, "taskId");
-        if (hasLiveMerge(taskId)) {
-            return;
-        }
-        MergeCandidate candidate = requireMergeCandidate(taskId);
         String normalized = method == null ? "squash" : method.toLowerCase(Locale.ROOT);
         if (!List.of("merge", "squash", "rebase").contains(normalized)) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "unknown merge method " + method);
         }
-        String operationId = UUID.randomUUID().toString();
+        String operationId = id(
+                "manual-merge-operation", taskId + ":" + commandId);
+        if (replayMerge(operationId, taskId, normalized)) {
+            return;
+        }
+        if (hasLiveMerge(taskId)) {
+            throw conflict("another merge command already owns this Task");
+        }
+        MergeCandidate candidate = requireMergeCandidate(taskId);
         try {
             merges.start(new RemoteMergeRuntimeCoordinator.Command(
-                    id("manual-merge-command", operationId), USER,
+                    commandId, USER,
                     taskId, candidate.stageId(), candidate.readinessEvidenceId(),
                     id("manual-merge-authorization", operationId), operationId,
                     id("manual-merge-ticket", operationId), AuthorityKind.MANUAL,
@@ -144,16 +134,20 @@ public final class V2PrRemoteControlService
 
     private void startPublishInCommand(
             PublishCandidate expected,
-            LocalProof proof,
+            String commandId,
             String operationId,
             boolean humanOverride)
     {
-        if (hasLivePublish(expected.taskId(), expected.prId())) {
+        if (replayPublish(
+                operationId, expected.taskId(), expected.prId(), humanOverride)) {
             return;
+        }
+        if (hasLivePublish(expected.taskId(), expected.prId())) {
+            throw conflict("another Approve & ship command already owns this PR");
         }
         PublishCandidate current = requirePublishCandidate(
                 expected.taskId(), expected.prId());
-        if (!expected.sameSubject(current) || !proof.matches(current)) {
+        if (!expected.sameSubject(current)) {
             throw conflict("Local Review changed while Approve & ship was starting");
         }
         requireNoBlockingAgentReview(current);
@@ -169,8 +163,7 @@ public final class V2PrRemoteControlService
                 "title:" + current.prTitle() + "\nbody:" + current.prBody());
         int manifestRevision = nextManifestRevision(current.stageId());
 
-        insertManifest(
-                current, proof, manifestId, contentDigest, manifestRevision, now);
+        insertManifest(current, manifestId, contentDigest, manifestRevision, now);
         List<OverrideItem> overrides = overrideItems(current, humanOverride);
         String overrideId = overrides.isEmpty()
                 ? null : id("publish-override", operationId);
@@ -204,7 +197,7 @@ public final class V2PrRemoteControlService
         CommandResult<StageManager.State> authorized = local.authorizePublishInCommand(
                 new LocalDevelopmentStageManager.PublishCommand(
                         new StageManager.Command(
-                                id("approve-and-ship", operationId), actor,
+                                commandId, actor,
                                 current.taskId(), current.taskEpoch(), current.stageId(),
                                 current.stageGeneration(), current.stageVersion()),
                         authorizationId, current.policyRevisionId(), consentId, fence));
@@ -216,49 +209,6 @@ public final class V2PrRemoteControlService
                 WHERE id = ? AND status = 'REQUESTED'
                 """, publishOperationId) != 1) {
             throw new IllegalStateException("PublishOperation was not dispatched");
-        }
-    }
-
-    private LocalProof proveLocalSubject(PublishCandidate candidate)
-    {
-        Path worktree = Path.of(candidate.worktreePath());
-        try {
-            if (!Files.isDirectory(worktree) || !git.isGitWorkingTree(worktree)) {
-                throw conflict("Approve & ship requires the Task worktree");
-            }
-            String branch = git.currentBranch(worktree);
-            String head = git.headSha(worktree);
-            String fingerprint = fingerprints.fingerprint(worktree);
-            String status = git.statusPorcelainZ(worktree);
-            Integer commitsAhead = git.commitCountUniqueTo(
-                    worktree, "HEAD", candidate.baseSha());
-            if (!candidate.branchName().equals(branch)
-                    || !candidate.headSha().equals(head)
-                    || !candidate.codeFingerprint().equals(fingerprint)) {
-                throw conflict("Approve & ship subject differs from the reviewed code");
-            }
-            if (!status.isEmpty()) {
-                throw conflict("Approve & ship requires a clean committed worktree");
-            }
-            if (commitsAhead == null || commitsAhead < 1) {
-                throw conflict("Approve & ship requires at least one commit above the exact base");
-            }
-            pats.resolve(candidate.baseRepositoryId());
-            return new LocalProof(head, fingerprint, commitsAhead);
-        }
-        catch (ResponseStatusException failure) {
-            throw failure;
-        }
-        catch (IOException failure) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "inspecting the exact publish subject failed: " + failure.getMessage());
-        }
-        catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "inspecting the exact publish subject was interrupted");
         }
     }
 
@@ -496,6 +446,53 @@ public final class V2PrRemoteControlService
         return count != null && count > 0;
     }
 
+    private boolean replayPublish(
+            String operationId, String taskId, String prId, boolean humanOverride)
+    {
+        List<PublishReplay> rows = jdbc.query("""
+                SELECT operation.task_id, authorization.pr_id,
+                       authorization.consent_kind
+                FROM publish_operation operation
+                JOIN publish_authorization authorization
+                  ON authorization.id = operation.publish_authorization_id
+                WHERE operation.operation_id = ?
+                """, (rs, row) -> new PublishReplay(
+                        rs.getString("task_id"), rs.getString("pr_id"),
+                        rs.getString("consent_kind")), operationId);
+        if (rows.isEmpty()) {
+            return false;
+        }
+        PublishReplay replay = rows.getFirst();
+        String consent = humanOverride ? "HUMAN" : "STANDING_TASK";
+        if (rows.size() != 1 || !taskId.equals(replay.taskId())
+                || !prId.equals(replay.prId())
+                || !consent.equals(replay.consentKind())) {
+            throw conflict("Idempotency-Key was replayed with different Approve & ship input");
+        }
+        return true;
+    }
+
+    private boolean replayMerge(
+            String operationId, String taskId, String mergeMethod)
+    {
+        List<MergeReplay> rows = jdbc.query("""
+                SELECT task_id, merge_method
+                FROM remote_merge_operation
+                WHERE operation_id = ?
+                """, (rs, row) -> new MergeReplay(
+                        rs.getString("task_id"), rs.getString("merge_method")),
+                operationId);
+        if (rows.isEmpty()) {
+            return false;
+        }
+        MergeReplay replay = rows.getFirst();
+        if (rows.size() != 1 || !taskId.equals(replay.taskId())
+                || !mergeMethod.equals(replay.mergeMethod())) {
+            throw conflict("Idempotency-Key was replayed with different merge input");
+        }
+        return true;
+    }
+
     private boolean hasLiveMerge(String taskId)
     {
         Integer count = jdbc.queryForObject("""
@@ -526,7 +523,6 @@ public final class V2PrRemoteControlService
 
     private void insertManifest(
             PublishCandidate candidate,
-            LocalProof proof,
             String manifestId,
             String contentDigest,
             int revision,
@@ -539,19 +535,20 @@ public final class V2PrRemoteControlService
                     revision, code_fingerprint, head_sha, base_sha, route,
                     base_repository_id, head_repository_id,
                     publish_repository_id, branch_name, head_ref, base_branch,
-                    worktree_clean, commits_ahead, branch_verified, base_verified,
-                    permission_clear, pr_title, pr_body, pr_content_revision,
+                    require_clean_worktree, minimum_commits_ahead,
+                    require_branch_match, require_base_match,
+                    require_publish_permission, pr_title, pr_body, pr_content_revision,
                     pr_content_digest, created_at_ms)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    1, ?, 1, 1, 1, ?, ?, ?, ?, ?)
+                    1, 1, 1, 1, 1, ?, ?, ?, ?, ?)
                 """, manifestId, candidate.stageId(), candidate.taskId(),
                 candidate.taskEpoch(), candidate.stageGeneration(),
                 candidate.devReportId(), candidate.prId(),
-                candidate.policyRevisionId(), revision, proof.fingerprint(),
-                proof.headSha(), candidate.baseSha(), candidate.route(),
+                candidate.policyRevisionId(), revision, candidate.codeFingerprint(),
+                candidate.headSha(), candidate.baseSha(), candidate.route(),
                 candidate.baseRepositoryId(), candidate.headRepositoryId(),
                 candidate.publishRepositoryId(), candidate.branchName(),
-                candidate.headRef(), candidate.baseBranch(), proof.commitsAhead(),
+                candidate.headRef(), candidate.baseBranch(),
                 candidate.prTitle(), candidate.prBody(), revision, contentDigest,
                 now.toEpochMilli());
     }
@@ -750,17 +747,11 @@ public final class V2PrRemoteControlService
         }
     }
 
-    private record LocalProof(String headSha, String fingerprint, int commitsAhead)
-    {
-        boolean matches(PublishCandidate candidate)
-        {
-            return headSha.equals(candidate.headSha())
-                    && fingerprint.equals(candidate.codeFingerprint())
-                    && commitsAhead > 0;
-        }
-    }
-
     private record OverrideItem(String kind, String blockerId, String subjectId) {}
+
+    private record PublishReplay(String taskId, String prId, String consentKind) {}
+
+    private record MergeReplay(String taskId, String mergeMethod) {}
 
     private record MergeCandidate(
             String stageId, String readinessEvidenceId, String queueCapability) {}

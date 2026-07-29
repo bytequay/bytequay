@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.stage;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.OutputCodeSubject;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.Classification;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
@@ -35,8 +36,6 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringSto
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -45,8 +44,6 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -82,8 +79,6 @@ public final class RemoteRepairTurnRuntime
     private final TaskManager tasks;
     private final SqliteRemoteRuntimeStore remoteStore;
     private final SqliteRemoteRepairTurnStore turns;
-    private final CodeFingerprints fingerprints;
-    private final GitRunner git;
     private final ObjectMapper json;
     private final ObjectReader stageReader;
     private final ObjectReader brainReader;
@@ -98,8 +93,6 @@ public final class RemoteRepairTurnRuntime
             TaskManager tasks,
             SqliteRemoteRuntimeStore remoteStore,
             SqliteRemoteRepairTurnStore turns,
-            CodeFingerprints fingerprints,
-            GitRunner git,
             ObjectMapper json,
             Clock clock,
             int serverPort,
@@ -109,8 +102,6 @@ public final class RemoteRepairTurnRuntime
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.remoteStore = requireNonNull(remoteStore, "remoteStore is null");
         this.turns = requireNonNull(turns, "turns is null");
-        this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
-        this.git = requireNonNull(git, "git is null");
         this.json = requireNonNull(json, "json is null");
         this.stageReader = strictReader(StageResult.class);
         this.brainReader = strictReader(BrainResult.class);
@@ -354,7 +345,7 @@ public final class RemoteRepairTurnRuntime
             return receipt(ACCEPTED, "Remote repair StageTurn failed");
         }
         StageResult result = decodeStage(raw.payload().finalText());
-        CodeSubject output = observe(context);
+        CodeSubject output = requireOutputCodeSubject(raw, context);
         turns.finishStageTurn(
                 context, raw.outcome().name(), rawDigest, ACCEPTED.name(),
                 "SUCCEEDED", output, result.summary(), null, now);
@@ -392,7 +383,7 @@ public final class RemoteRepairTurnRuntime
         String summary = null;
         if (acceptOutput) {
             StageResult result = decodeStage(raw.payload().finalText());
-            output = observe(context);
+            output = requireOutputCodeSubject(raw, context);
             summary = result.summary();
         }
         DispatchTicket.Acceptance acceptance = acceptOutput
@@ -430,7 +421,7 @@ public final class RemoteRepairTurnRuntime
             return receipt(ACCEPTED, "Remote steering Turn failed");
         }
         StageResult result = decodeStage(raw.payload().finalText());
-        CodeSubject output = observe(context);
+        CodeSubject output = requireOutputCodeSubject(raw, context);
         turns.finishSteeringTurn(
                 context, raw.outcome().name(), rawDigest, ACCEPTED.name(),
                 "SUCCEEDED", output, result.summary(), null, now);
@@ -652,38 +643,22 @@ public final class RemoteRepairTurnRuntime
         return receipt;
     }
 
-    private CodeSubject observe(TurnDelivery context)
+    private static CodeSubject requireOutputCodeSubject(
+            AgentTurnOwnerResultCodec.OwnerResult result,
+            TurnDelivery context)
     {
-        Path worktree = Path.of(context.worktreePath());
-        try {
-            if (git.hasUncommittedChanges(worktree)) {
-                throw new IllegalStateException(
-                        "Remote repair Turn left uncommitted changes");
-            }
-            String headSha = git.headSha(worktree);
-            if (context.headSha().equals(headSha)) {
-                throw new IllegalStateException(
-                        "Remote repair Turn did not create a new committed head");
-            }
-            if ("BRANCH".equals(context.family())
-                    && git.mergeBase(worktree, headSha, context.baseSha())
-                        .filter(context.baseSha()::equals).isEmpty()) {
-                throw new IllegalStateException(
-                        "Branch conflict repair is not based on the target base");
-            }
-            return new CodeSubject(
-                    fingerprints.fingerprint(worktree), headSha,
-                    context.baseSha());
-        }
-        catch (IOException e) {
+        OutputCodeSubject output =
+                result.requireOutputCodeSubject(context.baseSha());
+        if (!output.clean()) {
             throw new IllegalStateException(
-                    "Could not inspect Remote repair worktree", e);
+                    "Remote repair Turn left uncommitted changes");
         }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        if (context.headSha().equals(output.headSha())) {
             throw new IllegalStateException(
-                    "Remote repair worktree inspection was interrupted", e);
+                    "Remote repair Turn did not create a new committed head");
         }
+        return new CodeSubject(
+                output.codeFingerprint(), output.headSha(), output.baseSha());
     }
 
     private WorkModel workModel(RepairContext context)

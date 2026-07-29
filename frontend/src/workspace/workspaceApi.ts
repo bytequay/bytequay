@@ -1147,15 +1147,6 @@ export const workspaceApi = {
     window.bridge.workspaceApi<DeepSeekBalanceDto>({
       path: '/api/ai/deepseek/balance',
     }),
-  session: (sessionId: string) =>
-    window.bridge.workspaceApi<WorkspaceSessionDto>({
-      path: `/api/sessions/${enc(sessionId)}`,
-    }),
-  sessionAction: (sessionId: string, action: 'pause' | 'resume' | 'stop' | 'restart') =>
-    window.bridge.workspaceApi<WorkspaceSessionDto>({
-      path: `/api/sessions/${enc(sessionId)}/${action}`,
-      method: 'POST',
-    }),
   settings: (workspaceId: string) =>
     window.bridge.workspaceApi<WorkspaceSettingsDto>({
       path: `/api/workspaces/${enc(workspaceId)}/settings`,
@@ -1229,11 +1220,6 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/memory/learned/${enc(itemId)}/decision`,
       method: 'POST',
       body: { action },
-    }),
-  pauseAll: (workspaceId: string) =>
-    window.bridge.workspaceApi<{ paused: number }>({
-      path: `/api/workspaces/${enc(workspaceId)}/sessions/pause-all`,
-      method: 'POST',
     }),
   detach: (workspaceId: string) =>
     window.bridge.workspaceApi<void>({

@@ -17,15 +17,11 @@ import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowCanaryRoute;
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
-import com.bytequay.app.domain.PrRawDetail;
-import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.WorkModel;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.review.ReviewBuildSelectionStore;
 import com.bytequay.app.service.review.ReviewBuildSpawnService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -70,8 +66,6 @@ public final class V2TaskCreationService
     private final WorkModelService workModels;
     private final WorkspaceRepositoryResolver repositories;
     private final WorkspaceRelationService relations;
-    private final PullRequestRepository pullRequests;
-    private final PatResolver pats;
     private final ReviewBuildSelectionStore reviewSelections;
     private final ObjectMapper json;
     private final V2DevelopmentFlowProjection projection;
@@ -88,8 +82,6 @@ public final class V2TaskCreationService
             WorkModelService workModels,
             WorkspaceRepositoryResolver repositories,
             WorkspaceRelationService relations,
-            PullRequestRepository pullRequests,
-            PatResolver pats,
             ReviewBuildSelectionStore reviewSelections,
             ObjectMapper json,
             V2DevelopmentFlowProjection projection)
@@ -106,8 +98,6 @@ public final class V2TaskCreationService
         this.workModels = requireNonNull(workModels, "workModels is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.relations = requireNonNull(relations, "relations is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.pats = requireNonNull(pats, "pats is null");
         this.reviewSelections = requireNonNull(
                 reviewSelections, "reviewSelections is null");
         this.json = requireNonNull(json, "json is null");
@@ -151,7 +141,7 @@ public final class V2TaskCreationService
         requireText(trunkId, "trunkId");
         requireText(workspaceId, "workspaceId");
         commands.executeVoid("v2-trunk/" + trunkId,
-                () -> prepareTrunkInCommand(trunkId, workspaceId));
+                () -> prepareTrunkInCommand(trunkId, workspaceId, false));
     }
 
     /** Join the transaction that has just inserted a brand-new Trunk and its
@@ -168,10 +158,11 @@ public final class V2TaskCreationService
             throw new IllegalStateException(
                     "New Trunk promotion requires its creation transaction");
         }
-        prepareTrunkInCommand(trunkId, workspaceId);
+        prepareTrunkInCommand(trunkId, workspaceId, true);
     }
 
-    private void prepareTrunkInCommand(String trunkId, String workspaceId)
+    private void prepareTrunkInCommand(
+            String trunkId, String workspaceId, boolean newlyCreated)
     {
         Integer owned = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM threads
@@ -195,6 +186,10 @@ public final class V2TaskCreationService
         if (!"LEGACY".equals(currentVersion)) {
             throw new IllegalStateException(
                     "Trunk has unknown turn version " + currentVersion);
+        }
+        if (!newlyCreated) {
+            throw new IllegalStateException(
+                    "Historical LEGACY Trunk is read-only and cannot be promoted to V2");
         }
         if (!routes(workspaceId)) {
             return;
@@ -414,8 +409,6 @@ public final class V2TaskCreationService
             ThreadService.NewTaskRequest request,
             TaskAssignment.Identity identity)
     {
-        WorkspaceRepositoryResolver.RepositoryIdentity workspace =
-                repositories.resolve(trunk.workspaceId());
         int number = requirePositive(request.linkedPrNumber(), "linkedPrNumber");
         ReviewBuildSelectionStore.Selection reviewSelection =
                 reviewSelections.find(trunk.id()).orElse(null);
@@ -439,33 +432,9 @@ public final class V2TaskCreationService
             throw new IllegalStateException(
                     "review build selection changed before V2 Task materialization");
         }
-        String prRepository = reviewSelection == null
-                ? workspace.fullName()
-                : reviewSelection.spawn().baseRepositoryId();
-        String[] prParts = repositoryParts(prRepository);
-        PullRequestRef ref = PullRequestRef.of(
-                prParts[0], prParts[1], number);
-        PrRawDetail raw = pullRequests.fetchPrDetail(
-                pats.resolve(prRepository), ref);
-        requireText(raw.headSha(), "PR head SHA");
-        requireText(raw.baseSha(), "PR base SHA");
-        requireText(raw.headRef(), "PR head ref");
-        requireText(raw.baseRef(), "PR base ref");
-        String headRepo = requireText(raw.headRepo(), "PR head repository");
-        String baseRepo = requireText(raw.baseRepo(), "PR base repository");
-        if (reviewSelection == null
-                && !workspace.fullName().equalsIgnoreCase(headRepo)) {
-            throw new IllegalStateException(
-                    "V2 existing-PR Task requires the Workspace-owned head repository");
-        }
-        TaskAssignment.RepositoryRouting routing;
-        if (reviewSelection == null) {
-            routing = baseRepo.equalsIgnoreCase(headRepo)
-                    ? new TaskAssignment.Direct(headRepo)
-                    : new TaskAssignment.Fork(baseRepo, headRepo);
-        }
-        else {
-            routing = workspaceRouting(trunk.workspaceId());
+        TaskAssignment.RepositoryRouting routing = workspaceRouting(
+                trunk.workspaceId());
+        if (reviewSelection != null) {
             if (!ReviewBuildSpawnService.MODE_AUTHOR.equals(
                     reviewSelection.spawn().mode())
                     || !routing.baseRepositoryId().equalsIgnoreCase(
@@ -477,8 +446,7 @@ public final class V2TaskCreationService
             }
         }
         TaskAssignment.PullRequestRef exact = new TaskAssignment.PullRequestRef(
-                routing, number, raw.baseRef(), raw.headRef(),
-                raw.baseSha(), raw.headSha());
+                routing, number, null, null, null, null);
         TaskAssignment assignment;
         if (reviewSelection == null) {
             assignment = new TaskAssignment.ExistingOwnPr(identity, exact);
@@ -487,14 +455,12 @@ public final class V2TaskCreationService
             if (!trunk.parentReviewPassId().equals(
                     reviewSelection.reviewPassId())
                     || reviewSelection.prNumber() != number
-                    || !reviewSelection.repoFullName().equalsIgnoreCase(baseRepo)
-                    || !reviewSelection.reviewedHeadSha().equals(raw.headSha())
+                    || !reviewSelection.repoFullName().equalsIgnoreCase(
+                    routing.baseRepositoryId())
                     || !reviewSelection.spawn().baseRepositoryId()
-                    .equalsIgnoreCase(baseRepo)
+                    .equalsIgnoreCase(routing.baseRepositoryId())
                     || !reviewSelection.spawn().headRepositoryId()
-                    .equalsIgnoreCase(headRepo)
-                    || !reviewSelection.spawn().baseRef().equals(raw.baseRef())
-                    || !reviewSelection.spawn().headRef().equals(raw.headRef())) {
+                    .equalsIgnoreCase(routing.publishRepositoryId())) {
                 throw new IllegalStateException(
                         "review build selection is stale or names another PR");
             }
@@ -531,16 +497,6 @@ public final class V2TaskCreationService
                         .upstream().defaultBaseBranch())
                 .orElseGet(() -> repositories.resolve(workspaceId)
                         .defaultBaseBranch());
-    }
-
-    private static String[] repositoryParts(String repository)
-    {
-        String[] parts = requireText(repository, "repository").split("/", 2);
-        if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
-            throw new IllegalStateException(
-                    "review build repository identity is invalid: " + repository);
-        }
-        return parts;
     }
 
     private long requireTrunkVersion(String trunkId)

@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCached, setCached } from '../dataCache';
 import AddRepoModal from '../repos/AddRepoModal';
-import type { AiReviewDraftDto } from '../types';
+import type { AgentReviewData } from '../review/agentReviewTypes';
 import type { DashboardPR } from '../types/dashboardPr';
 import { workspaceApi, type WorkspaceCreationDto } from '../workspace/workspaceApi';
 import { PULL_TABS, rowsForTab, toRow } from './model';
@@ -45,7 +45,7 @@ const PULL_PAGE_SIZE = 20;
 
 type QuickReviewUi = {
   state: 'idle' | 'running' | 'done' | 'failed';
-  result: AiReviewDraftDto | null;
+  result: AgentReviewData | null;
   error: string | null;
 };
 
@@ -281,6 +281,10 @@ export default function PullsScreen({
         }));
         return;
       }
+      if (status.state === 'IDLE') {
+        setQuickByPr(current => ({ ...current, [prId]: IDLE_QUICK_REVIEW }));
+        return;
+      }
       const result = await window.bridge.getLatestQuickReview(prId);
       if (!alive.current) return;
       setQuickByPr(current => ({
@@ -299,9 +303,8 @@ export default function PullsScreen({
     }
   }, []);
 
-  // Recover persisted results and in-flight quick reviews whenever an
-  // unwatched PR is selected. A completed one-shot remains an inline
-  // artifact; it never gains an agent-column route.
+  // Recover the durable one-seat review whenever an unwatched PR is selected.
+  // It stays inline here even though ReviewAssignmentTurn owns its execution.
   useEffect(() => {
     if (selectedPrId === undefined || !workspaceResolved || selWorkspaceId !== undefined) return;
     void refreshQuickReview(selectedPrId);

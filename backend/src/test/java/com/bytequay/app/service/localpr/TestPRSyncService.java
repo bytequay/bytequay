@@ -25,7 +25,6 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
-import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -34,8 +33,8 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewService;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -44,23 +43,20 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * Coverage for materialising a task's local PR from git: it creates the row,
- * appends unseen branch commits oldest-first (deduping ones already recorded),
- * and flips to {@code local-open} once the task is awaiting review.
- */
+/** Coverage for observer-only PR refresh after the V2 ownership cutover. */
+@SuppressWarnings("StringConcatToTextBlock")
 class TestPRSyncService
 {
     private static final Instant NOW = Instant.parse("2026-07-01T00:00:00Z");
@@ -121,136 +117,6 @@ class TestPRSyncService
         return detail;
     }
 
-    private static GitRunner.CommitEntry commit(String shortSha, String subject)
-    {
-        return new GitRunner.CommitEntry(
-                shortSha + "full", shortSha, "you", "you@example.com", "2026-07-01T00:00:00Z", subject);
-    }
-
-    /** Stub every commit's numstat to a fixed +10 −2 delta. */
-    private void stubDelta()
-            throws Exception
-    {
-        when(git.commitFiles(any(), any()))
-                .thenReturn(List.of(new GitRunner.CommitFileChange("f.java", "M", 10, 2)));
-    }
-
-    @Test
-    void createsThePrAndRecordsBranchCommitsOldestFirst()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
-        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(draftPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("main");
-        // git log is newest-first.
-        when(git.listCommitsAhead(any(), eq("main"), eq(200)))
-                .thenReturn(List.of(commit("ccc", "third"), commit("bbb", "second"), commit("aaa", "first")));
-        stubDelta();
-
-        service.syncFromTask("task1");
-
-        // Recorded oldest-first: aaa, bbb, ccc — each with its summed numstat delta.
-        var order = inOrder(prService);
-        order.verify(prService).recordCommit(eq("pr1"), eq("aaa"), eq("first"), eq(10), eq(2), any());
-        order.verify(prService).recordCommit(eq("pr1"), eq("bbb"), eq("second"), eq(10), eq(2), any());
-        order.verify(prService).recordCommit(eq("pr1"), eq("ccc"), eq("third"), eq(10), eq(2), any());
-    }
-
-    @Test
-    void listsCommitsAgainstTheResolvedBaseNotTheRawConfiguredName()
-            throws Exception
-    {
-        // A worktree whose local "main" ref never fast-forwarded while
-        // "origin/main" moved on (e.g. another parallel task's work merged
-        // upstream) resolves to the tighter origin/main-based merge-base —
-        // excluding a commit that's already reachable from origin/main even
-        // though it'd show as "ahead" of the stale local main.
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
-        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(draftPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("origin/main");
-        when(git.listCommitsAhead(any(), eq("origin/main"), eq(200)))
-                .thenReturn(List.of(commit("f121bf0", "the task's own work")));
-        stubDelta();
-
-        service.syncFromTask("task1");
-
-        verify(prService).recordCommit(eq("pr1"), eq("f121bf0"), eq("the task's own work"), eq(10), eq(2), any());
-        // Never asked git for the raw "main" name — only the resolved base.
-        verify(git, never()).listCommitsAhead(any(), eq("main"), anyInt());
-    }
-
-    @Test
-    void skipsCommitsAlreadyRecorded()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-        when(prService.commits("pr1")).thenReturn(List.of(new PRCommit(
-                "id-aaa", "pr1", "aaa", "first", 0, 0, NOW, null)));
-        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("main");
-        when(git.listCommitsAhead(any(), eq("main"), eq(200)))
-                .thenReturn(List.of(commit("bbb", "second"), commit("aaa", "first")));
-        stubDelta();
-
-        service.syncFromTask("task1");
-
-        verify(prService).recordCommit(eq("pr1"), eq("bbb"), eq("second"), eq(10), eq(2), any());
-        verify(prService, never()).recordCommit(eq("pr1"), eq("aaa"), any(), anyInt(), anyInt(), any());
-    }
-
-    @Test
-    void skipsALocalCommitAlreadyRecordedWithItsFullSha()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-        when(prService.commits("pr1")).thenReturn(List.of(new PRCommit(
-                "id-aaa", "pr1", "abcdef0full", "first", 0, 0, NOW, null)));
-        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("main");
-        when(git.listCommitsAhead(any(), eq("main"), eq(200)))
-                .thenReturn(List.of(commit("abcdef0", "first")));
-
-        service.syncFromTask("task1");
-
-        verify(prService, never()).recordCommit(any(), any(), any(), anyInt(), anyInt(), any());
-    }
-
-    @Test
-    void returnsEmptyWhenTheTaskHasNoBranch()
-    {
-        Task noBranch = new Task(
-                "task1", "thread-1", 1L, TaskStatus.RUNNING,
-                null, null, "main", "/tmp/repo",
-                null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, NOW, null, null, null, null, null, null, TaskPhase.PLANNING, null, 0, null);
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(noBranch));
-
-        assertThat(service.syncFromTask("task1")).isEmpty();
-        verify(prService, never()).createForTask(any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void flipsToLocalOpenOnceAwaitingReview()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.AWAITING_PUSH)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-
-        service.syncFromTask("task1");
-
-        verify(brainReview).reviewBeforeLocalOpen(eq("pr1"), any());
-    }
-
     @Test
     void passiveDisplayRefreshNeverStartsBrainReview()
             throws Exception
@@ -268,174 +134,24 @@ class TestPRSyncService
     }
 
     @Test
-    void syncsRemoteCommentsAndReviewsOntoTheTimelineOncePushed()
+    void scheduledDashboardSyncNeverStartsTaskLifecycleReview()
             throws Exception
     {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.PUSHED_AWAITING_CI)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(pushedPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        PullRequestDetail detail = detailWithActivity(List.of(
-                commented(5001L, "octocat", "Can you also handle nulls?"),
-                reviewed(9001L, "reviewer1", "APPROVED", "Nice cleanup, LGTM.")));
-        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(detail);
-        when(prService.hasRemoteEvent(eq("pr1"), anyLong())).thenReturn(false);
-
-        service.syncFromTask("task1");
-
-        verify(prService).addRemoteComment("pr1", "@octocat", "Can you also handle nulls?", NOW, 5001L);
-        verify(prService).recordRemoteReview("pr1", "@reviewer1", "APPROVED", "Nice cleanup, LGTM.", NOW, 9001L);
-    }
-
-    @Test
-    void syncsGitHubDescriptionAndMergedStateForATaskOriginPr()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.AWAITING_REMOTE_REVIEW)));
         PR pushed = pushedPr();
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushed));
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        PullRequestDetail remote = detail("feature/x", "main", "The GitHub PR body.", true, "closed", false);
-        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(remote);
+        when(pullRequests.searchRelevantForDashboard()).thenReturn(List.of(
+                ghPr(42, "T", "octocat", PullRequest.Origin.AUTHORED)));
+        when(pullRequests.resolveCurrentDashboardLogin()).thenReturn("octocat");
+        when(prService.findTaskByRepoAndNumber("acme/widget", 42))
+                .thenReturn(Optional.of(pushed));
+        when(prService.dashboardEntries()).thenReturn(List.of());
 
-        service.syncPR("pr1");
-
-        verify(prService).updateDetails("pr1", null, "The GitHub PR body.");
-        verify(prService).transition("pr1", PR.STATUS_MERGED, PRTimelineEntry.ACTOR_AGENT);
-    }
-
-    @Test
-    void skipsAlreadySyncedRemoteEvents()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.PUSHED_AWAITING_CI)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(pushedPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        PullRequestDetail detail = detailWithActivity(List.of(commented(5001L, "octocat", "already seen")));
-        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(detail);
-        when(prService.hasRemoteEvent("pr1", 5001L)).thenReturn(true);
-
-        service.syncFromTask("task1");
-
-        verify(prService, never()).addRemoteComment(any(), any(), any(), any(), anyLong());
-    }
-
-    @Test
-    void syncsRemoteChecksAndCiSnapshotForAPushedTaskOriginPr()
-            throws Exception
-    {
-        // GitHub's own Actions runs on a pushed task-origin PR are otherwise
-        // invisible to ByteQuay — only local test runs reach pr_check via
-        // recordCheck. This is the CI/Frontend, CI/Backend gap the user hit.
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.PUSHED_AWAITING_CI)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(pushedPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        PullRequestDetail detail = detailWithActivity(List.of());
-        when(detail.checkRuns()).thenReturn(List.of(
-                new PullRequestDetail.CheckRun(555L, "CI / Backend", "completed", "success", "https://x", null, null)));
-        when(detail.ciStatus()).thenReturn(PullRequestDetail.CiStatus.PASSING);
-        when(detail.mergeable()).thenReturn(true);
-        when(detail.mergeableState()).thenReturn("clean");
-        when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(detail);
-
-        service.syncFromTask("task1");
-
-        verify(prService).recordSyncedCheck(
-                eq("pr1"), eq("555"), eq("CI / Backend"), eq(PRCheck.STATUS_PASSED), any(), any());
-        verify(prService).retainSyncedChecks("pr1", Set.of("555"));
-        verify(prService).recordRemoteCiState(
-                "pr1", PRCheck.STATUS_PASSED, null, null, 1);
-        verify(prService).updateSyncSnapshot(eq("pr1"), argThat(snap ->
-                Boolean.TRUE.equals(snap.mergeable()) && "clean".equals(snap.mergeableState())));
-    }
-
-    @Test
-    void doesNotSyncRemoteTimelineBeforeThePrIsPushed()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-
-        service.syncFromTask("task1");
-
-        verify(pullRequests, never()).refreshPullRequestDetail(any(), anyInt(), anyInt());
-    }
-
-    @Test
-    void healsAPrRowStuckBehindAnAlreadyOpenRemotePr()
-            throws Exception
-    {
-        // A task whose PR opened before this sync existed (or through a path
-        // that missed recording it) — the task itself already knows about
-        // the remote PR (linkedPrRef), but the PR row never advanced
-        // past local-drafted. This must self-heal on the next PR-bundle
-        // fetch instead of requiring a fresh push to notice.
-        when(taskStore.findTaskById("task1"))
-                .thenReturn(Optional.of(task(TaskPhase.PUSHED_AWAITING_CI, "acme/widget#32")));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-
-        service.syncFromTask("task1");
-
-        verify(prPublish).reconcilePushedElsewhere(
-                new PrPushedEvent("task1", "acme/widget", 32, "https://github.com/acme/widget/pull/32"));
-    }
-
-    @Test
-    void doesNotAttemptToHealATaskWithNoLinkedRemotePr()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-
-        service.syncFromTask("task1");
-
-        verify(prPublish, never()).reconcilePushedElsewhere(any());
-    }
-
-    @Test
-    void doesNotFlipWhileStillImplementing()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
-        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
-        when(prService.commits("pr1")).thenReturn(List.of());
-        when(git.resolveCommitBase(any(), any())).thenReturn("main");
-        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
-        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
-
-        service.syncFromTask("task1");
+        service.syncList();
 
         verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
+        verify(prService, never()).updateAuthor(any(), any());
+        verify(prService, never()).updateSyncSnapshot(any(), any());
+        verify(pullRequests, never()).refreshPullRequestDetail(any(), anyInt(), anyInt());
+        verify(git, never()).listCommitsAhead(any(), any(), anyInt());
     }
 
     private PR externalPr()
@@ -559,7 +275,7 @@ class TestPRSyncService
     }
 
     @Test
-    void syncExternalPrReusesAPushedTaskRowInsteadOfMintingATwin()
+    void syncExternalPrRejectsAV2TaskAliasBeforeGitHubOrStoreMutation()
     {
         // A ByteQuay task opened this PR, so its task-origin row already carries
         // remote #99. The dashboard resolver must resolve to that row, not mint
@@ -568,14 +284,15 @@ class TestPRSyncService
                 "pr-task", "task-1", "dev/x", "main", "Add cache", "", PR.STATUS_REMOTE_OPEN, NOW,
                 null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
                 PR.ORIGIN_TASK, "acme/widget", "@octocat", null, null, null);
-        PullRequestDetail refreshedDetail = detail("dev/x", "main", "", false, "open", false);
         when(prService.findTaskByRepoAndNumber("acme/widget", 99)).thenReturn(Optional.of(taskRow));
-        when(prService.findById("pr-task")).thenReturn(Optional.of(taskRow));
-        when(pullRequests.refreshPullRequestDetail(eq("acme/widget"), eq(99), anyInt())).thenReturn(refreshedDetail);
+        when(taskStore.findWorkflowVersion("task-1")).thenReturn(Optional.of("V2"));
 
-        service.syncExternalPR("acme/widget", 99);
+        assertThatThrownBy(() -> service.syncExternalPR("acme/widget", 99))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("use the Task review surface");
 
         verify(pullRequests, never()).lookupPullRequest(any(), anyInt());
+        verify(pullRequests, never()).refreshPullRequestDetail(any(), anyInt(), anyInt());
         verify(prService, never()).createExternal(
                 any(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }

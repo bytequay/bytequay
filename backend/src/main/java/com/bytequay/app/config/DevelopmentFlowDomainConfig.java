@@ -56,9 +56,8 @@ import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
-import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
-import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.ReviewBuildOutcomeService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -166,13 +165,12 @@ public class DevelopmentFlowDomainConfig
             TaskManager tasks,
             LocalDevelopmentStageManager local,
             SqliteLocalDevelopmentRuntimeStore store,
-            CodeFingerprints fingerprints,
-            GitRunner git,
+            PRService prs,
             ObjectMapper json,
             @Value("${server.port:53123}") int serverPort)
     {
         return new LocalDevelopmentRuntimeCoordinator(
-                commands, tasks, local, store, fingerprints, git, json,
+                commands, tasks, local, store, prs, json,
                 Clock.systemUTC(), serverPort);
     }
 
@@ -203,14 +201,12 @@ public class DevelopmentFlowDomainConfig
             RemoteDevelopmentStageManager remote,
             SqliteRemoteDevelopmentRuntimeStore remoteStore,
             SqliteRemoteFeedbackLoopStore feedbackStore,
-            CodeFingerprints fingerprints,
-            GitRunner git,
             ObjectMapper json,
             @Value("${server.port:53123}") int serverPort)
     {
         return new RemoteFeedbackRuntimeCoordinator(
                 commands, tasks, remote, remoteStore, feedbackStore,
-                fingerprints, git, json, Clock.systemUTC(), serverPort);
+                json, Clock.systemUTC(), serverPort);
     }
 
     @Bean
@@ -219,15 +215,13 @@ public class DevelopmentFlowDomainConfig
             TaskManager tasks,
             SqliteRemoteRuntimeStore remoteStore,
             SqliteRemoteRepairTurnStore turns,
-            CodeFingerprints fingerprints,
-            GitRunner git,
             ObjectMapper json,
             @Value("${server.port:53123}") int serverPort,
             @Value("${bytequay.development-flow.remote-ci.require-brain-review:true}")
             boolean requireCiBrainReview)
     {
         return new RemoteRepairTurnRuntime(
-                commands, tasks, remoteStore, turns, fingerprints, git, json,
+                commands, tasks, remoteStore, turns, json,
                 Clock.systemUTC(), serverPort, requireCiBrainReview);
     }
 

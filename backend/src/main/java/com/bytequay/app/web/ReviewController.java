@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.execution.remote.SqliteReviewBuildCommentStore.ProposalView;
+import com.bytequay.app.developmentflow.execution.remote.SqliteReviewPassPublicationStore.PublicationView;
+import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.repository.AppSettingsStore;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -50,17 +54,21 @@ public class ReviewController
     private final ScheduledReviewService scheduledReviews;
     private final AppSettingsStore appSettings;
     private final ReviewBuildSpawnService buildSpawn;
+    private final V2UserRemoteActionRuntime remoteActions;
 
     public ReviewController(
             ReviewPassService reviews,
             ScheduledReviewService scheduledReviews,
             AppSettingsStore appSettings,
-            ReviewBuildSpawnService buildSpawn)
+            ReviewBuildSpawnService buildSpawn,
+            V2UserRemoteActionRuntime remoteActions)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.scheduledReviews = requireNonNull(scheduledReviews, "scheduledReviews is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.buildSpawn = requireNonNull(buildSpawn, "buildSpawn is null");
+        this.remoteActions = requireNonNull(
+                remoteActions, "remoteActions is null");
     }
 
     /** Read the workspace-level reviewer persona — a user-editable
@@ -116,6 +124,37 @@ public class ReviewController
             String openingTitle,
             List<String> selectedFindingIds) {}
 
+    /** Immutable comment-only proposal for a foreign PR; absent for the
+     * writable author-is-reviewer path. */
+    @GetMapping("/{passId}/build-comments")
+    public ResponseEntity<ProposalView> reviewBuildComments(
+            @PathVariable String passId)
+    {
+        return remoteActions.findReviewBuildCommentProposal(passId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** DB-only authorization. The dispatcher owns the eventual GitHub call. */
+    @PostMapping("/{passId}/build-comments/approve")
+    public ProposalView approveReviewBuildComments(
+            @PathVariable String passId,
+            @RequestHeader("Idempotency-Key") String commandId)
+    {
+        return remoteActions.approveReviewBuildComments(
+                passId, requireCommandId(commandId));
+    }
+
+    /** DB-only discard. No action or dispatch ticket is created. */
+    @PostMapping("/{passId}/build-comments/discard")
+    public ProposalView discardReviewBuildComments(
+            @PathVariable String passId,
+            @RequestHeader("Idempotency-Key") String commandId)
+    {
+        return remoteActions.discardReviewBuildComments(
+                passId, requireCommandId(commandId));
+    }
+
     /** Roster of LLM reviewers the dialog renders as panel chips.
      *  Configured ones come first; unconfigured ones surface so the
      *  user sees the option but the chip stays disabled until they
@@ -124,6 +163,16 @@ public class ReviewController
     public List<ReviewPassService.RosterEntry> roster()
     {
         return reviews.roster();
+    }
+
+    private static String requireCommandId(String commandId)
+    {
+        if (commandId == null || commandId.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400),
+                    "Idempotency-Key is required");
+        }
+        return commandId.strip();
     }
 
     @GetMapping("/{passId}")
@@ -157,14 +206,14 @@ public class ReviewController
     }
 
     /**
-     * Publish the pass to the PR. The frontend hands over the user's
-     * confirmed verdict + the subset of finding ids that should
-     * actually land on GitHub; the service posts them as one GitHub
-     * review and marks the rows POSTED.
+     * Durably authorize publication of a standalone pass. This command is
+     * database-only; ExecutionDispatcher owns the GitHub effect and accepted
+     * result delivery owns the PUBLISHED transition.
      */
     @PostMapping("/{passId}/publish")
-    public ReviewPassDetail publish(
+    public PublicationView publish(
             @PathVariable String passId,
+            @RequestHeader("Idempotency-Key") String commandId,
             @RequestBody PublishReviewRequest body)
     {
         if (body == null || body.verdict() == null || body.verdict().isBlank()) {
@@ -176,10 +225,20 @@ public class ReviewController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "unknown verdict: " + body.verdict());
         }
-        return reviews.publishPass(
-                passId,
-                verdict,
+        return remoteActions.publishReviewPass(
+                passId, requireCommandId(commandId),
+                verdict.dbValue(),
                 body.findingIds() == null ? List.of() : body.findingIds());
+    }
+
+    /** Restart-safe projection of the pass's one-shot publication. */
+    @GetMapping("/{passId}/publication")
+    public ResponseEntity<PublicationView> publication(
+            @PathVariable String passId)
+    {
+        return remoteActions.findReviewPassPublication(passId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /** Resolve one disputed finding via the arbitration ballot.

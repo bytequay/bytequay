@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TaskCard } from './ThreadTrunkPage';
+import { findSelectedActiveTask, TaskCard } from './ThreadTrunkPage';
 import type { WorkUnitTaskDto } from '../types';
 
 afterEach(cleanup);
@@ -75,5 +75,20 @@ describe('TaskCard click behavior', () => {
     fireEvent.keyDown(card, { key: ' ' });
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onOpen).not.toHaveBeenCalled();
+  });
+});
+
+describe('selected Task actions', () => {
+  it('targets the selected active Task instead of the newest sibling', () => {
+    const selected = task({ id: 'task-a', seq: 1 });
+    const newest = task({ id: 'task-b', seq: 2 });
+
+    expect(findSelectedActiveTask([selected, newest], 'task-a')).toBe(selected);
+  });
+
+  it('rejects a selected terminal Task', () => {
+    const completed = task({ id: 'task-a', status: 'COMPLETED', phase: 'COMPLETED' });
+
+    expect(findSelectedActiveTask([completed], 'task-a')).toBeNull();
   });
 });

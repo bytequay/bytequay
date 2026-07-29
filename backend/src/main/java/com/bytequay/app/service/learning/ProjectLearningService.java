@@ -27,6 +27,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -49,7 +50,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
+import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -104,6 +107,7 @@ public class ProjectLearningService
     private final KnowledgeItemStore knowledge;
     private final PatResolver patResolver;
     private final ObjectMapper json;
+    private final Executor executor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
 
     public ProjectLearningService(
@@ -120,7 +124,8 @@ public class ProjectLearningService
             KnowledgeIngestor ingestor,
             KnowledgeItemStore knowledge,
             PatResolver patResolver,
-            ObjectMapper json)
+            ObjectMapper json,
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
@@ -136,13 +141,14 @@ public class ProjectLearningService
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.json = requireNonNull(json, "json is null");
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     /**
      * Enqueue (or reuse) the learning run for a workspace repository.
      * Idempotent: a non-failed run is returned as-is, so a repeated trigger
      * never spawns a duplicate run. Safe to call after workspace-ready — the
-     * work runs on a background virtual thread once the transaction commits.
+     * work runs on the bounded application executor once the transaction commits.
      */
     @Transactional
     public ProjectLearningRun enqueue(String workspaceId, String repo, String trigger)
@@ -246,7 +252,7 @@ public class ProjectLearningService
         if (repoFullName == null || repoFullName.isBlank() || prNumber <= 0) {
             return;
         }
-        Thread.startVirtualThread(() -> {
+        executor.execute(() -> {
             for (Workspace workspace : workspaceStore.listWorkspaces()) {
                 try {
                     WorkspaceRepositoryResolver.RepositoryIdentity identity =
@@ -377,7 +383,7 @@ public class ProjectLearningService
         if (!activeJobs.add(id)) {
             return;
         }
-        Thread.startVirtualThread(() -> {
+        executor.execute(() -> {
             try {
                 execute(id);
             }

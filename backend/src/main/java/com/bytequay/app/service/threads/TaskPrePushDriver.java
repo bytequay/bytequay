@@ -24,8 +24,6 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -52,7 +50,6 @@ import static java.util.Objects.requireNonNull;
  * existing finished-event. A local-PR sync then starts (or resumes) the Brain
  * adversarial review; it must not be skipped by creating a publish gate here.
  */
-@Component
 public class TaskPrePushDriver
 {
     private static final Logger log = LoggerFactory.getLogger(TaskPrePushDriver.class);
@@ -82,7 +79,6 @@ public class TaskPrePushDriver
     }
 
     /** Offset from the other lifecycle sweeps so they don't bunch up. */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 120_000)
     public void reconcile()
     {
         for (Task task : taskStore.listByStatus(TaskStatus.IDLE, SCAN_LIMIT)) {

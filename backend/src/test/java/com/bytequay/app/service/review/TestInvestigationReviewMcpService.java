@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.bytequay.app.service.agents.ToolExecutor.ToolCallResult.ok;
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.BLIND_RECONSTRUCTION;
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.INDEPENDENT_VERIFICATION;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.INVESTIGATE;
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.ROUND_GUIDANCE;
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.SELF_REFUTATION;
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.guidanceSubject;
@@ -96,6 +97,43 @@ class TestInvestigationReviewMcpService
                         """));
         assertThat(denied.toString()).contains("outside the frozen finding set");
         assertThat(executed.get()).isNull();
+    }
+
+    @Test
+    void quickPrimaryReviewCannotListOrCallReadFileButFullReviewCan()
+    {
+        when(tools.usesQuickReviewScope("assignment-1")).thenReturn(true);
+
+        JsonNode quick = service.handle(
+                "review-1", "assignment-1", INVESTIGATE, "subject-1", null,
+                rpc("tools/list", null));
+        assertThat(quick.toString())
+                .contains("read_diff")
+                .doesNotContain("read_file");
+
+        JsonNode denied = service.handle(
+                "review-1", "assignment-1", INVESTIGATE, "subject-1", null,
+                rpc("tools/call", """
+                        {"name":"read_file","arguments":{
+                          "step_id":"step-1","path":"A.java"}}
+                        """));
+        assertThat(denied.toString()).contains("tool is not allowed");
+        assertThat(executed.get()).isNull();
+
+        when(tools.usesQuickReviewScope("assignment-1")).thenReturn(false);
+        JsonNode full = service.handle(
+                "review-1", "assignment-1", INVESTIGATE, "subject-1", null,
+                rpc("tools/list", null));
+        assertThat(full.toString()).contains("read_file");
+
+        JsonNode accepted = service.handle(
+                "review-1", "assignment-1", INVESTIGATE, "subject-1", null,
+                rpc("tools/call", """
+                        {"name":"read_file","arguments":{
+                          "step_id":"step-1","path":"A.java"}}
+                        """));
+        assertThat(accepted.toString()).contains("accepted");
+        assertThat(executed.get().name()).isEqualTo("read_file");
     }
 
     @Test

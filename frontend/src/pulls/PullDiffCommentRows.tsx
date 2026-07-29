@@ -211,7 +211,9 @@ export function InlineThreadRow({ thread, prAuthor, repo, prId, prNumber, repoCt
     setBusy(true);
     setResolvedLocal(next);
     try {
-      await window.bridge.setReviewThreadResolved(repo, prId, thread.rootGithubId, next);
+      await window.bridge.setReviewThreadResolved(
+        repo, prNumber, prId, thread.rootGithubId, next,
+      );
       onChanged();
     }
     catch (e) {

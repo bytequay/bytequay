@@ -67,7 +67,7 @@ import static org.mockito.Mockito.when;
 class TestAiReviewService
 {
     @Test
-    void testPublishInvalidatesPullRequestDetailAfterGitHubReview()
+    void testLegacyDraftPublishFailsClosedBeforeAnyRemoteEffect()
     {
         List<String> events = new ArrayList<>();
         RecordingGitHub gitHub = new RecordingGitHub(events);
@@ -84,15 +84,14 @@ class TestAiReviewService
                 detailInvalidator,
                 new FixedPatResolver("pat"));
 
-        AiReviewDraft published = service.publish(5L, "APPROVE", "looks good");
-
-        assertThat(published.status()).isEqualTo("PUBLISHED");
-        assertThat(gitHub.pat).isEqualTo("pat");
-        assertThat(gitHub.ref).isEqualTo(PullRequestRef.of("owner", "repo", 7));
-        assertThat(gitHub.command).isNotNull();
-        assertThat(detailInvalidator.repo).isEqualTo("owner/repo");
-        assertThat(detailInvalidator.number).isEqualTo(7);
-        assertThat(events).containsExactly("github", "invalidate", "publish");
+        assertThatThrownBy(() -> service.publish(5L, "APPROVE", "looks good"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
+                    assertThat(error.getStatusCode().value()).isEqualTo(409);
+                    assertThat(error.getReason())
+                            .contains("legacy AI draft publication is retired")
+                            .contains("durable PR review publication route");
+                });
+        assertThat(events).isEmpty();
     }
 
     @Test
@@ -378,9 +377,6 @@ class TestAiReviewService
             implements PullRequestRepository
     {
         private final List<String> events;
-        private String pat;
-        private PullRequestRef ref;
-        private CreateReviewCommand command;
 
         private RecordingGitHub(List<String> events)
         {
@@ -391,9 +387,6 @@ class TestAiReviewService
         public PullRequestReview createReview(String pat, PullRequestRef pr, CreateReviewCommand command)
         {
             events.add("github");
-            this.pat = pat;
-            this.ref = pr;
-            this.command = command;
             return null;
         }
     }
@@ -447,8 +440,6 @@ class TestAiReviewService
             extends PullRequestDetailInvalidator
     {
         private final List<String> events;
-        private String repo;
-        private int number;
 
         private RecordingInvalidator(List<String> events)
         {
@@ -460,8 +451,6 @@ class TestAiReviewService
         public void invalidate(String repo, int number)
         {
             events.add("invalidate");
-            this.repo = repo;
-            this.number = number;
         }
     }
 

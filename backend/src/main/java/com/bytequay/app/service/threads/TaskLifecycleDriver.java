@@ -49,11 +49,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
@@ -91,7 +86,6 @@ import static java.util.Objects.requireNonNull;
  * <p>Merge → COMPLETED stays on the PR-merged event path; this driver
  * only places the task on the CI / ready / review spine.
  */
-@Component
 public class TaskLifecycleDriver
 {
     private static final Logger log = LoggerFactory.getLogger(TaskLifecycleDriver.class);
@@ -191,7 +185,6 @@ public class TaskLifecycleDriver
         this.events = requireNonNull(events, "events is null");
     }
 
-    @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
     public void reconcile()
     {
         for (Task task : taskStore.listByPhases(REMOTE_SPINE, SCAN_LIMIT)) {
@@ -211,7 +204,6 @@ public class TaskLifecycleDriver
     /** Local twin of {@link #reconcile()}: watches a task's local PR for
      *  explicitly submitted review batches, dispatches Development, then
      *  starts a fresh Brain pass before returning to the push gate. */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 100_000)
     public void reconcileLocalComments()
     {
         for (Task task : taskStore.listByPhases(LOCAL_SPINE, SCAN_LIMIT)) {
@@ -226,9 +218,6 @@ public class TaskLifecycleDriver
 
     /** Fast path for explicit submission; the scheduled sweep above remains
      *  the recovery path if the task thread was busy or enqueue failed. */
-    @TransactionalEventListener(
-            phase = TransactionPhase.AFTER_COMMIT,
-            fallbackExecution = true)
     public void onLocalReviewSubmitted(LocalReviewSubmittedEvent event)
     {
         TaskCommandExecutor.dispatchAfterCommit(() -> handleLocalReviewSubmitted(event));
@@ -259,9 +248,6 @@ public class TaskLifecycleDriver
     /** A local comment submitted during Brain review is already durable but
      *  cannot move the phase until that pass releases INTERNAL_REVIEW. Re-read
      *  it immediately after the committed handoff instead of waiting a sweep. */
-    @TransactionalEventListener(
-            phase = TransactionPhase.AFTER_COMMIT,
-            fallbackExecution = true)
     public void onInternalReviewCompleted(TaskPhaseTransitionedEvent event)
     {
         TaskCommandExecutor.dispatchAfterCommit(() -> handleInternalReviewCompleted(event));
@@ -287,7 +273,6 @@ public class TaskLifecycleDriver
      *  the queue; a failure — or a completed turn whose root is still
      *  open — records a bounded durable failure on its owning batch so
      *  the retry gets a fresh kick key and cannot loop forever. */
-    @EventListener
     public void onLocalAddressTurnFinished(TaskTurnFinishedEvent event)
     {
         ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
@@ -385,7 +370,6 @@ public class TaskLifecycleDriver
      * tasks whose worktree directory is still present and reaps it again. A
      * task whose worktree is already gone is skipped — a single {@code stat}.
      */
-    @Scheduled(fixedDelay = 600_000, initialDelay = 120_000)
     public void sweepOrphanedWorktrees()
     {
         for (TaskStatus status : REAPABLE_TERMINAL) {
@@ -720,7 +704,6 @@ public class TaskLifecycleDriver
      * completed, advances to INTERNAL_REVIEW, and commits the owed
      * Brain handoff marker in the same command; red parks.
      */
-    @EventListener
     public void onLocalReviewValidationFinished(LocalReviewValidationFinishedEvent event)
     {
         try {

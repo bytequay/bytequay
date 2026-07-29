@@ -170,19 +170,12 @@ class TestDevelopmentFlowCanaryGuardsMigration
         jdbc.update("UPDATE tasks SET status = 'COMPLETED' WHERE id = 'legacy-task'");
         assertThat(auditor.legacyDrainStatus().drained()).isTrue();
 
-        DevelopmentFlowCanaryRoute disabled =
-                new DevelopmentFlowCanaryRoute(false, "");
-        DevelopmentFlowCanaryRoute allowListed =
-                new DevelopmentFlowCanaryRoute(true, " workspace-1, workspace-2 ");
-        DevelopmentFlowCanaryRoute allWorkspaces =
-                new DevelopmentFlowCanaryRoute(false, "*");
-        assertThat(disabled.routesNewTaskToV2("workspace-1")).isFalse();
-        assertThat(allowListed.routesNewTaskToV2("workspace-1")).isTrue();
-        assertThat(allowListed.routesNewTaskToV2("workspace-3")).isFalse();
-        assertThat(allWorkspaces.routesNewTaskToV2("workspace-3")).isTrue();
-        assertThat(allWorkspaces.routesNewTaskToV2(null)).isFalse();
-        assertThat(allowListed.snapshot().workspaceAllowList())
-                .containsExactlyInAnyOrder("workspace-1", "workspace-2");
+        DevelopmentFlowCanaryRoute route = new DevelopmentFlowCanaryRoute();
+        assertThat(route.routesNewTaskToV2("workspace-1")).isTrue();
+        assertThat(route.routesNewTaskToV2("workspace-3")).isTrue();
+        assertThat(route.routesNewTaskToV2(" ")).isFalse();
+        assertThat(route.routesNewTaskToV2(null)).isFalse();
+        assertThat(route.snapshot().v2Only()).isTrue();
     }
 
     @Test

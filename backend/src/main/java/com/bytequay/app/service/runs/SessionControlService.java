@@ -58,38 +58,32 @@ public class SessionControlService
 
     public AgentRun pause(String runId)
     {
-        AgentRun run = requireRun(runId);
-        scheduler.cancelSessionTurns(run.id());
-        activeAgent(run, scopeOf(run)).ifPresent(ThreadAgent::interrupt);
-        return runs.pause(run.id(), "paused by user");
+        requireRun(runId);
+        throw retired();
     }
 
     public AgentRun stop(String runId)
     {
-        AgentRun run = requireRun(runId);
-        scheduler.cancelSessionTurns(run.id());
-        activeAgent(run, scopeOf(run)).ifPresent(ThreadAgent::stop);
-        return runs.transition(run.id(), AgentRun.STATUS_CANCELLED, "stopped by user");
+        requireRun(runId);
+        throw retired();
     }
 
     public AgentRun resume(String runId)
     {
-        AgentRun prior = requireRun(runId);
-        validateReplay(prior);
-        ThreadScope scope = scopeOf(prior);
-        AgentRun run = runs.resume(runId);
-        enqueue(run, scope);
-        return run;
+        requireRun(runId);
+        throw retired();
     }
 
     public AgentRun restart(String runId)
     {
-        AgentRun prior = requireRun(runId);
-        validateReplay(prior);
-        ThreadScope scope = scopeOf(prior);
-        AgentRun restarted = runs.restart(runId);
-        enqueue(restarted, scope);
-        return restarted;
+        requireRun(runId);
+        throw retired();
+    }
+
+    private static UnsupportedOperationException retired()
+    {
+        return new UnsupportedOperationException(
+                "LEGACY AgentRun control is retired; use the typed V2 owner control");
     }
 
     private void enqueue(AgentRun run, ThreadScope scope)

@@ -89,32 +89,22 @@ class TestBrainService
     }
 
     @Test
-    void createsBrainThreadOnFirstMessageAndEnqueuesTurn()
+    void rejectsLegacyMessageBeforeCreatingAThreadOrTurn()
     {
         Task task = mock(Task.class);
         when(task.id()).thenReturn(TASK_ID);
-        when(task.threadId()).thenReturn(DEV_THREAD);
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
-        Thread devThread = mock(Thread.class);
-        when(devThread.workspaceId()).thenReturn("ws-default");
-        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("turn-1");
+        when(taskStore.findWorkflowVersion(TASK_ID)).thenReturn(Optional.of("LEGACY"));
 
-        BrainMessageResponse out = service.sendMessage(TASK_ID, "How many pushes?", null);
+        assertThatThrownBy(() -> service.sendMessage(
+                TASK_ID, "How many pushes?", List.of("image")))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        exception -> assertThat(exception.getStatusCode().value()).isEqualTo(409));
 
-        // A brain thread was created and saved with the right kind + parent.
-        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
-        verify(threadStore).saveThread(saved.capture());
-        assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
-        assertThat(saved.getValue().parentTaskId()).isEqualTo(TASK_ID);
-        // The answering turn was enqueued on that thread.
-        verify(scheduler).enqueueTaskTurn(
-                eq(saved.getValue()), eq("How many pushes?"), eq(TASK_ID), any(), any(), any());
-        assertThat(out.turnId()).isEqualTo("turn-1");
-        assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-1");
+        verify(threadStore, never()).findBrainThreadByTask(anyString());
+        verify(threadStore, never()).saveThread(any());
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -135,55 +125,6 @@ class TestBrainService
         verify(scheduler, never()).enqueueTaskTurn(
                 any(), anyString(), anyString(), any(), any(), any());
         verify(taskStore, never()).findTaskById(TASK_ID);
-    }
-
-    @Test
-    void brainThreadFollowsTheResolvedCodexWorkModelWithoutInventingAClaudeModel()
-    {
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(TASK_ID);
-        when(task.threadId()).thenReturn(DEV_THREAD);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
-        Thread devThread = mock(Thread.class);
-        when(devThread.workspaceId()).thenReturn("ws-default");
-        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("turn-1");
-        // The parent thread explicitly selects Codex and leaves its model to
-        // the CLI default.
-        WorkModelResolver.Resolved resolved = mock(WorkModelResolver.Resolved.class);
-        when(resolved.choice()).thenReturn(
-                new WorkModel(WorkModelKind.CLI, "codex", null, null));
-        when(workModelResolver.resolveForThread(DEV_THREAD)).thenReturn(resolved);
-
-        service.sendMessage(TASK_ID, "How many pushes?", null);
-
-        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
-        verify(threadStore).saveThread(saved.capture());
-        assertThat(saved.getValue().workModel()).isNotNull();
-        assertThat(saved.getValue().workModel().kind()).isEqualTo(WorkModelKind.CLI);
-        assertThat(saved.getValue().workModel().agentOrProvider()).isEqualTo("codex");
-        assertThat(saved.getValue().model()).isEmpty();
-    }
-
-    @Test
-    void reusesExistingBrainThread()
-    {
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(TASK_ID);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        Thread existing = mock(Thread.class);
-        when(existing.id()).thenReturn("ws-default.brain-existing");
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(existing));
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("turn-2");
-
-        BrainMessageResponse out = service.sendMessage(TASK_ID, "again", null);
-
-        verify(threadStore, never()).saveThread(any());
-        assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-existing");
     }
 
     @Test

@@ -252,8 +252,7 @@ describe('TrunkPage', () => {
     expect(window.location.hash).toBe('#/workspace/ws-1/prs');
   });
 
-  it('surfaces a terminal agent error and offers recovery', () => {
-    const onResume = vi.fn();
+  it('surfaces a terminal agent error and directs recovery through the composer', () => {
     render(
       <TrunkPage
         threadId="t1"
@@ -264,13 +263,12 @@ describe('TrunkPage', () => {
         conversation={<div>conversation</div>}
         composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
         tasks={{ active: [], closed: [] }}
-        onResume={onResume}
       />,
     );
 
     expect(screen.getByRole('alert').textContent).toContain('Claude permission bridge was unavailable.');
-    fireEvent.click(screen.getByRole('button', { name: 'Resume thread' }));
-    expect(onResume).toHaveBeenCalledOnce();
+    expect(screen.getByRole('alert').textContent).toContain('Send a new message below');
+    expect(screen.queryByRole('button', { name: 'Resume thread' })).toBeNull();
   });
 
   it('pins actionable gates above the canonical timeline', async () => {
@@ -307,6 +305,7 @@ describe('TrunkPage', () => {
     expect(await screen.findByText('Plan ready — 4 steps')).toBeTruthy();
     expect(screen.getByText('NEEDS YOU')).toBeTruthy();
     expect(screen.getByText('Dev session')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Pause agent' })).toBeNull();
   });
 
   it('opens a running task from the workspace overview', async () => {

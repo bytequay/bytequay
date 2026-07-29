@@ -493,7 +493,8 @@ public record DispatchTicket(
         THREAD_TURN,
         TASK_TURN,
         STAGE_TURN,
-        REVIEW_ASSIGNMENT_TURN
+        REVIEW_ASSIGNMENT_TURN,
+        REVIEW_SESSION
     }
 
     public record OwnerReference(OwnerKind kind, String id, String callbackRoute)

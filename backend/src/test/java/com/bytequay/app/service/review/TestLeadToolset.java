@@ -45,8 +45,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The Lead's orchestration verbs: agenda lifecycle, reviewer dispatch
- * (single + parallel), and consensus recording.
+ * The Lead's orchestration verbs: agenda lifecycle, ordered reviewer
+ * dispatch, and consensus recording.
  */
 class TestLeadToolset
 {
@@ -59,7 +59,7 @@ class TestLeadToolset
 
     private ReviewStore reviewStore;
     private ReviewerSeat reviewerSeat;
-    private LegacyReviewAdmission reviewAdmission;
+    private ReviewCallContext reviewAdmission;
     private LeadToolset toolset;
     private LeadToolset.Session session;
     private ReviewPass pass;
@@ -69,7 +69,7 @@ class TestLeadToolset
     {
         reviewStore = mock(ReviewStore.class);
         reviewerSeat = mock(ReviewerSeat.class);
-        reviewAdmission = mock(LegacyReviewAdmission.class);
+        reviewAdmission = mock(ReviewCallContext.class);
         toolset = new LeadToolset(
                 reviewStore, mock(SeatToolset.class), reviewerSeat, reviewAdmission, mapper);
 
@@ -158,7 +158,7 @@ class TestLeadToolset
 
     @Test
     @SuppressWarnings("unchecked")
-    void parallelDispatchFansOutThroughTheScheduler()
+    void batchDispatchRunsThroughTheSerialCallContextInOrder()
             throws Exception
     {
         when(reviewerSeat.runDispatchedTurnAlreadyAdmitted(
@@ -169,7 +169,7 @@ class TestLeadToolset
                 .thenReturn(seatReply(SEAT_2, "DeepSeek's take"));
         // Shared admission runs the batch inline here.
         when(reviewAdmission.invokeAll(any())).thenAnswer(inv -> {
-            List<LegacyReviewAdmission.Work<ToolExecutor.ToolCallResult>> work =
+            List<ReviewCallContext.Work<ToolExecutor.ToolCallResult>> work =
                     inv.getArgument(0);
             return work.stream().map(item -> {
                 try {

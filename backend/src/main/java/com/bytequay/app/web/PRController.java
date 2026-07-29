@@ -26,13 +26,16 @@ import com.bytequay.app.beans.localpr.PRDto;
 import com.bytequay.app.beans.localpr.PRTimelineEntryDto;
 import com.bytequay.app.beans.localpr.SnoozePRRequest;
 import com.bytequay.app.beans.localpr.UpdatePRRequest;
+import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.Projection;
+import com.bytequay.app.developmentflow.stage.ManualPrValidationRuntime;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Operation;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Status;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PRSyncService;
@@ -40,6 +43,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -50,9 +54,9 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
@@ -69,15 +73,12 @@ import static java.util.Objects.requireNonNull;
 public class PRController
 {
     private static final String USER_AUTHOR = PRTimelineEntry.ACTOR_USER;
-    private static final String DEFAULT_BASE_BRANCH = "main";
-
     private final PRService prService;
     private final PRPublishService publish;
     private final PRSyncService sync;
     private final TaskStore taskStore;
     private final ObjectMapper mapper;
-    private final RepoTestValidationCheck testRunner;
-    private final PullRequestService pullRequests;
+    private final ManualPrValidationRuntime manualValidation;
     private final InvestigationReviewService investigationReviews;
 
     public PRController(
@@ -86,7 +87,7 @@ public class PRController
             PRSyncService sync,
             TaskStore taskStore,
             ObjectMapper mapper,
-            RepoTestValidationCheck testRunner,
+            ManualPrValidationRuntime manualValidation,
             PullRequestService pullRequests,
             InvestigationReviewService investigationReviews)
     {
@@ -94,21 +95,18 @@ public class PRController
         this.publish = requireNonNull(publish, "publish is null");
         this.sync = requireNonNull(sync, "sync is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        requireNonNull(pullRequests, "pullRequests is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
-        this.testRunner = requireNonNull(testRunner, "testRunner is null");
+        this.manualValidation = requireNonNull(
+                manualValidation, "manualValidation is null");
         this.investigationReviews = requireNonNull(investigationReviews, "investigationReviews is null");
     }
 
-    /** Resolver — the task's PR id, so the frontend's PR-scoped hook has
-     *  something to key off of. Materialises/refreshes the row from the
-     *  task's branch on read (same as the old task-scoped bundle fetch did),
-     *  so the view has something to show even before an agent records its
-     *  first commit via {@code record_pr_*}. */
+    /** Pure projection of the PR already owned by the Task runtime. */
     @GetMapping("/api/tasks/{taskId}/pr")
     public PRDto getForTask(@PathVariable String taskId)
     {
-        return PRDto.from(sync.syncFromTask(taskId)
+        return PRDto.from(prService.findByTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR for task " + taskId)));
     }
 
@@ -117,17 +115,8 @@ public class PRController
     {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + taskId));
-        if (task.branchName() == null || task.branchName().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "task " + taskId + " has no branch yet");
-        }
-        String baseBranch = task.baseBranch() == null || task.baseBranch().isBlank()
-                ? DEFAULT_BASE_BRANCH : task.baseBranch();
-        String title = body != null && body.title() != null && !body.title().isBlank()
-                ? body.title()
-                : task.name() != null && !task.name().isBlank() ? task.name() : task.branchName();
-        String description = body == null ? "" : body.description();
-        return PRDto.from(
-                prService.createForTask(taskId, task.branchName(), baseBranch, title, description));
+        rejectTaskOwnedCompatibilityMutation(task.id(), "PR creation");
+        throw new IllegalStateException("unreachable Task-owned PR creation");
     }
 
     @GetMapping("/api/prs/{prId}")
@@ -221,8 +210,8 @@ public class PRController
         prService.clearSnoozeWakeReason(prId);
     }
 
-    /** Submits a GitHub approval review — through the durable V2 action
-     *  protocol for a V2 Task, or the legacy direct path otherwise. */
+    /** Submits a GitHub approval review through the durable V2 action
+     *  protocol for Task-owned PRs. Standalone PRs keep the direct path. */
     @PostMapping("/api/prs/{prId}/approve")
     public void approve(
             @PathVariable String prId,
@@ -250,24 +239,26 @@ public class PRController
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "unsupported Task workflow version " + workflowVersion);
             }
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "LEGACY Task-owned PR approval is read-only; use a V2 Task");
         }
-        if (pr.repo() == null || pr.remotePrNumber() == null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity yet");
-        }
-        pullRequests.submitApproval(pr.repo(), pr.remotePrNumber());
-        prService.markHandled(prId, HandledAction.APPROVED);
+        publish.publishReview(
+                requireCommandId(commandId), prId, "APPROVE", List.of(),
+                List.of(), "");
     }
 
-    /** The whole PR in one payload — {@code usePR} fetches this rather than
-     *  five separate reads. Materialises/refreshes on read (task-origin picks
-     *  up branch commits; either origin picks up the remote timeline once
-     *  pushed), so the view shows real state even before an agent or a GitHub
-     *  sync has caught up. */
+    /** The whole stored PR projection in one payload. Standalone dashboard
+     *  PRs may retain their explicit refresh; Task-owned reads never perform
+     *  Git or GitHub I/O or advance lifecycle. */
     @GetMapping("/api/prs/{prId}/bundle")
     public PRBundleDto bundle(@PathVariable String prId)
     {
-        PR pr = sync.syncPRForDisplay(prId)
+        PR stored = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        PR pr = stored.taskId() == null
+                ? sync.syncPRForDisplay(prId).orElse(stored)
+                : stored;
         return new PRBundleDto(
                 PRDto.from(pr),
                 prService.commits(pr.id()).stream().map(PRCommitDto::from).toList(),
@@ -282,30 +273,59 @@ public class PRController
     @PostMapping("/api/prs/{prId}/sync")
     public PRDto syncPr(@PathVariable String prId)
     {
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "no PR " + prId));
+        if (pr.taskId() != null) {
+            rejectTaskOwnedCompatibilityMutation(
+                    pr.taskId(), "direct PR synchronization");
+        }
         return PRDto.from(sync.syncPR(prId, 0)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }
 
     /**
-     * On-demand local test run (design doc slice 4 — "runs at VALIDATING and
-     * on demand"): the same {@link RepoTestValidationCheck} the VALIDATING
-     * phase runs automatically, triggered manually from the Tests card.
-     * Synchronous — a local desktop sidecar with one user, so a "run tests,
-     * wait for it" click is the same shape as running it in a terminal; the
-     * frontend shows a busy state for the call's duration.
+     * On-demand local test run. The HTTP call waits for the UI contract, but
+     * the process itself is a durable, capacity-admitted V2 Validation
+     * Operation; the servlet thread never launches repository work directly.
      */
     @PostMapping("/api/prs/{prId}/run-tests")
-    public List<PRCheckDto> runTests(@PathVariable String prId)
+    public ResponseEntity<List<PRCheckDto>> runTests(
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId)
     {
-        PR pr = prService.findById(prId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
-        Task task = taskStore.findTaskById(pr.taskId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no task " + pr.taskId()));
-        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "task " + pr.taskId() + " has no worktree");
+        if (commandId == null || commandId.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Idempotency-Key is required for Manual PR validation");
         }
-        testRunner.run(task.id(), Path.of(task.worktreePath()));
-        return prService.checks(prId).stream().map(PRCheckDto::from).toList();
+        Operation operation;
+        try {
+            operation = manualValidation.runAndWait(commandId, prId);
+        }
+        catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage(), e);
+        }
+        if (!operation.terminal()) {
+            return ResponseEntity.accepted()
+                    .header("Retry-After", "1")
+                    .build();
+        }
+        if (operation.status() != Status.COMPLETED) {
+            HttpStatus status = operation.status() == Status.FAILED
+                    ? HttpStatus.INTERNAL_SERVER_ERROR : HttpStatus.CONFLICT;
+            String message = operation.error() == null
+                    ? "Manual PR validation "
+                            + operation.status().name().toLowerCase(Locale.ROOT)
+                    : operation.error();
+            throw new ResponseStatusException(status, message);
+        }
+        return ResponseEntity.ok(
+                prService.checks(prId).stream().map(PRCheckDto::from).toList());
     }
 
     /**
@@ -314,19 +334,27 @@ public class PRController
      * This is not an agent path — only the user's Approve &amp; push triggers it.
      */
     @PostMapping("/api/prs/{prId}/push")
-    public PRDto push(@PathVariable String prId)
+    public PRDto push(
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId)
     {
         // User-gated Approve & ship: the human is the final authority, so this
         // path may override the review-quality gate (open comments, failing
         // local checks). Auto-merge still keeps the gate via push(prId).
-        return PRDto.from(publish.push(prId, true));
+        return PRDto.from(publish.push(commandId, prId, true));
     }
 
     /** User-gated merge of a pushed task-origin PR, then flip it to {@code merged}. */
     @PostMapping("/api/prs/{prId}/merge")
-    public PRDto merge(@PathVariable String prId, @RequestBody(required = false) MergePRRequest body)
+    public PRDto merge(
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId,
+            @RequestBody(required = false) MergePRRequest body)
     {
-        return PRDto.from(publish.merge(prId, body == null ? null : body.method()));
+        return PRDto.from(publish.merge(
+                commandId, prId, body == null ? null : body.method()));
     }
 
     /** User-gated removal of a pushed PR from its repo's merge queue. */
@@ -360,7 +388,10 @@ public class PRController
             String commandId,
             @RequestBody PostRemoteCommentRequest body)
     {
-        publish.postComment(commandId, prId, body.body());
+        PR published = publish.postComment(commandId, prId, body.body());
+        if (isV2TaskPr(published)) {
+            return PRDto.from(published);
+        }
         return PRDto.from(sync.syncPR(prId, 0)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }
@@ -369,7 +400,7 @@ public class PRController
      *  re-sync so the review appears on the timeline. Both external PRs and
      *  task PRs that have reached the remote stage publish here. */
     @PostMapping("/api/prs/{prId}/publish-review")
-    public PRDto publishReview(
+    public Object publishReview(
             @PathVariable String prId,
             @RequestHeader(value = "Idempotency-Key", required = false)
             String commandId,
@@ -381,18 +412,67 @@ public class PRController
         String reviewBody = body == null ? null : body.body();
         PR published = publish.publishReview(
                 commandId, prId, verdict, findingIds, commentIds, reviewBody);
-        if (published.taskId() == null
-                || !"V2".equals(taskStore.findWorkflowVersion(
-                        published.taskId()).orElse(null))) {
-            investigationReviews.recordPublished(
-                    prId, verdict, findingIds, commentIds);
+        if (isV2TaskPr(published)) {
+            return PRDto.from(published);
         }
-        return PRDto.from(sync.syncPR(prId, 0)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
+        return publish.findExternalReviewPublication(prId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "external review publication was not authorized"));
+    }
+
+    @GetMapping("/api/prs/{prId}/review-publication")
+    public Projection reviewPublication(@PathVariable String prId)
+    {
+        return publish.findExternalReviewPublication(prId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "no external review publication for PR " + prId));
     }
 
     public record PublishReviewRequest(
             String verdict, List<String> findingIds, List<String> comments, String body) {}
+
+    private static String requireCommandId(String commandId)
+    {
+        if (commandId == null || commandId.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Idempotency-Key is required for a V2 remote action");
+        }
+        return commandId;
+    }
+
+    private boolean isV2TaskPr(PR pr)
+    {
+        return pr.taskId() != null
+                && "V2".equals(taskStore.findWorkflowVersion(
+                        pr.taskId()).orElse(null));
+    }
+
+    private void rejectTaskOwnedCompatibilityMutation(
+            String taskId, String action)
+    {
+        String workflow = taskStore.findWorkflowVersion(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Task " + taskId + " has no immutable workflow route"));
+        if ("V2".equals(workflow)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "V2 Task " + taskId + " " + action
+                            + " is owned by its exact Local/Remote Development command");
+        }
+        if ("LEGACY".equals(workflow)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Historical LEGACY Task " + taskId
+                            + " is read-only; " + action + " is retired");
+        }
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "unsupported Task workflow version " + workflow);
+    }
 
     @PatchMapping("/api/prs/{prId}")
     public PRDto update(@PathVariable String prId, @RequestBody(required = false) UpdatePRRequest body)

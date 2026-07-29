@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invalidate, setCached } from '../dataCache';
-import type { AiReviewDraftDto } from '../types';
+import type { AgentReviewData } from '../review/agentReviewTypes';
 import type { DashboardPR } from '../types/dashboardPr';
 import type { WorkspaceCreationDto } from '../workspace/workspaceApi';
 import type { PullRow } from './model';
@@ -54,7 +54,7 @@ vi.mock('./PullDetailPane', () => ({
     onWatchRepoForFullReview?: () => void;
     onWorkWithAgent?: () => void;
     onOpenInWorkspace?: () => void;
-    quickReview?: { state: string; result: AiReviewDraftDto | null };
+    quickReview?: { state: string; result: AgentReviewData | null };
     fullReviewPreparation?: { state: string };
     onToggleZoom?: () => void;
     zoomed?: boolean;
@@ -67,7 +67,7 @@ vi.mock('./PullDetailPane', () => ({
       data-watch={fullReviewPreparation?.state ?? 'idle'}
     >
       {row.id}
-      <span>{quickReview?.result?.summary}</span>
+      <span>{quickReview?.result?.findings[0]?.claim}</span>
       <button onClick={onAssignAgent} disabled={onAssignAgent === undefined}>full-hook</button>
       <button onClick={onRunQuickReview} disabled={onRunQuickReview === undefined}>quick-hook</button>
       <button onClick={onWatchRepoForFullReview} disabled={onWatchRepoForFullReview === undefined}>watch-hook</button>
@@ -99,17 +99,32 @@ afterEach(() => {
   delete (globalThis as { bridge?: unknown }).bridge;
 });
 
-const quickDraft: AiReviewDraftDto = {
-  id: 9,
-  prId: 1,
-  summary: 'One diff-only concern',
-  providerId: 'openai',
-  model: 'review-model',
-  headSha: 'abc',
-  status: 'DRAFT',
-  createdAt: '2026-07-19T00:00:00Z',
-  updatedAt: '2026-07-19T00:00:00Z',
-  comments: [],
+const quickDraft: AgentReviewData = {
+  review: {
+    id: 'quick-review', repo_id: pr.repo, pr_id: pr.id,
+    base_commit: 'base', reviewed_head_commit: 'abc', status: 'ACTIVE',
+    workspace_id: null, owner_thread_id: null, owner_task_id: null,
+  },
+  rounds: [{
+    id: 'quick-round', review_id: 'quick-review', agent_run_id: 'compatibility-header',
+    trigger: 'initial', scope: 'quick', start_commit: 'abc', end_commit: 'abc',
+    status: 'COMPLETED_WITH_QUESTIONS',
+    budget_json: { cost_cap_cents: 50, wall_clock_minutes: 5 }, cost_cents: 8,
+    capabilities_json: { source_mode: 'remote-only', available: ['pr_diff'], unavailable: ['repository_source'] },
+    trigger_stage_id: null,
+  }],
+  findings: [{
+    id: 'finding-1', review_id: 'quick-review', round_id: 'quick-round',
+    objective_id: 'objective-1', criterion_kind: 'hard-invariant', path: 'src/Foo.java',
+    start_line: 7, end_line: 7, claim: 'One diff-only concern', severity: 5,
+    confidence_class: 'SUPPORTED', verification_status: 'unknown',
+    requested_action: 'Restore the guard.', lifecycle_status: 'candidate',
+    last_checked_commit: 'abc',
+  }],
+  runs: [], criteria: [], objectives: [], assignments: [], hypotheses: [], steps: [],
+  observations: [], evidence: [], verifications: [], relations: [], outcomes: [],
+  knowledge_items: [], knowledge_provenance: [], activity_facts: [], round_messages: [],
+  reviewed_commits: [], round_message_targets: {}, pr_comments: [], pr_timeline_events: [],
 };
 
 describe('PullsScreen', () => {
@@ -282,7 +297,7 @@ describe('PullsScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'quick-hook' }));
     await waitFor(() => expect(screen.getByTestId('pull-detail').dataset.quick).toBe('done'));
     expect(startQuickReview).toHaveBeenCalledWith(pr.id);
-    expect(screen.getByText(quickDraft.summary as string)).not.toBeNull();
+    expect(screen.getByText(quickDraft.findings[0].claim)).not.toBeNull();
     expect(quickReview).toHaveBeenCalledWith(expect.objectContaining({ id: pr.id, repo: pr.repo, num: pr.number }));
     expect(openWorkspacePr).not.toHaveBeenCalled();
 
@@ -300,6 +315,24 @@ describe('PullsScreen', () => {
     await waitFor(() => expect(startAgentReview).toHaveBeenCalledWith(pr.id, { workspaceId: 'ws-created' }));
     await waitFor(() => expect(screen.getByTestId('pull-detail').dataset.unwatched).toBe('false'));
     expect(window.localStorage.getItem('bytequay.pending-full-review')).toBeNull();
+  });
+
+  it('does not treat a non-quick review aggregate as a completed quick review', async () => {
+    setCached('prs:list', [pr]);
+    const getLatestQuickReview = vi.fn().mockResolvedValue(quickDraft);
+    window.bridge = {
+      listWorkspaces: vi.fn().mockResolvedValue([]),
+      fetchDashboardPrs: vi.fn().mockResolvedValue([pr]),
+      syncDashboardPrs: vi.fn().mockResolvedValue([pr]),
+      recordSurfaceVisit: vi.fn().mockResolvedValue(undefined),
+      getQuickReviewStatus: vi.fn().mockResolvedValue({ state: 'IDLE', error: null }),
+      getLatestQuickReview,
+    } as unknown as typeof window.bridge;
+
+    render(<PullsScreen initialPr={{ repo: pr.repo, number: pr.number }} />);
+
+    await waitFor(() => expect(screen.getByTestId('pull-detail').dataset.quick).toBe('idle'));
+    expect(getLatestQuickReview).not.toHaveBeenCalled();
   });
 
   it('resumes a persisted watch intent after remount', async () => {

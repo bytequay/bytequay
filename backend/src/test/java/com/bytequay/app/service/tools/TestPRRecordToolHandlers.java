@@ -156,6 +156,23 @@ class TestPRRecordToolHandlers
     }
 
     @Test
+    void recordLocalReviewRejectsV2BeforeLegacyPrOrGitMutation()
+            throws Exception
+    {
+        when(taskStore.isV2Task("task1")).thenReturn(true);
+
+        ToolOutcome outcome = handlers.recordLocalReview(
+                new RecordLocalReviewArgs(true), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        assertThat(((ToolOutcome.Completed) outcome).text())
+                .contains("exact StageTurn result");
+        verify(prService, never()).createForTask(any(), any(), any(), any(), any());
+        verify(phaseMachine, never()).transition(any(), any(), any(), any());
+        verify(git, never()).hasUncommittedChanges(any());
+    }
+
+    @Test
     void recordLocalReviewCheckpointsADirtyWorktreeOutsideTheAgentSandbox()
             throws Exception
     {

@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.stage;
 
-import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
@@ -35,20 +34,17 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.brain.BrainServiceImpl;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
+import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -56,14 +52,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -85,100 +79,32 @@ class TestPlanStageService
     @Autowired
     private ThreadTurnStore turnStore;
     @Autowired
-    private ValidationPassStore validationStore;
-    @Autowired
     private BrainServiceImpl brainService;
     /** Mocked so the approval / replan kickoff enqueues a turn without the
      *  real scheduler dispatching an agent on a background thread (which would
      *  race this test's own SQLite writes). */
     @MockitoBean
-    private AgentScheduler scheduler;
+    private ThreadTurnScheduler scheduler;
 
     @Test
-    void approveFinalizedPlanClosesItAndOpensDevelopment()
+    void legacyPlanApprovalFailsClosedAndRollsBackTheWholeCommand()
     {
         String taskId = seedTask();
         StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
         recordPlan(plan, taskId, "finalized", "rev-1");
-
-        PlanStageService.ApproveResult result = planStageService.approveByStage(plan.id());
-
-        assertThat(result.devStageId()).isNotBlank();
-        assertThat(result.redirectUrl()).contains(result.devStageId());
-        StageInstance dev = stageStore.findActiveStage(taskId).orElseThrow();
-        assertThat(dev.type()).isEqualTo(StageType.DEVELOPMENT_STAGE);
-        assertThat(stageStore.findStageById(plan.id()).orElseThrow().state())
-                .isEqualTo(StageState.CLOSED);
-        // PLAN_APPROVED carries the approved revision id.
-        assertThat(stageStore.findEventsByStage(plan.id()))
-                .anySatisfy(e -> {
-                    assertThat(e.eventType()).isEqualTo(StageEventType.PLAN_APPROVED);
-                    assertThat(e.payloadJson()).contains("rev-1");
-                });
-        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
-                .isEqualTo(TaskPhase.IMPLEMENTING);
-    }
-
-    @Test
-    void devKickoffIsDurablyEnqueuedInsideTheApprovalCommand()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-1");
-        AtomicBoolean kickedOff = new AtomicBoolean();
-        doAnswer(ignored -> {
-            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
-            assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
-                    .isEqualTo(TaskPhase.IMPLEMENTING);
-            assertThat(stageStore.findStageById(plan.id()).orElseThrow().state())
-                    .isEqualTo(StageState.CLOSED);
-            kickedOff.set(true);
-            return "turn-1";
-        }).when(scheduler).enqueueStageTurnOnce(
-                any(), any(), any(), eq(taskId), any(), any(), any(), any());
-
-        planStageService.approveByStage(plan.id());
-
-        assertThat(kickedOff).isTrue();
-    }
-
-    @Test
-    void failedPhaseTransitionRollsBackTheWholeApproval()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-1");
-        taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
 
         assertThatThrownBy(() -> planStageService.approveByStage(plan.id()))
-                .isInstanceOf(ResponseStatusException.class);
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TaskPhaseMachine is retired");
 
         assertThat(stageStore.findStageById(plan.id()).orElseThrow().state())
                 .isEqualTo(StageState.OPEN);
         assertThat(stageStore.findEventsByStage(plan.id()))
                 .noneMatch(event -> event.eventType() == StageEventType.PLAN_APPROVED);
-        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void automationApprovalIsAuditedAsSchedulerPolicy()
-    {
-        String taskId = seedTask(
-                Task.TYPE_WORKSPACE_ISSUE_TRIAGE, 17, Task.ORIGIN_ISSUE_MONITOR);
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        JsonNode expected = recordPlan(plan, taskId, "finalized", "rev-auto");
-
-        planStageService.approveByAutomation(plan.id(), expected);
-
-        assertThat(stageStore.findEventsByStage(plan.id()))
-                .filteredOn(event -> event.eventType() == StageEventType.PLAN_APPROVED)
-                .singleElement()
-                .satisfies(event -> assertThat(event.payloadJson())
-                        .contains("workspace-issue-intake"));
-        assertThat(taskStore.listPhaseEvents(taskId))
-                .filteredOn(event -> event.toPhase() == TaskPhase.IMPLEMENTING)
-                .singleElement()
-                .satisfies(event -> assertThat(event.actor()).isEqualTo(Actor.SCHEDULER));
+        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
+                .isEqualTo(TaskPhase.PLANNING);
+        verify(scheduler, never()).enqueueStageTurnOnce(
+                any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -280,59 +206,6 @@ class TestPlanStageService
     }
 
     @Test
-    void replanReopensAPlanStageAfterApproval()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-1");
-        planStageService.approveByStage(plan.id());
-
-        PlanStageService.ReplanResult result = planStageService.replan(taskId);
-        if (result.preparing()) {
-            result = planStageService.completeRequestedReplan(taskId);
-        }
-
-        assertThat(result.planStageId()).isNotBlank();
-        StageInstance reopened = stageStore.findActiveStage(taskId).orElseThrow();
-        assertThat(reopened.type()).isEqualTo(StageType.PLAN_STAGE);
-        assertThat(reopened.id().toString()).isEqualTo(result.planStageId());
-        assertThat(reopened.id()).isNotEqualTo(plan.id());
-    }
-
-    @Test
-    void replanWaitsForLiveValidationBeforeOpeningPlanning()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-1");
-        planStageService.approveByStage(plan.id());
-        String claimKey = "replan:" + UUID.randomUUID();
-        validationStore.insertClaim(
-                claimKey, taskId, "dev-round", null, "fp-1", null, null, Instant.now());
-        validationStore.acquireOwner(
-                claimKey, "owner-1", "executor-1",
-                Instant.now().plusSeconds(120), Instant.now());
-
-        PlanStageService.ReplanResult pending = planStageService.replan(taskId);
-
-        assertThat(pending.preparing()).isTrue();
-        assertThat(pending.planStageId()).isNull();
-        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
-                .isEqualTo(TaskPhase.NEEDS_ATTENTION);
-        assertThat(validationStore.findByClaimKey(claimKey).orElseThrow().cancelRequestedAt())
-                .isNotNull();
-
-        validationStore.markSuperseded(claimKey, Instant.now());
-        PlanStageService.ReplanResult completed = planStageService.completeRequestedReplan(taskId);
-
-        assertThat(completed.preparing()).isFalse();
-        assertThat(completed.planStageId()).isNotBlank();
-        assertThat(completed.planStageId()).isNotEqualTo(plan.id().toString());
-        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
-                .isEqualTo(TaskPhase.PLANNING);
-    }
-
-    @Test
     void replanRejectsWhenNoApprovedPlanYet()
     {
         String taskId = seedTask();
@@ -419,97 +292,6 @@ class TestPlanStageService
                 any(), eq("plan-followup"), any(), any(), any(), any(), any());
         verify(scheduler, never()).enqueueStageTurn(
                 any(), contains("ended without recording"), any(), any(), any(), any(), any());
-    }
-
-    @Test
-    void devKickoffTurnFinishingNeverCreatesALegacyShipGate()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-1");
-        // Approve → task IMPLEMENTING, DevelopmentStage open, dev kickoff enqueued.
-        planStageService.approveByStage(plan.id());
-        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        String turnId = saveKickoffTurn(taskId, devThread, "plan-approved");
-
-        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
-
-        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
-    }
-
-    @Test
-    void devKickoffRendersStringFormSteps()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        // Steps as plain strings, not {ordinal, action} objects — the plan card
-        // renders these, so the dev kickoff must too, not blank "0." lines.
-        Map<String, Object> intent = new LinkedHashMap<>();
-        intent.put("summary", "land it");
-        intent.put("steps", List.of("Add the migration and stores", "Wire the reader"));
-        intent.put("pushStrategy", "await_approval");
-        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
-                "id", "rev-1", "status", "finalized", "intent", intent,
-                "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
-        stageStore.recordEvent(
-                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
-                Map.of("verdict", "approved", "reviewedRevisionId", "rev-1"));
-
-        planStageService.approveByStage(plan.id());
-
-        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueStageTurnOnce(
-                any(), any(), prompt.capture(), any(), any(), any(), any(), any());
-        assertThat(prompt.getValue())
-                .contains("1. Add the migration and stores")
-                .contains("2. Wire the reader")
-                .doesNotContain("0. ");
-    }
-
-    @Test
-    void automatedDevKickoffAlsoNeverCreatesALegacyShipGate()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-automation-kickoff");
-        planStageService.approveByStage(plan.id());
-        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        String turnId = saveKickoffTurn(taskId, devThread, "automation-plan-approved");
-
-        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
-
-        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
-    }
-
-    @Test
-    void aFailedDevKickoffTurnDoesNotNudgeToShip()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-1");
-        planStageService.approveByStage(plan.id());
-        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        String turnId = saveKickoffTurn(taskId, devThread, "plan-approved", "claude-code exited 1");
-
-        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, true));
-
-        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
-    }
-
-    @Test
-    void theShipNudgeTurnItselfDoesNotReNudge()
-    {
-        String taskId = seedTask();
-        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        recordPlan(plan, taskId, "finalized", "rev-1");
-        planStageService.approveByStage(plan.id());
-        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        // A turn that is itself the ship nudge must not chain another nudge.
-        String turnId = saveKickoffTurn(taskId, devThread, "ship-nudge");
-
-        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
-
-        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
     }
 
     @Test

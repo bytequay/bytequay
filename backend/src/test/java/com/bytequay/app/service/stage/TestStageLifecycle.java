@@ -13,90 +13,32 @@
  */
 package com.bytequay.app.service.stage;
 
-import com.bytequay.app.domain.Actor;
-import com.bytequay.app.domain.StageEvent;
-import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
-import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.domain.Thread;
-import com.bytequay.app.domain.ThreadFlow;
-import com.bytequay.app.domain.ThreadKind;
-import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskCreatedEvent;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.test.context.TestExecutionListeners;
-import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Drives a Task through its phase walk against the real
- * {@link TaskPhaseMachine} and asserts {@link StageLifecycle} keeps the
- * stage timeline in step: a PlanStage open at creation, the DevelopmentStage
- * opening only once the plan is approved, a CiFixingStage opening at the
- * first push, and a CleanupStage opening at COMPLETED — each boundary
- * closing the prior stage.
+ * Pure ordering contract retained for the read-only legacy compatibility
+ * boundary. Typed V2 Task and Stage owners cover lifecycle mutation; the
+ * retired TaskPhaseMachine is tested separately as fail-closed.
  */
-@SpringBootTest
-@TestExecutionListeners(
-        listeners = DependencyInjectionTestExecutionListener.class,
-        mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestStageLifecycle
 {
-    @Autowired
-    private TaskPhaseMachine machine;
-    @Autowired
-    private PlanStageService planStageService;
-    @Autowired
-    private StageStore stageStore;
-    @Autowired
-    private TaskStore taskStore;
-    @Autowired
-    private ThreadStore threadStore;
-    @Autowired
-    private ApplicationEventPublisher events;
-    @Autowired
-    private ObjectMapper mapper;
-
-    @Test
-    void taskCreatedEventOpensPlanStageOnce()
-    {
-        String taskId = seedTask();
-        assertThat(stageStore.findActiveStage(taskId)).isEmpty();
-
-        events.publishEvent(new TaskCreatedEvent(taskId));
-        assertActive(taskId, StageType.PLAN_STAGE);
-
-        // Idempotent — a re-fired creation event adds no second stage.
-        events.publishEvent(new TaskCreatedEvent(taskId));
-        assertThat(stagesOfType(taskId, StageType.PLAN_STAGE)).hasSize(1);
-        assertThat(stageStore.findStagesByTask(taskId)).hasSize(1);
-    }
-
     @Test
     void taskCreationOpensPlanStageBeforePublishingPlanningKickoff()
     {
@@ -109,231 +51,16 @@ class TestStageLifecycle
         when(stageMachine.ensurePhaseOpen("task-order", StageType.PLAN_STAGE, null))
                 .thenReturn(opened);
 
-        ObjectNode trunkPlan = new ObjectMapper().createObjectNode().put("status", "finalized");
+        ObjectNode trunkPlan = new ObjectMapper().createObjectNode()
+                .put("status", "finalized");
         new StageLifecycle(stages, stageMachine, tasks, publisher).onTaskCreated(
                 new TaskCreatedEvent("task-order", "fix it", trunkPlan, true));
 
         InOrder order = inOrder(stageMachine, publisher);
-        order.verify(stageMachine).ensurePhaseOpen("task-order", StageType.PLAN_STAGE, null);
+        order.verify(stageMachine).ensurePhaseOpen(
+                "task-order", StageType.PLAN_STAGE, null);
         order.verify(publisher).publishEvent(
                 new PlanKickoffRequested("task-order", "fix it", trunkPlan));
         verify(opened).id();
-    }
-
-    @Test
-    void developmentStageCannotOpenWithoutAnApprovedPlan()
-    {
-        String taskId = seedTask();
-        events.publishEvent(new TaskCreatedEvent(taskId));
-        assertActive(taskId, StageType.PLAN_STAGE);
-
-        // Entering IMPLEMENTING would open the DevelopmentStage; with no
-        // PLAN_APPROVED event the guard rejects it (and rolls the move back).
-        assertThatThrownBy(() ->
-                machine.transition(taskId, TaskPhase.IMPLEMENTING, "skip_planning", Actor.AGENT))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("DevelopmentStage cannot open without an approved PlanStage");
-        assertActive(taskId, StageType.PLAN_STAGE);
-        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase()).isEqualTo(TaskPhase.PLANNING);
-    }
-
-    @Test
-    void approvingThePlanClosesItAndOpensTheDevelopmentStage()
-    {
-        String taskId = seedTask();
-        events.publishEvent(new TaskCreatedEvent(taskId));
-
-        planStageService.approve(taskId, "rev-1");
-
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
-        assertThat(only(taskId, StageType.PLAN_STAGE).state()).isEqualTo(StageState.CLOSED);
-        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
-                .isEqualTo(TaskPhase.IMPLEMENTING);
-    }
-
-    @Test
-    void trunkPlanSeedsAPlanRecordedEventWithSourceTrunk()
-    {
-        String taskId = seedTask();
-        events.publishEvent(new TaskCreatedEvent(taskId));
-
-        ObjectNode trunk = mapper.createObjectNode();
-        trunk.put("status", "suggested");
-        trunk.put("source", "overwritten-to-trunk");
-        // Call the seed listener directly so we don't also fire the brain's
-        // planning turn (that path is covered by the brain-service test).
-        planStageService.onPlanKickoff(new PlanKickoffRequested(taskId, "fix it", trunk));
-
-        StageInstance plan = only(taskId, StageType.PLAN_STAGE);
-        List<StageEvent> recorded = stageStore.findEventsByStage(plan.id()).stream()
-                .filter(e -> e.eventType() == StageEventType.PLAN_RECORDED).toList();
-        assertThat(recorded).hasSize(1);
-        assertThat(recorded.get(0).payloadJson())
-                .contains("\"source\":\"trunk\"")
-                .contains("\"status\":\"suggested\"");
-    }
-
-    @Test
-    void phaseWalkOpensAndClosesStagesAtTheirBoundaries()
-    {
-        String taskId = seedTask();
-        // A brand-new task plans first; approval opens the DevelopmentStage.
-        events.publishEvent(new TaskCreatedEvent(taskId));
-        planStageService.approve(taskId, "rev-1");
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
-
-        // The dev phases that follow keep the DevelopmentStage open.
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready_for_checks", Actor.AGENT);
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
-
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validation_passed", Actor.AGENT);
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
-
-        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
-        assertThat(stagesOfType(taskId, StageType.DEVELOPMENT_STAGE)).hasSize(1);
-
-        // First push leaves local development and opens RemoteDevelopmentStage;
-        // CI-fix runs now work as episodes inside that stage.
-        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "human_push", Actor.HUMAN);
-        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
-
-        // PR merges: RemoteDevelopmentStage closes, and the terminal Cleanup stage
-        // opens then immediately closes (it's a marker, not live work) — so a
-        // finished task leaves nothing "running".
-        machine.transition(taskId, TaskPhase.COMPLETED, "merged", Actor.HUMAN);
-        assertThat(stageStore.findActiveStage(taskId)).isEmpty();
-        assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
-        assertThat(only(taskId, StageType.REMOTE_DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
-        assertThat(only(taskId, StageType.CLEANUP_STAGE).state()).isEqualTo(StageState.CLOSED);
-
-        List<StageInstance> stages = stageStore.findStagesByTask(taskId);
-        assertThat(stages).extracting(StageInstance::type).containsExactlyInAnyOrder(
-                StageType.PLAN_STAGE, StageType.DEVELOPMENT_STAGE,
-                StageType.REMOTE_DEVELOPMENT_STAGE, StageType.CLEANUP_STAGE);
-        // Every stage closed — a finished task has nothing running.
-        assertThat(stages).filteredOn(s -> s.state() == StageState.CLOSED).hasSize(4);
-    }
-
-    @Test
-    void remoteDevelopmentStageArmsAndStaysThroughRoundActivity()
-    {
-        String taskId = seedTask();
-        events.publishEvent(new TaskCreatedEvent(taskId));
-        planStageService.approve(taskId, "rev-1");
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
-        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "push", Actor.HUMAN);
-        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
-
-        // PR out for remote review stays inside RemoteDevelopmentStage.
-        machine.transition(taskId, TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green", Actor.WEBHOOK);
-        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
-        assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
-
-        // A review_round AgentRun works as an episode inside this stage, so
-        // RemoteDevelopmentStage stays active for the task's whole time on
-        // the remote-review spine.
-        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
-        assertThat(stagesOfType(taskId, StageType.REMOTE_DEVELOPMENT_STAGE)).hasSize(1);
-
-        // The round's gate approval pushes straight to PUSHED_AWAITING_CI —
-        // still part of RemoteDevelopmentStage.
-        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "round_approved", Actor.HUMAN);
-        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
-    }
-
-    @Test
-    void crossCuttingPhaseKeepsTheCurrentStage()
-    {
-        String taskId = seedTask();
-        events.publishEvent(new TaskCreatedEvent(taskId));
-        planStageService.approve(taskId, "rev-1");
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        StageInstance dev = only(taskId, StageType.DEVELOPMENT_STAGE);
-
-        // NEEDS_ATTENTION is cross-cutting — it must not churn the timeline.
-        machine.transition(taskId, TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
-
-        assertThat(stageStore.findActiveStage(taskId).map(StageInstance::id)).hasValue(dev.id());
-        // The closed PlanStage and the open DevelopmentStage — NEEDS_ATTENTION
-        // added no third stage.
-        assertThat(stageStore.findStagesByTask(taskId)).hasSize(2);
-    }
-
-    @Test
-    void needsAttentionRecoveryRestoresTheCheckpointInsteadOfAllowingAnImplementingShortcut()
-    {
-        String taskId = seedTask();
-        events.publishEvent(new TaskCreatedEvent(taskId));
-        planStageService.approve(taskId, "rev-1");
-        StageInstance originalDev = only(taskId, StageType.DEVELOPMENT_STAGE);
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.AWAITING_PUSH, "approved", Actor.HUMAN);
-        machine.transition(taskId, TaskPhase.PUSHED_AWAITING_CI, "push", Actor.HUMAN);
-        // Moving into remote review closes the DevelopmentStage for real.
-        machine.transition(taskId, TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green", Actor.WEBHOOK);
-        assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
-
-        // Parked (a universal escape, cross-cutting — RemoteDevelopment stays
-        // active through it). The phase picker must not let a human bypass
-        // the recovery barrier and jump back to IMPLEMENTING.
-        machine.transition(taskId, TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
-        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
-
-        assertThatThrownBy(() -> machine.transition(
-                taskId, TaskPhase.IMPLEMENTING, "recovered", Actor.HUMAN))
-                .hasMessageContaining("illegal task phase transition NEEDS_ATTENTION -> IMPLEMENTING");
-
-        machine.completeRecovery(
-                taskId, Actor.HUMAN, "recovered", TaskPhase.AWAITING_REMOTE_REVIEW);
-
-        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
-        StageInstance closedDev = only(taskId, StageType.DEVELOPMENT_STAGE);
-        assertThat(closedDev.id()).isEqualTo(originalDev.id());
-        assertThat(closedDev.state()).isEqualTo(StageState.CLOSED);
-        assertThat(stageStore.findEventsByStage(closedDev.id()))
-                .extracting(StageEvent::eventType)
-                .containsExactly(StageEventType.OPENED, StageEventType.CLOSED);
-    }
-
-    private void assertActive(String taskId, StageType type)
-    {
-        StageInstance active = stageStore.findActiveStage(taskId).orElseThrow();
-        assertThat(active.type()).isEqualTo(type);
-        assertThat(active.state()).isEqualTo(StageState.OPEN);
-    }
-
-    private List<StageInstance> stagesOfType(String taskId, StageType type)
-    {
-        return stageStore.findStagesByTask(taskId).stream()
-                .filter(s -> s.type() == type)
-                .toList();
-    }
-
-    private StageInstance only(String taskId, StageType type)
-    {
-        List<StageInstance> matches = stagesOfType(taskId, type);
-        assertThat(matches).hasSize(1);
-        return matches.get(0);
-    }
-
-    private String seedTask()
-    {
-        Instant now = Instant.parse("2026-06-20T09:00:00Z");
-        Thread thread = new Thread(
-                UUID.randomUUID().toString(), ThreadKind.CLI_AGENT, "claude-code",
-                null, "Lifecycle test", ThreadStatus.RUNNING, "claude-sonnet-4.6",
-                0L, 0L, 0L, now, now, null, null, ThreadFlow.BUILD, "ws-default", null, null);
-        threadStore.saveThread(thread);
-
-        String taskId = UUID.randomUUID().toString();
-        taskStore.saveTask(new Task(
-                taskId, thread.id(), 1L, TaskStatus.RUNNING, "feature", null, "main", "/tmp",
-                null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, now, null, null, null, null, null));
-        return taskId;
     }
 }

@@ -17,11 +17,6 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.pr.PullRequestMergedEvent;
-import jakarta.annotation.PreDestroy;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -53,7 +48,6 @@ import static java.util.Objects.requireNonNull;
  * WorktreeService#fetchPlanningBase}'s per-clone lock. Refs only — a
  * planning worktree is never reset here, so running turns are unaffected.
  */
-@Component
 public class PlanningBaseRefresher
 {
     /** A thread counts as recently active — and its planning base worth
@@ -68,7 +62,6 @@ public class PlanningBaseRefresher
      *  so a request arriving mid-fetch queues one more. */
     private final Set<String> pending = ConcurrentHashMap.newKeySet();
 
-    @Autowired
     public PlanningBaseRefresher(
             ThreadStore threadStore, WatchedRepoStore watchedRepos, WorktreeService worktrees)
     {
@@ -92,7 +85,6 @@ public class PlanningBaseRefresher
     }
 
     /** A base branch just moved — fetch the merged repo's clone now. */
-    @EventListener
     public void onPullRequestMerged(PullRequestMergedEvent event)
     {
         watchedRepos.findAll().stream()
@@ -104,7 +96,6 @@ public class PlanningBaseRefresher
 
     /** Catches base movement ByteQuay never sees an event for (pushes by
      *  other people, merges outside the app). */
-    @Scheduled(fixedDelay = 120_000, initialDelay = 120_000)
     public void refreshActivePlanningBases()
     {
         Instant since = Instant.now().minusMillis(ACTIVE_THREAD_WINDOW_MS);
@@ -122,7 +113,6 @@ public class PlanningBaseRefresher
         });
     }
 
-    @PreDestroy
     void shutdown()
     {
         if (fetcher instanceof ExecutorService service) {

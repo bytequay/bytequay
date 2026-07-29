@@ -76,7 +76,8 @@ public interface AgentTurnProviderSession
             String prompt,
             List<ImageAttachment> images,
             OwnerToolEndpoint toolEndpoint,
-            Access access)
+            Access access,
+            Long maxCostUsdMilli)
     {
         public Request
         {
@@ -107,6 +108,10 @@ public interface AgentTurnProviderSession
             if (systemPrompt != null && systemPrompt.isBlank()) {
                 throw new IllegalArgumentException("systemPrompt must not be blank");
             }
+            if (maxCostUsdMilli != null && maxCostUsdMilli < 1) {
+                throw new IllegalArgumentException(
+                        "maxCostUsdMilli must be positive");
+            }
             if ((access == Access.READ_ONLY
                     && toolEndpoint.profile() != ToolProfile.TASK_BRAIN_READ_ONLY
                     && toolEndpoint.profile() != ToolProfile.TRUNK_CONTROL_READ_ONLY
@@ -132,7 +137,25 @@ public interface AgentTurnProviderSession
         {
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    List.of(), toolEndpoint, access);
+                    List.of(), toolEndpoint, access, null);
+        }
+
+        public Request(
+                Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String prompt,
+                List<ImageAttachment> images,
+                OwnerToolEndpoint toolEndpoint,
+                Access access)
+        {
+            this(transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    images, toolEndpoint, access, null);
         }
     }
 

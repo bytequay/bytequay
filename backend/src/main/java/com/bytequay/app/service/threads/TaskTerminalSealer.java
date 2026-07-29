@@ -24,7 +24,6 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.StageStateMachine;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -104,7 +103,6 @@ class TaskTerminalSealer
     }
 
     /** Runs synchronously in {@link TaskPhaseMachine}'s terminal command. */
-    @EventListener
     void onTerminalSealing(TaskTerminalSealingEvent event)
     {
         if (tasks.isV2Task(event.taskId())) {

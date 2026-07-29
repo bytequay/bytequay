@@ -17,8 +17,12 @@ import com.bytequay.app.beans.workspace.TrunkDto;
 import com.bytequay.app.beans.workspace.WorkspaceOnboardingDto;
 import com.bytequay.app.beans.workspace.WorkspaceOverviewDto;
 import com.bytequay.app.beans.workspace.WorkspaceSummaryDto;
+import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
+import com.bytequay.app.developmentflow.compatibility.V2TrunkRuntimeProjection;
 import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -27,6 +31,7 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.BacklogStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.runs.SessionProjectionService;
@@ -36,6 +41,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
@@ -52,6 +58,9 @@ public class WorkspaceOverviewService
     private final WorkspaceCreationService creations;
     private final WorkspaceConfigurationService configuration;
     private final ThreadStore threads;
+    private final V2TrunkRuntimeProjection trunkRuntime;
+    private final TaskStore tasks;
+    private final V2DevelopmentFlowProjection taskRuntime;
     private final SessionProjectionService sessions;
     private final BacklogStore backlog;
     private final NotificationService notifications;
@@ -63,6 +72,9 @@ public class WorkspaceOverviewService
             WorkspaceCreationService creations,
             WorkspaceConfigurationService configuration,
             ThreadStore threads,
+            V2TrunkRuntimeProjection trunkRuntime,
+            TaskStore tasks,
+            V2DevelopmentFlowProjection taskRuntime,
             SessionProjectionService sessions,
             BacklogStore backlog,
             NotificationService notifications,
@@ -73,6 +85,10 @@ public class WorkspaceOverviewService
         this.creations = requireNonNull(creations, "creations is null");
         this.configuration = requireNonNull(configuration, "configuration is null");
         this.threads = requireNonNull(threads, "threads is null");
+        this.trunkRuntime = requireNonNull(
+                trunkRuntime, "trunkRuntime is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.taskRuntime = requireNonNull(taskRuntime, "taskRuntime is null");
         this.sessions = requireNonNull(sessions, "sessions is null");
         this.backlog = requireNonNull(backlog, "backlog is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
@@ -97,8 +113,8 @@ public class WorkspaceOverviewService
                 .findFirst()
                 .orElseThrow(() -> new NoSuchElementException(
                         "no workspace summary: " + workspaceId));
-        WorkspaceSummaryDto summary = summary(card);
         List<Thread> all = publicTrunks(workspaceId);
+        WorkspaceSummaryDto summary = summary(card, all);
         List<BacklogItem> backlogRows = backlog.findByWorkspace(workspaceId);
         long midnight = localMidnight();
         List<Thread> needsYou = all.stream()
@@ -155,12 +171,19 @@ public class WorkspaceOverviewService
 
     private WorkspaceSummaryDto summary(WorkspaceCardDto card)
     {
+        return summary(card, publicTrunks(card.id()));
+    }
+
+    private WorkspaceSummaryDto summary(
+            WorkspaceCardDto storedCard, List<Thread> trunks)
+    {
+        WorkspaceCardDto card = effectiveCard(storedCard, trunks);
         WorkspaceOnboardingDto onboarding =
                 configuration.onboarding(card.id());
         WorkspaceSummaryDto.RepositoryDto repository =
                 repository(card.id());
         List<WorkspaceSummaryDto.ActivityDto> recent =
-                publicTrunks(card.id()).stream()
+                trunks.stream()
                         .limit(2)
                         .map(thread -> new WorkspaceSummaryDto.ActivityDto(
                                 thread.id(),
@@ -175,6 +198,39 @@ public class WorkspaceOverviewService
                         || repository != null && repository.verified());
         return WorkspaceSummaryDto.from(
                 card, repository, recent, ready, onboarding.syncState());
+    }
+
+    private WorkspaceCardDto effectiveCard(
+            WorkspaceCardDto stored, List<Thread> trunks)
+    {
+        if (stored.isScratch()) {
+            return stored;
+        }
+        List<Task> effectiveTasks = trunks.stream()
+                .flatMap(trunk -> tasks.listTasksByThread(trunk.id()).stream())
+                .map(task -> taskRuntime.isV2Task(task.id())
+                        ? taskRuntime.project(task)
+                        : task)
+                .toList();
+        long midnight = localMidnight();
+        Long lastActivity = trunks.stream()
+                .map(Thread::updatedAt)
+                .max(Comparator.naturalOrder())
+                .map(Instant::toEpochMilli)
+                .orElse(null);
+        return new WorkspaceCardDto(
+                stored.id(), stored.name(), stored.color(), false,
+                stored.repos(),
+                (int) trunks.stream().filter(WorkspaceOverviewService::active).count(),
+                (int) effectiveTasks.stream()
+                        .filter(WorkspaceOverviewService::inFlight).count(),
+                effectiveTasks.stream()
+                        .filter(task -> task.createdAt().toEpochMilli() >= midnight)
+                        .mapToLong(Task::costUsdMilli)
+                        .sum(),
+                (int) effectiveTasks.stream()
+                        .filter(WorkspaceOverviewService::needsYou).count(),
+                stored.memory(), lastActivity);
     }
 
     private WorkspaceSummaryDto.RepositoryDto repository(String workspaceId)
@@ -204,10 +260,12 @@ public class WorkspaceOverviewService
 
     private List<Thread> publicTrunks(String workspaceId)
     {
-        return threads.listThreadsByWorkspace(workspaceId).stream()
+        List<Thread> stored = threads.listThreadsByWorkspace(workspaceId).stream()
                 .filter(thread -> thread.kind() != ThreadKind.BRAIN_AGENT)
                 .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
                 .filter(thread -> thread.parentTaskId() == null)
+                .toList();
+        return trunkRuntime.projectAll(stored).stream()
                 .sorted(Comparator.comparing(Thread::updatedAt).reversed())
                 .toList();
     }
@@ -248,6 +306,20 @@ public class WorkspaceOverviewService
     {
         return thread.status() == ThreadStatus.AWAITING_REVIEW
                 || thread.status() == ThreadStatus.NEEDS_ATTENTION;
+    }
+
+    private static boolean inFlight(Task task)
+    {
+        return switch (task.status()) {
+            case PENDING, RUNNING, IDLE, AWAITING_REVIEW, NEEDS_ATTENTION -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean needsYou(Task task)
+    {
+        return task.status() == TaskStatus.AWAITING_REVIEW
+                || task.status() == TaskStatus.NEEDS_ATTENTION;
     }
 
     private static long localMidnight()

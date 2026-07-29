@@ -14,6 +14,8 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.workspace.TrunkDto;
+import com.bytequay.app.developmentflow.compatibility.V2TrunkRuntimeProjection;
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.ThreadStore;
@@ -33,18 +35,25 @@ import static java.util.Objects.requireNonNull;
 public class TrunkController
 {
     private final ThreadStore threads;
+    private final V2TrunkRuntimeProjection trunkRuntime;
 
-    public TrunkController(ThreadStore threads)
+    public TrunkController(
+            ThreadStore threads,
+            V2TrunkRuntimeProjection trunkRuntime)
     {
         this.threads = requireNonNull(threads, "threads is null");
+        this.trunkRuntime = requireNonNull(
+                trunkRuntime, "trunkRuntime is null");
     }
 
     @GetMapping
     public List<TrunkDto> list(@PathVariable String workspaceId)
     {
-        return threads.listThreadsByWorkspace(workspaceId).stream()
+        List<Thread> stored = threads.listThreadsByWorkspace(workspaceId).stream()
                 .filter(thread -> thread.kind() != ThreadKind.BRAIN_AGENT)
                 .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
+                .toList();
+        return trunkRuntime.projectAll(stored).stream()
                 .map(TrunkDto::from)
                 .toList();
     }
@@ -58,6 +67,7 @@ public class TrunkController
                 .filter(thread -> workspaceId.equals(thread.workspaceId()))
                 .filter(thread -> thread.kind() != ThreadKind.BRAIN_AGENT)
                 .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
+                .map(trunkRuntime::project)
                 .map(TrunkDto::from)
                 .orElseThrow(() -> new NoSuchElementException(
                         "no trunk in workspace: " + trunkId));

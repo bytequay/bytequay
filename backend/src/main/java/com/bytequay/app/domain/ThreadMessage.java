@@ -44,6 +44,8 @@ public record ThreadMessage(
         String id,
         String threadId,
         String taskId,
+        /** Positive physical seq for LEGACY rows; the ThreadTurn compatibility
+         * projection uses a negative durable Trunk version. */
         long seq,
         String role,
         String type,

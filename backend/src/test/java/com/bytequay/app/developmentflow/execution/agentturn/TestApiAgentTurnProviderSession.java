@@ -17,9 +17,12 @@ import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +51,9 @@ class TestApiAgentTurnProviderSession
 {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Path WORKTREE = Path.of("/tmp/api-agent-turn-worktree");
+
+    @TempDir
+    private Path tempDir;
 
     @Test
     void executesAnthropicTurnAgainstOnlyItsExactOwnerTools()
@@ -278,6 +284,96 @@ class TestApiAgentTurnProviderSession
         assertThat(result.error()).contains("budget was exhausted");
     }
 
+    @Test
+    void inlinesAttachedImagesForAnthropicAndOpenAiTransports()
+            throws Exception
+    {
+        Path image = Files.write(
+                tempDir.resolve("screenshot.png"), new byte[] {1, 2, 3});
+
+        TurnSpec anthropic = specWithImage(
+                TurnSpec.Transport.ANTHROPIC, image);
+        JsonNode anthropicImage = anthropic.messages().get(0)
+                .path("content").get(0);
+        assertThat(anthropicImage.path("type").asText()).isEqualTo("image");
+        assertThat(anthropicImage.path("source").path("media_type").asText())
+                .isEqualTo("image/png");
+        assertThat(anthropicImage.path("source").path("data").asText())
+                .isEqualTo("AQID");
+        assertThat(anthropic.messages().get(0).path("content").get(1)
+                .path("text").asText()).isEqualTo("prompt");
+
+        TurnSpec openAi = specWithImage(
+                TurnSpec.Transport.OPENAI_COMPAT, image);
+        JsonNode openAiImage = openAi.messages().get(1)
+                .path("content").get(0);
+        assertThat(openAiImage.path("type").asText()).isEqualTo("image_url");
+        assertThat(openAiImage.path("image_url").path("url").asText())
+                .isEqualTo("data:image/png;base64,AQID");
+        assertThat(openAi.messages().get(1).path("content").get(1)
+                .path("text").asText()).isEqualTo("prompt");
+    }
+
+    @Test
+    void rejectsAnImageChangedAfterAdmissionBeforeCallingTheProvider()
+            throws Exception
+    {
+        Path image = Files.write(
+                tempDir.resolve("changed.png"), new byte[] {1, 2, 3});
+        AgentTurnProviderSession.ImageAttachment frozen =
+                new AgentTurnProviderSession.ImageAttachment(
+                        image.toString(), "image/png",
+                        "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
+        Files.write(image, new byte[] {9, 9, 9});
+        AtomicBoolean called = new AtomicBoolean();
+        ApiAgentTurnProviderSession provider = new ApiAgentTurnProviderSession(
+                ignored -> new ApiAgentTurnProviderSession.ResolvedProvider(
+                        TurnSpec.Transport.ANTHROPIC,
+                        "https://example.test", "secret"),
+                new RecordingTools(),
+                (spec, tools, hooks) -> {
+                    called.set(true);
+                    return new TurnResult(
+                            "", 0, 0, 0, 1, TurnResult.End.COMPLETED);
+                },
+                JSON);
+
+        try (AgentTurnProviderSession.Session session = provider.open(
+                request(READ_ONLY, TurnSpec.Transport.ANTHROPIC,
+                        List.of(frozen)), new RecordingObserver())) {
+            assertThatThrownBy(() -> session.startAndAwait(null))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("content changed before provider launch");
+        }
+        assertThat(called).isFalse();
+    }
+
+    private TurnSpec specWithImage(
+            TurnSpec.Transport transport, Path image)
+            throws Exception
+    {
+        AtomicReference<TurnSpec> captured = new AtomicReference<>();
+        ApiAgentTurnProviderSession provider = new ApiAgentTurnProviderSession(
+                ignored -> new ApiAgentTurnProviderSession.ResolvedProvider(
+                        transport, "https://example.test", "secret"),
+                new RecordingTools(),
+                (spec, tools, hooks) -> {
+                    captured.set(spec);
+                    return new TurnResult(
+                            "done", 0, 0, 0, 1, TurnResult.End.COMPLETED);
+                },
+                JSON);
+        try (AgentTurnProviderSession.Session session = provider.open(
+                request(READ_ONLY, transport, List.of(
+                        new AgentTurnProviderSession.ImageAttachment(
+                                image.toString(), "image/png",
+                                "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81"))),
+                new RecordingObserver())) {
+            session.startAndAwait(null);
+        }
+        return captured.get();
+    }
+
     private static ApiAgentTurnProviderSession providerReturning(TurnResult.End end)
     {
         return new ApiAgentTurnProviderSession(
@@ -294,6 +390,14 @@ class TestApiAgentTurnProviderSession
             AgentTurnProviderSession.Access access,
             TurnSpec.Transport ignoredProviderTransport)
     {
+        return request(access, ignoredProviderTransport, List.of());
+    }
+
+    private static AgentTurnProviderSession.Request request(
+            AgentTurnProviderSession.Access access,
+            TurnSpec.Transport ignoredProviderTransport,
+            List<AgentTurnProviderSession.ImageAttachment> images)
+    {
         return new AgentTurnProviderSession.Request(
                 API,
                 ignoredProviderTransport == TurnSpec.Transport.ANTHROPIC
@@ -304,6 +408,7 @@ class TestApiAgentTurnProviderSession
                 WORKTREE,
                 "system",
                 "prompt",
+                images,
                 endpoint(access),
                 access);
     }

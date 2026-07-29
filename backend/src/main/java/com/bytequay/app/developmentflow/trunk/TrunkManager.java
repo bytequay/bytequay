@@ -19,6 +19,8 @@ import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -281,6 +283,21 @@ public final class TrunkManager
         return commands.execute(scope, () -> {
             TaskCommandExecutor.requireCurrent(scope);
             return store.suppressPlanningLaunches(trunkId, reason, at);
+        });
+    }
+
+    /** Durably prevents only the planning launch reserved for one exact Turn. */
+    public int suppressPlanningLaunch(
+            String trunkId, String turnId, String reason, Instant at)
+    {
+        requireText(trunkId, "trunkId");
+        requireText(turnId, "turnId");
+        requireText(reason, "reason");
+        requireNonNull(at, "at is null");
+        String scope = scope(trunkId);
+        return commands.execute(scope, () -> {
+            TaskCommandExecutor.requireCurrent(scope);
+            return store.suppressPlanningLaunch(trunkId, turnId, reason, at);
         });
     }
 
@@ -901,6 +918,23 @@ public final class TrunkManager
         }
     }
 
+    public record ThreadTurnAttachment(
+            String id,
+            String kind,
+            String contentRef,
+            String mediaType,
+            String digest)
+    {
+        public ThreadTurnAttachment
+        {
+            requireText(id, "id");
+            requireText(kind, "kind");
+            requireText(contentRef, "contentRef");
+            requireText(mediaType, "mediaType");
+            requireDigest(digest, "digest");
+        }
+    }
+
     public record ThreadTurnCommand(
             String commandId,
             String actor,
@@ -920,6 +954,7 @@ public final class TrunkManager
             String launchInputDigest,
             String userMessage,
             String userMessageDigest,
+            List<ThreadTurnAttachment> attachments,
             Instant requestedAt)
     {
         public ThreadTurnCommand
@@ -938,7 +973,15 @@ public final class TrunkManager
             requireDigest(launchInputDigest, "launchInputDigest");
             requireText(userMessage, "userMessage");
             requireDigest(userMessageDigest, "userMessageDigest");
+            attachments = attachments == null ? List.of() : attachments.stream()
+                    .sorted(Comparator.comparing(ThreadTurnAttachment::id))
+                    .toList();
             requireNonNull(requestedAt, "requestedAt is null");
+            if (attachments.stream().map(ThreadTurnAttachment::id).distinct().count()
+                    != attachments.size()) {
+                throw new IllegalArgumentException(
+                        "ThreadTurn attachment ids must be unique");
+            }
             if (expectedTrunkVersion < 0) {
                 throw new IllegalArgumentException(
                         "expectedTrunkVersion is negative");
@@ -1223,6 +1266,13 @@ public final class TrunkManager
 
         default int suppressPlanningLaunches(
                 String trunkId, String reason, Instant suppressedAt)
+        {
+            return 0;
+        }
+
+        default int suppressPlanningLaunch(
+                String trunkId, String turnId, String reason,
+                Instant suppressedAt)
         {
             return 0;
         }

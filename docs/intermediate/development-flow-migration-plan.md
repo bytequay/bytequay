@@ -826,18 +826,18 @@ and compare the source hash afterward:
 ~~~bash
 sqlite3 "/absolute/path/to/bytequay.db" \
   ".timeout 30000" \
-  ".backup '/private/tmp/bytequay-pre-v275.db'"
-cp -p /private/tmp/bytequay-pre-v275.db /private/tmp/bytequay-v275.db
-chmod 0444 /private/tmp/bytequay-pre-v275.db
-shasum -a 256 /private/tmp/bytequay-pre-v275.db
+  ".backup '/private/tmp/bytequay-pre-v276.db'"
+cp -p /private/tmp/bytequay-pre-v276.db /private/tmp/bytequay-v276.db
+chmod 0444 /private/tmp/bytequay-pre-v276.db
+shasum -a 256 /private/tmp/bytequay-pre-v276.db
 cd backend
 mvn -q -Dtest=TestDevelopmentFlowBackupAudit \
-  -Dbytequay.audit.db=/private/tmp/bytequay-v275.db test
-shasum -a 256 /private/tmp/bytequay-pre-v275.db
+  -Dbytequay.audit.db=/private/tmp/bytequay-v276.db test
+shasum -a 256 /private/tmp/bytequay-pre-v276.db
 ~~~
 
 The audit runner refuses the standard live-database path, targets exactly
-V275, checks SQLite integrity and foreign keys before and after migration, and
+V276, checks SQLite integrity and foreign keys before and after migration, and
 requires the development-flow invariant audit to be healthy. A non-zero legacy
 drain is reported separately: it blocks legacy-code retirement but does not
 make the schema upgrade invalid.
@@ -858,6 +858,22 @@ exact-head policy freshness; explicit human-authorized GitHub effects;
 readiness notification/assistance; and LEGACY/V2 compatibility projections.
 Existing LEGACY Tasks keep their immutable route and continue to drain through
 their original runtime.
+
+The compatibility edge now also repairs incomplete four-audience engine
+snapshots before dispatcher recovery; serializes concurrent Task authorization
+inside the Trunk boundary; scopes promotion quiescence to live Trunk Turns;
+unions retained and typed conversation rows with stable cursors; freezes and
+re-verifies typed Trunk attachments; interrupts one exact Trunk Turn; exposes
+typed provider trace separately from conversation order; and derives Trunk
+status, lifetime usage, and activity without writing legacy lifecycle fields.
+Child Task execution contributes to Trunk lifetime usage and activity but never
+changes Trunk conversation status.
+
+Older clients that omit an exact Trunk Turn id stop the running Turn before a
+newer queued Turn. A deterministic frozen-input failure suppresses only its
+reserved launch and recovery continues with later candidates. Workspace card
+counts, spend, and activity are likewise calculated from the read-only typed
+Task/Trunk projections rather than copied into legacy status columns.
 
 All V2 user-authorized PR write endpoints require an `Idempotency-Key` header.
 The Electron client retains one key across transport or server failure and
@@ -891,6 +907,10 @@ sidecar when an operator action is required:
    workflow pools only after the drain endpoint is zero, the retention window
    is complete, historical reads are proven, and the scheduler-removal suite
    passes. Until then they are drain-only compatibility code.
+8. The contract intentionally defines no implicit retention duration or start
+   anchor. Before legacy deletion, record an explicit duration and anchor or an
+   explicit locked-design waiver; zero drain counters alone never waive this
+   precondition.
 
 Physical V2 Trunk deletion is transactionally authorized and is rejected while
 any typed child operation can still execute or still has an undelivered

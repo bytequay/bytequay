@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -267,7 +268,7 @@ public final class ApiAgentTurnProviderSession
             messages.add(objectMessage("system", system));
             system = null;
         }
-        messages.add(objectMessage("user", request.prompt()));
+        messages.add(userMessage(request, provider.transport()));
         return new TurnSpec(
                 provider.transport(),
                 provider.url(),
@@ -283,6 +284,45 @@ public final class ApiAgentTurnProviderSession
     private ObjectNode objectMessage(String role, String content)
     {
         return json.createObjectNode().put("role", role).put("content", content);
+    }
+
+    private ObjectNode userMessage(
+            Request request, TurnSpec.Transport transport)
+    {
+        if (request.images().isEmpty()) {
+            return objectMessage("user", request.prompt());
+        }
+        ObjectNode message = json.createObjectNode().put("role", "user");
+        ArrayNode content = message.putArray("content");
+        request.images().forEach(image -> content.add(
+                imageContent(image, transport)));
+        content.add(json.createObjectNode()
+                .put("type", "text")
+                .put("text", request.prompt()));
+        return message;
+    }
+
+    private ObjectNode imageContent(
+            AgentTurnProviderSession.ImageAttachment image,
+            TurnSpec.Transport transport)
+    {
+        byte[] bytes = image.readVerified();
+        String encoded = Base64.getEncoder().encodeToString(bytes);
+        ObjectNode content = json.createObjectNode();
+        if (transport == TurnSpec.Transport.ANTHROPIC) {
+            content.put("type", "image");
+            content.putObject("source")
+                    .put("type", "base64")
+                    .put("media_type", image.mediaType())
+                    .put("data", encoded);
+        }
+        else {
+            content.put("type", "image_url");
+            content.putObject("image_url")
+                    .put("url", "data:" + image.mediaType()
+                            + ";base64," + encoded);
+        }
+        return content;
     }
 
     private ArrayNode renderTools(

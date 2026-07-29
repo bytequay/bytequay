@@ -203,10 +203,28 @@ public final class V2ThreadControlService
     /** Persist cancellation first, then signal the exact active provider attempt. */
     public void interrupt(String trunkId)
     {
+        interrupt(trunkId, null);
+    }
+
+    /** A user-visible Stop always targets one exact Turn, never its siblings. */
+    public void interrupt(String trunkId, String requestedTurnId)
+    {
+        requireText(trunkId, "trunkId");
+        if (requestedTurnId != null && requestedTurnId.isBlank()) {
+            throw new IllegalArgumentException("turnId is blank");
+        }
+        String turnId = requestedTurnId != null
+                ? requestedTurnId
+                : projection.latestCancelableTurnId(trunkId).orElse(null);
+        if (turnId == null) {
+            return;
+        }
         planning.suppressPending(
-                trunkId, "User canceled before provider launch");
-        projection.cancelableTicketIds(trunkId)
-                .forEach(tickets::requestCancel);
+                trunkId, turnId, "User canceled before provider launch");
+        // Resolve after suppression: a concurrent planning launch either lost
+        // the Trunk stripe or now maps this same reserved id to its Turn ticket.
+        projection.cancelableTicketId(trunkId, turnId)
+                .ifPresent(tickets::requestCancel);
     }
 
     private void stream(

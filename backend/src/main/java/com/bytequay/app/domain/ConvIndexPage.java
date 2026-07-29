@@ -32,12 +32,12 @@ import java.util.List;
  *   <li><b>Initial window</b>: the page returns the tail of the
  *       conversation. {@code messages} is the rendered window;
  *       {@code totalUserMessages} reflects the whole thread;
- *       {@code nextCursor} is the smallest loaded seq, or
+ *       {@code nextCursor} is the earliest loaded canonical seq, or
  *       {@code null} when nothing older exists.</li>
  *   <li><b>Backfill window</b>: the page returns an older slice
  *       triggered by "↑ load earlier". {@code totalUserMessages}
  *       is still the thread-wide count (so the header math works);
- *       {@code nextCursor} is again the smallest seq of this batch,
+ *       {@code nextCursor} is again the earliest canonical seq of this batch,
  *       or {@code null} when the start of the thread is reached.</li>
  * </ul>
  *
@@ -46,11 +46,11 @@ import java.util.List;
  * window. Oldest-first; intended to be prepended to the agent
  * terminal's loaded set on backfill, or used as the initial render on
  * initial loads.
- * @param loadedFromSeq Smallest seq in this window, or {@code null}
+ * @param loadedFromSeq Earliest canonical seq in this window, or {@code null}
  * when the window is empty.
- * @param nextCursor Smallest seq strictly less than {@code
- * loadedFromSeq} for the next load-earlier cursor, or {@code null}
- * when no older rows remain.
+ * @param nextCursor Cursor to pass back for the next load-earlier request, or
+ * {@code null} when no older rows remain. It equals {@code loadedFromSeq};
+ * ordering is source-aware and must not be inferred numerically.
  */
 public record ConvIndexPage(
         String threadId,

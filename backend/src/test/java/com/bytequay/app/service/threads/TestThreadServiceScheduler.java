@@ -14,6 +14,8 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
+import com.bytequay.app.developmentflow.compatibility.V2TrunkRuntimeProjection;
+import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
@@ -59,6 +61,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -71,6 +74,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
@@ -83,6 +87,322 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestThreadServiceScheduler
 {
+    @Test
+    void threadReadsAndStatusListsUseTheV2RuntimeProjection()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        Thread stored = thread("v2-stale");
+        stored = new Thread(
+                stored.id(), stored.kind(), stored.provider(), "legacy-session",
+                stored.title(), ThreadStatus.ERRORED, stored.model(),
+                stored.costUsdMilli(), stored.tokensIn(), stored.tokensOut(),
+                stored.createdAt(), stored.updatedAt(), stored.updatedAt(),
+                "legacy error", stored.flow(), stored.workspaceId(),
+                stored.workModel(), stored.parentReviewPassId(),
+                stored.parallelSlots(), stored.parentTaskId(), stored.prRef(),
+                stored.description());
+        Thread idle = new Thread(
+                stored.id(), stored.kind(), stored.provider(), null,
+                stored.title(), ThreadStatus.IDLE, stored.model(),
+                stored.costUsdMilli(), stored.tokensIn(), stored.tokensOut(),
+                stored.createdAt(), stored.updatedAt(), null, null,
+                stored.flow(), stored.workspaceId(), stored.workModel(),
+                stored.parentReviewPassId(), stored.parallelSlots(),
+                stored.parentTaskId(), stored.prRef(), stored.description());
+        V2TrunkRuntimeProjection runtime =
+                Mockito.mock(V2TrunkRuntimeProjection.class);
+        Mockito.when(runtime.project(stored)).thenReturn(idle);
+        Mockito.when(runtime.projectAll(List.of(stored)))
+                .thenReturn(List.of(idle));
+        Mockito.when(runtime.count(null)).thenReturn(1);
+        Mockito.when(runtime.listIds(ThreadStatus.IDLE, null, 10))
+                .thenReturn(List.of(stored.id()));
+        Mockito.when(runtime.listIds(ThreadStatus.ERRORED, null, 10))
+                .thenReturn(List.of());
+        Mockito.when(store.findThreadById(stored.id()))
+                .thenReturn(Optional.of(stored));
+        Mockito.when(store.listTasksByStatus(ThreadStatus.ERRORED, 11))
+                .thenReturn(List.of(stored));
+        Mockito.when(store.listTasksByStatus(ThreadStatus.IDLE, 11))
+                .thenReturn(List.of());
+        Mockito.when(store.listTasksByIds(List.of(stored.id())))
+                .thenReturn(List.of(stored));
+        ThreadService service = new ThreadService(
+                store, Mockito.mock(TaskStore.class),
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                Mockito.mock(ThreadRegistry.class),
+                Mockito.mock(McpPermissionGate.class),
+                Mockito.mock(ThreadTurnScheduler.class),
+                Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
+                Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        service.setV2TrunkRuntime(runtime);
+
+        assertThat(service.find(stored.id())).contains(idle);
+        assertThat(service.listByStatus(ThreadStatus.IDLE, 10))
+                .containsExactly(idle);
+        assertThat(service.listByStatus(ThreadStatus.ERRORED, 10)).isEmpty();
+    }
+
+    @Test
+    void statusListsDropV2RowsThatChangeStatusAfterIdSelection()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        Thread stored = thread("v2-racing", ThreadStatus.ERRORED);
+        Thread running = copyThread(
+                stored, ThreadStatus.RUNNING, stored.updatedAt());
+        V2TrunkRuntimeProjection runtime =
+                Mockito.mock(V2TrunkRuntimeProjection.class);
+        Mockito.when(runtime.count(null)).thenReturn(1);
+        Mockito.when(runtime.count(stored.workspaceId())).thenReturn(1);
+        Mockito.when(runtime.listIds(ThreadStatus.IDLE, null, 10))
+                .thenReturn(List.of(stored.id()));
+        Mockito.when(runtime.listIds(
+                        ThreadStatus.IDLE, stored.workspaceId(), 10))
+                .thenReturn(List.of(stored.id()));
+        Mockito.when(store.listTasksByStatus(ThreadStatus.IDLE, 11))
+                .thenReturn(List.of());
+        Mockito.when(store.listTasksByWorkspaceAndStatus(
+                        stored.workspaceId(), ThreadStatus.IDLE, 11))
+                .thenReturn(List.of());
+        Mockito.when(store.listTasksByIds(List.of(stored.id())))
+                .thenReturn(List.of(stored));
+        Mockito.when(runtime.projectAll(List.of(stored)))
+                .thenReturn(List.of(running));
+        ThreadService service = service(store, Mockito.mock(ThreadGroupStore.class));
+        service.setV2TrunkRuntime(runtime);
+
+        assertThat(service.listByStatus(ThreadStatus.IDLE, 10)).isEmpty();
+        assertThat(service.listByWorkspaceAndStatus(
+                stored.workspaceId(), ThreadStatus.IDLE, 10)).isEmpty();
+
+        Mockito.verify(runtime, Mockito.times(2)).projectAll(List.of(stored));
+        Mockito.verify(runtime, Mockito.never()).find(Mockito.anyString());
+        Mockito.verify(runtime, Mockito.never()).project(Mockito.any());
+    }
+
+    @Test
+    void groupLimitUsesProjectedActivityOrder()
+    {
+        Instant base = Instant.parse("2026-05-18T12:00:00Z");
+        Thread first = copyThread(thread("first"), ThreadStatus.IDLE,
+                base.plusSeconds(3));
+        Thread second = copyThread(thread("second"), ThreadStatus.IDLE,
+                base.plusSeconds(2));
+        Thread third = copyThread(thread("third"), ThreadStatus.IDLE,
+                base.plusSeconds(1));
+        Thread projectedThird = copyThread(
+                third, ThreadStatus.IDLE, base.plusSeconds(4));
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        ThreadGroupStore groups = Mockito.mock(ThreadGroupStore.class);
+        V2TrunkRuntimeProjection runtime =
+                Mockito.mock(V2TrunkRuntimeProjection.class);
+        List<Thread> stored = List.of(first, second, third);
+        Mockito.when(groups.listMembers("group-1")).thenReturn(List.of(
+                new ThreadGroupMembership("first", "group-1", base),
+                new ThreadGroupMembership("second", "group-1", base),
+                new ThreadGroupMembership("third", "group-1", base)));
+        Mockito.when(store.listTasksByIds(List.of("first", "second", "third")))
+                .thenReturn(stored);
+        Mockito.when(runtime.projectAll(stored))
+                .thenReturn(List.of(first, second, projectedThird));
+        ThreadService service = service(store, groups);
+        service.setV2TrunkRuntime(runtime);
+
+        assertThat(service.listByGroup("group-1", 2))
+                .containsExactly(projectedThird, first);
+    }
+
+    @Test
+    void v2TrunkReadsRetainLegacyHistoryAfterPromotion()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        ThreadTurnStore turns = Mockito.mock(ThreadTurnStore.class);
+        ThreadTurnEventStore events = Mockito.mock(ThreadTurnEventStore.class);
+        V2ThreadControlService typed = Mockito.mock(V2ThreadControlService.class);
+        Thread trunk = thread("promoted-trunk");
+        Instant old = Instant.parse("2026-05-18T12:00:00Z");
+        Instant fresh = old.plusSeconds(1);
+        ThreadMessage legacyMessage = Mockito.mock(ThreadMessage.class);
+        ThreadMessage typedMessage = Mockito.mock(ThreadMessage.class);
+        ThreadTurn legacyTurn = Mockito.mock(ThreadTurn.class);
+        ThreadTurn typedTurn = Mockito.mock(ThreadTurn.class);
+        ThreadTurnEvent legacyEvent = Mockito.mock(ThreadTurnEvent.class);
+        ThreadTurnEvent typedEvent = Mockito.mock(ThreadTurnEvent.class);
+        Mockito.when(legacyMessage.id()).thenReturn("legacy-message");
+        Mockito.when(legacyMessage.ts()).thenReturn(old);
+        Mockito.when(typedMessage.id()).thenReturn("typed-message");
+        Mockito.when(typedMessage.ts()).thenReturn(fresh);
+        Mockito.when(legacyTurn.id()).thenReturn("legacy-turn");
+        Mockito.when(legacyTurn.createdAt()).thenReturn(old);
+        Mockito.when(typedTurn.id()).thenReturn("typed-turn");
+        Mockito.when(typedTurn.createdAt()).thenReturn(fresh);
+        Mockito.when(legacyEvent.id()).thenReturn("legacy-event");
+        Mockito.when(legacyEvent.createdAt()).thenReturn(old);
+        Mockito.when(typedEvent.id()).thenReturn("typed-event");
+        Mockito.when(typedEvent.createdAt()).thenReturn(fresh);
+        Mockito.when(store.findThreadById(trunk.id())).thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion(trunk.id())).thenReturn(Optional.of("V2"));
+        Mockito.when(store.listMessages(trunk.id())).thenReturn(List.of(legacyMessage));
+        Mockito.when(typed.history(trunk.id())).thenReturn(List.of(typedMessage));
+        Mockito.when(turns.listTurnsByTaskId(trunk.id(), 50))
+                .thenReturn(List.of(legacyTurn));
+        Mockito.when(typed.turns(trunk.id(), 50)).thenReturn(List.of(typedTurn));
+        Mockito.when(events.listEventsByTaskId(trunk.id(), 200))
+                .thenReturn(List.of(legacyEvent));
+        Mockito.when(typed.turnEvents(trunk.id())).thenReturn(List.of(typedEvent));
+        ThreadService service = new ThreadService(
+                store,
+                Mockito.mock(TaskStore.class),
+                Mockito.mock(ThreadGroupStore.class),
+                turns,
+                events,
+                Mockito.mock(ThreadRegistry.class),
+                Mockito.mock(McpPermissionGate.class),
+                Mockito.mock(ThreadTurnScheduler.class),
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        service.setV2ThreadControls(typed);
+
+        assertThat(service.history(trunk.id()))
+                .containsExactly(legacyMessage, typedMessage);
+        assertThat(service.turns(trunk.id()))
+                .containsExactly(typedTurn, legacyTurn);
+        assertThat(service.turnEvents(trunk.id()))
+                .containsExactly(typedEvent, legacyEvent);
+    }
+
+    @Test
+    void routedLegacyTrunkSendPromotesToTypedRoute()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
+        ThreadTurnScheduler scheduler = Mockito.mock(ThreadTurnScheduler.class);
+        V2TaskCreationService taskCreation = Mockito.mock(V2TaskCreationService.class);
+        V2ThreadControlService typed = Mockito.mock(V2ThreadControlService.class);
+        Thread trunk = thread("trunk-legacy");
+        Mockito.when(store.findThreadById(trunk.id())).thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion(trunk.id())).thenReturn(Optional.of("LEGACY"));
+        Mockito.when(taskCreation.routes(trunk.workspaceId())).thenReturn(true);
+        Mockito.when(typed.send(trunk, "plan this", TurnInitiator.user()))
+                .thenReturn("thread-turn-v2");
+        ThreadService service = new ThreadService(
+                store,
+                Mockito.mock(TaskStore.class),
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                registry,
+                Mockito.mock(McpPermissionGate.class),
+                scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        service.setV2TaskCreation(
+                taskCreation, Mockito.mock(PlatformTransactionManager.class));
+        service.setV2ThreadControls(typed);
+
+        assertThat(service.sendTrunk(trunk.id(), "plan this"))
+                .isEqualTo("thread-turn-v2");
+
+        Mockito.verify(taskCreation).prepareTrunk(trunk.id(), trunk.workspaceId());
+        Mockito.verify(typed).send(trunk, "plan this", TurnInitiator.user());
+        Mockito.verifyNoInteractions(scheduler, registry);
+    }
+
+    @Test
+    void routedLegacyTrunkIsNotPromotedWithoutItsTypedRuntime()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        V2TaskCreationService taskCreation = Mockito.mock(V2TaskCreationService.class);
+        Thread trunk = thread("trunk-legacy");
+        Mockito.when(store.findThreadById(trunk.id())).thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion(trunk.id())).thenReturn(Optional.of("LEGACY"));
+        Mockito.when(taskCreation.routes(trunk.workspaceId())).thenReturn(true);
+        ThreadService service = new ThreadService(
+                store,
+                Mockito.mock(TaskStore.class),
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                Mockito.mock(ThreadRegistry.class),
+                Mockito.mock(McpPermissionGate.class),
+                Mockito.mock(ThreadTurnScheduler.class),
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        service.setV2TaskCreation(
+                taskCreation, Mockito.mock(PlatformTransactionManager.class));
+
+        assertThatThrownBy(() -> service.sendTrunk(trunk.id(), "plan this"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("V2 Trunk runtime is not configured");
+
+        Mockito.verify(taskCreation, Mockito.never())
+                .prepareTrunk(trunk.id(), trunk.workspaceId());
+    }
+
+    @Test
+    void routedLegacyTrunkMaterialisesOnlyThroughV2Creation()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        TaskStore tasks = Mockito.mock(TaskStore.class);
+        ThreadTurnScheduler scheduler = Mockito.mock(ThreadTurnScheduler.class);
+        WorktreeService worktrees = Mockito.mock(WorktreeService.class);
+        V2TaskCreationService taskCreation = Mockito.mock(V2TaskCreationService.class);
+        Thread trunk = thread("trunk-legacy");
+        Task created = Mockito.mock(Task.class);
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6",
+                "Fix tests", "/tmp/repo", "main", "please fix", List.of(),
+                "DEVELOP", null, null, null, trunk.workspaceId(), null);
+        Mockito.when(store.findThreadById(trunk.id())).thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion(trunk.id())).thenReturn(Optional.of("LEGACY"));
+        Mockito.when(taskCreation.routes(trunk.workspaceId())).thenReturn(true);
+        Mockito.when(taskCreation.create(trunk, request)).thenReturn(created);
+        ThreadService service = new ThreadService(
+                store,
+                tasks,
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                Mockito.mock(ThreadRegistry.class),
+                Mockito.mock(McpPermissionGate.class),
+                scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                worktrees,
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        service.setV2TaskCreation(
+                taskCreation, Mockito.mock(PlatformTransactionManager.class));
+
+        assertThat(service.materialiseTask(trunk.id(), request)).isSameAs(created);
+
+        Mockito.verify(taskCreation).create(trunk, request);
+        Mockito.verifyNoInteractions(tasks, scheduler, worktrees);
+    }
+
     @Test
     void v2TrunkSendUsesTypedRouteWithoutSchedulerOrRegistry()
     {
@@ -161,6 +481,67 @@ class TestThreadServiceScheduler
                 .hasValue(4);
         Mockito.verify(registry, Mockito.times(2))
                 .findByAgentKey("brain-1", "stage-1");
+    }
+
+    @Test
+    void promotedTrunkRoutesPermissionsOnlyToAnExactLegacyTaskAgent()
+    {
+        String trunkId = "promoted-trunk";
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        TaskStore tasks = Mockito.mock(TaskStore.class);
+        ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
+        ThreadAgent legacyAgent = Mockito.mock(ThreadAgent.class);
+        Task legacyTask = Mockito.mock(Task.class);
+        Task v2Task = Mockito.mock(Task.class);
+        Task siblingLegacyTask = Mockito.mock(Task.class);
+        Mockito.when(store.findTurnVersion(trunkId)).thenReturn(Optional.of("V2"));
+        Mockito.when(legacyTask.id()).thenReturn("legacy-task");
+        Mockito.when(legacyTask.threadId()).thenReturn(trunkId);
+        Mockito.when(v2Task.id()).thenReturn("v2-task");
+        Mockito.when(v2Task.threadId()).thenReturn(trunkId);
+        Mockito.when(siblingLegacyTask.id()).thenReturn("sibling-task");
+        Mockito.when(siblingLegacyTask.threadId()).thenReturn("other-trunk");
+        Mockito.when(tasks.findTaskById("legacy-task")).thenReturn(Optional.of(legacyTask));
+        Mockito.when(tasks.findTaskById("v2-task")).thenReturn(Optional.of(v2Task));
+        Mockito.when(tasks.findTaskById("sibling-task"))
+                .thenReturn(Optional.of(siblingLegacyTask));
+        Mockito.when(tasks.findWorkflowVersion("legacy-task"))
+                .thenReturn(Optional.of("LEGACY"));
+        Mockito.when(tasks.findWorkflowVersion("v2-task"))
+                .thenReturn(Optional.of("V2"));
+        Mockito.when(registry.findByAgentKey(trunkId, "legacy-task"))
+                .thenReturn(Optional.of(legacyAgent));
+        ThreadService service = new ThreadService(
+                store,
+                tasks,
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                registry,
+                Mockito.mock(McpPermissionGate.class),
+                Mockito.mock(ThreadTurnScheduler.class),
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+
+        service.notifyPermissionRequested(
+                trunkId, "legacy-task", "call-1", "Bash", "run tests");
+
+        Mockito.verify(legacyAgent).notifyPermissionRequested(
+                "call-1", "Bash", "run tests");
+        for (String rejected : List.of("v2-task", "sibling-task", "unknown", "trunk")) {
+            assertThatThrownBy(() -> service.notifyPermissionRequested(
+                    trunkId, rejected, "call-2", "Bash", "run tests"))
+                    .isInstanceOf(NoSuchElementException.class)
+                    .hasMessageContaining("typed execution endpoint");
+        }
+        Mockito.verify(registry, Mockito.times(1))
+                .findByAgentKey(trunkId, "legacy-task");
+        Mockito.verifyNoMoreInteractions(registry);
     }
 
     @Test
@@ -608,6 +989,37 @@ class TestThreadServiceScheduler
                 .containsExactly("legacy-queued", "typed-running");
         Mockito.verify(typed).activeTurns(50);
         Mockito.verifyNoInteractions(scheduler);
+    }
+
+    @Test
+    void v2InterruptForwardsTheExactTrunkTurn()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
+        ThreadTurnScheduler scheduler = Mockito.mock(ThreadTurnScheduler.class);
+        V2ThreadControlService typed = Mockito.mock(V2ThreadControlService.class);
+        Thread trunk = thread("trunk-v2");
+        Mockito.when(store.findThreadById(trunk.id()))
+                .thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion(trunk.id()))
+                .thenReturn(Optional.of("V2"));
+        ThreadService service = new ThreadService(
+                store, Mockito.mock(TaskStore.class),
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class), registry,
+                Mockito.mock(McpPermissionGate.class), scheduler,
+                Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
+                noopWorktreeService(), new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        service.setV2ThreadControls(typed);
+
+        service.interruptTrunk(trunk.id(), "turn-2");
+
+        Mockito.verify(typed).interrupt(trunk.id(), "turn-2");
+        Mockito.verifyNoInteractions(scheduler, registry);
     }
 
     @Test
@@ -2425,6 +2837,37 @@ class TestThreadServiceScheduler
     {
         Instant now = Instant.parse("2026-05-18T12:00:00Z");
         return new ThreadGroup(id, "Group " + id, "G", "blue", 1, now, now);
+    }
+
+    private static ThreadService service(
+            ThreadStore store, ThreadGroupStore groups)
+    {
+        return new ThreadService(
+                store, Mockito.mock(TaskStore.class), groups,
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                Mockito.mock(ThreadRegistry.class),
+                Mockito.mock(McpPermissionGate.class),
+                Mockito.mock(ThreadTurnScheduler.class),
+                Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
+                noopWorktreeService(), new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+    }
+
+    private static Thread copyThread(
+            Thread thread, ThreadStatus status, Instant updatedAt)
+    {
+        return new Thread(
+                thread.id(), thread.kind(), thread.provider(),
+                thread.agentSessionId(), thread.title(), status, thread.model(),
+                thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
+                thread.createdAt(), updatedAt, thread.endedAt(),
+                thread.errorMessage(), thread.flow(), thread.workspaceId(),
+                thread.workModel(), thread.parentReviewPassId(),
+                thread.parallelSlots(), thread.parentTaskId(), thread.prRef(),
+                thread.description());
     }
 
     private static Thread thread()

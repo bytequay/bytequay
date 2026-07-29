@@ -403,9 +403,10 @@ public class ThreadController
      *       {@code limit} messages plus the user-prompt index entries
      *       derived from them, plus the thread-wide user-prompt count
      *       for the "N of M" header.</li>
-     *   <li>{@code direction=before}: messages strictly older than
+     *   <li>{@code direction=before}: messages canonically before
      *       {@code cursor}, oldest-first; used by the "↑ load earlier"
-     *       affordance to prepend to the loaded window.</li>
+     *       affordance to prepend to the loaded window. A promoted Trunk's
+     *       cursor is source-aware and must not be compared numerically.</li>
      * </ul>
      *
      * <p>Both modes return the messages and the derived index entries
@@ -423,7 +424,7 @@ public class ThreadController
         if ("before".equalsIgnoreCase(direction)) {
             if (cursor == null) {
                 throw new IllegalArgumentException(
-                        "cursor is required when direction=before — pass the smallest seq currently loaded");
+                        "cursor is required when direction=before — pass the earliest canonical seq currently loaded");
             }
             return convIndex.backfill(id, cursor, limit);
         }
@@ -663,9 +664,11 @@ public class ThreadController
     }
 
     @PostMapping("/{id}/interrupt")
-    public Map<String, String> interrupt(@PathVariable String id)
+    public Map<String, String> interrupt(
+            @PathVariable String id,
+            @RequestParam(required = false) String turnId)
     {
-        threads.interruptTrunk(id);
+        threads.interruptTrunk(id, turnId);
         return ImmutableMap.of("status", "interrupted");
     }
 

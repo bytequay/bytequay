@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConvIndexEntryDto, ThreadMessageDto } from '../types';
+import { compareConversationSeq } from './conversationSeq';
 
 export type ConvIndexState = {
   /** All loaded user-prompt entries, oldest-first. Grows as the
@@ -20,7 +21,7 @@ export type ConvIndexState = {
   entries: ConvIndexEntryDto[];
   /** Thread-wide user-prompt count, for the panel's "N of M" header. */
   total: number;
-  /** Smallest seq currently in the loaded window. Used as the
+  /** Earliest canonical seq currently in the loaded window. Used as the
    *  backfill cursor when the user pages older. */
   loadedFromSeq: number | null;
   /** Whether older entries exist that haven't been fetched yet. */
@@ -56,7 +57,7 @@ const BACKFILL_LIMIT = 50;
  * user-prompt count or preview. (We don't open a second SSE here to
  * avoid two parallel streams; the parent is the single subscriber.)
  *
- * <p>{@link #loadOlder} fires a backfill against the smallest seq
+ * <p>{@link #loadOlder} fires a backfill against the earliest canonical seq
  * we currently have. Entries are prepended (older-first), keeping
  * oldest-first ordering across the whole list.
  */
@@ -75,6 +76,7 @@ export function useConvIndex(threadId: string): ConvIndexState & {
   // user-triggered loadOlder don't race against React's state
   // batching — both read the up-to-date cursor synchronously.
   const loadedFromSeqRef = useRef<number | null>(null);
+  const entriesRef = useRef<ConvIndexEntryDto[]>([]);
   const loadingMoreRef = useRef(false);
   const threadIdRef = useRef(threadId);
 
@@ -88,10 +90,18 @@ export function useConvIndex(threadId: string): ConvIndexState & {
     try {
       const page = await window.bridge.getTaskIndex(id, { limit: INITIAL_LIMIT });
       if (threadIdRef.current !== id) return;
-      setEntries(prev => mergeEntries(prev, page.entries));
+      const merged = mergeEntries(entriesRef.current, page.entries);
+      entriesRef.current = merged;
+      setEntries(merged);
       setTotal(page.totalUserMessages);
       setFullTextBySeq(prev => mergeFullText(prev, page.messages));
-      const loadedFromSeq = mergeLoadedFromSeq(loadedFromSeqRef.current, page.loadedFromSeq);
+      // A promoted Trunk can receive a late positive-seq LEGACY child row
+      // before its negative typed suffix. If that row falls outside the tail
+      // page, an old fully-backfilled cursor cannot reach it. Reset to the
+      // canonical tail cursor whenever the merged set still has a hole.
+      const loadedFromSeq = merged.length < page.totalUserMessages
+        ? page.loadedFromSeq
+        : mergeLoadedFromSeq(loadedFromSeqRef.current, page.loadedFromSeq);
       setLoadedFromSeq(loadedFromSeq);
       loadedFromSeqRef.current = loadedFromSeq;
     }
@@ -110,6 +120,7 @@ export function useConvIndex(threadId: string): ConvIndexState & {
   // from a previous thread can't briefly render against the new thread.
   useEffect(() => {
     setEntries([]);
+    entriesRef.current = [];
     setTotal(0);
     setLoadedFromSeq(null);
     loadedFromSeqRef.current = null;
@@ -134,7 +145,9 @@ export function useConvIndex(threadId: string): ConvIndexState & {
       // page can contain zero user prompts but still advance the
       // cursor toward older prompt rows. Keep paging based on the
       // returned cursor, not on page.entries.length.
-      setEntries(prev => mergeEntries(page.entries, prev));
+      const merged = mergeEntries(page.entries, entriesRef.current);
+      entriesRef.current = merged;
+      setEntries(merged);
       setTotal(page.totalUserMessages);
       setFullTextBySeq(prev => mergeFullText(prev, page.messages));
       setLoadedFromSeq(page.loadedFromSeq);
@@ -242,7 +255,8 @@ function mergeEntries(
   for (const entry of right) {
     bySeq.set(entry.seq, entry);
   }
-  return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+  return Array.from(bySeq.values()).sort(
+    (a, b) => compareConversationSeq(a.seq, b.seq));
 }
 
 function mergeLoadedFromSeq(
@@ -255,5 +269,5 @@ function mergeLoadedFromSeq(
   if (incoming === null) {
     return current;
   }
-  return Math.min(current, incoming);
+  return compareConversationSeq(current, incoming) <= 0 ? current : incoming;
 }

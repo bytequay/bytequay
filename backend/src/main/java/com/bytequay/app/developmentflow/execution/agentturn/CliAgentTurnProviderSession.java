@@ -126,6 +126,20 @@ public final class CliAgentTurnProviderSession
             if (request.systemPrompt() != null) {
                 argv.add("--append-system-prompt", request.systemPrompt());
             }
+            request.images().stream()
+                    .map(AgentTurnProviderSession.ImageAttachment::path)
+                    .map(Path::of)
+                    .map(Path::getParent)
+                    .distinct()
+                    .forEach(directory -> argv.add(
+                            "--add-dir", directory.toString()));
+            if (!request.images().isEmpty()) {
+                argv.add("--allowedTools", request.images().stream()
+                        .map(AgentTurnProviderSession.ImageAttachment::path)
+                        .map(CliAgentTurnProviderSession::absoluteReadRule)
+                        .reduce((left, right) -> left + "," + right)
+                        .orElseThrow());
+            }
             return argv.build();
         }
 
@@ -150,8 +164,9 @@ public final class CliAgentTurnProviderSession
                 .add("--sandbox", request.access() == READ_ONLY
                         ? "read-only" : "workspace-write")
                 .add("-C", request.workingDirectory().toString())
-                .add("-m", request.model())
-                .add(composePrompt(request));
+                .add("-m", request.model());
+        request.images().forEach(image -> argv.add("-i", image.path()));
+        argv.add(composePrompt(request));
         return argv.build();
     }
 
@@ -168,9 +183,30 @@ public final class CliAgentTurnProviderSession
     {
         try (OutputStream stdin = process.getOutputStream()) {
             if (provider == CliProvider.CLAUDE_CODE) {
-                stdin.write(request.prompt().getBytes(StandardCharsets.UTF_8));
+                stdin.write(providerPrompt(request, provider)
+                        .getBytes(StandardCharsets.UTF_8));
             }
         }
+    }
+
+    static String providerPrompt(Request request, CliProvider provider)
+    {
+        if (provider != CliProvider.CLAUDE_CODE || request.images().isEmpty()) {
+            return request.prompt();
+        }
+        String label = request.images().size() == 1
+                ? "Attached image (read this managed file):"
+                : "Attached images (read these managed files):";
+        return request.prompt() + "\n\n" + label + "\n- "
+                + String.join("\n- ", request.images().stream()
+                        .map(AgentTurnProviderSession.ImageAttachment::path)
+                        .toList());
+    }
+
+    /** Claude permission patterns use a double slash for an absolute path. */
+    private static String absoluteReadRule(String image)
+    {
+        return "Read(/" + Path.of(image).toAbsolutePath().normalize() + ")";
     }
 
     private static final class CliSession
@@ -214,6 +250,8 @@ public final class CliAgentTurnProviderSession
             if (canceled.get()) {
                 return canceledResult(null, 0, 0, 0, null);
             }
+            request.images().forEach(
+                    AgentTurnProviderSession.ImageAttachment::readVerified);
 
             Path mcpConfig = provider == CliProvider.CLAUDE_CODE
                     ? createMcpConfig(request.toolEndpoint(), mapper)

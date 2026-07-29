@@ -45,7 +45,12 @@ function mockBridge(over: Record<string, unknown> = {}) {
         createdAt: '2026-06-24T09:00:00Z',
       },
     ]),
-    sendTrunkMessage: vi.fn().mockResolvedValue(undefined),
+    sendTrunkMessage: vi.fn().mockResolvedValue({ status: 'queued', turnId: 'turn-new' }),
+    getTaskTurns: vi.fn().mockResolvedValue([]),
+    getTrunkTraceEvents: vi.fn().mockResolvedValue([]),
+    getTypedPermissions: vi.fn().mockResolvedValue([]),
+    decideTaskPermission: vi.fn().mockResolvedValue({ status: 'recorded' }),
+    interruptTask: vi.fn().mockResolvedValue(undefined),
     listBacklog: vi.fn().mockResolvedValue([]),
     listThreadSignals: vi.fn().mockResolvedValue([]),
     listNotificationsForThread: vi.fn().mockResolvedValue([]),
@@ -191,23 +196,27 @@ describe('TrunkRoute', () => {
     expect(onReviewTask).toHaveBeenNthCalledWith(2, 'task-1');
   });
 
-  it('clears a stuck Working indicator once a turn ends without ever replying', async () => {
+  it.each(['FAILED', 'CANCELLED'] as const)(
+    'clears Working when its typed turn ends %s without ever replying', async terminalStatus => {
     vi.useFakeTimers();
-    let getTaskCalls = 0;
+    let turnCalls = 0;
     const bridge = mockBridge({
-      // 1st call: initial mount (IDLE). 2nd: sendNow's own immediate reload
-      // once sendTrunkMessage resolves — the backend has picked up the turn
-      // (RUNNING). 3rd: the next poll tick, still RUNNING. 4th+: its tool
-      // calls got denied/cancelled and it ends WITHOUT ever sending a
-      // closing reply — back to IDLE with no new assistant message ever
-      // landing.
-      getTask: vi.fn(() => {
-        getTaskCalls += 1;
-        const status = getTaskCalls <= 1 ? 'IDLE' : getTaskCalls <= 3 ? 'RUNNING' : 'IDLE';
-        return Promise.resolve({
-          id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z',
-          workspaceId: 'ws-1', status,
-        });
+      // V2 owns the turn state and deliberately leaves this legacy row IDLE.
+      getTask: vi.fn().mockResolvedValue({
+        id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z',
+        workspaceId: 'ws-1', status: 'IDLE',
+      }),
+      getTaskTurns: vi.fn(() => {
+        turnCalls += 1;
+        if (turnCalls === 1) return Promise.resolve([]);
+        const status = turnCalls <= 3 ? (turnCalls === 2 ? 'QUEUED' : 'RUNNING') : terminalStatus;
+        return Promise.resolve([{
+          id: 'turn-new', threadId: 't1', taskId: null, lane: 'CLI', status,
+          input: 'go', createdAt: '2026-06-24T10:01:00Z', updatedAt: '2026-06-24T10:01:01Z',
+          startedAt: status === 'QUEUED' ? null : '2026-06-24T10:01:01Z',
+          finishedAt: status === terminalStatus ? '2026-06-24T10:01:02Z' : null,
+          errorMessage: status === terminalStatus ? 'turn ended without reply' : null,
+        }]);
       }),
       getTaskIndex: vi.fn().mockResolvedValue({
         threadId: 't1', totalUserMessages: 1, entries: [], loadedFromSeq: null, nextCursor: null,
@@ -219,22 +228,149 @@ describe('TrunkRoute', () => {
 
     render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     await vi.advanceTimersByTimeAsync(0); // flush the mount-time load()
-    expect(bridge.getTask).toHaveBeenCalledTimes(1);
+    expect(bridge.getTaskTurns).toHaveBeenCalledTimes(1);
 
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'go' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await vi.advanceTimersByTimeAsync(0); // flush sendTrunkMessage's promise chain
 
-    // Poll tick #3 lands RUNNING (call #2 already did, via sendNow's own
-    // reload) — the Working banner shows.
+    // The send reload observes QUEUED; the next poll observes RUNNING.
     await vi.advanceTimersByTimeAsync(3000);
     expect(screen.getByRole('status')).toBeTruthy();
 
-    // Poll tick #4 lands back at IDLE with still no new assistant reply —
-    // the turn is over; Working must clear instead of sticking forever.
+    // The exact V2 turn becomes terminal with no assistant message. The
+    // legacy Thread.status never changed, but Working still clears.
     await vi.advanceTimersByTimeAsync(3000);
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('shows Working for a typed Trunk turn while the legacy thread row stays idle', async () => {
+    mockBridge({
+      getTask: vi.fn().mockResolvedValue({
+        id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z',
+        workspaceId: 'ws-1', status: 'IDLE',
+      }),
+      getTaskTurns: vi.fn().mockResolvedValue([{
+        id: 'typed-running', threadId: 't1', taskId: null, lane: 'CLI', status: 'RUNNING',
+        input: 'plan it', createdAt: '2026-06-24T10:01:00Z', updatedAt: '2026-06-24T10:01:01Z',
+        startedAt: '2026-06-24T10:01:01Z', finishedAt: null, errorMessage: null,
+      }]),
+    });
+
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    expect(await screen.findByRole('status')).toBeTruthy();
+  });
+
+  it('stops only the exact visible typed Trunk turn', async () => {
+    const interruptTask = vi.fn().mockResolvedValue(undefined);
+    mockBridge({
+      interruptTask,
+      getTaskTurns: vi.fn().mockResolvedValue([{
+        id: 'typed-running', threadId: 't1', taskId: null, lane: 'CLI', status: 'RUNNING',
+        input: 'plan it', createdAt: '2026-06-24T10:01:00Z', updatedAt: '2026-06-24T10:01:01Z',
+        startedAt: '2026-06-24T10:01:01Z', finishedAt: null, errorMessage: null,
+      }]),
+    });
+
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+
+    await waitFor(() => expect(interruptTask)
+      .toHaveBeenCalledWith('t1', 'typed-running'));
+  });
+
+  it('stops an older running Trunk turn before a newer queued turn', async () => {
+    const interruptTask = vi.fn().mockResolvedValue(undefined);
+    mockBridge({
+      interruptTask,
+      getTaskTurns: vi.fn().mockResolvedValue([
+        {
+          id: 'typed-queued', threadId: 't1', taskId: null, lane: 'CLI', status: 'QUEUED',
+          input: 'queued next', createdAt: '2026-06-24T10:02:00Z', updatedAt: '2026-06-24T10:02:00Z',
+          startedAt: null, finishedAt: null, errorMessage: null,
+        },
+        {
+          id: 'typed-running', threadId: 't1', taskId: null, lane: 'CLI', status: 'RUNNING',
+          input: 'running now', createdAt: '2026-06-24T10:01:00Z', updatedAt: '2026-06-24T10:01:01Z',
+          startedAt: '2026-06-24T10:01:01Z', finishedAt: null, errorMessage: null,
+        },
+      ]),
+    });
+
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+
+    await waitFor(() => expect(interruptTask)
+      .toHaveBeenCalledWith('t1', 'typed-running'));
+  });
+
+  it('reloads trace only for the visible typed request without duplicating rows', async () => {
+    vi.useFakeTimers();
+    const getTrunkTraceEvents = vi.fn().mockResolvedValue([
+      {
+        id: 'trace:execution-1:0:0', trunkId: 't1', turnId: 'turn-1',
+        requestMessageId: 'turn-1:request', executionId: 'execution-1', logSeq: 0,
+        eventIndex: 0, type: 'thinking', contentJson: JSON.stringify({ text: 'provider trace thought' }),
+        ts: '2026-06-24T10:00:01Z',
+      },
+      {
+        id: 'trace:execution-1:1:0', trunkId: 't1', turnId: 'turn-1',
+        requestMessageId: 'turn-1:request', executionId: 'execution-1', logSeq: 1,
+        eventIndex: 0, type: 'error', contentJson: JSON.stringify({ text: 'recoverable trace error' }),
+        ts: '2026-06-24T10:00:02Z',
+      },
+    ]);
+    mockBridge({
+      getTaskIndex: vi.fn().mockResolvedValue({
+        threadId: 't1', totalUserMessages: 2, entries: [], loadedFromSeq: 7, nextCursor: 7,
+        messages: [
+          { id: 'legacy-request', threadId: 't1', taskId: null, seq: 7, role: 'user', type: 'text', contentJson: JSON.stringify({ text: 'legacy' }), durationMs: null, tokensIn: null, ts: '2026-06-24T09:00:00Z' },
+          { id: 'turn-1:request', threadId: 't1', taskId: null, seq: -1, role: 'user', type: 'text', contentJson: JSON.stringify({ text: 'typed' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:00Z' },
+          { id: 'turn-1:result', threadId: 't1', taskId: null, seq: -2, role: 'assistant', type: 'text', contentJson: JSON.stringify({ text: 'done' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:03Z' },
+        ],
+      }),
+      getTrunkTraceEvents,
+    });
+
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getTrunkTraceEvents).toHaveBeenLastCalledWith('t1', ['turn-1:request']);
+    expect(screen.getAllByText('provider trace thought')).toHaveLength(1);
+    expect(screen.getAllByText('recoverable trace error')).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getTrunkTraceEvents).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText('provider trace thought')).toHaveLength(1);
+    expect(screen.getAllByText('recoverable trace error')).toHaveLength(1);
+  });
+
+  it('renders and answers its typed permission with the exact revision', async () => {
+    const permission = {
+      id: 'permission-1', callId: 'call-1', ownerKind: 'THREAD_TURN' as const,
+      turnId: 'typed-running', operationId: 'operation-1', capability: 'process.execute',
+      toolName: 'Bash', parametersJson: JSON.stringify({ command: 'npm test' }),
+      state: 'OPEN', answerRevision: 7, requestedAt: 1_782_297_600_000,
+    };
+    const taskPermission = {
+      ...permission, id: 'permission-task', callId: 'call-task', ownerKind: 'TASK_TURN' as const,
+      parametersJson: JSON.stringify({ command: 'task-only-command' }),
+    };
+    const getTypedPermissions = vi.fn()
+      .mockResolvedValueOnce([taskPermission, permission])
+      .mockResolvedValue([]);
+    const bridge = mockBridge({ getTypedPermissions });
+
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    const approve = await screen.findByRole('button', { name: 'Approve once' });
+    expect(screen.queryByText('task-only-command')).toBeNull();
+    fireEvent.click(approve);
+
+    await waitFor(() => expect(bridge.decideTaskPermission).toHaveBeenCalledWith(
+      't1', 'call-1', 'ALLOW', undefined, 7));
   });
 
   it('keeps the Working banner hidden when only a cut task\'s stage is running', async () => {
@@ -257,6 +393,11 @@ describe('TrunkRoute', () => {
           { id: 'm4', threadId: 't1', taskId: 'task-1', seq: 4, role: 'assistant', type: 'text', contentJson: JSON.stringify({ text: 'editing files' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:05:00Z' },
         ],
       }),
+      getTaskTurns: vi.fn().mockResolvedValue([{
+        id: 'stage-running', threadId: 't1', taskId: 'task-1', lane: 'CLI', status: 'RUNNING',
+        input: 'develop', createdAt: '2026-06-24T10:05:00Z', updatedAt: '2026-06-24T10:05:01Z',
+        startedAt: '2026-06-24T10:05:01Z', finishedAt: null, errorMessage: null,
+      }]),
     });
     render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     await screen.findAllByText('Add meter');

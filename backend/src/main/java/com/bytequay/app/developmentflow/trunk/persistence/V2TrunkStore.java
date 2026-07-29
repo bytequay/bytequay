@@ -500,6 +500,25 @@ final class V2TrunkStore
                 """, reason, suppressedAt.toEpochMilli(), trunkId);
     }
 
+    @Override
+    public int suppressPlanningLaunch(
+            String trunkId, String turnId, String reason,
+            Instant suppressedAt)
+    {
+        requireTransaction();
+        return jdbc.update("""
+                UPDATE planning_base_refresh_operation
+                SET launch_disposition = 'SUPPRESSED',
+                    launch_disposition_reason = ?, launched_at_ms = ?
+                WHERE trunk_id = ? AND reserved_thread_turn_id = ?
+                  AND status IN ('REQUESTED', 'SUCCEEDED')
+                  AND launch_disposition = 'PENDING'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM thread_turn turn
+                    WHERE turn.id = planning_base_refresh_operation.reserved_thread_turn_id)
+                """, reason, suppressedAt.toEpochMilli(), trunkId, turnId);
+    }
+
     private boolean planningRuntimeExists()
     {
         Integer count = jdbc.queryForObject("""
@@ -865,7 +884,23 @@ final class V2TrunkStore
                 && same(row, "user_message_id", command.userMessageId())
                 && same(row, "user_message", command.userMessage())
                 && same(row, "workspace_id", command.workspaceId())
-                && number(row, "lane_mask") == command.laneMask();
+                && number(row, "lane_mask") == command.laneMask()
+                && threadTurnAttachments(command.turnId())
+                        .equals(command.attachments());
+    }
+
+    private List<TrunkManager.ThreadTurnAttachment> threadTurnAttachments(
+            String turnId)
+    {
+        return jdbc.query("""
+                SELECT id, kind, content_ref, media_type, digest
+                FROM thread_attachment
+                WHERE turn_id = ?
+                ORDER BY id
+                """, (rs, row) -> new TrunkManager.ThreadTurnAttachment(
+                        rs.getString("id"), rs.getString("kind"),
+                        rs.getString("content_ref"), rs.getString("media_type"),
+                        rs.getString("digest")), turnId);
     }
 
     @Override
@@ -919,6 +954,16 @@ final class V2TrunkStore
                 """,
                 command.userMessageId(), command.turnId(),
                 command.userMessage(), now);
+        for (TrunkManager.ThreadTurnAttachment attachment : command.attachments()) {
+            jdbc.update("""
+                    INSERT INTO thread_attachment(
+                        id, turn_id, kind, content_ref, media_type, digest,
+                        created_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, attachment.id(), command.turnId(), attachment.kind(),
+                    attachment.contentRef(), attachment.mediaType(),
+                    attachment.digest(), now);
+        }
         jdbc.update("""
                 INSERT INTO dispatch_ticket(
                     id, operation_id, operation_kind, async_family,

@@ -64,8 +64,8 @@ type Props = {
  * {@code scrollIntoView} on the user-message row in the agent
  * transcript that carries the matching {@code data-seq} attribute.
  *
- * <p>The "current" row is whatever index entry has the highest seq
- * — i.e. the most recent prompt — highlighted with the accent colour.
+ * <p>The "current" row is the last entry in canonical conversation order —
+ * i.e. the most recent prompt — highlighted with the accent colour.
  */
 export function ConvIndex({
   threadId, scrollContainerRef, onSseEvent, variant = 'light', restrictToSeqs, localEntries, side = 'right',
@@ -353,8 +353,10 @@ function groupEntriesByTask(
   if (orderedKeys.length === 1
       && orderedKeys[0] === '__brainstorm__'
       && ranged.length === 0) {
-    const only = buckets.get('__brainstorm__')!;
-    return [{ ...only, header: null }];
+    const only = buckets.get('__brainstorm__');
+    if (only !== undefined) {
+      return [{ ...only, header: null }];
+    }
   }
   // Brainstorm bucket on a thread that *does* have tasks → label it
   // explicitly so the rail makes the prefix readable.
@@ -362,7 +364,7 @@ function groupEntriesByTask(
   if (brainstorm !== undefined && brainstorm.header === null) {
     brainstorm.header = 'Brainstorm · before first task';
   }
-  return orderedKeys.map(k => buckets.get(k)!);
+  return [...buckets.values()];
 }
 
 function ConvIndexRow({

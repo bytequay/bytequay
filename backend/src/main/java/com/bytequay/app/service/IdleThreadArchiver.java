@@ -29,11 +29,12 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Sweeps IDLE / AWAITING threads whose {@code updatedAt} is older
- * than the configured behavior.archive_idle_after cadence and marks
- * them COMPLETED so they drop from the default list view. Conservative
- * by design — RUNNING / PENDING / AWAITING_REVIEW / NEEDS_ATTENTION
- * are never touched even if old.
+ * Sweeps legacy IDLE threads whose {@code updatedAt} is older than the
+ * configured behavior.archive_idle_after cadence and archives them so they
+ * drop from the default list view. V2 Trunks are excluded because only their
+ * aggregate manager may transition typed lifecycle state. Conservative by
+ * design — RUNNING / PENDING / AWAITING_REVIEW / NEEDS_ATTENTION are never
+ * touched even if old.
  *
  * <p>Cadence values: {@code 1h}, {@code 1d}, {@code 1w}, {@code never}.
  * The {@code never} sentinel (or an unknown value) skips the sweep
@@ -91,7 +92,7 @@ public class IdleThreadArchiver
         for (ThreadStatus status : ELIGIBLE) {
             List<Thread> candidates = threadStore.listTasksByStatus(status, PER_STATUS_PAGE);
             for (Thread t : candidates) {
-                if (t.updatedAt().isBefore(cutoff)) {
+                if (t.updatedAt().isBefore(cutoff) && !isV2(t.id())) {
                     threadStore.saveThread(archive(t, now));
                     archived++;
                 }
@@ -101,6 +102,13 @@ public class IdleThreadArchiver
             log.info("Auto-archived {} idle thread(s) older than {} (cadence = {})",
                     archived, cutoff, cadence);
         }
+    }
+
+    private boolean isV2(String threadId)
+    {
+        return threadStore.findTurnVersion(threadId)
+                .filter("V2"::equals)
+                .isPresent();
     }
 
     private Duration cadence()

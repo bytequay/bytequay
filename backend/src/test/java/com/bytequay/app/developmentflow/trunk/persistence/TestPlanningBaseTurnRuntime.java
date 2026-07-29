@@ -26,8 +26,10 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -41,6 +43,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -65,6 +68,8 @@ class TestPlanningBaseTurnRuntime
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("repo"));
         Path planning = Files.createDirectory(tempDir.resolve("planning"));
+        Path image = Files.write(
+                tempDir.resolve("planning-screenshot.png"), new byte[] {1, 2, 3});
         ObjectMapper json = new ObjectMapper();
         V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
         TrunkManager manager = manager(dataSource, trunkStore);
@@ -85,11 +90,14 @@ class TestPlanningBaseTurnRuntime
                 manager, trunkStore, planningStore, handoff,
                 repositories, watched, json,
                 Clock.fixed(NOW, ZoneOffset.UTC));
+        String attached = MessageAttachments.encode(
+                json, "start the next task", List.of(image.toString()));
         PlanningBaseTurnRuntime.Request request = new PlanningBaseTurnRuntime.Request(
                 "request-1", "user", "trunk-1", "workspace-1",
                 "TRUNK_CONVERSATION", AgentTurnProviderSession.Transport.CLI,
                 "codex", null, "gpt-5.6", "high", "trunk role",
-                "start the next task", "compile a plan");
+                attached, MessageAttachments.encode(
+                        json, "compile a plan", List.of(image.toString())));
 
         PlanningBaseTurnRuntime.Receipt first = runtime.request(request);
         Files.delete(repository);
@@ -101,7 +109,20 @@ class TestPlanningBaseTurnRuntime
         assertThat(count(jdbc, "planning_base_refresh_operation")).isOne();
         assertThat(count(jdbc, "dispatch_ticket")).isOne();
         assertThat(count(jdbc, "thread_turn")).isZero();
+        assertThat(count(jdbc, "thread_attachment")).isZero();
         assertThat(count(jdbc, "capacity_lease")).isZero();
+        var pendingPrompt = new ThreadTurnProjection(jdbc, json)
+                .history("trunk-1").getFirst();
+        JsonNode pendingContent = json.readTree(pendingPrompt.contentJson());
+        assertThat(pendingContent.path("text").asText())
+                .isEqualTo("start the next task");
+        assertThat(pendingContent.path("images").get(0).asText())
+                .isEqualTo(image.toString());
+        assertThat(jdbc.queryForObject("""
+                SELECT launch_intent FROM planning_base_refresh_operation
+                WHERE operation_id = ?
+                """, String.class, first.operationId()))
+                .doesNotContain("bq-img");
 
         DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
                 null, null, null, first.operationId(), 1,
@@ -148,6 +169,17 @@ class TestPlanningBaseTurnRuntime
                 .recoverCommittedDeliveries(20);
 
         assertThat(count(jdbc, "thread_turn")).isOne();
+        assertThat(jdbc.queryForMap("""
+                SELECT id, turn_id, kind, content_ref, media_type, digest
+                FROM thread_attachment
+                """))
+                .containsEntry("id", first.turnId() + ":attachment:00000001")
+                .containsEntry("turn_id", first.turnId())
+                .containsEntry("kind", "image")
+                .containsEntry("content_ref", image.toString())
+                .containsEntry("media_type", "image/png")
+                .containsEntry("digest",
+                        "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
         assertThat(count(jdbc, "trunk_thread_turn_request_receipt")).isOne();
         assertThat(jdbc.queryForMap("""
                 SELECT planning_operation_id, expected_base_sha, status
@@ -156,12 +188,30 @@ class TestPlanningBaseTurnRuntime
                 .containsEntry("planning_operation_id", first.planningOperationId())
                 .containsEntry("expected_base_sha", "0123456789abcdef")
                 .containsEntry("status", "REQUESTED");
+        JsonNode launch = json.readTree(jdbc.queryForObject("""
+                SELECT launch_input FROM thread_turn
+                """, String.class));
+        assertThat(launch.path("prompt").asText())
+                .isEqualTo("compile a plan");
+        assertThat(launch.path("images").get(0).path("path").asText())
+                .isEqualTo(image.toString());
         assertThat(jdbc.queryForMap("""
                 SELECT planning_base_sha, planning_repo_root
                 FROM threads WHERE id = 'trunk-1'
                 """))
                 .containsEntry("planning_base_sha", "0123456789abcdef")
                 .containsEntry("planning_repo_root", repository.toString());
+        assertThat(new ThreadTurnProjection(
+                new JdbcTemplate(dataSource), new ObjectMapper())
+                .history("trunk-1"))
+                .singleElement()
+                .satisfies(launchedPrompt -> {
+                    assertThat(launchedPrompt.id()).isEqualTo(pendingPrompt.id());
+                    assertThat(launchedPrompt.seq()).isEqualTo(pendingPrompt.seq());
+                    assertThat(launchedPrompt.seq()).isEqualTo(-1L);
+                    assertThat(launchedPrompt.contentJson())
+                            .isEqualTo(pendingPrompt.contentJson());
+                });
     }
 
     @Test
@@ -197,6 +247,73 @@ class TestPlanningBaseTurnRuntime
                         NOW.plusMillis(1), null, 20).tickets())
                 .extracting(DispatchTicket::id)
                 .containsExactly(first.dispatchTicketId());
+    }
+
+    @Test
+    void poisonedAttachmentIsSuppressedAndRecoveryContinuesWithNextCandidate()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(
+                tempDir.resolve("planning-attachment-fence.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path repository = Files.createDirectory(
+                tempDir.resolve("attachment-fence-repo"));
+        Path planning = Files.createDirectory(
+                tempDir.resolve("attachment-fence-worktree"));
+        Path image = Files.write(
+                tempDir.resolve("attachment-fence.png"), new byte[] {1, 2, 3});
+        ObjectMapper json = new ObjectMapper();
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        TrunkManager manager = manager(dataSource, trunkStore);
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager, trunkStore, repository);
+        String input = MessageAttachments.encode(
+                json, "inspect", List.of(image.toString()));
+        PlanningBaseTurnRuntime.Receipt poisoned = runtime.request(
+                new PlanningBaseTurnRuntime.Request(
+                        "attachment-fence", "user", "trunk-1", "workspace-1",
+                        "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", null, "gpt-5.6", null, null, input, input));
+        PlanningBaseTurnRuntime.Receipt valid = runtime.request(
+                request("valid-after-attachment-fence"));
+        assertThat(jdbc.queryForObject("""
+                SELECT json_extract(launch_intent, '$.images[0].digest')
+                FROM planning_base_refresh_operation WHERE operation_id = ?
+                """, String.class, poisoned.operationId()))
+                .isEqualTo(
+                        "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
+
+        Files.write(image, new byte[] {9, 9, 9});
+        deliverSuccessfulRefresh(
+                runtime, jdbc, poisoned, repository, planning, json);
+        deliverSuccessfulRefresh(
+                runtime, jdbc, valid, repository, planning, json);
+
+        runtime.recoverCommittedDeliveries(20);
+
+        assertThat(jdbc.queryForMap("""
+                SELECT launch_disposition, launch_disposition_reason
+                FROM planning_base_refresh_operation
+                WHERE operation_id = ?
+                """, poisoned.operationId()))
+                .containsEntry("launch_disposition", "SUPPRESSED")
+                .hasEntrySatisfying("launch_disposition_reason", reason ->
+                        assertThat(reason.toString())
+                                .contains("frozen input is invalid")
+                                .contains("content changed before provider launch"));
+        assertThat(jdbc.queryForObject("""
+                SELECT launch_disposition
+                FROM planning_base_refresh_operation
+                WHERE operation_id = ?
+                """, String.class, valid.operationId())).isEqualTo("LAUNCHED");
+        assertThat(jdbc.queryForList(
+                "SELECT id FROM thread_turn", String.class))
+                .containsExactly(valid.turnId());
+        assertThat(count(jdbc, "thread_attachment")).isZero();
+        assertThat(new SqlitePlanningBaseTurnStore(jdbc).readyOperationIds(20))
+                .isEmpty();
     }
 
     @Test
@@ -260,6 +377,45 @@ class TestPlanningBaseTurnRuntime
         assertThat(count(jdbc, "thread_turn")).isZero();
         assertThat(new SqlitePlanningBaseTurnStore(jdbc).readyOperationIds(20))
                 .isEmpty();
+    }
+
+    @Test
+    void suppressesOnlyTheExactReservedTurn()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(tempDir.resolve("exact-suppress.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path repository = Files.createDirectory(tempDir.resolve("exact-suppress-repo"));
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager(dataSource, trunkStore), trunkStore, repository);
+        PlanningBaseTurnRuntime.Receipt first = runtime.request(request("first"));
+        PlanningBaseTurnRuntime.Receipt second = runtime.request(request("second"));
+        ThreadTurnProjection projection = new ThreadTurnProjection(
+                jdbc, new ObjectMapper());
+
+        assertThat(projection.latestCancelableTurnId("trunk-1"))
+                .contains(second.turnId());
+        assertThat(projection.cancelableTicketId("trunk-1", second.turnId()))
+                .contains(second.dispatchTicketId());
+
+        assertThat(runtime.suppressPending(
+                "trunk-1", second.turnId(), "cancel second")).isOne();
+        assertThat(projection.latestCancelableTurnId("trunk-1"))
+                .contains(first.turnId());
+        assertThat(jdbc.queryForObject("""
+                SELECT launch_disposition
+                FROM planning_base_refresh_operation
+                WHERE id = ?
+                """, String.class, first.planningOperationId()))
+                .isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("""
+                SELECT launch_disposition
+                FROM planning_base_refresh_operation
+                WHERE id = ?
+                """, String.class, second.planningOperationId()))
+                .isEqualTo("SUPPRESSED");
     }
 
     @Test
@@ -505,6 +661,36 @@ class TestPlanningBaseTurnRuntime
                 fence.stageId(), fence.stageGeneration(), fence.operationId(),
                 fence.attempt(), fence.expectedCodeFingerprint(),
                 fence.expectedHeadSha(), fence.expectedBaseSha(), ticketId);
+    }
+
+    private static void deliverSuccessfulRefresh(
+            PlanningBaseTurnRuntime runtime,
+            JdbcTemplate jdbc,
+            PlanningBaseTurnRuntime.Receipt requested,
+            Path repository,
+            Path planning,
+            ObjectMapper json)
+            throws Exception
+    {
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                null, null, null, requested.operationId(), 1,
+                null, null, null);
+        PlanningBaseRefreshOperationHandler.Snapshot snapshot =
+                new PlanningBaseRefreshOperationHandler.Snapshot(
+                        1, requested.operationId(), "trunk-1",
+                        repository.toString(), planning.toString(),
+                        "refs/remotes/origin/main", "abcdef0123456789",
+                        NOW.toEpochMilli());
+        DispatchTicket.DispatchResult raw = new DispatchTicket.DispatchResult(
+                fence, DispatchTicket.Outcome.SUCCEEDED,
+                json.writeValueAsString(snapshot), "{}", null);
+        markResultPending(jdbc, requested.dispatchTicketId(), raw);
+        DispatchTicket.DeliveryReceipt accepted = runtime.deliver(
+                new DispatchTicket.OwnerReference(
+                        DispatchTicket.OwnerKind.TRUNK, "trunk-1",
+                        PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE),
+                fence, raw);
+        markDelivered(jdbc, requested.dispatchTicketId(), accepted);
     }
 
     private static void markDelivered(

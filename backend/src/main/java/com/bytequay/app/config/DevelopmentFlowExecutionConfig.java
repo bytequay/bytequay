@@ -103,6 +103,7 @@ import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskPolicyRevisionRedriver;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
+import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
 import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
@@ -803,8 +804,10 @@ public class DevelopmentFlowExecutionConfig
             ExecutionPorts.OperationHandlerRegistry handlers,
             ExecutionPorts.ResultDeliveryPort resultDelivery,
             ExecutionPorts.ExecutionEvidencePort evidence,
-            List<ExecutionPorts.MaintenanceWork> maintenanceWork)
+            List<ExecutionPorts.MaintenanceWork> maintenanceWork,
+            V2TaskCreationService taskCreation)
     {
+        taskCreation.repairExistingTrunkEngineSnapshots();
         return new ExecutionDispatcher(
                 capacityManager,
                 tickets,

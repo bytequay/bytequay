@@ -28,19 +28,26 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.review.ReviewBuildSelectionStore;
 import com.bytequay.app.service.review.ReviewBuildSpawnService;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.bytequay.app.service.workmodel.WorkModelService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -54,10 +61,13 @@ public final class V2TaskCreationService
 
     private final DevelopmentFlowCanaryRoute route;
     private final TaskCreationHandoff handoff;
+    private final TaskCommandExecutor commands;
     private final JdbcTemplate jdbc;
     private final ThreadStore threads;
     private final TaskStore tasks;
     private final ThreadEngineOverrides engines;
+    private final WorkModelResolver workModelResolver;
+    private final WorkModelService workModels;
     private final WorkspaceRepositoryResolver repositories;
     private final WorkspaceRelationService relations;
     private final PullRequestRepository pullRequests;
@@ -69,10 +79,13 @@ public final class V2TaskCreationService
     public V2TaskCreationService(
             DevelopmentFlowCanaryRoute route,
             TaskCreationHandoff handoff,
+            TaskCommandExecutor commands,
             JdbcTemplate jdbc,
             ThreadStore threads,
             TaskStore tasks,
             ThreadEngineOverrides engines,
+            WorkModelResolver workModelResolver,
+            WorkModelService workModels,
             WorkspaceRepositoryResolver repositories,
             WorkspaceRelationService relations,
             PullRequestRepository pullRequests,
@@ -83,10 +96,14 @@ public final class V2TaskCreationService
     {
         this.route = requireNonNull(route, "route is null");
         this.handoff = requireNonNull(handoff, "handoff is null");
+        this.commands = requireNonNull(commands, "commands is null");
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.threads = requireNonNull(threads, "threads is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.engines = requireNonNull(engines, "engines is null");
+        this.workModelResolver = requireNonNull(
+                workModelResolver, "workModelResolver is null");
+        this.workModels = requireNonNull(workModels, "workModels is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.relations = requireNonNull(relations, "relations is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -102,14 +119,94 @@ public final class V2TaskCreationService
         return route.routesNewTaskToV2(workspaceId);
     }
 
+    /** Repairs Trunks promoted before complete engine snapshots were required. */
+    public int repairExistingTrunkEngineSnapshots()
+    {
+        List<TrunkRef> incomplete = jdbc.query("""
+                SELECT trunk.id, trunk.workspace_id
+                FROM threads trunk
+                WHERE trunk.turn_version = 'V2'
+                  AND (
+                      SELECT COUNT(DISTINCT engine.audience)
+                      FROM thread_engines engine
+                      WHERE engine.thread_id = trunk.id
+                        AND engine.audience IN ('plan', 'dev', 'review', 'ci-fix')
+                        AND CASE
+                            WHEN json_valid(engine.work_model_json) = 1
+                            THEN NULLIF(TRIM(json_extract(
+                                    engine.work_model_json, '$.model')), '') IS NOT NULL
+                            ELSE 0
+                        END
+                  ) < 4
+                ORDER BY trunk.id
+                """, (rs, rowNum) -> new TrunkRef(
+                rs.getString("id"), rs.getString("workspace_id")));
+        incomplete.forEach(trunk -> prepareTrunk(trunk.id(), trunk.workspaceId()));
+        return incomplete.size();
+    }
+
     /** Switches only a quiescent Trunk. The database guard is the final authority. */
     public void prepareTrunk(String trunkId, String workspaceId)
+    {
+        requireText(trunkId, "trunkId");
+        requireText(workspaceId, "workspaceId");
+        commands.executeVoid("v2-trunk/" + trunkId,
+                () -> prepareTrunkInCommand(trunkId, workspaceId));
+    }
+
+    /** Join the transaction that has just inserted a brand-new Trunk and its
+     * engine rows. A new id has no competing command, so it does not need the
+     * existing-Trunk command stripe used by {@link #prepareTrunk}. */
+    public void prepareNewTrunk(String trunkId, String workspaceId)
     {
         requireText(trunkId, "trunkId");
         requireText(workspaceId, "workspaceId");
         if (!routes(workspaceId)) {
             return;
         }
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "New Trunk promotion requires its creation transaction");
+        }
+        prepareTrunkInCommand(trunkId, workspaceId);
+    }
+
+    private void prepareTrunkInCommand(String trunkId, String workspaceId)
+    {
+        Integer owned = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM threads
+                WHERE id = ? AND workspace_id = ?
+                """, Integer.class, trunkId, workspaceId);
+        if (owned == null || owned != 1) {
+            throw new IllegalArgumentException(
+                    "Trunk does not belong to the routed Workspace");
+        }
+        String currentVersion = jdbc.queryForObject("""
+                SELECT turn_version FROM threads
+                WHERE id = ? AND workspace_id = ?
+                """, String.class, trunkId, workspaceId);
+        if ("V2".equals(currentVersion)) {
+            EngineSnapshot snapshot = completeEngineSnapshot(trunkId, workspaceId);
+            if (snapshot.repairRequired()) {
+                engines.replace(trunkId, snapshot.engines());
+            }
+            return;
+        }
+        if (!"LEGACY".equals(currentVersion)) {
+            throw new IllegalStateException(
+                    "Trunk has unknown turn version " + currentVersion);
+        }
+        if (!routes(workspaceId)) {
+            return;
+        }
+
+        // Older Trunks may have no engine rows, or compact legacy rows whose
+        // model/account still follows a moving default. Complete and validate
+        // the full four-audience snapshot before changing turn_version. A
+        // failure therefore leaves the Trunk on its recoverable LEGACY route.
+        EngineSnapshot snapshot = completeEngineSnapshot(trunkId, workspaceId);
+        engines.replace(trunkId, snapshot.engines());
+
         int changed = jdbc.update("""
                 UPDATE threads
                 SET lifecycle_state = COALESCE(lifecycle_state, 'ACTIVE'),
@@ -118,6 +215,8 @@ public final class V2TaskCreationService
                   AND NOT EXISTS (
                       SELECT 1 FROM thread_turns legacy
                       WHERE legacy.thread_id = threads.id
+                        AND legacy.task_id IS NULL
+                        AND (legacy.scope = 'TRUNK' OR legacy.scope IS NULL)
                         AND legacy.status IN ('QUEUED', 'RUNNING'))
                   AND NOT EXISTS (
                       SELECT 1 FROM thread_turn typed
@@ -125,16 +224,42 @@ public final class V2TaskCreationService
                         AND typed.status IN (
                             'REQUESTED','QUEUED','CLAIMED','RUNNING'))
                 """, trunkId, workspaceId);
-        Integer ready = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM threads
-                WHERE id = ? AND workspace_id = ? AND turn_version = 'V2'
-                  AND lifecycle_state IN ('ACTIVE','IDLE')
-                """, Integer.class, trunkId, workspaceId);
-        if ((ready == null || ready != 1) && changed != 1) {
+        if (changed != 1) {
             throw new IllegalStateException(
                     "Trunk must be quiescent before V2 Task creation");
         }
     }
+
+    private EngineSnapshot completeEngineSnapshot(
+            String trunkId, String workspaceId)
+    {
+        Map<String, WorkModel> snapshot = new LinkedHashMap<>();
+        boolean repairRequired = false;
+        for (String audience : SessionAudience.ALL) {
+            WorkModel existing = engines.forAudience(trunkId, audience).orElse(null);
+            WorkModel choice;
+            if (existing == null) {
+                choice = workModels.freeze(workModelResolver
+                        .resolveForWorkspace(workspaceId, audience).choice());
+                repairRequired = true;
+            }
+            else if (!engines.isFrozen(trunkId, audience)) {
+                choice = workModels.freeze(existing);
+                repairRequired = true;
+            }
+            else {
+                choice = existing;
+            }
+            snapshot.put(audience, choice);
+        }
+        return new EngineSnapshot(Map.copyOf(snapshot), repairRequired);
+    }
+
+    private record EngineSnapshot(
+            Map<String, WorkModel> engines,
+            boolean repairRequired) {}
+
+    private record TrunkRef(String id, String workspaceId) {}
 
     public Task create(
             Thread trunk,
@@ -153,8 +278,8 @@ public final class V2TaskCreationService
             if (!routes(trunk.workspaceId())) {
                 throw new IllegalStateException("Trunk is not routed to V2");
             }
-            prepareTrunk(trunk.id(), trunk.workspaceId());
         }
+        prepareTrunk(trunk.id(), trunk.workspaceId());
 
         for (int attempt = 1; attempt <= CONCURRENT_CREATION_ATTEMPTS; attempt++) {
             try {
@@ -199,27 +324,31 @@ public final class V2TaskCreationService
         String modelName = requireText(model.model(), "Plan engine model");
         String provider = requireText(model.agentOrProvider(), "Plan engine provider");
         String frozenModel = write(model);
-        int policyRevision = nextPolicyRevision(trunk.id());
-        TaskCreationInput.TaskPolicy policy = new TaskCreationInput.TaskPolicy(
-                id("policy", commandId), trunk.id(), policyRevision,
-                "TASK_CREATION", false, false, 0, 3, 3, false,
-                Optional.empty(), actor, now);
-        TaskCreationInput input = new TaskCreationInput(
-                trunk.workspaceId(), exact.assignment(), policy, exact.base(),
+        String policyId = id("policy", commandId);
+        TaskCreationInput.EngineSnapshot engine =
                 new TaskCreationInput.EngineSnapshot(
-                        provider, modelName, frozenModel),
-                new TaskCreationInput.WorkModelSnapshot(frozenModel),
+                        provider, modelName, frozenModel);
+        TaskCreationInput.WorkModelSnapshot workModel =
+                new TaskCreationInput.WorkModelSnapshot(frozenModel);
+        TaskCreationInput.Presentation presentation =
                 new TaskCreationInput.Presentation(
                         displayName(request, trunk), taskType(request),
                         request.linkedIssueNumber(), prompt(request),
-                        requireText(request.origin(), "origin")),
-                now);
-        long trunkVersion = requireTrunkVersion(trunk.id());
-        TaskCreationHandoff.Result created = handoff.create(
-                new TaskCreationHandoff.Command(
-                        new TrunkManager.TaskCreationCommand(
-                                commandId, actor, trunkVersion, input),
-                        repositoryRoot));
+                        requireText(request.origin(), "origin"));
+        TaskCreationHandoff.Result created = handoff.create(trunk.id(), () -> {
+            int policyRevision = nextPolicyRevision(trunk.id());
+            TaskCreationInput.TaskPolicy policy = new TaskCreationInput.TaskPolicy(
+                    policyId, trunk.id(), policyRevision,
+                    "TASK_CREATION", false, false, 0, 3, 3, false,
+                    Optional.empty(), actor, now);
+            TaskCreationInput input = new TaskCreationInput(
+                    trunk.workspaceId(), exact.assignment(), policy, exact.base(),
+                    engine, workModel, presentation, now);
+            return new TaskCreationHandoff.Command(
+                    new TrunkManager.TaskCreationCommand(
+                            commandId, actor, requireTrunkVersion(trunk.id()), input),
+                    repositoryRoot);
+        });
         Task raw = tasks.findTaskById(created.task().task().id())
                 .orElseThrow(() -> new IllegalStateException(
                         "Created V2 Task is not readable"));

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.developmentflow.compatibility.V2TrunkRuntimeProjection;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -72,6 +73,7 @@ public class WorkspaceInsightsService
             ThreadStatus.IDLE);
 
     private final ThreadStore threadStore;
+    private final V2TrunkRuntimeProjection trunkRuntime;
     private final TaskStore taskStore;
     private final InvestigationReviewStore reviewStore;
     private final GitHubRateLimitMonitor rateLimitMonitor;
@@ -79,12 +81,16 @@ public class WorkspaceInsightsService
 
     @Autowired
     public WorkspaceInsightsService(
-            ThreadStore threadStore, TaskStore taskStore,
+            ThreadStore threadStore,
+            V2TrunkRuntimeProjection trunkRuntime,
+            TaskStore taskStore,
             InvestigationReviewStore reviewStore,
             GitHubRateLimitMonitor rateLimitMonitor,
             AgentRunService runs)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.trunkRuntime = requireNonNull(
+                trunkRuntime, "trunkRuntime is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.rateLimitMonitor = requireNonNull(rateLimitMonitor, "rateLimitMonitor is null");
@@ -98,6 +104,7 @@ public class WorkspaceInsightsService
             GitHubRateLimitMonitor rateLimitMonitor)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.trunkRuntime = null;
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.rateLimitMonitor = requireNonNull(rateLimitMonitor, "rateLimitMonitor is null");
@@ -123,17 +130,13 @@ public class WorkspaceInsightsService
                 .atStartOfDay(ZoneId.systemDefault())
                 .toInstant();
 
-        List<Thread> recent = (workspaceId == null
-                ? threadStore.listThreadsUpdatedSince(windowStart)
-                : threadStore.listThreadsByWorkspaceUpdatedSince(
-                        workspaceId, windowStart)).stream()
-                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
-                .toList();
-        List<Thread> workspaceThreads = (workspaceId == null
+        List<Thread> recent = recentThreads(workspaceId, windowStart);
+        List<Thread> workspaceThreads = workspaceId == null
                 ? recent
-                : threadStore.listThreadsByWorkspace(workspaceId)).stream()
-                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
-                .toList();
+                : projectTrunkRuntime(
+                        threadStore.listThreadsByWorkspace(workspaceId)).stream()
+                        .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
+                        .toList();
         Set<String> workspaceThreadIds = workspaceThreads.stream()
                 .map(Thread::id)
                 .collect(Collectors.toSet());
@@ -214,6 +217,31 @@ public class WorkspaceInsightsService
                 rateLimitMonitor.latest()
                         .map(s -> new GitHubRateLimit(s.remaining(), s.limit(), s.resetAt().toString()))
                         .orElse(null));
+    }
+
+    private List<Thread> recentThreads(String workspaceId, Instant since)
+    {
+        List<Thread> stored = workspaceId == null
+                ? threadStore.listThreadsUpdatedSince(since)
+                : threadStore.listThreadsByWorkspaceUpdatedSince(
+                        workspaceId, since);
+        if (trunkRuntime != null) {
+            Map<String, Thread> byId = new LinkedHashMap<>();
+            stored.forEach(thread -> byId.put(thread.id(), thread));
+            threadStore.listTasksByIds(
+                            trunkRuntime.listIdsUpdatedSince(
+                                    workspaceId, since))
+                    .forEach(thread -> byId.put(thread.id(), thread));
+            stored = new ArrayList<>(byId.values());
+        }
+        return projectTrunkRuntime(stored).stream()
+                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
+                .toList();
+    }
+
+    private List<Thread> projectTrunkRuntime(List<Thread> threads)
+    {
+        return trunkRuntime == null ? threads : trunkRuntime.projectAll(threads);
     }
 
     /** Per-repo split of PR-linked tasks: shipped (reached COMPLETED, cut

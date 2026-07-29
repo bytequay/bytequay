@@ -132,6 +132,101 @@ describe('useConvIndex', () => {
     expect(text('loaded-from-seq')).toBe('1');
     expect(text('can-load-more')).toBe('false');
   });
+
+  it('keeps legacy prompts before negative typed seqs across paging and refresh', async () => {
+    let tailVersion = 0;
+    const getTaskIndex = installBridge(async (_id, opts) => {
+      if (opts?.direction === 'before') {
+        return page({
+          entries: [entry(10, 'legacy one'), entry(20, 'legacy two')],
+          loadedFromSeq: 10,
+          nextCursor: null,
+          totalUserMessages: 4,
+        });
+      }
+      const entries = [entry(-3, 'typed one'), entry(-5, 'typed two')];
+      if (tailVersion++ > 0) entries.push(entry(-7, 'typed three'));
+      return page({
+        entries,
+        loadedFromSeq: -3,
+        nextCursor: -3,
+        totalUserMessages: tailVersion > 1 ? 5 : 4,
+      });
+    });
+
+    render(<Harness />);
+
+    await waitFor(() => {
+      expect(text('entries')).toBe('typed one|typed two');
+    });
+    fireEvent.click(screen.getByText('load older'));
+    await waitFor(() => {
+      expect(text('entries')).toBe(
+        'legacy one|legacy two|typed one|typed two');
+    });
+    expect(text('loaded-from-seq')).toBe('10');
+    expect(getTaskIndex).toHaveBeenCalledWith('thread-1', {
+      cursor: -3,
+      limit: 50,
+      direction: 'before',
+    });
+
+    fireEvent.click(screen.getByText('turn done'));
+    await waitFor(() => {
+      expect(text('entries')).toBe(
+        'legacy one|legacy two|typed one|typed two|typed three');
+    });
+    expect(text('loaded-from-seq')).toBe('10');
+  });
+
+  it('restarts backfill from the tail when a late legacy prefix row is missing', async () => {
+    let tailCalls = 0;
+    const getTaskIndex = installBridge(async (_id, opts) => {
+      if (opts?.direction === 'before') {
+        const late = tailCalls > 1;
+        return page({
+          entries: late
+            ? [entry(1, 'legacy first'), entry(101, 'legacy late')]
+            : [entry(1, 'legacy first')],
+          loadedFromSeq: 1,
+          nextCursor: null,
+          totalUserMessages: late ? 3 : 2,
+        });
+      }
+      tailCalls++;
+      return page({
+        entries: [entry(-3, 'typed tail')],
+        loadedFromSeq: -3,
+        nextCursor: -3,
+        totalUserMessages: tailCalls > 1 ? 3 : 2,
+      });
+    });
+
+    render(<Harness />);
+    await waitFor(() => expect(text('entries')).toBe('typed tail'));
+
+    fireEvent.click(screen.getByText('load older'));
+    await waitFor(() => {
+      expect(text('entries')).toBe('legacy first|typed tail');
+    });
+    expect(text('loaded-from-seq')).toBe('1');
+    expect(text('can-load-more')).toBe('false');
+
+    fireEvent.click(screen.getByText('turn done'));
+    await waitFor(() => {
+      expect(text('loaded-from-seq')).toBe('-3');
+      expect(text('can-load-more')).toBe('true');
+    });
+    fireEvent.click(screen.getByText('load older'));
+    await waitFor(() => {
+      expect(text('entries')).toBe('legacy first|legacy late|typed tail');
+    });
+    expect(getTaskIndex).toHaveBeenLastCalledWith('thread-1', {
+      cursor: -3,
+      limit: 50,
+      direction: 'before',
+    });
+  });
 });
 
 function Harness() {

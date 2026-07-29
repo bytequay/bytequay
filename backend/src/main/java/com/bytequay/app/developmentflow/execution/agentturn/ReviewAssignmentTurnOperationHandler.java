@@ -123,7 +123,8 @@ public final class ReviewAssignmentTurnOperationHandler
         AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
                 input.transport(), input.provider(), input.credentialAccount(), input.model(),
                 input.reasoningEffort(), Path.of(input.workingDirectory()),
-                input.systemPrompt(), input.prompt(), input.toolEndpoint(),
+                input.systemPrompt(), input.prompt(), input.images(),
+                input.toolEndpoint(),
                 AgentTurnProviderSession.Access.READ_ONLY);
         try (AgentTurnProviderSession.Session session = provider.open(
                 request, new Observer(context))) {

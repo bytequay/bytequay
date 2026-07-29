@@ -1855,8 +1855,10 @@ export type ThreadStreamEvent = {
 };
 
 /** One row of the floating conversation-index panel. Derived
- *  server-side from {@code thread_messages} — never stored — so
- *  the panel can't drift from the rendered transcript. */
+ *  server-side from the physical conversation ledgers — never stored — so
+ *  the panel can't drift from the rendered transcript. LEGACY seqs remain
+ *  positive; promoted-Trunk typed seqs are negative durable Trunk versions.
+ *  Order them with the source-aware conversation comparator, not numerically. */
 export type ConvIndexEntryDto = {
   seq: number;
   preview: string;
@@ -2298,8 +2300,9 @@ export type ThreadSignalDto = {
  *  - {@code before} (with cursor): older window prepended on
  *    "↑ load earlier".
  *
- *  {@code nextCursor} is the smallest seq strictly less than the
- *  loaded window — null when the start of the thread is reached. */
+ *  {@code nextCursor} is the earliest canonical seq to pass to the next
+ *  backfill — null when the start of the thread is reached. Canonical order
+ *  is LEGACY first and typed second; it is not numeric seq order. */
 export type ConvIndexPageDto = {
   threadId: string;
   totalUserMessages: number;
@@ -2307,6 +2310,22 @@ export type ConvIndexPageDto = {
   messages: ThreadMessageDto[];
   loadedFromSeq: number | null;
   nextCursor: number | null;
+};
+
+/** Read-only provider work trace for one typed Trunk request. It is kept
+ * separate from ThreadMessageDto so log rows never acquire conversation seq
+ * values or affect conversation-index cursors. */
+export type TrunkTraceEventDto = {
+  id: string;
+  trunkId: string;
+  turnId: string;
+  requestMessageId: string;
+  executionId: string;
+  logSeq: number;
+  eventIndex: number;
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'error';
+  contentJson: string;
+  ts: string;
 };
 
 export type ThreadMessageDto = {
@@ -3736,13 +3755,19 @@ export type Bridge = {
   /** One window of the conversation index — user-prompt entries
    *  plus the matching messages, fetched together so the floating
    *  index panel and the agent terminal can't drift. Pass no
-   *  cursor for the initial tail window; pass the smallest loaded
+   *  cursor for the initial tail window; pass the earliest canonical
    *  seq with {@code direction: 'before'} to backfill on
    *  "↑ load earlier". */
   getTaskIndex: (
     id: string,
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ) => Promise<ConvIndexPageDto>;
+  /** Provider trace for only the typed request messages in the currently
+   * loaded Trunk window. These rows are not conversation messages. */
+  getTrunkTraceEvents: (
+    id: string,
+    requestMessageIds: string[],
+  ) => Promise<TrunkTraceEventDto[]>;
   /** Work-unit tasks for a thread, oldest seq first. Drives the Tasks
    *  grouping in the Checkpoints rail and (in time) the Tasks-in-thread
    *  list. The Task model is described in the work-unit design note;
@@ -4199,7 +4224,7 @@ export type Bridge = {
   ) => Promise<{ status: 'recorded' | 'already_resolved' }>;
   /** Cancel the in-flight turn (Ctrl+C semantics). The session
    *  itself stays alive — the user can send another turn. */
-  interruptTask: (id: string) => Promise<void>;
+  interruptTask: (id: string, turnId?: string) => Promise<void>;
   /** Interrupt only the Task agent currently executing this stage. */
   interruptStage: (id: string) => Promise<void>;
   /** Terminal — releases the underlying agent loop and removes the

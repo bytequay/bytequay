@@ -15,8 +15,14 @@ package com.bytequay.app.developmentflow.execution.agentturn;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 
+import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -68,6 +74,7 @@ public interface AgentTurnProviderSession
             Path workingDirectory,
             String systemPrompt,
             String prompt,
+            List<ImageAttachment> images,
             OwnerToolEndpoint toolEndpoint,
             Access access)
     {
@@ -78,6 +85,7 @@ public interface AgentTurnProviderSession
             requireText(model, "model");
             requireNonNull(workingDirectory, "workingDirectory is null");
             requireText(prompt, "prompt");
+            images = images == null ? List.of() : List.copyOf(images);
             requireNonNull(toolEndpoint, "toolEndpoint is null");
             requireNonNull(access, "access is null");
             if (!workingDirectory.isAbsolute()
@@ -108,6 +116,67 @@ public interface AgentTurnProviderSession
                 throw new IllegalArgumentException(
                         "tool profile does not match provider access");
             }
+        }
+
+        public Request(
+                Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String prompt,
+                OwnerToolEndpoint toolEndpoint,
+                Access access)
+        {
+            this(transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    List.of(), toolEndpoint, access);
+        }
+    }
+
+    /** Immutable image identity frozen before asynchronous dispatch. */
+    record ImageAttachment(String path, String mediaType, String digest)
+    {
+        public ImageAttachment
+        {
+            Path image = Path.of(requireText(path, "path"));
+            if (!image.isAbsolute() || !image.normalize().equals(image)) {
+                throw new IllegalArgumentException(
+                        "image path must be absolute and normalized");
+            }
+            requireText(mediaType, "mediaType");
+            requireText(digest, "digest");
+            if (!digest.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException(
+                        "image digest must be a SHA-256 digest");
+            }
+        }
+
+        public byte[] readVerified()
+        {
+            byte[] content;
+            try {
+                content = Files.readAllBytes(Path.of(path));
+            }
+            catch (IOException e) {
+                throw new IllegalStateException(
+                        "could not read frozen image " + path, e);
+            }
+            String actual;
+            try {
+                actual = HexFormat.of().formatHex(
+                        MessageDigest.getInstance("SHA-256").digest(content));
+            }
+            catch (NoSuchAlgorithmException e) {
+                throw new IllegalStateException("SHA-256 is unavailable", e);
+            }
+            if (!digest.equals(actual)) {
+                throw new IllegalStateException(
+                        "frozen image content changed before provider launch: " + path);
+            }
+            return content;
         }
     }
 

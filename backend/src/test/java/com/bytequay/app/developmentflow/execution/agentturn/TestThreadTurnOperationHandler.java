@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -75,6 +76,9 @@ class TestThreadTurnOperationHandler
                 "thread-turn-1", "operation-1"))).isEmpty();
         assertThat(provider.request.access())
                 .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
+        assertThat(provider.request.images())
+                .extracting(AgentTurnProviderSession.ImageAttachment::path)
+                .containsExactly("/tmp/trunk-screenshot.png");
         AgentTurnOwnerResultCodec.OwnerResult decoded =
                 new AgentTurnOwnerResultCodec(JSON).decode(
                         envelope.owner(), envelope.fence(), result);
@@ -184,7 +188,11 @@ class TestThreadTurnOperationHandler
                 new AgentTurnOperationHandler.LaunchInput(
                         1, AgentTurnProviderSession.Transport.CLI, "codex", null,
                         "gpt-5.6", "high", "/tmp", "trunk role",
-                        "propose the next task", endpoint));
+                        "propose the next task",
+                        List.of(new AgentTurnProviderSession.ImageAttachment(
+                                "/tmp/trunk-screenshot.png", "image/png",
+                                "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81")),
+                        endpoint));
         return new ThreadTurnOperationHandler.ExactTurn(
                 "thread-turn-1", "trunk-1", "workspace-1", purpose,
                 "REQUESTED", "operation-1", 1, input, "ACTIVE");

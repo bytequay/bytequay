@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.domain.ConvIndexEntry;
 import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,15 +26,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Conversation-index reader. Derives a clickable per-prompt index
- * from {@code thread_messages} on demand — the doc explicitly calls
- * out that the index is a <em>view</em>, not a stored table, so it
- * can never drift from the canonical message log.
+ * Conversation-index reader. Derives a clickable per-prompt index from the
+ * physical conversation ledgers on demand — the index is a <em>view</em>, not
+ * a stored table, so it cannot drift from the canonical message log. A
+ * promoted Trunk reads retained LEGACY messages followed by typed ThreadTurn
+ * messages without rewriting either ledger.
  *
  * <p>Two read modes:
  * <ul>
@@ -68,14 +74,20 @@ public class ConvIndexService
     /** Preview width that fits the floating panel's ~188 px column
      *  without measurement. Matches the dev doc's 80-char target. */
     private static final int PREVIEW_CHARS = 80;
+    private static final long MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991L;
 
     private final ThreadStore store;
     private final ObjectMapper mapper;
+    private final ThreadTurnProjection threadTurns;
 
-    public ConvIndexService(ThreadStore store, ObjectMapper mapper)
+    public ConvIndexService(
+            ThreadStore store,
+            ObjectMapper mapper,
+            ThreadTurnProjection threadTurns)
     {
         this.store = requireNonNull(store, "store is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.threadTurns = requireNonNull(threadTurns, "threadTurns is null");
     }
 
     /** Initial load: most-recent {@code limit} messages plus the
@@ -86,6 +98,9 @@ public class ConvIndexService
     {
         requireNonNull(threadId, "threadId is null");
         int capped = capLimit(limit);
+        if (isV2Trunk(threadId)) {
+            return initialV2(threadId, capped);
+        }
         // Window the last N user *prompts*, not the last N messages. A
         // single busy turn emits dozens of tool / assistant rows, so a
         // message-based window would leave only the most recent prompt
@@ -98,7 +113,9 @@ public class ConvIndexService
         // shipping only the prompt rows as {@code messages} would show
         // the questions and silently drop every answer.
         List<ThreadMessage> transcript = transcriptFrom(threadId, prompts, Long.MAX_VALUE);
-        return buildPage(threadId, total, prompts, transcript, capped);
+        return buildPage(
+                threadId, total, prompts, transcript,
+                total > prompts.size());
     }
 
     /** Backfill load triggered by "↑ load earlier". Returns the
@@ -110,13 +127,138 @@ public class ConvIndexService
     {
         requireNonNull(threadId, "threadId is null");
         int capped = capLimit(limit);
+        if (isV2Trunk(threadId)) {
+            return backfillV2(threadId, beforeSeq, capped);
+        }
         List<ThreadMessage> prompts = store.listUserMessagesBefore(threadId, beforeSeq, capped);
         long total = store.countUserMessages(threadId);
         // Older transcript window: from the earliest prompt now in view up
         // to (but not including) the prompt the caller paged back from, so
         // the prepended rows carry their answers, not just the questions.
         List<ThreadMessage> transcript = transcriptFrom(threadId, prompts, beforeSeq - 1);
-        return buildPage(threadId, total, prompts, transcript, capped);
+        boolean hasOlder = !prompts.isEmpty()
+                && !store.listUserMessagesBefore(
+                        threadId, prompts.getFirst().seq(), 1).isEmpty();
+        return buildPage(threadId, total, prompts, transcript, hasOlder);
+    }
+
+    /** A promoted Trunk has two independent physical ledgers. LEGACY rows keep
+     *  their positive seq; typed rows are projected with a negative durable
+     *  Trunk version. Source concatenation is therefore the canonical order:
+     *  all retained LEGACY history, then typed conversation history. */
+    private ConvIndexPage initialV2(String threadId, int limit)
+    {
+        List<ThreadMessage> history = v2History(threadId);
+        List<Integer> positions = userPromptPositions(history);
+        int from = Math.max(0, positions.size() - limit);
+        List<ThreadMessage> prompts = messagesAt(history, positions, from, positions.size());
+        List<ThreadMessage> transcript = prompts.isEmpty()
+                ? List.of()
+                : List.copyOf(history.subList(positions.get(from), history.size()));
+        return buildPage(
+                threadId, positions.size(), prompts, transcript, from > 0);
+    }
+
+    private ConvIndexPage backfillV2(
+            String threadId, long beforeSeq, int limit)
+    {
+        List<ThreadMessage> history = v2History(threadId);
+        int cursor = messagePosition(history, beforeSeq);
+        List<Integer> positions = userPromptPositions(history);
+        int promptsBefore = 0;
+        while (promptsBefore < positions.size()
+                && positions.get(promptsBefore) < cursor) {
+            promptsBefore++;
+        }
+        int from = Math.max(0, promptsBefore - limit);
+        List<ThreadMessage> prompts = messagesAt(
+                history, positions, from, promptsBefore);
+        List<ThreadMessage> transcript = prompts.isEmpty()
+                ? List.of()
+                : List.copyOf(history.subList(positions.get(from), cursor));
+        return buildPage(
+                threadId, positions.size(), prompts, transcript, from > 0);
+    }
+
+    private List<ThreadMessage> v2History(String threadId)
+    {
+        List<ThreadMessage> legacy = store.listMessages(threadId);
+        List<ThreadMessage> typed = threadTurns.history(threadId);
+        List<ThreadMessage> history = new ArrayList<>(legacy.size() + typed.size());
+        Set<Long> seen = new HashSet<>();
+        for (ThreadMessage message : legacy) {
+            if (!isRetainedTrunkMessage(message)) {
+                continue;
+            }
+            if (message.seq() <= 0
+                    || message.seq() > MAX_SAFE_JSON_INTEGER
+                    || !seen.add(message.seq())) {
+                throw new IllegalStateException(
+                        "LEGACY conversation seq is not unique, positive, and JSON-safe: %s"
+                                .formatted(message.seq()));
+            }
+            history.add(message);
+        }
+        for (ThreadMessage message : typed) {
+            if (message.seq() >= 0 || !seen.add(message.seq())) {
+                throw new IllegalStateException(
+                        "typed conversation seq is not unique and negative: %s"
+                                .formatted(message.seq()));
+            }
+            history.add(message);
+        }
+        return List.copyOf(history);
+    }
+
+    private static boolean isRetainedTrunkMessage(ThreadMessage message)
+    {
+        boolean trunkScope = message.scope() == ThreadScope.TRUNK
+                || message.scope() == null;
+        return trunkScope
+                && message.taskId() == null
+                && message.stageId() == null;
+    }
+
+    private boolean isV2Trunk(String threadId)
+    {
+        return store.findTurnVersion(threadId).filter("V2"::equals).isPresent();
+    }
+
+    private static List<Integer> userPromptPositions(
+            List<ThreadMessage> history)
+    {
+        List<Integer> positions = new ArrayList<>();
+        for (int i = 0; i < history.size(); i++) {
+            if (isUserPrompt(history.get(i))) {
+                positions.add(i);
+            }
+        }
+        return List.copyOf(positions);
+    }
+
+    private static List<ThreadMessage> messagesAt(
+            List<ThreadMessage> history,
+            List<Integer> positions,
+            int from,
+            int to)
+    {
+        List<ThreadMessage> messages = new ArrayList<>(to - from);
+        for (int i = from; i < to; i++) {
+            messages.add(history.get(positions.get(i)));
+        }
+        return List.copyOf(messages);
+    }
+
+    private static int messagePosition(
+            List<ThreadMessage> history, long seq)
+    {
+        for (int i = 0; i < history.size(); i++) {
+            if (history.get(i).seq() == seq) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException(
+                "conversation cursor is not present: %s".formatted(seq));
     }
 
     /** The transcript rows that pair with a prompt window: every message
@@ -136,7 +278,7 @@ public class ConvIndexService
             long total,
             List<ThreadMessage> prompts,
             List<ThreadMessage> transcript,
-            int limit)
+            boolean hasOlder)
     {
         ImmutableList.Builder<ConvIndexEntry> entries = ImmutableList.builder();
         for (ThreadMessage m : prompts) {
@@ -148,12 +290,8 @@ public class ConvIndexService
             }
         }
         Long loadedFromSeq = prompts.isEmpty() ? null : prompts.get(0).seq();
-        // The window is prompt-based now, so "older prompts exist" can't
-        // be inferred from seq>1 (seq 1 is usually a session-started
-        // row, not a prompt). Instead: a full page means we hit the
-        // limit and older prompts may remain; a short page means we
-        // reached the first prompt and the affordance hides.
-        Long nextCursor = loadedFromSeq != null && prompts.size() >= limit ? loadedFromSeq : null;
+        Long nextCursor = loadedFromSeq != null && hasOlder
+                ? loadedFromSeq : null;
         return new ConvIndexPage(
                 threadId,
                 total,

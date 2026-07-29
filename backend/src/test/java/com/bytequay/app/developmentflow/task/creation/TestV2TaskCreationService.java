@@ -36,24 +36,30 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.review.ReviewBuildSelectionStore;
 import com.bytequay.app.service.review.ReviewBuildSpawnService;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.bytequay.app.service.workmodel.WorkModelService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -75,6 +82,242 @@ class TestV2TaskCreationService
 
     @TempDir
     private Path tempDir;
+
+    @Test
+    void promotionCompletesAnOlderTrunksEngineSnapshotBeforeChangingItsRoute()
+    {
+        Path repositoryRoot = tempDir.resolve("promotion-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("promotion.db", repositoryRoot);
+        ObjectMapper mapper = new ObjectMapper();
+        ThreadEngineOverrides engines = new ThreadEngineOverrides(
+                jdbc, mapper, mock(EntityManager.class));
+        WorkModelResolver resolver = engineResolver();
+        WorkModelService freezer = engineFreezer();
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
+                mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
+                mock(ThreadStore.class), mock(TaskStore.class), engines,
+                resolver, freezer, mock(WorkspaceRepositoryResolver.class),
+                mock(WorkspaceRelationService.class),
+                mock(PullRequestRepository.class), mock(PatResolver.class),
+                mock(ReviewBuildSelectionStore.class), mapper,
+                mock(V2DevelopmentFlowProjection.class));
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM thread_engines WHERE thread_id = ?
+                """, Integer.class, TRUNK)).isZero();
+
+        service.prepareTrunk(TRUNK, WORKSPACE);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM thread_engines
+                WHERE thread_id = ? AND work_model_json IS NOT NULL
+                """, Integer.class, TRUNK)).isEqualTo(SessionAudience.ALL.size());
+        assertThat(jdbc.queryForObject("""
+                SELECT turn_version FROM threads WHERE id = ?
+                """, String.class, TRUNK)).isEqualTo("V2");
+    }
+
+    @Test
+    void engineResolutionFailureLeavesTheOlderTrunkOnItsLegacyRoute()
+    {
+        Path repositoryRoot = tempDir.resolve("failed-promotion-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("failed-promotion.db", repositoryRoot);
+        WorkModelResolver resolver = engineResolver();
+        when(resolver.resolveForWorkspace(WORKSPACE, SessionAudience.PLAN))
+                .thenThrow(new IllegalStateException("no plan engine"));
+        ThreadEngineOverrides engines = mock(ThreadEngineOverrides.class);
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
+                mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
+                mock(ThreadStore.class), mock(TaskStore.class), engines,
+                resolver, engineFreezer(), mock(WorkspaceRepositoryResolver.class),
+                mock(WorkspaceRelationService.class),
+                mock(PullRequestRepository.class), mock(PatResolver.class),
+                mock(ReviewBuildSelectionStore.class), new ObjectMapper(),
+                mock(V2DevelopmentFlowProjection.class));
+
+        assertThatThrownBy(() -> service.prepareTrunk(TRUNK, WORKSPACE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no plan engine");
+
+        assertThat(jdbc.queryForObject("""
+                SELECT turn_version FROM threads WHERE id = ?
+                """, String.class, TRUNK)).isEqualTo("LEGACY");
+        verify(engines, never()).replace(any(), any());
+    }
+
+    @Test
+    void rejectedPromotionRollsBackTheCompletedEngineSnapshot()
+    {
+        Path repositoryRoot = tempDir.resolve("busy-promotion-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("busy-promotion.db", repositoryRoot);
+        jdbc.update("""
+                INSERT INTO thread_turns(
+                    id, thread_id, lane, status, input, created_at_ms,
+                    updated_at_ms, scope)
+                VALUES ('legacy-turn', ?, 'CLI', 'RUNNING', 'still planning',
+                    2, 2, 'TRUNK')
+                """, TRUNK);
+        ObjectMapper mapper = new ObjectMapper();
+        ThreadEngineOverrides engines = new ThreadEngineOverrides(
+                jdbc, mapper, mock(EntityManager.class));
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
+                mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
+                mock(ThreadStore.class), mock(TaskStore.class), engines,
+                engineResolver(), engineFreezer(),
+                mock(WorkspaceRepositoryResolver.class),
+                mock(WorkspaceRelationService.class),
+                mock(PullRequestRepository.class), mock(PatResolver.class),
+                mock(ReviewBuildSelectionStore.class), mapper,
+                mock(V2DevelopmentFlowProjection.class));
+
+        assertThatThrownBy(() -> service.prepareTrunk(TRUNK, WORKSPACE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("quiescent");
+
+        assertThat(jdbc.queryForObject("""
+                SELECT turn_version FROM threads WHERE id = ?
+                """, String.class, TRUNK)).isEqualTo("LEGACY");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM thread_engines WHERE thread_id = ?
+                """, Integer.class, TRUNK)).isZero();
+    }
+
+    @Test
+    void runningLegacyTaskAndStageSiblingsDoNotBlockTrunkPromotion()
+    {
+        Path repositoryRoot = tempDir.resolve("mixed-promotion-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("mixed-promotion.db", repositoryRoot);
+        jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, created_at_ms,
+                    workflow_version)
+                VALUES ('legacy-task', ?, 1, 'RUNNING', 'IMPLEMENTING', 2,
+                        'LEGACY'),
+                       ('legacy-stage-task', ?, 2, 'RUNNING', 'IMPLEMENTING', 2,
+                        'LEGACY')
+                """, TRUNK, TRUNK);
+        jdbc.update("""
+                INSERT INTO task_stage(
+                    id, task_id, stage_type, state, opened_at_ms)
+                VALUES ('legacy-stage', 'legacy-stage-task',
+                    'DEVELOPMENT_STAGE', 'OPEN', 2)
+                """);
+        jdbc.update("""
+                INSERT INTO thread_turns(
+                    id, thread_id, task_id, lane, status, input,
+                    created_at_ms, updated_at_ms, scope)
+                VALUES ('legacy-task-turn', ?, 'legacy-task', 'CLI',
+                        'RUNNING', 'develop task', 2, 2, 'TASK')
+                """, TRUNK);
+        jdbc.update("""
+                INSERT INTO thread_turns(
+                    id, thread_id, task_id, stage_id, lane, status, input,
+                    created_at_ms, updated_at_ms, scope)
+                VALUES ('legacy-stage-turn', ?, 'legacy-stage-task',
+                        'legacy-stage', 'CLI', 'RUNNING', 'develop stage',
+                        2, 2, 'STAGE')
+                """, TRUNK);
+        ObjectMapper mapper = new ObjectMapper();
+        ThreadEngineOverrides engines = new ThreadEngineOverrides(
+                jdbc, mapper, mock(EntityManager.class));
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
+                mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
+                mock(ThreadStore.class), mock(TaskStore.class), engines,
+                engineResolver(), engineFreezer(),
+                mock(WorkspaceRepositoryResolver.class),
+                mock(WorkspaceRelationService.class),
+                mock(PullRequestRepository.class), mock(PatResolver.class),
+                mock(ReviewBuildSelectionStore.class), mapper,
+                mock(V2DevelopmentFlowProjection.class));
+
+        service.prepareTrunk(TRUNK, WORKSPACE);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT turn_version FROM threads WHERE id = ?
+                """, String.class, TRUNK)).isEqualTo("V2");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM thread_engines WHERE thread_id = ?
+                """, Integer.class, TRUNK)).isEqualTo(SessionAudience.ALL.size());
+    }
+
+    @Test
+    void repeatedPromotionDoesNotReplaceTheFirstFrozenSnapshot()
+    {
+        Path repositoryRoot = tempDir.resolve("repeat-promotion-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("repeat-promotion.db", repositoryRoot);
+        ObjectMapper mapper = new ObjectMapper();
+        ThreadEngineOverrides engines = spy(new ThreadEngineOverrides(
+                jdbc, mapper, mock(EntityManager.class)));
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
+                mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
+                mock(ThreadStore.class), mock(TaskStore.class), engines,
+                engineResolver(), engineFreezer(),
+                mock(WorkspaceRepositoryResolver.class),
+                mock(WorkspaceRelationService.class),
+                mock(PullRequestRepository.class), mock(PatResolver.class),
+                mock(ReviewBuildSelectionStore.class), mapper,
+                mock(V2DevelopmentFlowProjection.class));
+
+        service.prepareTrunk(TRUNK, WORKSPACE);
+        service.prepareTrunk(TRUNK, WORKSPACE);
+
+        verify(engines, times(1)).replace(any(), any());
+        assertThat(jdbc.queryForObject("""
+                SELECT turn_version FROM threads WHERE id = ?
+                """, String.class, TRUNK)).isEqualTo("V2");
+    }
+
+    @Test
+    void repairsASparseSnapshotOnAnAlreadyPromotedTrunk()
+    {
+        Path repositoryRoot = tempDir.resolve("repair-promotion-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("repair-promotion.db", repositoryRoot);
+        jdbc.update("""
+                UPDATE threads
+                SET lifecycle_state = 'ACTIVE', turn_version = 'V2'
+                WHERE id = ?
+                """, TRUNK);
+        jdbc.update("""
+                INSERT INTO thread_engines(
+                    thread_id, audience, choice, work_model_json)
+                VALUES (?, 'plan', 'local', '{'),
+                       (?, 'dev', 'cli:codex', NULL)
+                """, TRUNK, TRUNK);
+        ObjectMapper mapper = new ObjectMapper();
+        ThreadEngineOverrides engines = new ThreadEngineOverrides(
+                jdbc, mapper, mock(EntityManager.class));
+        WorkModelService freezer = mock(WorkModelService.class);
+        when(freezer.freeze(any(WorkModel.class))).thenAnswer(invocation -> {
+            WorkModel choice = invocation.getArgument(0);
+            return choice.model() == null ? PLAN_MODEL : choice;
+        });
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
+                mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
+                mock(ThreadStore.class), mock(TaskStore.class), engines,
+                engineResolver(), freezer,
+                mock(WorkspaceRepositoryResolver.class),
+                mock(WorkspaceRelationService.class),
+                mock(PullRequestRepository.class), mock(PatResolver.class),
+                mock(ReviewBuildSelectionStore.class), mapper,
+                mock(V2DevelopmentFlowProjection.class));
+
+        assertThat(service.repairExistingTrunkEngineSnapshots()).isEqualTo(1);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM thread_engines
+                WHERE thread_id = ? AND work_model_json IS NOT NULL
+                """, Integer.class, TRUNK)).isEqualTo(SessionAudience.ALL.size());
+        assertThat(engines.forAudience(TRUNK, SessionAudience.PLAN))
+                .contains(new WorkModel(
+                        WorkModelKind.API, "deepseek", "deepseek-v4-flash", null));
+        assertThat(service.repairExistingTrunkEngineSnapshots()).isZero();
+    }
 
     @Test
     void retriesAConcurrentSiblingAndHandsOffOneExactDirectAssignment()
@@ -103,7 +346,10 @@ class TestV2TaskCreationService
         when(projection.project(raw)).thenReturn(projected);
 
         AtomicInteger calls = new AtomicInteger();
-        when(handoff.create(any())).thenAnswer(invocation -> {
+        List<TaskCreationHandoff.Command> captured = new ArrayList<>();
+        when(handoff.create(any(), any())).thenAnswer(invocation -> {
+            Supplier<TaskCreationHandoff.Command> factory = invocation.getArgument(1);
+            captured.add(factory.get());
             if (calls.getAndIncrement() == 0) {
                 jdbc.update("""
                         UPDATE threads SET aggregate_version = 1 WHERE id = ?
@@ -116,7 +362,8 @@ class TestV2TaskCreationService
 
         V2TaskCreationService service = new V2TaskCreationService(
                 new DevelopmentFlowCanaryRoute(true, WORKSPACE),
-                handoff, jdbc, threads, tasks, engines, repositories, relations,
+                handoff, commands(jdbc), jdbc, threads, tasks, engines,
+                engineResolver(), engineFreezer(), repositories, relations,
                 mock(PullRequestRepository.class), mock(PatResolver.class),
                 mock(ReviewBuildSelectionStore.class), new ObjectMapper(), projection);
         Thread trunk = trunk();
@@ -128,13 +375,11 @@ class TestV2TaskCreationService
 
         assertThat(service.create(trunk, request)).isSameAs(projected);
 
-        ArgumentCaptor<TaskCreationHandoff.Command> commands =
-                ArgumentCaptor.forClass(TaskCreationHandoff.Command.class);
-        verify(handoff, times(2)).create(commands.capture());
-        assertThat(commands.getAllValues())
+        verify(handoff, times(2)).create(any(), any());
+        assertThat(captured)
                 .extracting(value -> value.authorization().expectedTrunkVersion())
                 .containsExactly(0L, 1L);
-        TaskCreationInput input = commands.getValue().authorization().input();
+        TaskCreationInput input = captured.getLast().authorization().input();
         assertThat(input.assignment())
                 .isInstanceOf(TaskAssignment.NewFromTrunk.class);
         TaskAssignment.NewFromTrunk assignment =
@@ -199,13 +444,19 @@ class TestV2TaskCreationService
                         "selection-digest",
                         List.of(selected), Instant.ofEpochMilli(2))));
         when(selections.matchesCurrent(any())).thenReturn(true);
-        when(handoff.create(any())).thenReturn(creationResult(repositoryRoot));
+        List<TaskCreationHandoff.Command> captured = new ArrayList<>();
+        when(handoff.create(any(), any())).thenAnswer(invocation -> {
+            Supplier<TaskCreationHandoff.Command> factory = invocation.getArgument(1);
+            captured.add(factory.get());
+            return creationResult(repositoryRoot);
+        });
         when(tasks.findTaskById(TASK)).thenReturn(Optional.of(raw));
         when(projection.project(raw)).thenReturn(raw);
 
         V2TaskCreationService service = new V2TaskCreationService(
                 new DevelopmentFlowCanaryRoute(true, WORKSPACE),
-                handoff, jdbc, threads, tasks, engines, repositories, relations,
+                handoff, commands(jdbc), jdbc, threads, tasks, engines,
+                engineResolver(), engineFreezer(), repositories, relations,
                 pullRequests, pats, selections, new ObjectMapper(), projection);
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT, "codex", "gpt-test", "Fix finding",
@@ -215,10 +466,8 @@ class TestV2TaskCreationService
 
         service.create(reviewTrunk(), request);
 
-        ArgumentCaptor<TaskCreationHandoff.Command> command =
-                ArgumentCaptor.forClass(TaskCreationHandoff.Command.class);
-        verify(handoff).create(command.capture());
-        assertThat(command.getValue().authorization().input().assignment())
+        verify(handoff).create(any(), any());
+        assertThat(captured.getFirst().authorization().input().assignment())
                 .isInstanceOfSatisfying(
                         TaskAssignment.ReviewFindings.class,
                         assignment -> {
@@ -264,8 +513,8 @@ class TestV2TaskCreationService
         when(selections.matchesCurrent(selection)).thenReturn(false);
         V2TaskCreationService service = new V2TaskCreationService(
                 new DevelopmentFlowCanaryRoute(true, WORKSPACE),
-                handoff, jdbc, mock(ThreadStore.class), mock(TaskStore.class),
-                mock(ThreadEngineOverrides.class), repositories,
+                handoff, commands(jdbc), jdbc, mock(ThreadStore.class), mock(TaskStore.class),
+                mock(ThreadEngineOverrides.class), engineResolver(), engineFreezer(), repositories,
                 mock(WorkspaceRelationService.class), pullRequests,
                 mock(PatResolver.class), selections, new ObjectMapper(),
                 mock(V2DevelopmentFlowProjection.class));
@@ -279,7 +528,7 @@ class TestV2TaskCreationService
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("changed before V2 Task materialization");
         verify(pullRequests, never()).fetchPrDetail(any(), any());
-        verify(handoff, never()).create(any());
+        verify(handoff, never()).create(any(), any());
     }
 
     @Test
@@ -312,8 +561,8 @@ class TestV2TaskCreationService
                         Instant.ofEpochMilli(2))));
         V2TaskCreationService service = new V2TaskCreationService(
                 new DevelopmentFlowCanaryRoute(true, WORKSPACE),
-                handoff, jdbc, mock(ThreadStore.class), mock(TaskStore.class),
-                mock(ThreadEngineOverrides.class), repositories,
+                handoff, commands(jdbc), jdbc, mock(ThreadStore.class), mock(TaskStore.class),
+                mock(ThreadEngineOverrides.class), engineResolver(), engineFreezer(), repositories,
                 mock(WorkspaceRelationService.class), pullRequests,
                 mock(PatResolver.class), selections, new ObjectMapper(),
                 mock(V2DevelopmentFlowProjection.class));
@@ -328,14 +577,14 @@ class TestV2TaskCreationService
                 .hasMessageContaining("comment-only")
                 .hasMessageContaining("cannot materialize a writable V2 Task");
         verify(pullRequests, never()).fetchPrDetail(any(), any());
-        verify(handoff, never()).create(any());
+        verify(handoff, never()).create(any(), any());
     }
 
     private JdbcTemplate database(String name, Path repositoryRoot)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("246").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target("276").load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
@@ -412,5 +661,27 @@ class TestV2TaskCreationService
                 0, 0, 0, null, Instant.ofEpochMilli(1), null, null,
                 "Build exact flow", null, PLAN_MODEL, null, null, null,
                 0, null, "Implement the accepted design", Task.ORIGIN_USER);
+    }
+
+    private static WorkModelResolver engineResolver()
+    {
+        WorkModelResolver resolver = mock(WorkModelResolver.class);
+        when(resolver.resolveForWorkspace(any(), any()))
+                .thenReturn(new WorkModelResolver.Resolved(PLAN_MODEL, null));
+        return resolver;
+    }
+
+    private static TaskCommandExecutor commands(JdbcTemplate jdbc)
+    {
+        return new TaskCommandExecutor(
+                new DataSourceTransactionManager(jdbc.getDataSource()));
+    }
+
+    private static WorkModelService engineFreezer()
+    {
+        WorkModelService freezer = mock(WorkModelService.class);
+        when(freezer.freeze(any(WorkModel.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        return freezer;
     }
 }

@@ -126,7 +126,8 @@ public final class ThreadTurnOperationHandler
         AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
                 input.transport(), input.provider(), input.credentialAccount(), input.model(),
                 input.reasoningEffort(), Path.of(input.workingDirectory()),
-                input.systemPrompt(), input.prompt(), input.toolEndpoint(),
+                input.systemPrompt(), input.prompt(), input.images(),
+                input.toolEndpoint(),
                 AgentTurnProviderSession.Access.READ_ONLY);
         Observer observer = new Observer(context);
         StartDisposition started = store.tryStart(

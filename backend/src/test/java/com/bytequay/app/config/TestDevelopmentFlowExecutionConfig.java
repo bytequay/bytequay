@@ -80,6 +80,7 @@ import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskPolicyRevisionRedriver;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
+import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
 import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
@@ -439,6 +440,8 @@ class TestDevelopmentFlowExecutionConfig
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(ExecutionDispatcher.class);
+                    verify(context.getBean(V2TaskCreationService.class))
+                            .repairExistingTrunkEngineSnapshots();
                     assertThat(context).hasSingleBean(
                             ExecutionPorts.OperationHandlerRegistry.class);
                     assertThat(context).hasBean("v2ResultDelivery");
@@ -560,6 +563,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(RemoteCiRepairRuntimeCoordinator.class))
                 .withBean(TaskCommandExecutor.class,
                         () -> mock(TaskCommandExecutor.class))
+                .withBean(V2TaskCreationService.class,
+                        () -> mock(V2TaskCreationService.class))
                 .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
                 .withBean(V2UserWaitStore.class,
                         () -> mock(V2UserWaitStore.class))

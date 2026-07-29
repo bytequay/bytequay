@@ -17,15 +17,20 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
+import com.bytequay.app.service.threads.MessageAttachments;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -85,8 +90,11 @@ public final class ThreadTurnHandoff
                         request.credentialAccount(), request.model(),
                         request.reasoningEffort(),
                         request.workingDirectory().toString(),
-                        request.systemPrompt(), request.compiledPrompt(), endpoint);
+                        request.systemPrompt(), request.compiledPrompt(),
+                        request.images(), endpoint);
         String launchInput = write(input);
+        List<TrunkManager.ThreadTurnAttachment> attachments = attachments(
+                turnId, request.images());
         return new TrunkManager.ThreadTurnCommand(
                 request.commandId(), request.actor(), request.trunkId(),
                 request.workspaceId(), request.expectedTrunkVersion(),
@@ -95,7 +103,60 @@ public final class ThreadTurnHandoff
                 request.transport() == AgentTurnProviderSession.Transport.CLI ? 1 : 2,
                 request.planningOperationId(), request.planningBaseSha(),
                 launchInput, digest(launchInput), request.userMessage(),
-                digest(request.userMessage()), clock.instant());
+                digest(request.userMessage()), attachments, clock.instant());
+    }
+
+    private static List<TrunkManager.ThreadTurnAttachment> attachments(
+            String turnId,
+            List<AgentTurnProviderSession.ImageAttachment> images)
+    {
+        List<TrunkManager.ThreadTurnAttachment> attachments =
+                new ArrayList<>(images.size());
+        for (int index = 0; index < images.size(); index++) {
+            AgentTurnProviderSession.ImageAttachment image = images.get(index);
+            try {
+                image.readVerified();
+            }
+            catch (IllegalArgumentException | IllegalStateException e) {
+                throw new InvalidFrozenAttachmentException(e.getMessage(), e);
+            }
+            attachments.add(new TrunkManager.ThreadTurnAttachment(
+                    "%s:attachment:%08d".formatted(turnId, index + 1),
+                    "image", image.path(), image.mediaType(), image.digest()));
+        }
+        return List.copyOf(attachments);
+    }
+
+    public static List<AgentTurnProviderSession.ImageAttachment> freezeImages(
+            List<String> images)
+    {
+        if (images == null || images.isEmpty()) {
+            return List.of();
+        }
+        List<AgentTurnProviderSession.ImageAttachment> frozen =
+                new ArrayList<>(images.size());
+        for (String image : images) {
+            byte[] content;
+            try {
+                content = Files.readAllBytes(Path.of(image));
+            }
+            catch (IOException e) {
+                throw new IllegalStateException(
+                        "could not freeze ThreadTurn attachment " + image, e);
+            }
+            frozen.add(new AgentTurnProviderSession.ImageAttachment(
+                    image, MessageAttachments.mimeTypeFor(image), digest(content)));
+        }
+        return List.copyOf(frozen);
+    }
+
+    static final class InvalidFrozenAttachmentException
+            extends IllegalStateException
+    {
+        private InvalidFrozenAttachmentException(String message, Throwable cause)
+        {
+            super(message, cause);
+        }
     }
 
     private String write(Object value)
@@ -125,10 +186,15 @@ public final class ThreadTurnHandoff
 
     static String digest(String value)
     {
+        return digest(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String digest(byte[] value)
+    {
         try {
             return HexFormat.of().formatHex(
                     MessageDigest.getInstance("SHA-256")
-                            .digest(value.getBytes(StandardCharsets.UTF_8)));
+                            .digest(value));
         }
         catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is unavailable", e);
@@ -151,6 +217,7 @@ public final class ThreadTurnHandoff
             String systemPrompt,
             String userMessage,
             String compiledPrompt,
+            List<AgentTurnProviderSession.ImageAttachment> images,
             String planningOperationId,
             String planningBaseSha)
     {
@@ -167,6 +234,7 @@ public final class ThreadTurnHandoff
             requireNonNull(workingDirectory, "workingDirectory is null");
             requireText(userMessage, "userMessage");
             requireText(compiledPrompt, "compiledPrompt");
+            images = images == null ? List.of() : List.copyOf(images);
             if (expectedTrunkVersion < 0) {
                 throw new IllegalArgumentException(
                         "expectedTrunkVersion is negative");
@@ -224,7 +292,7 @@ public final class ThreadTurnHandoff
             this(commandId, actor, trunkId, workspaceId, expectedTrunkVersion,
                     purpose, transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, userMessage,
-                    compiledPrompt, null, null);
+                    compiledPrompt, List.of(), null, null);
         }
     }
 

@@ -1884,16 +1884,17 @@ public class AgentScheduler
 
         ThreadAgent session;
         try {
+            ThreadAgent resolvedSession;
             // ThreadTurn.scope is the altitude authority. IDs are read only
             // through its checked accessors; nullable columns are payload,
             // never a discriminator. A stage selects the transcript scope,
             // while the provider session remains owned by the Task.
             if (thread.kind() == ThreadKind.BRAIN_AGENT) {
                 runningTurn.requireTaskId();
-                session = sessions.getOrCreateTaskBrainAgent(thread);
+                resolvedSession = sessions.getOrCreateTaskBrainAgent(thread);
             }
             else {
-                session = switch (runningTurn.scope()) {
+                resolvedSession = switch (runningTurn.scope()) {
                     case TRUNK -> sessions.getOrCreateTrunkAgent(thread);
                     case TASK -> {
                         Task task = tasks.findTaskById(runningTurn.requireTaskId())
@@ -1910,6 +1911,8 @@ public class AgentScheduler
                     }
                 };
             }
+            session = requireNonNull(
+                    resolvedSession, "agent registry returned no session");
         }
         catch (RuntimeException e) {
             completeTurn(runningTurn, null, e);

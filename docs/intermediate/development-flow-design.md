@@ -2,7 +2,7 @@
 
 Status: **LOCKED**
 
-Version: **1.4**
+Version: **1.7**
 
 Decision date: **2026-07-28**
 
@@ -186,6 +186,29 @@ compatibility matrix below; no ignored document is needed to implement them.
     A top-level comment may be authorized against an exact terminal PR after
     merge or close; reviews, queue changes, and other Stage-bound writes still
     require their live owner and current open-head fence.
+29. **C29** — CapacityManager resolves the applicable Workspace and Trunk
+    ceilings inside the same serialized admission transaction that may create
+    the CapacityLease. A committed limit reduction therefore cannot be followed
+    by an admission using an older policy snapshot. Policy-change wakes are
+    published only after the settings transaction commits; rollback publishes
+    no wake. Existing leases are not revoked, but no additional Task is admitted
+    until occupancy is below every current ceiling. Workspace and Trunk setting
+    boundaries reject non-positive ceilings before persistence.
+30. **C30** — `thread_settings.max_running_tasks` is the sole persisted Trunk
+    Task-ceiling input. Upgrade migration V275 normalizes invalid historical
+    values and projects an explicit legacy `threads.parallel_slots > 1` value
+    into that field once; `parallel_slots` then remains legacy-drain data, not
+    a second admission authority. Capacity notifications are post-commit
+    hints: ExecutionDispatcher queues a coalesced retry on its owned
+    maintenance executor, and transaction-completion callbacks perform no
+    repository work.
+31. **C31** — Legacy retirement diagnostics fail closed while any nonterminal
+    LEGACY Task, queued/running legacy Turn, live legacy AgentRun, unfinished
+    legacy validation claim, or unconsumed legacy effect remains. AgentRun
+    liveness is QUEUED, RUNNING, PAUSED, or AWAITING_GATE. A detached run is
+    legacy drain work unless its exact ReviewRound and ReviewSession identify
+    a V2 owner Task. A cancellation-requested validation remains drain-owned
+    until completion or durable supersession proves it stopped.
 
 ## Owners and boundaries
 
@@ -532,6 +555,17 @@ submits work. A requested Operation remains a durable DispatchTicket while it
 waits; an executor queue is never a second workflow queue. Domain managers do
 not import executors, semaphores, or thread-pool configuration.
 
+Workspace settings and Trunk settings provide policy inputs; they never grant
+capacity or write leases. The Workspace ceiling counts distinct executing Tasks
+across all of its Trunks, and the Trunk ceiling counts distinct executing Tasks
+inside that Trunk. Multiple admitted Operations for one already-executing Task
+do not consume additional Task-count capacity, though lane, exclusivity, and
+writer-lease rules still apply. A missing Workspace override uses the configured
+Workspace default. A missing Trunk `maxRunningTasks` override uses the
+configured Trunk default. Migration V275 preserves an existing explicit legacy
+`parallel_slots` value greater than one by copying it once into that override;
+admission never reads the legacy column afterward.
+
 Executor submission failure releases the CapacityLease idempotently and leaves
 the DispatchTicket durably eligible for retry.
 
@@ -618,11 +652,11 @@ for Trunk control; Task-owned work cannot consume that reservation. Other
 lanes, including validation and read-only review, require explicit configured
 ceilings before canary and may not bypass CapacityManager.
 
-Workspace and Trunk limits have one policy source each. Existing
-thread-settings and parallel-slots fields are migrated or projected into the
-Trunk policy; they do not remain independent admission authorities. Lowering a
-limit blocks new admission and lets existing leases drain rather than
-canceling running work.
+Workspace and Trunk limits have one policy source each. V275 projects valid
+legacy parallel-slots data once into thread settings and guards that setting
+against non-positive values; the fields do not remain independent admission
+authorities. Lowering a limit blocks new admission and lets existing leases
+drain rather than canceling running work.
 
 The old future-Task queue is not part of this contract. If product design later
 requests planning future work without creating a Task, introduce a typed
@@ -1290,6 +1324,7 @@ second workflow coordinator.
 | Workspace/Trunk/Task hierarchy and grouped four-Stage rail | aggregate ownership + Stage projection | Preserved and fully defined in this tracked contract |
 | Zero-Task Trunk and planning conversation | TrunkManager, ThreadTurn | Preserved |
 | Create Task while sibling runs | TrunkManager + TaskManager | Preserved with capacity admission |
+| Workspace and Trunk parallel-Task limits | CapacityManager + persisted settings | Preserved with atomic policy resolution at admission |
 | User/agent/issue/quality/automation Task origins | typed TaskAssignment | Preserved without nullable inference |
 | Fresh-base, planning-snapshot and fork provenance | TaskAssignment + ProvisionTaskOperation | Preserved |
 | Task branch/worktree/session/PR identity | TaskManager + fenced WorktreeLease | Preserved and strengthened |
@@ -1319,6 +1354,7 @@ second workflow coordinator.
 | Task trace/timeline/status/notifications | read-only projections | Preserved |
 | Task completion summary/follow-ups | TaskOutcome + Trunk inbox | Preserved and made reliable |
 | Runtime/worktree/branch cleanup | Cleanup Stage/step ledger | Preserved and made durable |
+| Legacy drain and retirement diagnostics | invariant auditor + typed drain counters | Fail closed until every legacy runtime owner has drained |
 | Removed future-Task queue | none | Remains removed |
 
 ## Required acceptance scenarios
@@ -1426,6 +1462,23 @@ duplicate-delivery variants where applicable.
 59. After an exact Task-owned PR merges and its Remote Stage completes, post a
     top-level comment successfully; reject a review or queue mutation through
     the same terminal-owner exception.
+60. Lower a Workspace or Trunk parallel-Task limit while another Task is
+    attempting admission; if the settings commit wins, prove no lease is
+    created from the earlier ceiling, while rollback leaves policy and wake
+    version unchanged. Reject zero or negative Workspace and Trunk ceilings
+    without changing either persisted policy or wake version.
+61. Upgrade Trunks with missing, sparse, positive, zero, and negative legacy
+    concurrency settings; preserve each valid explicit limit in the sole
+    Trunk setting, normalize invalid values to inheritance, and reject later
+    non-positive writes. Raise a committed limit and prove a denied V2 ticket
+    is retried by ExecutionDispatcher immediately without waiting for the
+    periodic scan or re-entering the settings transaction's database resource.
+62. Leave LEGACY AgentRuns queued, running, paused, awaiting a gate, and in a
+    standalone detached review; leave an unfinished or cancellation-requested
+    LEGACY validation claim. Verify retirement remains blocked until every run
+    is terminal and every validation is completed or durably superseded, while
+    detached review artifacts whose exact ReviewSession owns a V2 Task do not
+    enter the legacy count.
 
 ## Patterns to preserve
 
@@ -1476,6 +1529,33 @@ reconciliation; they are never reassigned using latest/active inference.
   promised extension until separately designed and implemented.
 
 ## Change log
+
+### 1.7 — 2026-07-29
+
+- Made legacy retirement diagnostics count every live AgentRun status,
+  standalone detached review runs, and unfinished validation claims while
+  excluding detached review artifacts owned by an exact V2 Task.
+- Added acceptance scenario 62 so cancellation-requested validation cannot be
+  mistaken for a completed legacy drain.
+
+### 1.6 — 2026-07-29
+
+- Made Trunk task capacity a single-source setting and recorded V275's
+  one-time projection and invalid-value repair.
+- Assigned capacity-change retry scheduling to ExecutionDispatcher's owned
+  maintenance executor and prohibited repository work from transaction
+  completion callbacks.
+- Added acceptance scenario 61 for upgrade compatibility, database guards,
+  single-connection safety, and immediate V2 retry.
+
+### 1.5 — 2026-07-29
+
+- Added C29 to make persisted Workspace/Trunk limits atomic with durable
+  capacity admission and to publish policy wakes only after commit.
+- Clarified that Task-count capacity counts distinct executing Tasks rather
+  than Operations and does not revoke already-running work.
+- Added compatibility coverage and acceptance scenario 60 for concurrent
+  limit reduction, admission, and rollback.
 
 ### 1.4 — 2026-07-29
 

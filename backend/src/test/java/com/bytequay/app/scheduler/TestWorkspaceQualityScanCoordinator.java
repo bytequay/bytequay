@@ -229,7 +229,7 @@ class TestWorkspaceQualityScanCoordinator
         return new WorkspaceSettingsDto(
                 1, 10, true, 60, 8_000, 30,
                 List.of("plan", "dev", "review", "ci-fix"),
-                Map.of(), true, false, true, false);
+                Map.of(), true, false, true, false, null);
     }
 
     private record Fixture(

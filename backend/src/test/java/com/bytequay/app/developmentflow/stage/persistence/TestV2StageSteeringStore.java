@@ -265,7 +265,7 @@ class TestV2StageSteeringStore
         if (sibling) {
             seedOwner(jdbc, "2", 2);
         }
-        Flyway.configure().dataSource(dataSource).target("257").load().migrate();
+        Flyway.configure().dataSource(dataSource).target("265").load().migrate();
         seedImplementation(jdbc, "1");
         if (sibling) {
             seedImplementation(jdbc, "2");

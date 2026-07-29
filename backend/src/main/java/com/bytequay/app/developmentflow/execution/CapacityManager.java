@@ -94,11 +94,15 @@ public final class CapacityManager
             throw new IllegalArgumentException(
                     "V2 capacity requires its exact DispatchTicket id");
         }
-        CapacityPolicy policy = requireNonNull(
-                policies.current(request), "current policy is null");
-        return store.inAdmissionTransaction(
-                transaction -> tryAcquire(
-                        transaction, null, request, leaseOwner, policy));
+        return store.inAdmissionTransaction(transaction -> {
+            CapacityPolicySnapshot snapshot = requireNonNull(
+                    transaction.policySnapshot(request.scope()),
+                    "capacity policy snapshot is null");
+            CapacityPolicy policy = requireNonNull(
+                    policies.current(request, snapshot), "current policy is null");
+            return tryAcquire(
+                    transaction, null, request, leaseOwner, policy);
+        });
     }
 
     public Admission tryAcquireForTicket(
@@ -115,11 +119,15 @@ public final class CapacityManager
             throw new IllegalArgumentException(
                     "DispatchTicket capacity requires a V2 request");
         }
-        CapacityPolicy policy = requireNonNull(
-                policies.current(request), "current policy is null");
-        return store.inAdmissionTransaction(
-                transaction -> tryAcquire(
-                        transaction, ticketId, request, leaseOwner, policy));
+        return store.inAdmissionTransaction(transaction -> {
+            CapacityPolicySnapshot snapshot = requireNonNull(
+                    transaction.policySnapshot(request.scope()),
+                    "capacity policy snapshot is null");
+            CapacityPolicy policy = requireNonNull(
+                    policies.current(request, snapshot), "current policy is null");
+            return tryAcquire(
+                    transaction, ticketId, request, leaseOwner, policy);
+        });
     }
 
     private Admission tryAcquire(
@@ -923,6 +931,17 @@ public final class CapacityManager
         }
     }
 
+    /** Raw persisted inputs read under the same serialization boundary as admission. */
+    public record CapacityPolicySnapshot(
+            String workspaceSettingsJson,
+            Integer trunkMaxRunningTasks)
+    {
+        public static CapacityPolicySnapshot empty()
+        {
+            return new CapacityPolicySnapshot(null, null);
+        }
+    }
+
     @FunctionalInterface
     public interface CapacityPolicySource
     {
@@ -932,6 +951,21 @@ public final class CapacityManager
         {
             requireNonNull(request, "request is null");
             return current();
+        }
+
+        /**
+         * Resolves policy from inputs captured by the lease store while its
+         * admission transaction is active. Implementations must not perform a
+         * second database access here: production uses a single-connection
+         * SQLite pool, so doing so would deadlock.
+         */
+        default CapacityPolicy current(
+                CapacityRequest request,
+                CapacityPolicySnapshot snapshot)
+        {
+            requireNonNull(request, "request is null");
+            requireNonNull(snapshot, "snapshot is null");
+            return current(request);
         }
     }
 
@@ -952,6 +986,17 @@ public final class CapacityManager
          * write transaction before the first callback read.
          */
         <T> T inAdmissionTransaction(Function<CapacityLeaseStore, T> work);
+
+        /**
+         * Reads raw policy inputs through the transaction connection already
+         * bound by {@link #inAdmissionTransaction}. Persistence supplies facts;
+         * {@link CapacityManager} and its policy source remain the decision owner.
+         */
+        default CapacityPolicySnapshot policySnapshot(CapacityScope scope)
+        {
+            requireNonNull(scope, "scope is null");
+            return CapacityPolicySnapshot.empty();
+        }
 
         List<CapacityLease> listActive(Instant now);
 

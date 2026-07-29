@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.execution;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -46,6 +47,9 @@ import static com.bytequay.app.developmentflow.execution.DispatchTicket.State.RU
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.State.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class TestExecutionDispatcher
 {
@@ -126,6 +130,44 @@ class TestExecutionDispatcher
             fixture.dispatcher.runMaintenance();
             assertThat(fixture.ticket("waiting").state()).isEqualTo(SUCCEEDED);
             assertThat(fixture.delivery.calls).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void capacitySignalRetriesDeniedV2TicketWithoutWaitingForPeriodicScan()
+    {
+        SharedState state = sharedState(1);
+        CountingHandler handler = new CountingHandler();
+        state.handlers.put("validation", handler);
+        CapacityManager.CapacityRequest blockerRequest = capacityRequest(
+                "blocker", VALIDATION, "blocker-task", false);
+        CapacityManager.CapacityLease blocker = state.capacityManager.tryAcquireForTicket(
+                "blocker-ticket", blockerRequest, "other-worker").lease().orElseThrow();
+        state.tickets.put(requested("waiting", "validation", VALIDATION, false));
+
+        ScheduledExecutorService maintenance = mock(ScheduledExecutorService.class);
+        ArgumentCaptor<Runnable> periodic = ArgumentCaptor.forClass(Runnable.class);
+        ArgumentCaptor<Runnable> immediate = ArgumentCaptor.forClass(Runnable.class);
+        try (ExecutionDispatcher dispatcher = dispatcher(
+                state,
+                "dispatcher",
+                new InMemoryExecutionSupport.DirectExecutorService(),
+                100,
+                maintenance)) {
+            dispatcher.start();
+            verify(maintenance).scheduleWithFixedDelay(
+                    periodic.capture(), eq(0L), eq(1_000L), eq(TimeUnit.MILLISECONDS));
+
+            periodic.getValue().run();
+            assertThat(state.tickets.get("waiting").state()).isEqualTo(REQUESTED);
+            assertThat(handler.executeCalls).isZero();
+
+            state.capacityManager.release(blocker.id(), "other-worker");
+            verify(maintenance).execute(immediate.capture());
+
+            immediate.getValue().run();
+            assertThat(state.tickets.get("waiting").state()).isEqualTo(RESULT_PENDING);
+            assertThat(handler.executeCalls).isOne();
         }
     }
 
@@ -1233,6 +1275,17 @@ class TestExecutionDispatcher
             int scanLimit)
     {
         ScheduledExecutorService maintenance = Executors.newSingleThreadScheduledExecutor();
+        return dispatcher(
+                state, dispatcherId, operationExecutor, scanLimit, maintenance);
+    }
+
+    private static ExecutionDispatcher dispatcher(
+            SharedState state,
+            String dispatcherId,
+            ExecutorService operationExecutor,
+            int scanLimit,
+            ScheduledExecutorService maintenance)
+    {
         return new ExecutionDispatcher(
                 state.capacityManager,
                 state.tickets,

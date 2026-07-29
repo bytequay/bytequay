@@ -334,9 +334,22 @@ public final class DevelopmentFlowInvariantAuditor
                 """);
         int liveRuns = count("""
                 SELECT COUNT(*) FROM agent_run run
-                JOIN tasks task ON task.id = run.task_id
-                WHERE task.workflow_version = 'LEGACY'
-                  AND run.status IN ('running','awaiting_gate')
+                LEFT JOIN tasks task ON task.id = run.task_id
+                WHERE COALESCE(task.workflow_version, 'LEGACY') = 'LEGACY'
+                  AND (run.task_id IS NOT NULL OR NOT EXISTS (
+                      SELECT 1 FROM review_round review
+                      JOIN review_session session ON session.id = review.session_id
+                      JOIN tasks owner ON owner.id = session.owner_task_id
+                      WHERE (review.id = run.review_round_id
+                          OR review.agent_run_id = run.id)
+                        AND owner.workflow_version = 'V2'))
+                  AND run.status IN ('queued','running','paused','awaiting_gate')
+                """);
+        int liveValidationClaims = count("""
+                SELECT COUNT(*) FROM validation_pass
+                WHERE workflow_version = 'LEGACY'
+                  AND ended_at_ms IS NULL
+                  AND superseded_at_ms IS NULL
                 """);
         int liveEffects = count("""
                 SELECT
@@ -351,8 +364,10 @@ public final class DevelopmentFlowInvariantAuditor
                 """);
         return new DrainStatus(
                 nonterminalTasks == 0 && liveTurns == 0
-                        && liveRuns == 0 && liveEffects == 0,
-                nonterminalTasks, liveTurns, liveRuns, liveEffects);
+                        && liveRuns == 0 && liveValidationClaims == 0
+                        && liveEffects == 0,
+                nonterminalTasks, liveTurns, liveRuns,
+                liveValidationClaims, liveEffects);
     }
 
     private void add(
@@ -383,5 +398,6 @@ public final class DevelopmentFlowInvariantAuditor
             int nonterminalTasks,
             int liveTurns,
             int liveRuns,
+            int liveValidationClaims,
             int liveEffects) {}
 }

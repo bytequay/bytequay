@@ -225,6 +225,7 @@ class TestThreadCreationEngineSnapshot
                 defaults.notifyCi(),
                 defaults.notifyCompletions(),
                 defaults.qualityScanEnabled(),
-                defaults.remoteIssueIntakeEnabled());
+                defaults.remoteIssueIntakeEnabled(),
+                defaults.maxRunningTasks());
     }
 }

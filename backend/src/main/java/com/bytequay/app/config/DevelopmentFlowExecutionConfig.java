@@ -117,8 +117,6 @@ import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadSettingsStore;
-import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
@@ -661,8 +659,7 @@ public class DevelopmentFlowExecutionConfig
     @Bean
     @ConditionalOnMissingBean(CapacityManager.CapacityPolicySource.class)
     public CapacityManager.CapacityPolicySource developmentFlowCapacityPolicy(
-            ThreadStore threads,
-            ThreadSettingsStore settings,
+            ObjectMapper mapper,
             @Value("${bytequay.development-flow.capacity.default-workspace-running-tasks:4}")
             int defaultWorkspaceLimit,
             @Value("${bytequay.development-flow.capacity.default-trunk-running-tasks:4}")
@@ -677,8 +674,7 @@ public class DevelopmentFlowExecutionConfig
             @Value("${bytequay.development-flow.capacity.cleanup:4}") int cleanupLimit)
     {
         return new DevelopmentFlowCapacityPolicySource(
-                threads,
-                settings,
+                mapper,
                 defaultWorkspaceLimit,
                 defaultTrunkLimit,
                 Map.of(

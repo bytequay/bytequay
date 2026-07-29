@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.stage.V2ReadinessNotificationProjector;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessNotificationProjectionStore;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.service.threads.NotificationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -228,8 +230,10 @@ class TestV2ReadinessNotificationProjector
             Database database, NotificationService notifications)
     {
         return new V2ReadinessNotificationProjector(
-                database.jdbc(),
-                new DataSourceTransactionManager(database.source()),
+                new SqliteReadinessNotificationProjectionStore(
+                        database.jdbc(),
+                        new TransactionTemplate(
+                                new DataSourceTransactionManager(database.source()))),
                 notifications,
                 new ObjectMapper());
     }

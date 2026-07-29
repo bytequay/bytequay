@@ -53,6 +53,7 @@ type StoredSettings = {
   perSessionCap: number;
   dailyCap: number;
   pauseAtCap: boolean;
+  maxRunningTasks: number | null;
   syncSeconds: number;
   brainBudget: number;
   distillMinutes: number;
@@ -73,6 +74,7 @@ const defaults: StoredSettings = {
   perSessionCap: 100,
   dailyCap: 500,
   pauseAtCap: true,
+  maxRunningTasks: null,
   syncSeconds: 60,
   brainBudget: 8000,
   distillMinutes: 30,
@@ -106,14 +108,24 @@ export default function WorkspaceSettingsPage({
   const [memory, setMemory] = useState<WorkspaceMemoryDto | null>(null);
   const [automation, setAutomation] = useState<WorkspaceAutomationStatusDto | null>(null);
   const [saved, setSaved] = useState(false);
+  const [maxRunningTasksDraft, setMaxRunningTasksDraft] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [reclone, setReclone] = useState<WorkspaceCreationDto | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const activeWorkspaceId = useRef(workspaceId);
+  const maxRunningTasksDraftRef = useRef('');
+  const settingsEditRevision = useRef(0);
+  const parsedMaxRunningTasks = parseNullablePositiveInteger(maxRunningTasksDraft);
+  const maxRunningTasksValid = parsedMaxRunningTasks !== undefined;
 
   useEffect(() => {
     activeWorkspaceId.current = workspaceId;
+    settingsEditRevision.current += 1;
+    maxRunningTasksDraftRef.current = '';
+    setMaxRunningTasksDraft('');
+    setSaved(false);
+    setActionMessage(null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -131,7 +143,14 @@ export default function WorkspaceSettingsPage({
         if (cancelled) return;
         setRepo(repository);
         setAccountDefaults(inherited);
-        setSettings(coerceSettingsChoices(fromDto(persisted, inherited), choicesFrom(options, localAi.state)));
+        const nextSettings = coerceSettingsChoices(
+          fromDto(persisted, inherited),
+          choicesFrom(options, localAi.state),
+        );
+        const nextMaxRunningTasksDraft = formatNullableInteger(nextSettings.maxRunningTasks);
+        maxRunningTasksDraftRef.current = nextMaxRunningTasksDraft;
+        setMaxRunningTasksDraft(nextMaxRunningTasksDraft);
+        setSettings(nextSettings);
         setModelOptions(options);
         setLocalAiState(localAi.state);
       })
@@ -198,29 +217,67 @@ export default function WorkspaceSettingsPage({
   }, [reclone, workspaceId]);
 
   const update = <K extends keyof StoredSettings>(key: K, value: StoredSettings[K]) => {
+    settingsEditRevision.current += 1;
     setSettings(current => ({ ...current, [key]: value }));
     setSaved(false);
   };
+  const updateMaxRunningTasks = (draft: string) => {
+    settingsEditRevision.current += 1;
+    maxRunningTasksDraftRef.current = draft;
+    setMaxRunningTasksDraft(draft);
+    setSaved(false);
+    const parsed = parseNullablePositiveInteger(draft);
+    if (parsed !== undefined) {
+      setSettings(current => ({ ...current, maxRunningTasks: parsed }));
+    }
+  };
   const save = async () => {
+    const editRevisionAtSave = ++settingsEditRevision.current;
+    setSaved(false);
+    const workspaceIdAtSave = workspaceId;
+    const maxRunningTasksDraftAtSave = maxRunningTasksDraftRef.current;
+    const saveIsCurrent = () => activeWorkspaceId.current === workspaceIdAtSave
+      && settingsEditRevision.current === editRevisionAtSave;
+    if (parseNullablePositiveInteger(maxRunningTasksDraftAtSave) === undefined) {
+      setSaved(false);
+      return;
+    }
     setActionMessage(null);
     try {
       if (nameDraft.trim() !== displayName) {
-        const renamed = await workspaceApi.rename(workspaceId, nameDraft);
-        setDisplayName(renamed.name);
-        setNameDraft(renamed.name);
+        const renamed = await workspaceApi.rename(workspaceIdAtSave, nameDraft);
+        if (saveIsCurrent()) {
+          setDisplayName(renamed.name);
+          setNameDraft(renamed.name);
+        }
+        else return;
       }
-      const persisted = await workspaceApi.saveSettings(workspaceId, toDto(settings));
-      setSettings(fromDto(persisted, accountDefaults));
-      if (section === 'automation') {
-        void workspaceApi.automation(workspaceId).then(next => {
-          if (activeWorkspaceId.current === workspaceId) setAutomation(next);
+      const persisted = await workspaceApi.saveSettings(workspaceIdAtSave, toDto(settings));
+      const saveCurrent = saveIsCurrent();
+      const maxRunningTasksUnchanged = maxRunningTasksDraftRef.current === maxRunningTasksDraftAtSave;
+      if (saveCurrent && maxRunningTasksUnchanged) {
+        const nextSettings = fromDto(persisted, accountDefaults);
+        const nextMaxRunningTasksDraft = formatNullableInteger(nextSettings.maxRunningTasks);
+        maxRunningTasksDraftRef.current = nextMaxRunningTasksDraft;
+        setMaxRunningTasksDraft(nextMaxRunningTasksDraft);
+        setSettings(nextSettings);
+      }
+      if (saveCurrent && section === 'automation') {
+        void workspaceApi.automation(workspaceIdAtSave).then(next => {
+          if (saveIsCurrent()) setAutomation(next);
         }).catch(() => {});
       }
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 1400);
+      if (saveCurrent && maxRunningTasksUnchanged) {
+        setSaved(true);
+        window.setTimeout(() => {
+          if (saveIsCurrent()) setSaved(false);
+        }, 1400);
+      }
     }
     catch (reason) {
-      setActionMessage(reason instanceof Error ? reason.message : String(reason));
+      if (saveIsCurrent()) {
+        setActionMessage(reason instanceof Error ? reason.message : String(reason));
+      }
     }
   };
   const repoName = repo?.fullName ?? workspace.name;
@@ -232,6 +289,8 @@ export default function WorkspaceSettingsPage({
         workspaceApi.refreshWorkModelOptions(),
         window.bridge.getDs4Status(),
       ]);
+      settingsEditRevision.current += 1;
+      setSaved(false);
       setModelOptions(nextOptions);
       setLocalAiState(localAi.state);
       setSettings(current => coerceSettingsChoices(current, choicesFrom(nextOptions, localAi.state)));
@@ -282,6 +341,7 @@ export default function WorkspaceSettingsPage({
                 <SettingRow label="Workspace name" detail="Shown in the sidebar, switcher, and workspace cards.">
                   <label className="wu-text-input">
                     <input value={nameDraft} onChange={event => {
+                      settingsEditRevision.current += 1;
                       setNameDraft(event.target.value);
                       setSaved(false);
                     }} />
@@ -350,6 +410,14 @@ export default function WorkspaceSettingsPage({
                   onChange={value => update('dailyCap', value)} />
                 <ToggleRow label="Pause at cap" detail="Sessions pause and ask instead of stopping dead"
                   checked={settings.pauseAtCap} onChange={value => update('pauseAtCap', value)} />
+              </SettingsCard>
+              <SettingsCard title="Task concurrency">
+                <NullableIntegerRow label="Max running tasks"
+                  detail="Maximum distinct tasks executing across all trunks. Empty uses the app default."
+                  placeholder="App default"
+                  draft={maxRunningTasksDraft}
+                  valid={maxRunningTasksValid}
+                  onChange={updateMaxRunningTasks} />
               </SettingsCard>
             </>
           )}
@@ -475,8 +543,11 @@ export default function WorkspaceSettingsPage({
             </span>
           ) : (
             <footer className="wu-settings__save">
-              <span>{actionMessage ?? (saved ? 'Saved' : 'Changes stay local to this workspace.')}</span>
-              <button type="button" className="wu-primary-button" onClick={() => { void save(); }}>
+              <span>{!maxRunningTasksValid
+                ? 'Max running tasks must be empty or a whole number greater than zero.'
+                : actionMessage ?? (saved ? 'Saved' : 'Changes stay local to this workspace.')}</span>
+              <button type="button" className="wu-primary-button" disabled={!maxRunningTasksValid}
+                onClick={() => { void save(); }}>
                 {saved ? 'Saved ✓' : 'Save changes'}
               </button>
             </footer>
@@ -611,6 +682,37 @@ function NumberRow({ label, value, prefix, suffix, onChange }: {
   );
 }
 
+function NullableIntegerRow({ label, detail, placeholder, draft, valid, onChange }: {
+  label: string;
+  detail: string;
+  placeholder: string;
+  draft: string;
+  valid: boolean;
+  onChange: (draft: string) => void;
+}) {
+  return (
+    <SettingRow label={label}
+      detail={valid ? detail : 'Enter a whole number greater than zero, or leave empty.'}>
+      <label className="wu-number-input">
+        <input type="text" inputMode="numeric" aria-label={label} aria-invalid={!valid}
+          placeholder={placeholder} value={draft}
+          onChange={event => onChange(event.target.value)} />
+      </label>
+    </SettingRow>
+  );
+}
+
+function parseNullablePositiveInteger(draft: string): number | null | undefined {
+  if (draft === '') return null;
+  if (!/^[1-9]\d*$/.test(draft)) return undefined;
+  const parsed = Number(draft);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function formatNullableInteger(value: number | null): string {
+  return value === null ? '' : String(value);
+}
+
 function ToggleRow({ label, detail, checked, onChange, disabled = false }: {
   label: string;
   detail: string;
@@ -715,6 +817,7 @@ function fromDto(value: WorkspaceSettingsDto, inherited: AiDefaultsDto | null): 
     perSessionCap: value.sessionCapUsd,
     dailyCap: value.dailyCapUsd,
     pauseAtCap: value.pauseAtCap,
+    maxRunningTasks: value.maxRunningTasks ?? null,
     syncSeconds: value.syncSeconds,
     brainBudget: value.brainBudgetChars,
     distillMinutes: value.distillMinutes,
@@ -737,6 +840,7 @@ function toDto(value: StoredSettings): WorkspaceSettingsDto {
     sessionCapUsd: value.perSessionCap,
     dailyCapUsd: value.dailyCap,
     pauseAtCap: value.pauseAtCap,
+    maxRunningTasks: value.maxRunningTasks,
     syncSeconds: value.syncSeconds,
     brainBudgetChars: value.brainBudget,
     distillMinutes: value.distillMinutes,

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.stage.V2LocalReviewControl;
@@ -29,6 +30,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import org.sqlite.SQLiteDataSource;
 
@@ -502,11 +504,16 @@ class TestV2LocalReviewControl
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        TaskCommandExecutor commands = new TaskCommandExecutor(
-                new DataSourceTransactionManager(dataSource));
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
         AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext();
         context.registerBean(JdbcTemplate.class, () -> jdbc);
+        context.registerBean(TransactionTemplate.class,
+                () -> new TransactionTemplate(transactionManager));
+        context.registerBean(SqliteDispatchWakeStore.class,
+                () -> new SqliteDispatchWakeStore(jdbc));
         context.scan("com.bytequay.app.developmentflow.stage.persistence");
         context.refresh();
         LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(

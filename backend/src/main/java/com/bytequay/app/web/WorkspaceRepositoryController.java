@@ -21,6 +21,7 @@ import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalCommitDetail;
 import com.bytequay.app.domain.LocalCommitFile;
+import com.bytequay.app.domain.LocalFileDiff;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequest;
@@ -34,6 +35,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.local.HistoryRewriter;
 import com.bytequay.app.service.local.LocalRepoService;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -44,6 +46,7 @@ import com.bytequay.app.service.workspaces.WorkspaceCherryPickService;
 import com.bytequay.app.service.workspaces.WorkspaceIssueService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -55,6 +58,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -442,6 +446,92 @@ public class WorkspaceRepositoryController
     {
         return ResponseEntity.accepted().body(
                 upstreamCherryPicks.retry(workspaceId, jobId));
+    }
+
+    /**
+     * The commit list the history editor works on — same rows as
+     * {@code /commits} plus bodies, line counts, and a pushed flag.
+     * Literal path, so it wins over {@code /commits/{sha}}.
+     */
+    @GetMapping("/commits/rewritable")
+    public LocalRepoService.RewritableHistory rewritableHistory(
+            @PathVariable String workspaceId,
+            @RequestParam(required = false) String revision,
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(defaultValue = "0") int skip)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.rewritableHistory(
+                repo.owner(), repo.repo(), revision,
+                Math.min(Math.max(limit, 1), 500),
+                Math.max(skip, 0)));
+    }
+
+    /**
+     * Applies the editor's staged reorder/squash/reword queue in one
+     * rebase. A conflict rolls the branch back and comes out as a 409 so
+     * the UI can keep its pending queue and let the user retry.
+     */
+    @PostMapping("/commits/rewrite")
+    public RewriteResultDto rewriteHistory(
+            @PathVariable String workspaceId,
+            @RequestBody HistoryRewriter.RewritePlan body)
+    {
+        requireNonNull(body, "body is null");
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        try {
+            HistoryRewriter.RewriteResult result = interrupted(() -> local.rewriteHistory(
+                    repo.owner(), repo.repo(), body));
+            return new RewriteResultDto(result.headSha(), result.pushed(), result.pushError());
+        }
+        catch (HistoryRewriter.RewriteFailedException failed) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, failed.getMessage(), failed);
+        }
+    }
+
+    public record RewriteResultDto(String headSha, boolean pushed, String pushError) {}
+
+    /**
+     * Everything changed but not yet committed — staged, unstaged, and
+     * untracked in one list. Powers the Commits page's uncommitted tab.
+     */
+    @GetMapping("/working-tree/files")
+    public List<LocalCommitFile> workingTreeFiles(@PathVariable String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.workingTreeFiles(repo.owner(), repo.repo()));
+    }
+
+    /** One working-tree file's diff against HEAD. */
+    @GetMapping("/working-tree/diff")
+    public LocalFileDiff workingTreeFileDiff(
+            @PathVariable String workspaceId,
+            @RequestParam String path)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.workingTreeFileDiff(repo.owner(), repo.repo(), path));
+    }
+
+    /**
+     * One file's diff for a commit or a span of them. {@code base} is
+     * the exclusive start ({@code <sha>^} for a single commit), so the
+     * editor uses the same call for its single- and multi-select panes.
+     */
+    @GetMapping("/commits/diff")
+    public LocalFileDiff commitRangeFileDiff(
+            @PathVariable String workspaceId,
+            @RequestParam String base,
+            @RequestParam String head,
+            @RequestParam String path)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.rangeFileDiff(
+                repo.owner(), repo.repo(), base, head, path));
     }
 
     @GetMapping("/commits/{sha}")

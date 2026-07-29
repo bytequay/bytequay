@@ -160,11 +160,20 @@
   padding: 5px 10px;
 }
 .wu-relation-card > footer button.is-danger { color: #cf222e; }
+.wu-relation-card > footer button:disabled,
+.wu-relation-picker footer button:disabled { cursor: default; opacity: .45; }
 .wu-relation-footnote { color: #8b949e; font-size: 11.5px; margin: 12px 4px; }
 .wu-relation-footnote span { color: #2da44e; }
 .wu-inline-message { color: #57606a; font-size: 11.5px; margin: 8px 4px; }
 
 .wu-relation-picker-backdrop { z-index: 40; }
+/* The empty state explains why the confirm button is dead, so it needs
+   room to breathe rather than sitting on the radio-row grid. */
+.wu-relation-picker__list > span[role="status"] {
+  color: #57606a;
+  font-size: 12px;
+  line-height: 1.55;
+}
 .wu-relation-picker {
   background: #fff;
   border-radius: 13px;
@@ -597,4 +606,11 @@
   .ci-harness-pr { min-width: 300px; }
   .ci-harness-failures [role=row] { grid-template-columns: 80px minmax(120px, 1fr) auto auto; }
   .ci-harness-failures [role=row] > span { display: none; }
+}
+.wu-relation-picker__list label.is-blocked { background: #fafbfc; cursor: not-allowed; opacity: .8; }
+.wu-relation-picker__list label.is-blocked strong { color: #57606a; }
+.wu-relation-picker__list em {
+  color: #9a6700;
+  font-size: 10.5px;
+  font-style: normal;
 }

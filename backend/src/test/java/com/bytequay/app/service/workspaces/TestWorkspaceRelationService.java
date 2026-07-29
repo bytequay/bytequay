@@ -14,6 +14,7 @@
 package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.local.GitRunner;
@@ -72,7 +73,52 @@ class TestWorkspaceRelationService
                     assertThat(failure.getStatusCode())
                             .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
                     assertThat(failure.getReason()).contains("cycle");
+                    // The plain reverse link, not a longer chain.
+                    assertThat(failure.getReason())
+                            .contains("already reads from this workspace");
                 });
+    }
+
+    /**
+     * The picker must not offer a workspace the write path would refuse:
+     * both read the same cycle check, so an ineligible candidate comes
+     * back carrying the same sentence the 422 would have used.
+     */
+    @Test
+    void marksCandidatesThatWouldFormACycleInsteadOfOfferingThem(@TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = fixture(root);
+        fixture.jdbc().update("""
+                INSERT INTO workspace_relation (
+                    workspace_id, upstream_workspace_id, commits_enabled,
+                    tags_enabled, last_fetched_at_ms,
+                    auto_fetch_interval_minutes, indexed_commit_count,
+                    created_at_ms, updated_at_ms)
+                VALUES ('upstream-ws', 'fork-ws', 1, 1, NULL, 15, 0, 1, 1)
+                """);
+
+        List<WorkspaceRelationService.RelationCandidateDto> candidates =
+                fixture.service().candidates("fork-ws");
+
+        assertThat(candidates).isNotEmpty();
+        assertThat(candidates)
+                .filteredOn(row -> "upstream-ws".equals(row.workspaceId()))
+                .singleElement()
+                .satisfies(row -> assertThat(row.ineligibleReason())
+                        .contains("already reads from this workspace"));
+    }
+
+    @Test
+    void offersAWorkspaceWithNoRelationOfItsOwn(@TempDir Path root)
+            throws Exception
+    {
+        Fixture fixture = fixture(root);
+
+        assertThat(fixture.service().candidates("fork-ws"))
+                .filteredOn(row -> "upstream-ws".equals(row.workspaceId()))
+                .singleElement()
+                .satisfies(row -> assertThat(row.ineligibleReason()).isNull());
     }
 
     @Test
@@ -220,6 +266,13 @@ class TestWorkspaceRelationService
                         2, "acme", "upstream", 1, upstream.toString(), null, null)));
         when(git.isGitWorkingTree(fork)).thenReturn(true);
         when(git.isGitWorkingTree(upstream)).thenReturn(true);
+        // candidates() enumerates every other workspace, so the picker
+        // needs the same roster the resolver already knows about.
+        when(workspaces.list()).thenReturn(List.of(
+                new Workspace("fork-ws", "Fork", null, false, null,
+                        Instant.EPOCH, Instant.EPOCH),
+                new Workspace("upstream-ws", "Upstream", null, false, null,
+                        Instant.EPOCH, Instant.EPOCH)));
         return new Fixture(
                 jdbc,
                 git,

@@ -17,6 +17,7 @@ import {
   type WorkspaceRelationCandidateDto,
   type WorkspaceRelationDto,
 } from './workspaceApi';
+import { message } from './WorkspaceRepoUi';
 
 export const WORKSPACE_RELATION_CHANGED = 'bytequay-workspace-relation-changed';
 
@@ -180,8 +181,12 @@ export function LinkUpstreamDialog({ workspaceId, onClose, onLinked }: {
     void workspaceApi.relationCandidates(workspaceId)
       .then(next => {
         if (cancelled) return;
-        setCandidates(next);
-        setSelectedId(next.find(row => row.suggested)?.workspaceId ?? next[0]?.workspaceId ?? '');
+        const rows = Array.isArray(next) ? next : [];
+        setCandidates(rows);
+        // Never preselect one the server would refuse.
+        const usable = rows.filter(row => !isIneligible(row));
+        setSelectedId(usable.find(row => row.suggested)?.workspaceId
+          ?? usable[0]?.workspaceId ?? '');
       })
       .catch(reason => { if (!cancelled) setError(errorMessage(reason)); });
     return () => { cancelled = true; };
@@ -240,22 +245,39 @@ function RelationPicker({ candidates, selectedId, busy, error, onSelect, onClose
   onConfirm: () => void;
 }) {
   return (
-    <div className="wu-modal-backdrop wu-relation-picker-backdrop" role="presentation" onMouseDown={onClose}>
+    <div className="wu-modal-backdrop wu-modal-backdrop--centered wu-relation-picker-backdrop"
+      role="presentation" onMouseDown={onClose}>
       <section className="wu-relation-picker" role="dialog" aria-modal="true" aria-labelledby="relation-picker-title"
         onMouseDown={event => event.stopPropagation()}>
         <header><h2 id="relation-picker-title">Link upstream workspace</h2><button type="button" onClick={onClose}>×</button></header>
         <p>Choose a workspace to read commits and tags from. Suggested matches use the repository's fork metadata.</p>
         <div className="wu-relation-picker__list">
-          {candidates.map(candidate => (
-            <label key={candidate.workspaceId} className={candidate.workspaceId === selectedId ? 'selected' : ''}>
-              <input type="radio" name="upstream-workspace" value={candidate.workspaceId}
-                checked={candidate.workspaceId === selectedId}
-                onChange={() => onSelect(candidate.workspaceId)} />
-              <span><strong>{candidate.name}</strong><code>{candidate.repoFullName}</code></span>
-              {candidate.suggested && <i>suggested</i>}
-            </label>
-          ))}
-          {candidates.length === 0 && <span role="status">No eligible workspace found.</span>}
+          {candidates.map(candidate => {
+            const blocked = isIneligible(candidate);
+            return (
+              <label key={candidate.workspaceId}
+                className={`${candidate.workspaceId === selectedId ? 'selected' : ''}${
+                  blocked ? ' is-blocked' : ''}`}>
+                <input type="radio" name="upstream-workspace" value={candidate.workspaceId}
+                  disabled={blocked}
+                  checked={candidate.workspaceId === selectedId}
+                  onChange={() => onSelect(candidate.workspaceId)} />
+                <span>
+                  <strong>{candidate.name}</strong>
+                  <code>{candidate.repoFullName}</code>
+                  {blocked && <em>{candidate.ineligibleReason}</em>}
+                </span>
+                {candidate.suggested && !blocked && <i>suggested</i>}
+              </label>
+            );
+          })}
+          {candidates.length === 0 && (
+            <span role="status">
+              No eligible workspace found. An upstream has to be another workspace in
+              this app that already has its repository cloned locally — add one first,
+              then link it here.
+            </span>
+          )}
         </div>
         {error !== null && <span className="wu-form-error">{error}</span>}
         <footer>
@@ -268,6 +290,13 @@ function RelationPicker({ candidates, selectedId, busy, error, onSelect, onClose
   );
 }
 
+/** A relation is directional: linking back to a workspace that already
+ *  reads from this one would close a loop, which the server refuses. */
+function isIneligible(candidate: WorkspaceRelationCandidateDto): boolean {
+  return typeof candidate.ineligibleReason === 'string'
+    && candidate.ineligibleReason.length > 0;
+}
+
 function relative(value: string): string {
   const elapsed = Date.now() - Date.parse(value);
   if (!Number.isFinite(elapsed) || elapsed < 0) return 'recently';
@@ -278,6 +307,6 @@ function relative(value: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
+/** Shared with the rest of the workspace surfaces, so a 422 shows the
+ *  server's sentence rather than the IPC/HTTP wrapper around it. */
+const errorMessage = message;

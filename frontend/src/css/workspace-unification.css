@@ -3342,6 +3342,13 @@ button.workspace-redesign .wu-table-row,
   font-weight: 600;
 }
 .workspace-redesign .wu-settings__nav > div:last-child { color: #cf222e; }
+.workspace-redesign .wu-settings__nav > div.disabled,
+.workspace-redesign .wu-settings__nav > div.disabled:hover {
+  background: transparent;
+  color: #8c959f;
+  cursor: default;
+  opacity: .55;
+}
 
 .workspace-redesign .wu-settings__content {
   display: flex;

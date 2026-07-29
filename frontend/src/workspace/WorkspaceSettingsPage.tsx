@@ -322,17 +322,21 @@ export default function WorkspaceSettingsPage({
             ['automation', 'Automation'],
             ['memory', 'Memory'],
             ['danger', 'Danger zone'],
-          ] as const).map(([key, label]) => (
-            <div key={key} className={section === key ? 'active' : ''}
-              role="button" tabIndex={0}
-              onClick={() => onSelectSection?.(key)}
-              onKeyDown={event => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelectSection?.(key);
-                }
-              }}>{label}</div>
-          ))}
+          ] as const).map(([key, label]) => {
+            const disabled = key === 'notifications' || key === 'memory';
+            return (
+              <div key={key} className={`${section === key ? 'active' : ''}${disabled ? ' disabled' : ''}`}
+                role="button" aria-disabled={disabled} tabIndex={disabled ? -1 : 0}
+                title={disabled ? 'Still in progress' : undefined}
+                onClick={() => { if (!disabled) onSelectSection?.(key); }}
+                onKeyDown={event => {
+                  if (!disabled && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    onSelectSection?.(key);
+                  }
+                }}>{label}</div>
+            );
+          })}
         </nav>
         <main className="wu-settings__content">
           {section === 'general' && (

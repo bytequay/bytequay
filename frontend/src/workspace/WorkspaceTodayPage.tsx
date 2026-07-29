@@ -105,13 +105,6 @@ export default function WorkspaceTodayPage({
                 state={onboarding}
                 threadCount={publicThreads.length}
                 onNewThread={onNewThread}
-                onOpenMemory={onOpenMemory}
-                onLearningAction={async action => {
-                  if (action === 'pause') await workspaceApi.pauseLearning(workspace.id);
-                  else if (action === 'resume') await workspaceApi.resumeLearning(workspace.id);
-                  else await workspaceApi.retryLearning(workspace.id);
-                  setOnboarding(await workspaceApi.onboarding(workspace.id));
-                }}
               />
             )}
           {!firstSyncRunning && <TodaySection label="Needs you" tone="attention">
@@ -211,25 +204,17 @@ function WorkspaceOnboarding({
   state,
   threadCount,
   onNewThread,
-  onOpenMemory,
-  onLearningAction,
 }: {
   workspaceName: string;
   state: WorkspaceOnboardingDto;
   threadCount: number;
   onNewThread: () => void;
-  onOpenMemory: () => void;
-  onLearningAction: (action: 'pause' | 'resume' | 'retry') => Promise<void>;
 }) {
-  const [learningBusy, setLearningBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasLearning = state.learningState !== null;
   const milestones = Number(state.cloneComplete)
     + Number(state.syncState === 'ready')
     + 1
-    + Number(state.firstTrunkComplete || threadCount > 0)
-    + Number(state.learningState !== null && learningDone(state.learningState));
-  const milestoneTotal = hasLearning ? 5 : 4;
+    + Number(state.firstTrunkComplete || threadCount > 0);
+  const milestoneTotal = 4;
   const progress = state.syncTotal <= 0
     ? 0
     : Math.min(100, Math.round(state.syncCurrent / state.syncTotal * 100));
@@ -290,52 +275,15 @@ function WorkspaceOnboarding({
         )}
       </div>
       {state.learningState !== null && (
-        <div className={`wu-onboarding-step ${
-          learningDone(state.learningState) ? 'done'
-            : learningLive(state.learningState) ? 'active' : ''}`}>
-          <MilestoneIcon
-            done={learningDone(state.learningState)}
-            active={learningLive(state.learningState)}
-          />
+        <div className="wu-onboarding-step skipped">
+          <MilestoneIcon skipped />
           <div>
-            <strong>Learn this project</strong>
-            <small>
-              {learningLabel(state.learningState)}
-              {' — '}
-              {state.learningCataloged} cataloged · {state.learningAnalyzed} analyzed
-              {' · '}{state.learningLessons} lessons
-            </small>
-            {state.learningPendingLessons > 0 && (
-              <button type="button" className="wu-onboarding-link" onClick={onOpenMemory}>
-                {state.learningPendingLessons} proposal
-                {state.learningPendingLessons === 1 ? '' : 's'} need review
-              </button>
-            )}
-            {state.learningLastError !== undefined && state.learningLastError !== null
-              && state.learningLastError !== '' && (
-              <small className="wu-onboarding-error">{state.learningLastError}</small>
-            )}
+            <strong className="struck">Learn this project</strong>
+            <small>Project learning is still in progress — paused for now</small>
           </div>
-          {learningAction(state.learningState) !== null && (
-            <button
-              type="button"
-              disabled={learningBusy}
-              onClick={() => {
-                setLearningBusy(true);
-                setError(null);
-                void onLearningAction(learningAction(state.learningState) as
-                    'pause' | 'resume' | 'retry')
-                  .catch(cause => setError(
-                    cause instanceof Error ? cause.message : 'Learning action failed'))
-                  .finally(() => setLearningBusy(false));
-              }}
-            >
-              {learningActionLabel(state.learningState)}
-            </button>
-          )}
+          <span className="wu-onboarding-step__status">Paused</span>
         </div>
       )}
-      {error !== null && <p className="wu-onboarding-error">{error}</p>}
       </section>
       {state.syncState !== 'ready' && (
         <div className="wu-onboarding-incoming">
@@ -379,44 +327,7 @@ function MilestoneIcon({ done = false, active = false, skipped = false }: {
 
 function onboardingComplete(state: WorkspaceOnboardingDto): boolean {
   return state.cloneComplete && state.syncState === 'ready'
-    && state.firstTrunkComplete
-    && (state.learningState === null || learningDone(state.learningState));
-}
-
-function learningLive(state: string): boolean {
-  return state === 'queued' || state === 'indexing'
-    || state === 'cataloging' || state === 'analyzing';
-}
-
-function learningDone(state: string): boolean {
-  return state === 'useful' || state === 'caught-up';
-}
-
-function learningLabel(state: string): string {
-  switch (state) {
-    case 'queued': return 'Learning queued';
-    case 'indexing': return 'Indexing local docs';
-    case 'cataloging': return 'Cataloging merged history';
-    case 'analyzing': return 'Learning merged history';
-    case 'useful': return 'Learned — backfill continues daily';
-    case 'caught-up': return 'Merged history learned';
-    case 'paused': return 'Learning paused';
-    case 'partial': return 'Learning interrupted';
-    case 'failed': return 'Learning failed';
-    default: return state;
-  }
-}
-
-function learningAction(state: string): 'pause' | 'resume' | 'retry' | null {
-  if (learningLive(state)) return 'pause';
-  if (state === 'paused') return 'resume';
-  if (state === 'partial' || state === 'failed') return 'retry';
-  return null;
-}
-
-function learningActionLabel(state: string): string {
-  const action = learningAction(state);
-  return action === 'pause' ? 'Pause' : action === 'resume' ? 'Resume' : 'Retry';
+    && state.firstTrunkComplete;
 }
 
 function TodaySection({ label, tone, children }: {

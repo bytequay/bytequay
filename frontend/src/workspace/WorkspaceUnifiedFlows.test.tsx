@@ -462,7 +462,7 @@ describe('workspace unified interaction flows', () => {
     expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
   });
 
-  it('keeps onboarding visible while project learning is unfinished', async () => {
+  it('shows project learning as paused, not counted toward onboarding milestones', async () => {
     const onboarding: WorkspaceOnboardingDto = {
       workspaceId: 'w1',
       cloneComplete: true,
@@ -470,7 +470,7 @@ describe('workspace unified interaction flows', () => {
       syncCurrent: 3,
       syncTotal: 3,
       memorySeedComplete: true,
-      firstTrunkComplete: true,
+      firstTrunkComplete: false,
       memoryImported: false,
       learningState: 'analyzing',
       learningCataloged: 120,
@@ -497,8 +497,10 @@ describe('workspace unified interaction flows', () => {
     );
 
     expect(await screen.findByText('Learn this project')).toBeTruthy();
-    expect(screen.getByText('4 of 5 done')).toBeTruthy();
-    expect(screen.getByText(/120 cataloged · 40 analyzed · 12 lessons/)).toBeTruthy();
+    expect(screen.getByText('Project learning is still in progress — paused for now')).toBeTruthy();
+    expect(screen.getByText('3 of 4 done')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    expect(screen.queryByText(/120 cataloged/)).toBeNull();
   });
 
   it('starts an issue in an existing trunk without pasting stale issue context', async () => {

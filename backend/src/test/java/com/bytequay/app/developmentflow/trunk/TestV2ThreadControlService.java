@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,8 +93,10 @@ class TestV2ThreadControlService
         PlanningBaseTurnRuntime planning = mock(PlanningBaseTurnRuntime.class);
         ThreadTurnProjection projection = mock(ThreadTurnProjection.class);
         DispatchTicketControl tickets = mock(DispatchTicketControl.class);
-        when(projection.cancelableTicketIds("trunk-1"))
-                .thenReturn(List.of("ticket-1"));
+        when(projection.latestCancelableTurnId("trunk-1"))
+                .thenReturn(Optional.of("turn-1"));
+        when(projection.cancelableTicketId("trunk-1", "turn-1"))
+                .thenReturn(Optional.of("ticket-1"));
         V2ThreadControlService service = new V2ThreadControlService(
                 planning, projection, tickets, mock(TrunkManager.class),
                 mock(V2TrunkPurge.class),
@@ -106,7 +107,29 @@ class TestV2ThreadControlService
 
         InOrder order = inOrder(planning, tickets);
         order.verify(planning).suppressPending(
-                "trunk-1", "User canceled before provider launch");
+                "trunk-1", "turn-1", "User canceled before provider launch");
         order.verify(tickets).requestCancel("ticket-1");
+    }
+
+    @Test
+    void interruptTargetsTheRequestedTurnWithoutTouchingItsSibling()
+    {
+        PlanningBaseTurnRuntime planning = mock(PlanningBaseTurnRuntime.class);
+        ThreadTurnProjection projection = mock(ThreadTurnProjection.class);
+        DispatchTicketControl tickets = mock(DispatchTicketControl.class);
+        when(projection.cancelableTicketId("trunk-1", "turn-2"))
+                .thenReturn(Optional.of("ticket-2"));
+        V2ThreadControlService service = new V2ThreadControlService(
+                planning, projection, tickets, mock(TrunkManager.class),
+                mock(V2TrunkPurge.class),
+                mock(ThreadEngineOverrides.class), mock(RoleRegistry.class),
+                mock(SessionKnowledgeProvider.class));
+
+        service.interrupt("trunk-1", "turn-2");
+
+        InOrder order = inOrder(planning, tickets);
+        order.verify(planning).suppressPending(
+                "trunk-1", "turn-2", "User canceled before provider launch");
+        order.verify(tickets).requestCancel("ticket-2");
     }
 }

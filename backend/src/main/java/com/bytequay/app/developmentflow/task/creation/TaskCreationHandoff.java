@@ -20,6 +20,7 @@ import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.nio.file.Path;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -48,15 +49,47 @@ public final class TaskCreationHandoff
         requireNonNull(command, "command is null");
         String trunkId = command.authorization().input()
                 .assignment().identity().trunkId();
-        TrunkManager.AuthorizedTaskCreation authorized = commands.execute(
-                "v2-trunk/" + trunkId,
-                () -> trunks.authorizeTaskCreationInCommand(command.authorization()));
+        return create(trunkId, () -> command);
+    }
+
+    /** Builds the version-fenced authorization while holding the Trunk stripe. */
+    public Result create(String trunkId, Supplier<Command> commandFactory)
+    {
+        requireText(trunkId, "trunkId");
+        requireNonNull(commandFactory, "commandFactory is null");
+        Prepared prepared = commands.execute("v2-trunk/" + trunkId, () -> {
+            Command command = requireNonNull(
+                    commandFactory.get(), "commandFactory returned null");
+            String commandTrunk = command.authorization().input()
+                    .assignment().identity().trunkId();
+            if (!trunkId.equals(commandTrunk)) {
+                throw new IllegalArgumentException(
+                        "Task creation command does not belong to its Trunk stripe");
+            }
+            return new Prepared(
+                    command,
+                    trunks.authorizeTaskCreationInCommand(command.authorization()));
+        });
         return commands.execute("v2-trunk/" + trunkId, () -> {
             TaskManager.TaskCreationResult created = tasks.createTaskInCommand(
-                    authorized, command.repositoryRoot(), ids);
+                    prepared.authorization(), prepared.command().repositoryRoot(), ids);
             return new Result(
-                    authorized.trunkState(), created, created.disposition());
+                    prepared.authorization().trunkState(), created,
+                    created.disposition());
         });
+    }
+
+    private record Prepared(
+            Command command,
+            TrunkManager.AuthorizedTaskCreation authorization)
+    {}
+
+    private static void requireText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
     }
 
     public record Command(

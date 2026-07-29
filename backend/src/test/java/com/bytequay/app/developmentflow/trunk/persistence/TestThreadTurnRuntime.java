@@ -32,6 +32,7 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
@@ -45,6 +46,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.sqlite.SQLiteDataSource;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -66,6 +68,36 @@ class TestThreadTurnRuntime
 
     @TempDir
     private Path tempDir;
+
+    @Test
+    void cancelFallbackPrefersRunningTurnBeforeNewerQueuedTurn()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(
+                tempDir.resolve("thread-turn-cancel-order.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        ObjectMapper json = new ObjectMapper();
+        TrunkManager manager = new TrunkManager(
+                new TaskCommandExecutor(new DataSourceTransactionManager(dataSource)),
+                new V2TrunkStore(jdbc));
+        ThreadTurnHandoff handoff = new ThreadTurnHandoff(
+                manager, json, Clock.fixed(NOW, ZoneOffset.UTC), 53123);
+        CommandResult<TrunkManager.ThreadTurnRequestReceipt> running =
+                handoff.request(request(
+                        "running-request", 0, "run now", "compiled running"));
+        CommandResult<TrunkManager.ThreadTurnRequestReceipt> queued =
+                handoff.request(request(
+                        "queued-request", 1, "run next", "compiled queued"));
+        startAndLog(jdbc, running.state(), "running", NOW.plusSeconds(1));
+
+        ThreadTurnProjection projection = new ThreadTurnProjection(jdbc, json);
+        assertThat(projection.latestCancelableTurnId("trunk-1"))
+                .contains(running.state().turnId());
+        assertThat(projection.cancelableTicketId(
+                "trunk-1", queued.state().turnId()))
+                .contains(queued.state().ticketId());
+    }
 
     @Test
     void requestDeliverCancelAndRestartKeepOneExactConversation()
@@ -194,18 +226,135 @@ class TestThreadTurnRuntime
                 FROM threads WHERE id = 'trunk-1'
                 """, String.class)).isEqualTo("IDLE:4");
 
+        CommandResult<TrunkManager.ThreadTurnRequestReceipt> third =
+                new ThreadTurnHandoff(
+                        restartedManager, json,
+                        Clock.fixed(NOW.plusSeconds(31), ZoneOffset.UTC),
+                        53123).request(request(
+                                "request-3", 4,
+                                "expose a failed turn", "compiled third"));
+        DispatchTicket.OperationFence thirdFence = fence(
+                third.state().operationId());
+        ThreadTurnResultDeliveryPort failedDelivery =
+                new ThreadTurnResultDeliveryPort(
+                        restartedManager, new AgentTurnOwnerResultCodec(json),
+                        json, Clock.fixed(
+                                NOW.plusSeconds(32), ZoneOffset.UTC));
+        DispatchTicket.DeliveryReceipt failed = failedDelivery.deliver(
+                owner(third.state()), thirdFence,
+                new DispatchTicket.DispatchResult(
+                        thirdFence, DispatchTicket.Outcome.FAILED,
+                        null, "{}", "provider exploded"));
+        assertThat(failed.acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+        assertThat(jdbc.queryForObject("""
+                SELECT lifecycle_state || ':' || aggregate_version
+                FROM threads WHERE id = 'trunk-1'
+                """, String.class)).isEqualTo("IDLE:6");
+
         ThreadTurnProjection projection = new ThreadTurnProjection(jdbc, json);
-        assertThat(projection.history("trunk-1"))
+        List<ThreadMessage> projectedHistory =
+                projection.history("trunk-1");
+        assertThat(projectedHistory)
                 .extracting(message -> message.role() + ":" + message.scope())
                 .containsExactly(
-                        "user:TRUNK", "user:TRUNK", "assistant:TRUNK");
+                        "user:TRUNK", "user:TRUNK", "assistant:TRUNK",
+                        "assistant:TRUNK", "user:TRUNK", "assistant:TRUNK");
+        assertThat(projectedHistory).extracting("seq")
+                .containsExactly(-1L, -2L, -3L, -4L, -5L, -6L);
+        assertThat(projectedHistory.get(3).type()).isEqualTo("text");
+        assertThat(projectedHistory.get(3).contentJson())
+                .isEqualTo("{\"text\":\"Turn canceled.\"}");
+        assertThat(projectedHistory.get(5).type()).isEqualTo("error");
+        assertThat(projectedHistory.get(5).contentJson())
+                .isEqualTo("{\"text\":\"provider exploded\"}");
+        assertThat(new ThreadTurnProjection(
+                new JdbcTemplate(dataSource), new ObjectMapper())
+                .history("trunk-1"))
+                .extracting(message -> message.id() + ":" + message.seq())
+                .containsExactlyElementsOf(projectedHistory.stream()
+                        .map(message -> message.id() + ":" + message.seq())
+                        .toList());
         assertThat(projection.turns("trunk-1", 10))
                 .extracting(ThreadTurnProjection.TurnView::status)
-                .containsExactly("CANCELED", "SUCCEEDED");
-        assertThat(count(jdbc, "trunk_transition")).isEqualTo(4);
+                .containsExactly("FAILED", "CANCELED", "SUCCEEDED");
+        assertThat(count(jdbc, "trunk_transition")).isEqualTo(6);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pragma_foreign_key_check",
                 Integer.class)).isZero();
+    }
+
+    @Test
+    void threadAttachmentsAreAtomicOwnersAndPartOfCommandReplay()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(
+                tempDir.resolve("thread-turn-attachments.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        ObjectMapper json = new ObjectMapper();
+        TrunkManager manager = new TrunkManager(
+                new TaskCommandExecutor(new DataSourceTransactionManager(dataSource)),
+                new V2TrunkStore(jdbc));
+        ThreadTurnHandoff handoff = new ThreadTurnHandoff(
+                manager, json, Clock.fixed(NOW, ZoneOffset.UTC), 53123);
+        Path image = Files.write(
+                tempDir.resolve("owned.png"), new byte[] {1, 2, 3});
+        ThreadTurnHandoff.Request request = request(
+                "attachment-command", 0, "inspect this", "inspect this",
+                List.of(image.toString()));
+
+        CommandResult<TrunkManager.ThreadTurnRequestReceipt> first =
+                handoff.request(request);
+        assertThat(handoff.request(request).disposition())
+                .isEqualTo(CommandResult.Disposition.DUPLICATE);
+        ThreadTurnProjection projection = new ThreadTurnProjection(jdbc, json);
+        assertThat(projection.latestCancelableTurnId("trunk-1"))
+                .contains(first.state().turnId());
+        assertThat(projection.cancelableTicketId(
+                "trunk-1", first.state().turnId()))
+                .contains(first.state().ticketId());
+        assertThat(jdbc.queryForMap("""
+                SELECT turn_id, kind, content_ref, media_type, digest
+                FROM thread_attachment
+                """))
+                .containsEntry("turn_id", first.state().turnId())
+                .containsEntry("kind", "image")
+                .containsEntry("content_ref", image.toString())
+                .containsEntry("media_type", "image/png")
+                .containsEntry("digest",
+                        "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81");
+        assertThat(projection.history("trunk-1"))
+                .singleElement()
+                .satisfies(message -> assertThat(json.readTree(message.contentJson())
+                        .path("images").get(0).asText()).isEqualTo(image.toString()));
+
+        jdbc.update("DELETE FROM thread_attachment WHERE turn_id = ?",
+                first.state().turnId());
+        assertThatThrownBy(() -> handoff.request(request))
+                .isInstanceOfSatisfying(CommandRejectedException.class,
+                        failure -> assertThat(failure.reason())
+                                .isEqualTo(COMMAND_ID_CONFLICT));
+
+        jdbc.execute("""
+                CREATE TRIGGER reject_thread_attachment
+                BEFORE INSERT ON thread_attachment
+                BEGIN SELECT RAISE(ABORT, 'attachment insert rejected'); END
+                """);
+        Path secondImage = Files.write(
+                tempDir.resolve("rollback.png"), new byte[] {4, 5, 6});
+        assertThatThrownBy(() -> handoff.request(request(
+                "rollback-command", 1, "rollback", "rollback",
+                List.of(secondImage.toString()))))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("attachment insert rejected");
+        assertThat(count(jdbc, "thread_turn")).isOne();
+        assertThat(count(jdbc, "thread_message")).isOne();
+        assertThat(count(jdbc, "dispatch_ticket")).isOne();
+        assertThat(count(jdbc, "trunk_transition")).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT aggregate_version FROM threads WHERE id = 'trunk-1'
+                """, Long.class)).isOne();
     }
 
     @Test
@@ -311,19 +460,36 @@ class TestThreadTurnRuntime
             String userMessage, String compiledPrompt)
     {
         return request(commandId, "trunk-1", expectedVersion,
-                userMessage, compiledPrompt);
+                userMessage, compiledPrompt, List.of());
+    }
+
+    private static ThreadTurnHandoff.Request request(
+            String commandId, long expectedVersion,
+            String userMessage, String compiledPrompt, List<String> images)
+    {
+        return request(commandId, "trunk-1", expectedVersion,
+                userMessage, compiledPrompt, images);
     }
 
     private static ThreadTurnHandoff.Request request(
             String commandId, String trunkId, long expectedVersion,
             String userMessage, String compiledPrompt)
     {
+        return request(commandId, trunkId, expectedVersion,
+                userMessage, compiledPrompt, List.of());
+    }
+
+    private static ThreadTurnHandoff.Request request(
+            String commandId, String trunkId, long expectedVersion,
+            String userMessage, String compiledPrompt, List<String> images)
+    {
         return new ThreadTurnHandoff.Request(
                 commandId, "user", trunkId, "workspace-1",
                 expectedVersion, "PLANNING",
                 AgentTurnProviderSession.Transport.CLI, "codex", null,
                 "gpt-5.6", "high", Path.of("/tmp"), "trunk role",
-                userMessage, compiledPrompt);
+                userMessage, compiledPrompt,
+                ThreadTurnHandoff.freezeImages(images), null, null);
     }
 
     private static void startAndLog(

@@ -27,6 +27,7 @@ import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.skills.RoleDefinition;
 import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.tools.PermissionResolver;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -183,6 +184,7 @@ public final class AgentTurnOperationHandler
                 Path.of(input.workingDirectory()),
                 input.systemPrompt(),
                 input.prompt(),
+                input.images(),
                 endpoint,
                 access);
         Observer observer = new Observer(context);
@@ -748,6 +750,8 @@ public final class AgentTurnOperationHandler
             String workingDirectory,
             String systemPrompt,
             String prompt,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY)
+                    List<AgentTurnProviderSession.ImageAttachment> images,
             AgentTurnProviderSession.OwnerToolEndpoint toolEndpoint)
     {
         public LaunchInput
@@ -760,6 +764,7 @@ public final class AgentTurnOperationHandler
             requireText(model, "model");
             requireText(workingDirectory, "workingDirectory");
             requireText(prompt, "prompt");
+            images = images == null ? List.of() : List.copyOf(images);
             requireNonNull(toolEndpoint, "toolEndpoint is null");
             Path path = Path.of(workingDirectory);
             if (!path.isAbsolute() || !path.normalize().equals(path)) {
@@ -781,6 +786,23 @@ public final class AgentTurnOperationHandler
             if (systemPrompt != null && systemPrompt.isBlank()) {
                 throw new IllegalArgumentException("systemPrompt must not be blank");
             }
+        }
+
+        public LaunchInput(
+                int schemaVersion,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                String workingDirectory,
+                String systemPrompt,
+                String prompt,
+                AgentTurnProviderSession.OwnerToolEndpoint toolEndpoint)
+        {
+            this(schemaVersion, transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    List.of(), toolEndpoint);
         }
     }
 

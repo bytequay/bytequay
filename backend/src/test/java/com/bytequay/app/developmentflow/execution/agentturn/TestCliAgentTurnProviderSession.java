@@ -137,6 +137,36 @@ class TestCliAgentTurnProviderSession
     }
 
     @Test
+    void deliversImagesThroughEachCliNativeReadPath()
+    {
+        AgentTurnProviderSession.Request request = request(
+                READ_ONLY, List.of("/tmp/first.png", "/tmp/second.jpg"));
+
+        assertThat(CliAgentTurnProviderSession.buildArgv(
+                request, CODEX, "codex", null))
+                .containsSubsequence("-i", "/tmp/first.png")
+                .containsSubsequence("-i", "/tmp/second.jpg");
+
+        List<String> claude = CliAgentTurnProviderSession.buildArgv(
+                request, CLAUDE_CODE, "claude", Path.of("/tmp/mcp.json"));
+        assertThat(claude)
+                .containsSubsequence("--add-dir", "/tmp")
+                .containsSubsequence(
+                        "--allowedTools",
+                        "Read(//tmp/first.png),Read(//tmp/second.jpg)");
+        assertThat(CliAgentTurnProviderSession.providerPrompt(
+                request, CLAUDE_CODE))
+                .isEqualTo("""
+                        prompt
+
+                        Attached images (read these managed files):
+                        - /tmp/first.png
+                        - /tmp/second.jpg""");
+        assertThat(CliAgentTurnProviderSession.providerPrompt(request, CODEX))
+                .isEqualTo("prompt");
+    }
+
+    @Test
     void endpointUrlMustNameTheSameTypedTurn()
     {
         assertThatThrownBy(() -> new AgentTurnProviderSession.OwnerToolEndpoint(
@@ -187,6 +217,18 @@ class TestCliAgentTurnProviderSession
     private static AgentTurnProviderSession.Request request(
             AgentTurnProviderSession.Access access)
     {
+        return request(access, List.of());
+    }
+
+    private static AgentTurnProviderSession.Request request(
+            AgentTurnProviderSession.Access access, List<String> images)
+    {
+        List<AgentTurnProviderSession.ImageAttachment> frozen = images.stream()
+                .map(image -> new AgentTurnProviderSession.ImageAttachment(
+                        image, image.endsWith(".png")
+                                ? "image/png" : "image/jpeg",
+                        "0".repeat(64)))
+                .toList();
         return new AgentTurnProviderSession.Request(
                 CLI,
                 "codex",
@@ -196,6 +238,7 @@ class TestCliAgentTurnProviderSession
                 WORKTREE,
                 "system",
                 "prompt",
+                frozen,
                 endpoint(access),
                 access);
     }

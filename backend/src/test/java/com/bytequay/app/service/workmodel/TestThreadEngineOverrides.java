@@ -120,6 +120,30 @@ class TestThreadEngineOverrides
                 .contains(new WorkModel(WorkModelKind.API, "anthropic", null, "work"));
     }
 
+    @Test
+    void incompleteJsonFallsBackToTheCompactChoice()
+            throws Exception
+    {
+        stubRow("local", "{");
+
+        assertThat(overrides.forAudience(THREAD_ID, "plan"))
+                .contains(new WorkModel(
+                        WorkModelKind.API, "deepseek", "deepseek-v4-flash", null));
+    }
+
+    @Test
+    void distinguishesFrozenJsonFromACompactLegacyChoice()
+    {
+        when(jdbc.queryForObject(
+                anyString(), eq(Integer.class), eq(THREAD_ID), eq("plan")))
+                .thenReturn(1);
+
+        assertThat(overrides.isFrozen(THREAD_ID, "plan")).isTrue();
+        assertThat(overrides.isFrozen(null, "plan")).isFalse();
+        verify(jdbc).queryForObject(
+                contains("json_valid"), eq(Integer.class), eq(THREAD_ID), eq("plan"));
+    }
+
     private void stubRow(String choice, String json)
             throws Exception
     {

@@ -4053,13 +4053,20 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('threads:interrupt', async (_event, id: unknown) => {
+  ipcMain.handle('threads:interrupt', async (
+    _event, id: unknown, turnId: unknown,
+  ) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/interrupt`,
-      { method: 'POST' });
+    if (turnId !== undefined
+      && (typeof turnId !== 'string' || turnId.trim().length === 0)) {
+      throw new Error('turnId must be a non-empty string when provided');
+    }
+    const url = new URL(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/interrupt`);
+    if (typeof turnId === 'string') url.searchParams.set('turnId', turnId);
+    const res = await fetch(url, { method: 'POST' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST /api/threads/${id}/interrupt returned ${res.status}: ${text}`);
@@ -4131,6 +4138,32 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend GET /api/threads/${id}/index returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:traceEvents', async (_event, payload: unknown) => {
+    if (typeof payload !== 'object' || payload === null) {
+      throw new Error('payload must be an object');
+    }
+    const { id, requestMessageIds } = payload as {
+      id?: unknown; requestMessageIds?: unknown;
+    };
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (!Array.isArray(requestMessageIds)
+      || requestMessageIds.some(value => typeof value !== 'string' || value.trim().length === 0)) {
+      throw new Error('requestMessageIds must be an array of non-empty strings');
+    }
+    const url = new URL(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/traces`);
+    for (const requestMessageId of requestMessageIds as string[]) {
+      url.searchParams.append('requestMessageId', requestMessageId);
+    }
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/threads/${id}/traces returned ${res.status}: ${text}`);
     }
     return res.json();
   });

@@ -2,7 +2,7 @@
 
 Status: **LOCKED**
 
-Version: **1.7**
+Version: **1.9**
 
 Decision date: **2026-07-28**
 
@@ -486,9 +486,16 @@ There is no nullable owner tuple and no generic latest-conversation lookup.
 ### Turn immutability
 
 - Launch input is frozen at admission.
+- Attachment admission freezes the exact owner, absolute local path, media
+  type, and content digest in the same transaction as the typed Turn request.
+  Provider launch re-verifies that digest and fails closed if the file has
+  changed; attachments are provider input, not mutable prompt decoration.
 - A running Turn is never edited in place.
 - User input received while a Turn runs becomes another command, feedback
   revision, or queued Turn.
+- Interrupt identifies one exact typed Turn. A compatibility request that
+  omits the Turn id resolves one deterministic newest cancelable Trunk Turn;
+  it never fans out to sibling Turns, Tasks, or Stages.
 - Turn status is delivery state only: REQUESTED, QUEUED, CLAIMED, RUNNING,
   SUCCEEDED, FAILED, CANCELED, or SUPERSEDED.
 - Turn success does not imply a domain transition. The owner must accept it.
@@ -1295,6 +1302,31 @@ Stage rail, PR lifecycle, Task trace, activity, notifications, cost/tokens, and
 timeline are projections. They cannot clear blockers, accept results, or
 advance owners.
 
+A promoted Trunk conversation is one compatibility read over two immutable
+ledgers: retained LEGACY rows first in their positive sequence space, followed
+by typed rows ordered by the Trunk aggregate version that exposed them. Typed
+compatibility sequence values are the negative of that durable, JSON-safe
+version. They are UI identities and exact paging cursors only; physical typed
+Turn/message sequences remain positive and domain-local. Readers must not
+compare the mixed values numerically, infer ownership from their sign, or use
+`seq < cursor`. A tail refresh restarts an incomplete paging cursor because a
+draining LEGACY child may append inside the positive prefix after promotion.
+
+Typed provider trace is a separate read keyed by exact Trunk, ThreadTurn,
+DispatchTicket, execution, and request message. Tool, thinking, and error
+events have stable execution/log/event identities but no conversation
+sequence, so polling or reload cannot duplicate them or make Task/Stage logs
+look like Trunk messages.
+
+The compatibility Trunk runtime projection is read-only. Conversation status
+is derived only from exact Trunk planning and ThreadTurn work, with open user
+waits preceding executing work and executing work preceding queued work. A
+child Task cannot make the Trunk conversation RUNNING. Lifetime cost and token
+totals do include every execution attempt under the Trunk, including child
+Task/Stage attempts and retries, while exact `trunk_id` fencing excludes
+sibling Trunks. Activity time is the maximum durable typed or retained legacy
+activity and is used before list limits are applied.
+
 Status/capability precedence is server-derived:
 
 1. terminal outcome
@@ -1323,6 +1355,7 @@ second workflow coordinator.
 |---|---|---|
 | Workspace/Trunk/Task hierarchy and grouped four-Stage rail | aggregate ownership + Stage projection | Preserved and fully defined in this tracked contract |
 | Zero-Task Trunk and planning conversation | TrunkManager, ThreadTurn | Preserved |
+| Trunk images, exact interrupt, trace, status, activity and lifetime usage | typed attachment/Turn/trace/runtime projections | Preserved with exact ownership and no child-state leakage |
 | Create Task while sibling runs | TrunkManager + TaskManager | Preserved with capacity admission |
 | Workspace and Trunk parallel-Task limits | CapacityManager + persisted settings | Preserved with atomic policy resolution at admission |
 | User/agent/issue/quality/automation Task origins | typed TaskAssignment | Preserved without nullable inference |
@@ -1479,6 +1512,22 @@ duplicate-delivery variants where applicable.
     is terminal and every validation is completed or durably superseded, while
     detached review artifacts whose exact ReviewSession owns a V2 Task do not
     enter the legacy count.
+63. Create two sibling Tasks concurrently from one Trunk; serialize only the
+    Trunk authorization, assign distinct monotonic policy revisions and Trunk
+    versions, then let both Task bundles proceed independently.
+64. Queue two Trunk Turns and interrupt one exact Turn; suppress or cancel only
+    that Turn across the pending-planning and physically dispatched races. If
+    no exact id is supplied, prefer the live running Turn over a newer queued
+    Turn; leave the other Turn and every child Task/Stage untouched.
+65. Admit a Trunk Turn with an image, restart before provider launch, and prove
+    the frozen attachment is replayed exactly; changing the file after
+    admission durably suppresses that exact launch, renders it terminal, and
+    does not prevent the next valid recovery candidate from launching.
+66. Mix retained LEGACY Trunk messages, typed Trunk messages and traces, and
+    active child Tasks. Verify stable paging/reload identities, no trace or
+    child-message leakage into conversation order, server-derived Trunk status,
+    lifetime usage including retries, activity ordering before truncation, and
+    projected Workspace card counts/spend/activity without legacy write-back.
 
 ## Patterns to preserve
 
@@ -1529,6 +1578,32 @@ reconciliation; they are never reassigned using latest/active inference.
   promised extension until separately designed and implemented.
 
 ## Change log
+
+### 1.9 — 2026-07-29
+
+- Froze typed Trunk attachments at admission and required digest verification
+  again before provider launch.
+- Made Trunk interruption target one exact Turn across pending planning and
+  dispatched execution rather than canceling every live Trunk request, with a
+  running-before-queued fallback when an older client omits the exact id.
+- Defined typed provider traces as a separate exact-owner read and defined the
+  runtime compatibility projection for status, activity, cost, and tokens.
+- Made invalid frozen launch input terminal for its exact pending Turn while
+  allowing later committed recovery candidates to continue, and extended the
+  read-only projection through Workspace landing-card aggregates.
+- Required concurrent Task creation to allocate policy revision and Trunk
+  version inside the Trunk serialization boundary.
+- Added acceptance scenarios 63–66 and the corresponding compatibility row.
+
+### 1.8 — 2026-07-29
+
+- Scoped Trunk promotion quiescence to live Trunk Turns. Immutable LEGACY
+  Task and Stage siblings may continue draining after their Trunk promotes;
+  they neither block the route switch nor gain authority over Trunk state.
+- Required a complete frozen four-audience engine snapshot before promotion
+  and startup repair of sparse V2 snapshots before dispatch recovery begins.
+- Made the LEGACY/V2 Trunk conversation projection retain stable, disjoint
+  message identities and exact paging cursors while legacy siblings append.
 
 ### 1.7 — 2026-07-29
 

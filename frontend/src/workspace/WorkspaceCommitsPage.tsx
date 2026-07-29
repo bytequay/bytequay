@@ -19,7 +19,9 @@ import {
   type WorkspaceRelationDto,
   type WorkspaceRepositoryDto,
 } from './workspaceApi';
-import ForkCommits from './WorkspaceForkCommits';
+import { CommitAuthorPicker, CommitBranchPicker } from './CommitEditorUi';
+import WorkspaceCommitEditor from './WorkspaceCommitEditor';
+import WorkspaceWorkingTree from './WorkspaceWorkingTree';
 import { LinkUpstreamDialog, WORKSPACE_RELATION_CHANGED } from './WorkspaceRelationsSettings';
 import {
   contiguousRangeAfterToggle,
@@ -29,7 +31,6 @@ import {
 } from './WorkspaceUpstreamCommits';
 import {
   BranchIcon,
-  ChevronDownIcon,
   PageHeader,
   SearchIcon,
   message,
@@ -60,6 +61,12 @@ export default function WorkspaceCommitsPage({
     ?? repo.defaultBaseBranch?.replace(/^origin\//, '')
     ?? 'HEAD');
   const [query, setQuery] = useState('');
+  // The commit editor's two filters both live in this header, next to
+  // each other; the editor reports the author list it can offer.
+  const [author, setAuthor] = useState('all');
+  const [authors, setAuthors] = useState<Array<[string, number]>>([]);
+  const [tab, setTab] = useState<'commits' | 'uncommitted'>('commits');
+  const [uncommitted, setUncommitted] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<'fork' | 'upstream'>('fork');
   const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
@@ -129,24 +136,24 @@ export default function WorkspaceCommitsPage({
           </button>
         </span>
         {source === 'fork' ? (
-          <label className="wu-branch-select"><BranchIcon />
-            <select value={branch} onChange={event => setBranch(event.target.value)}>
-              {branches.length === 0 && <option value={branch}>{branch}</option>}
-              {branches.filter(candidate => !candidate.remoteOnly).map(candidate => (
-                <option value={candidate.name} key={candidate.name}>{candidate.name}</option>
-              ))}
-            </select>
-            <span>{branch}</span>
-            <ChevronDownIcon />
-          </label>
+          <CommitBranchPicker branch={branch} branches={branches}
+            currentBranch={repo.local.currentBranch ?? null} onPick={setBranch} />
         ) : (
           <span className="wu-branch-select is-static"><BranchIcon />
             <span>{upstream?.revision ?? 'default'}</span>
           </span>
         )}
+        {source === 'fork' && (
+          <CommitAuthorPicker author={author} authors={authors}
+            total={authors.reduce((sum, [, count]) => sum + count, 0)}
+            onPick={setAuthor} />
+        )}
         <label className="wu-search">
           <SearchIcon />
-          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search commits…" />
+          <input value={query} onChange={event => setQuery(event.target.value)}
+            placeholder={source !== 'fork'
+              ? 'Search commits…'
+              : tab === 'uncommitted' ? 'Filter files by path…' : 'Filter by title or SHA…'} />
         </label>
       </PageHeader>
       {source === 'upstream' && upstream !== null && (
@@ -159,6 +166,19 @@ export default function WorkspaceCommitsPage({
           <button type="button" onClick={() => {
             window.location.hash = `#/workspace/${encodeURIComponent(workspaceId)}/settings/relations`;
           }}>Manage relation</button>
+        </div>
+      )}
+      {source === 'fork' && (
+        <div className="wu-ce-tabs" role="tablist" aria-label="Commit history or working tree">
+          <button type="button" role="tab" aria-selected={tab === 'commits'}
+            className={tab === 'commits' ? 'is-on' : ''}
+            onClick={() => setTab('commits')}>Commits</button>
+          <button type="button" role="tab" aria-selected={tab === 'uncommitted'}
+            className={tab === 'uncommitted' ? 'is-on' : ''}
+            onClick={() => setTab('uncommitted')}>
+            Uncommitted changes
+            {uncommitted !== null && uncommitted > 0 && <i>{uncommitted}</i>}
+          </button>
         </div>
       )}
       {error !== null && <div className="wu-inline-error">{error}</div>}
@@ -176,8 +196,14 @@ export default function WorkspaceCommitsPage({
           }}
         />
       ) : (
-        <ForkCommits workspaceId={workspaceId} repo={repo} branch={branch}
-          branches={branches} query={query} onOpenTrunk={onOpenTrunk} />
+        tab === 'uncommitted' ? (
+          <WorkspaceWorkingTree workspaceId={workspaceId} query={query}
+            onCountChange={setUncommitted} />
+        ) : (
+          <WorkspaceCommitEditor workspaceId={workspaceId} branch={branch}
+            query={query} author={author} onAuthorsChange={setAuthors}
+            onClearQuery={() => setQuery('')} onClearAuthor={() => setAuthor('all')} />
+        )
       )}
       {source === 'upstream' && upstreamRange !== null && upstream !== null && (
         <div className="wu-upstream-cherry-bar">

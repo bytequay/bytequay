@@ -902,7 +902,7 @@ final class V2TaskStore
                 && same(row, "owner_kind", "TASK")
                 && same(row, "owner_id", taskId)
                 && same(row, "callback_route", "TASK_PROVISION_RESULT")
-                && number(row, "lane_mask") == 16
+                && number(row, "lane_mask") == provisionLaneMask(input)
                 && number(row, "exclusive_task") == 1
                 && number(row, "writer_required") == 1
                 && same(row, "ticket_workspace_id", input.workspaceId())
@@ -1044,10 +1044,11 @@ final class V2TaskStore
                     task_id, task_epoch, attempt, expected_head_sha,
                     expected_base_sha, status, created_at_ms)
                 VALUES (?, ?, 'PROVISION_TASK', 'LOCAL_GIT', 'TASK', ?,
-                    'TASK_PROVISION_RESULT', 16, 1, 1, ?, ?, ?, 1, 1, ?, ?,
+                    'TASK_PROVISION_RESULT', ?, 1, 1, ?, ?, ?, 1, 1, ?, ?,
                     'REQUESTED', ?)
                 """,
-                ticketId, operationId, state.id(), input.workspaceId(),
+                ticketId, operationId, state.id(), provisionLaneMask(input),
+                input.workspaceId(),
                 state.trunkId(), state.id(), expectedHead(input), expectedBase(input),
                 createdAt);
         jdbc.update("""
@@ -2283,6 +2284,14 @@ final class V2TaskStore
     private static String expectedHead(TaskCreationInput input)
     {
         return assignmentHead(input);
+    }
+
+    private static int provisionLaneMask(TaskCreationInput input)
+    {
+        return input.base().source() == TaskAssignment.BaseSource.EXISTING_PR_HEAD
+                && expectedHead(input) == null
+                ? 48
+                : 16;
     }
 
     private static Long linkedPrNumber(TaskAssignment assignment)

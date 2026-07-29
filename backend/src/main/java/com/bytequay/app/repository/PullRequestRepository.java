@@ -38,6 +38,7 @@ import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoIssueIntakePage;
+import com.bytequay.app.domain.RepoIssuePage;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
@@ -836,6 +837,13 @@ public interface PullRequestRepository
             String pat, RepoRef repo, int page, int perPage)
     {
         throw new UnsupportedOperationException("fetchRepoIssueIntakePage not implemented");
+    }
+
+    /** Lists one all-state issue page, excluding pull requests. */
+    default RepoIssuePage fetchRepoIssuePage(
+            String pat, RepoRef repo, int page, int perPage)
+    {
+        throw new UnsupportedOperationException("fetchRepoIssuePage not implemented");
     }
 
     /**

@@ -24,12 +24,6 @@ import com.bytequay.app.service.review.ReviewPassTerminatedEvent;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,7 +38,6 @@ import static java.util.Objects.requireNonNull;
  * — rides the closing event so the brain feed can surface a "panel review
  * complete" entry without re-querying the review subsystem at render time.
  */
-@Component
 public class ReviewStageCloser
 {
     private static final Logger log = LoggerFactory.getLogger(ReviewStageCloser.class);
@@ -58,7 +51,6 @@ public class ReviewStageCloser
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onReviewPassTerminated(ReviewPassTerminatedEvent event)
     {
         TaskCommandExecutor.dispatchAfterCommit(() -> closeTerminatedPass(event));
@@ -98,8 +90,6 @@ public class ReviewStageCloser
 
     /** State-driven recovery for a process crash after the pass commit but
      * before its after-commit listener closed the stage. */
-    @EventListener(ApplicationReadyEvent.class)
-    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     public void reconcileTerminalPassStages()
     {
         for (ReviewPass pass : reviewStore.listTaskStagePassesByPhases(

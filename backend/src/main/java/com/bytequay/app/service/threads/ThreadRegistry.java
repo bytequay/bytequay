@@ -183,7 +183,7 @@ public class ThreadRegistry
             CodeGraphUpdateCoordinator codeGraph)
     {
         this(store, taskStore, stageStore, new StreamJsonParser(mapper), mapper, gate,
-                ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
+                new RetiredAgentExecutor(), checkpointTrigger,
                 thread -> workspaceMemory(workspaces, thread),
                 leaseService,
                 // The trunk runs in its own detached planning worktree. Every

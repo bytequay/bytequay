@@ -125,7 +125,8 @@ public final class ReviewAssignmentTurnOperationHandler
                 input.reasoningEffort(), Path.of(input.workingDirectory()),
                 input.systemPrompt(), input.prompt(), input.images(),
                 input.toolEndpoint(),
-                AgentTurnProviderSession.Access.READ_ONLY);
+                AgentTurnProviderSession.Access.READ_ONLY,
+                turn.costCapUsdMilli());
         try (AgentTurnProviderSession.Session session = provider.open(
                 request, new Observer(context))) {
             context.onCancellation(session::cancel);
@@ -190,19 +191,22 @@ public final class ReviewAssignmentTurnOperationHandler
             AgentTurnOperationHandler.LaunchInput input,
             AgentTurnProviderSession.Result result)
     {
+        boolean exceeded = result.costUsdMilli() > turn.costCapUsdMilli();
         boolean succeeded = result.completion()
-                == AgentTurnProviderSession.Completion.SUCCEEDED;
+                == AgentTurnProviderSession.Completion.SUCCEEDED && !exceeded;
         AgentTurnOperationHandler.Disposition disposition = succeeded
                 ? PROVIDER_SUCCEEDED : PROVIDER_FAILED;
+        String error = exceeded
+                ? "provider exceeded the frozen review Turn cost cap"
+                : result.error();
         AgentTurnOperationHandler.RawResult payload = raw(
                 envelope, turn, input.transport(), input.provider(),
                 result.providerSessionId(), result.finalText(), result.inputTokens(),
                 result.outputTokens(), result.costUsdMilli(), result.processPid(),
-                disposition, result.error());
+                disposition, error);
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), succeeded ? SUCCEEDED : FAILED,
-                json(payload), json(evidence(turn, disposition, result.error())),
-                result.error());
+                json(payload), json(evidence(turn, disposition, error)), error);
     }
 
     private DispatchTicket.DispatchResult canceled(
@@ -263,7 +267,9 @@ public final class ReviewAssignmentTurnOperationHandler
     {
         return new AgentTurnOperationHandler.Evidence(
                 PAYLOAD_VERSION, disposition,
-                turn == null ? null : digest(turn.launchInput()), null, detail);
+                turn == null ? null : digest(
+                        turn.launchInput() + "\u0000" + turn.costCapUsdMilli()),
+                null, detail);
     }
 
     private String json(Object value)
@@ -338,6 +344,7 @@ public final class ReviewAssignmentTurnOperationHandler
             int attempt,
             String startCommit,
             String launchInput,
+            long costCapUsdMilli,
             String roundStatus,
             String reviewStatus,
             String workspaceId,
@@ -365,9 +372,10 @@ public final class ReviewAssignmentTurnOperationHandler
             requireText(roundStatus, "roundStatus");
             requireText(reviewStatus, "reviewStatus");
             requireText(currentHeadSha, "currentHeadSha");
-            if (attempt < 1 || (taskId == null) != (taskEpoch == null)) {
+            if (attempt < 1 || costCapUsdMilli < 1
+                    || (taskId == null) != (taskEpoch == null)) {
                 throw new IllegalArgumentException(
-                        "review Turn attempt and Task scope are invalid");
+                        "review Turn attempt, cost cap, or Task scope is invalid");
             }
             if ("independent-verification".equals(purpose)
                     != (verifierRunId != null)) {

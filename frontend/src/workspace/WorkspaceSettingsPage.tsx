@@ -473,7 +473,7 @@ export default function WorkspaceSettingsPage({
               <SettingsCard title="Remote issue intake" subtitle="triage and safe implementation">
                 <ToggleRow
                   label="Watch new GitHub issues"
-                  detail="Triages new issues through the Agent Scheduler. High-confidence, low-risk, small fixes start locally; every push and pull request remains approval-gated."
+                  detail="Triages new issues through durable V2 tasks. High-confidence, low-risk, small fixes start locally; every push and pull request remains approval-gated."
                   checked={settings.remoteIssueIntakeEnabled}
                   disabled={!settings.remoteIssueIntakeEnabled
                     && (automation === null || !automation.remoteIssueIntake.eligible)}
@@ -508,13 +508,6 @@ export default function WorkspaceSettingsPage({
           )}
           {section === 'danger' && (
             <SettingsCard title="Danger zone" danger>
-              <DangerRow title="Pause all sessions"
-                detail="Asks every running session in this workspace to pause at its next safe boundary."
-                action="Pause all" onClick={() => {
-                  void workspaceApi.pauseAll(workspaceId)
-                    .then(result => setActionMessage(`${result.paused} session${result.paused === 1 ? '' : 's'} paused.`))
-                    .catch(reason => setActionMessage(reason instanceof Error ? reason.message : String(reason)));
-                }} />
               <DangerRow title="Re-clone workspace"
                 detail="Clones into a new directory, verifies it, then swaps atomically and retains the old clone."
                 action={reclone !== null && reclone.state !== 'ready' && reclone.state !== 'failed'
@@ -543,7 +536,7 @@ export default function WorkspaceSettingsPage({
             <span className="wu-settings__source-note">
               Notifications section carries the mute rules from <a>3j</a> · Sync = cadence,
               watched branches, PR/issue scope · Memory = char budget, distill interval,
-              KB permissions · Danger zone = pause all agents, re-clone, detach.
+              KB permissions · Danger zone = re-clone and detach.
             </span>
           ) : (
             <footer className="wu-settings__save">

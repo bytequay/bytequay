@@ -91,6 +91,13 @@ public interface PRService
      *  existing one — idempotent, so Dev can call it on every early commit. */
     PR createForTask(String taskId, String branchName, String baseBranch, String title, String description);
 
+    /** Materialize the stable V2 Task-owned PR from its exact Local
+     * Development result command. The caller must already own the Task
+     * command stripe and transaction. */
+    PR createForTaskInCommand(
+            String taskId, String branchName, String baseBranch,
+            String title, String description);
+
     /** Create an external PR discovered via the dashboard sync, or return the
      *  existing one for this (repo, remote PR number) — idempotent, so a
      *  repeat resolver call never duplicates the row. */

@@ -91,7 +91,7 @@ class TestReviewerSeat
 
         ReviewDiffCache diffCache = mock(ReviewDiffCache.class);
         when(diffCache.diffFor(any())).thenReturn("diff --git a/x b/x\n+hi\n");
-        LegacyReviewAdmission admission = mock(LegacyReviewAdmission.class);
+        ReviewCallContext admission = mock(ReviewCallContext.class);
         when(admission.invoke(any(), any(), any(), any())).thenAnswer(invocation ->
                 invocation.<Callable<TurnResult>>getArgument(3).call());
 

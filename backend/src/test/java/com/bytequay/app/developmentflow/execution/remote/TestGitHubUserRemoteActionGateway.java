@@ -15,30 +15,41 @@ package com.bytequay.app.developmentflow.execution.remote;
 
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.Action;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionKind;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionStatus;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.FrozenDraft;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.RetryableActionException;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
+import com.bytequay.app.domain.MergePullRequestCommand;
+import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
+import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.local.GitRunner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,6 +63,8 @@ class TestGitHubUserRemoteActionGateway
 
     private PullRequestRepository pullRequests;
     private ExecutionContext execution;
+    private GitRunner git;
+    private WorktreeWriterLeaseManager writers;
     private GitHubUserRemoteActionGateway gateway;
 
     @BeforeEach
@@ -60,9 +73,12 @@ class TestGitHubUserRemoteActionGateway
         pullRequests = mock(PullRequestRepository.class);
         PatResolver pats = mock(PatResolver.class);
         execution = mock(ExecutionContext.class);
+        git = mock(GitRunner.class);
+        writers = mock(WorktreeWriterLeaseManager.class);
         when(pats.resolve("acme/widget")).thenReturn("base-pat");
         when(pats.resolve("fork/widget")).thenReturn("head-pat");
-        gateway = new GitHubUserRemoteActionGateway(pullRequests, pats);
+        gateway = new GitHubUserRemoteActionGateway(
+                pullRequests, pats, git, writers);
     }
 
     @Test
@@ -137,6 +153,65 @@ class TestGitHubUserRemoteActionGateway
                 execution);
 
         assertThat(result.externalEffectId()).isEqualTo("issue-comment:93");
+    }
+
+    @Test
+    void mergeFreezesMethodAndExactHeadThenProvesMerged()
+            throws Exception
+    {
+        exactOpenSubject("head-1");
+        when(pullRequests.isPullRequestMerged("base-pat", PULL_REQUEST))
+                .thenReturn(false, false, true);
+        when(pullRequests.fetchMergeQueueInfo("base-pat", PULL_REQUEST))
+                .thenReturn(new PullRequestRepository.MergeQueueInfo(false, null));
+        when(pullRequests.probeMergeQueue("base-pat", PULL_REQUEST))
+                .thenReturn(Optional.empty());
+        when(pullRequests.mergePullRequest(
+                any(), any(), any())).thenReturn(
+                        new MergeResult("merge-sha", true, "merged"));
+        Action action = action(
+                SemanticAction.MERGE, ActionPayload.value("SQUASH"),
+                AUTHORIZED, "merge-command", List.of());
+
+        var result = gateway.execute(action, execution);
+
+        assertThat(result.proven()).isTrue();
+        ArgumentCaptor<MergePullRequestCommand> command =
+                ArgumentCaptor.forClass(MergePullRequestCommand.class);
+        verify(pullRequests).mergePullRequest(
+                eq("base-pat"),
+                eq(PULL_REQUEST),
+                command.capture());
+        assertThat(command.getValue().mergeMethod()).isEqualTo("squash");
+        assertThat(command.getValue().sha()).contains("head-1");
+    }
+
+    @Test
+    void autoMergeEnableAndDisableRequireExactProbes()
+            throws Exception
+    {
+        exactOpenSubject("head-1");
+        when(pullRequests.fetchAutoMergeStatus("base-pat", PULL_REQUEST))
+                .thenReturn(Optional.empty(),
+                        Optional.of(new PullRequestRepository.AutoMergeStatus(
+                                "REBASE", "alice")),
+                        Optional.of(new PullRequestRepository.AutoMergeStatus(
+                                "REBASE", "alice")), Optional.empty());
+
+        var enabled = gateway.execute(action(
+                SemanticAction.ENABLE_AUTO_MERGE,
+                ActionPayload.value("REBASE"), AUTHORIZED,
+                "enable-command", List.of()), execution);
+        var disabled = gateway.execute(action(
+                SemanticAction.DISABLE_AUTO_MERGE,
+                ActionPayload.empty(), AUTHORIZED, "disable-command",
+                List.of()), execution);
+
+        assertThat(enabled.proven()).isTrue();
+        assertThat(disabled.proven()).isTrue();
+        verify(pullRequests).enableAutoMerge(
+                "base-pat", PULL_REQUEST, "REBASE");
+        verify(pullRequests).disableAutoMerge("base-pat", PULL_REQUEST);
     }
 
     @Test
@@ -248,6 +323,188 @@ class TestGitHubUserRemoteActionGateway
         verify(pullRequests, never()).createReview(any(), any(), any());
     }
 
+    @Test
+    void commentAndCloseResumesAfterItsPostBaselineCommentThenCloses()
+            throws Exception
+    {
+        AtomicBoolean closed = new AtomicBoolean();
+        when(pullRequests.fetchPrDetail("base-pat", PULL_REQUEST))
+                .thenAnswer(ignored -> detail(
+                        "head-1", closed.get() ? "closed" : "open", false));
+        when(pullRequests.fetchUserProfile("base-pat")).thenReturn(user("alice"));
+        PrTimelineEvent created = comment(
+                94, "alice", "closing now", AUTHORIZED.plusSeconds(1));
+        when(pullRequests.fetchPrIssueComments(
+                "base-pat", PULL_REQUEST, AUTHORIZED))
+                .thenReturn(List.of(created));
+        when(pullRequests.updatePullRequest(any(), any(), any()))
+                .thenAnswer(ignored -> {
+                    closed.set(true);
+                    return null;
+                });
+        Action action = action(
+                SemanticAction.COMMENT_AND_CLOSE,
+                ActionPayload.body("closing now"), AUTHORIZED,
+                "comment-close-command", List.of());
+
+        var result = gateway.execute(action, execution);
+
+        assertThat(result.proven()).isTrue();
+        assertThat(result.externalEffectId())
+                .isEqualTo("comment-and-close:issue-comment:94");
+        verify(pullRequests, never()).createIssueComment(any(), any(), any());
+        verify(pullRequests).updatePullRequest(any(), any(), any());
+    }
+
+    @Test
+    void closeNeverAdmitsAnExactMergedPullRequest()
+    {
+        exactMergedSubject();
+
+        assertThatThrownBy(() -> gateway.probe(
+                action(SemanticAction.CLOSE_PULL_REQUEST,
+                        ActionPayload.empty(), AUTHORIZED,
+                        "close-command", List.of()),
+                execution))
+                .isInstanceOf(RetryableActionException.class)
+                .hasMessageContaining("outside the exact user authorization");
+        verify(pullRequests, never()).updatePullRequest(any(), any(), any());
+    }
+
+    @Test
+    void emptyCommitTriggerCreatesAndPushesUnderTheWriterFence()
+            throws Exception
+    {
+        Path worktree = Path.of("/tmp/task-ci-trigger");
+        Action action = ciTriggerAction(worktree);
+        writerFence(action, worktree);
+        exactCiTriggerGit(worktree);
+        when(git.headSha(worktree)).thenReturn("head-1", "head-1", "head-2");
+        when(git.remoteHeadSha(worktree, "origin", "feature"))
+                .thenReturn(Optional.of("head-1"), Optional.of("head-1"),
+                        Optional.of("head-2"));
+        when(pullRequests.fetchPrDetail("base-pat", PULL_REQUEST))
+                .thenReturn(detail("head-1", "open", false),
+                        detail("head-1", "open", false),
+                        detail("head-2", "open", false));
+        when(git.commitEmpty(worktree,
+                "Re-trigger CI [bytequay:operation-1]")).thenReturn("head-2");
+
+        var result = gateway.execute(action, execution);
+
+        assertThat(result.proven()).isTrue();
+        assertThat(result.externalEffectId())
+                .isEqualTo("ci-trigger-empty-commit:head-2");
+        verify(git).commitEmpty(
+                worktree, "Re-trigger CI [bytequay:operation-1]");
+        verify(git).push(worktree);
+        verify(writers).acquire(execution, worktree.toString());
+    }
+
+    @Test
+    void emptyCommitTriggerResumesTheExactCommitWithoutCreatingAnother()
+            throws Exception
+    {
+        Path worktree = Path.of("/tmp/task-ci-trigger-recovery");
+        Action action = ciTriggerAction(worktree);
+        writerFence(action, worktree);
+        exactCiTriggerGit(worktree);
+        when(git.headSha(worktree)).thenReturn("head-2");
+        when(git.remoteHeadSha(worktree, "origin", "feature"))
+                .thenReturn(Optional.of("head-1"), Optional.of("head-1"),
+                        Optional.of("head-2"));
+        when(pullRequests.fetchPrDetail("base-pat", PULL_REQUEST))
+                .thenReturn(detail("head-1", "open", false),
+                        detail("head-1", "open", false),
+                        detail("head-2", "open", false));
+
+        var result = gateway.execute(action, execution);
+
+        assertThat(result.proven()).isTrue();
+        assertThat(result.externalEffectId())
+                .isEqualTo("ci-trigger-empty-commit:head-2");
+        verify(git, never()).commitEmpty(any(), any());
+        verify(git).push(worktree);
+    }
+
+    @Test
+    void emptyCommitTriggerWaitsForPrHeadWithoutPushingTwice()
+            throws Exception
+    {
+        Path worktree = Path.of("/tmp/task-ci-trigger-pushed");
+        Action action = ciTriggerAction(worktree);
+        exactCiTriggerGit(worktree);
+        when(git.headSha(worktree)).thenReturn("head-2");
+        when(git.remoteHeadSha(worktree, "origin", "feature"))
+                .thenReturn(Optional.of("head-2"));
+        when(pullRequests.fetchPrDetail("base-pat", PULL_REQUEST))
+                .thenReturn(detail("head-1", "open", false),
+                        detail("head-2", "open", false));
+
+        var waiting = gateway.execute(action, execution);
+        var recovered = gateway.execute(action, execution);
+
+        assertThat(waiting.proven()).isFalse();
+        assertThat(recovered.proven()).isTrue();
+        assertThat(recovered.externalEffectId())
+                .isEqualTo("ci-trigger-empty-commit:head-2");
+        verify(git, never()).commitEmpty(any(), any());
+        verify(git, never()).push(any());
+    }
+
+    @SuppressWarnings("unchecked")
+    private void writerFence(Action action, Path worktree)
+    {
+        WorktreeWriterLeaseManager.Lease lease = mock(
+                WorktreeWriterLeaseManager.Lease.class);
+        WorktreeWriterLeaseManager.WriterAuthorization authorization = mock(
+                WorktreeWriterLeaseManager.WriterAuthorization.class);
+        WorktreeWriterLeaseManager.MutationFence fence = mock(
+                WorktreeWriterLeaseManager.MutationFence.class);
+        when(writers.acquire(execution, worktree.toString())).thenReturn(lease);
+        when(writers.authorizeMutation(execution, lease))
+                .thenReturn(authorization);
+        when(fence.worktreePath()).thenReturn(worktree.toString());
+        when(fence.taskId()).thenReturn(action.taskId());
+        when(fence.operationId()).thenReturn(action.operationId());
+        when(fence.taskEpoch()).thenReturn(action.taskEpoch());
+        when(authorization.run(any())).thenAnswer(invocation -> {
+            Function<WorktreeWriterLeaseManager.MutationFence, Object> mutation =
+                    invocation.getArgument(0);
+            return mutation.apply(fence);
+        });
+    }
+
+    private void exactCiTriggerGit(Path worktree)
+            throws Exception
+    {
+        when(git.currentBranch(worktree)).thenReturn("feature");
+        when(git.remoteSlug(worktree, "origin"))
+                .thenReturn(Optional.of(RepoRef.parse("fork/widget")));
+        when(git.resolveCommitSha(worktree, "head-2"))
+                .thenReturn(Optional.of("head-2"));
+        when(git.resolveCommitSha(worktree, "head-2^"))
+                .thenReturn(Optional.of("head-1"));
+        when(git.listCommits(worktree, "head-2", 1)).thenReturn(List.of(
+                new GitRunner.CommitEntry(
+                        "head-2", "head-2", "ByteQuay", "app@example.test",
+                        AUTHORIZED.toString(),
+                        "Re-trigger CI [bytequay:operation-1]")));
+        when(git.diff(worktree, "head-1", "head-2", 1024)).thenReturn("");
+    }
+
+    private static Action ciTriggerAction(Path worktree)
+    {
+        return new Action(
+                "action-1", "operation-1", ActionKind.DEQUEUE,
+                SemanticAction.TRIGGER_CI_EMPTY_COMMIT,
+                ActionStatus.REQUESTED, 1, 1, 3, "task-1", "command-1",
+                1, "stage-1", 1, "binding-1", "pr-1", "acme/widget",
+                "fork/widget", 17, "feature", worktree.toString(),
+                "fingerprint-1", "head-1", "base-1", "{}", "digest",
+                ActionPayload.empty(), null, AUTHORIZED, List.of(), null, null);
+    }
+
     private void exactOpenSubject(String head)
     {
         when(pullRequests.fetchPrDetail("base-pat", PULL_REQUEST)).thenReturn(
@@ -295,6 +552,22 @@ class TestGitHubUserRemoteActionGateway
                 "acme/widget", "fork/widget", 17, "feature", "head-1",
                 "base-1", "{}", "digest", payload, "COMMENTED", authorizedAt,
                 baseline, null, null);
+    }
+
+    private static Action action(
+            SemanticAction semanticAction,
+            ActionPayload payload,
+            Instant authorizedAt,
+            String commandId,
+            List<String> baseline)
+    {
+        return new Action(
+                "action-1", "operation-1", semanticAction.wireKind(),
+                semanticAction, ActionStatus.REQUESTED,
+                1, 1, 3, "task-1", commandId, 1, "stage-1", 1,
+                "binding-1", "pr-1", "acme/widget", "fork/widget", 17,
+                "feature", "head-1", "base-1", "{}", "digest", payload,
+                null, authorizedAt, baseline, null, null);
     }
 
     private static PrTimelineEvent comment(

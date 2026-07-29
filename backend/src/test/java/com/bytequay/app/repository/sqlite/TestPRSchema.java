@@ -218,10 +218,8 @@ class TestPRSchema
         threadStore.saveThread(reviewThread);
         insertReview("review-session-task", "review-task", taskThreadId, taskId, t);
         insertReview("review-session-ext", "review-ext", reviewThread.id(), null, t);
-        insertRound("review-round-task", "review-session-task", "review-run-task",
-                taskId, taskThreadId, t);
-        insertRound("review-round-ext", "review-session-ext", "review-run-ext",
-                null, reviewThread.id(), t);
+        insertRound("review-round-task", "review-session-task", "review-run-task", t);
+        insertRound("review-round-ext", "review-session-ext", "review-run-ext", t);
 
         prStore.reparentChildren("review-ext", "review-task");
         prStore.deletePr("review-ext");
@@ -234,10 +232,10 @@ class TestPRSchema
                 String.class)).containsOnly("review-session-task");
         assertThat(jdbc.queryForObject(
                 "SELECT task_id FROM agent_run WHERE id = 'review-run-ext'", String.class))
-                .isEqualTo(taskId);
+                .isNull();
         assertThat(jdbc.queryForObject(
                 "SELECT thread_id FROM agent_run WHERE id = 'review-run-ext'", String.class))
-                .isEqualTo(taskThreadId);
+                .isNull();
         assertThat(threadStore.findThreadById(reviewThread.id())).isEmpty();
     }
 
@@ -346,14 +344,17 @@ class TestPRSchema
     }
 
     private void insertRound(
-            String id, String sessionId, String runId, String taskId,
-            String threadId, Instant createdAt)
+            String id, String sessionId, String runId, Instant createdAt)
     {
         jdbc.update("""
                 INSERT INTO agent_run(
-                    id, task_id, kind, status, iterations, started_at_ms, workspace_id, thread_id)
-                VALUES (?, ?, 'panel_review', 'succeeded', 0, ?, 'ws-default', ?)
-                """, runId, taskId, createdAt.toEpochMilli(), threadId);
+                    id, kind, source, review_round_id, status, iterations, budget,
+                    started_at_ms, finished_at_ms, cost_usd_milli,
+                    tokens_in, tokens_out, step_cursor, outcome)
+                VALUES (?, 'review_compatibility_header',
+                        'v2_review_assignment_turn_fk', ?, 'succeeded', 0, 50,
+                        ?, ?, 0, 0, 0, 0, 'completed')
+                """, runId, id, createdAt.toEpochMilli(), createdAt.toEpochMilli());
         jdbc.update("""
                 INSERT INTO review_round(
                     id, session_id, agent_run_id, trigger, scope, start_commit,

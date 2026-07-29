@@ -12,12 +12,12 @@
  * limitations under the License.
  */
 import { contextBridge, ipcRenderer } from 'electron';
+import type { AgentReviewData } from './review/agentReviewTypes';
 import type {
   ActivityItemDto,
   AiDefaultsDto,
   AiLedgerDto,
   AiProviderInfo,
-  AiReviewDraftDto,
   AiSettingsDto,
   Bridge,
   ColumnPageDto,
@@ -244,14 +244,14 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:commentPr', prId, repo, number, body, close),
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string): Promise<void> =>
     ipcRenderer.invoke('backend:replyToReviewThread', repo, number, rootCommentId, body),
-  editIssueComment: (repo: string, commentId: number, body: string): Promise<void> =>
-    ipcRenderer.invoke('backend:editIssueComment', repo, commentId, body),
-  editReviewComment: (repo: string, commentId: number, body: string): Promise<void> =>
-    ipcRenderer.invoke('backend:editReviewComment', repo, commentId, body),
-  deleteIssueComment: (repo: string, commentId: number): Promise<void> =>
-    ipcRenderer.invoke('backend:deleteIssueComment', repo, commentId),
-  deleteReviewComment: (repo: string, commentId: number): Promise<void> =>
-    ipcRenderer.invoke('backend:deleteReviewComment', repo, commentId),
+  editIssueComment: (repo: string, number: number, commentId: number, body: string): Promise<void> =>
+    ipcRenderer.invoke('backend:editIssueComment', repo, number, commentId, body),
+  editReviewComment: (repo: string, number: number, commentId: number, body: string): Promise<void> =>
+    ipcRenderer.invoke('backend:editReviewComment', repo, number, commentId, body),
+  deleteIssueComment: (repo: string, number: number, commentId: number): Promise<void> =>
+    ipcRenderer.invoke('backend:deleteIssueComment', repo, number, commentId),
+  deleteReviewComment: (repo: string, number: number, commentId: number): Promise<void> =>
+    ipcRenderer.invoke('backend:deleteReviewComment', repo, number, commentId),
   addRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>
     ipcRenderer.invoke('backend:addRequestedReviewer', repo, number, reviewer),
   removeRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>
@@ -440,20 +440,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:setWorkModel', { workspaceId, model }),
   getThreadWorkModel: (threadId: string): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:getWorkModel', { threadId }),
-  setThreadWorkModel: (threadId: string, model: WorkModelDto | null): Promise<ResolvedWorkModelDto> =>
-    ipcRenderer.invoke('threads:setWorkModel', { threadId, model }),
   getTaskWorkModel: (threadId: string, taskId: string): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:getTaskWorkModel', { threadId, taskId }),
-  setTaskWorkModel: (
-    threadId: string,
-    taskId: string,
-    model: WorkModelDto | null,
-  ): Promise<ResolvedWorkModelDto> =>
-    ipcRenderer.invoke('threads:setTaskWorkModel', { threadId, taskId, model }),
   getStageWorkModel: (stageId: string): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:getStageWorkModel', { stageId }),
-  setStageWorkModel: (stageId: string, model: WorkModelDto | null): Promise<ResolvedWorkModelDto> =>
-    ipcRenderer.invoke('threads:setStageWorkModel', { stageId, model }),
   getDs4Status: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:status'),
   startDs4: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:start'),
   stopDs4: (confirm = false): Promise<Ds4StopResponseDto> =>
@@ -476,42 +466,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('skills:setEnabled', id, enabled),
   draftSkill: (prompt: string, scope: string): Promise<SkillDraftDto> =>
     ipcRenderer.invoke('skills:draft', prompt, scope),
-  runAiReview: (prId: number, repo: string, number: number): Promise<AiReviewDraftDto> =>
-    ipcRenderer.invoke('ai:run', prId, repo, number),
   polishCommentText: (text: string): Promise<string> =>
     ipcRenderer.invoke('ai:polishComment', text),
   diagnoseCheckFailure: (checkName: string, log: string): Promise<string> =>
     ipcRenderer.invoke('ai:diagnoseCheck', checkName, log),
-  getLatestAiReview: (prId: number): Promise<AiReviewDraftDto | null> =>
-    ipcRenderer.invoke('ai:latest', prId),
-  deleteAiReview: (draftId: number): Promise<void> =>
-    ipcRenderer.invoke('ai:delete', draftId),
-  startAiReview: (prId: number, repo: string, number: number): Promise<{ state: string }> =>
-    ipcRenderer.invoke('ai:start', prId, repo, number),
-  getAiReviewStatus: (repo: string, number: number) =>
-    ipcRenderer.invoke('ai:status', repo, number),
-  publishAiReview: (
-    draftId: number,
-    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
-    body?: string | null,
-  ): Promise<AiReviewDraftDto> => ipcRenderer.invoke('ai:publish', draftId, event, body ?? null),
-  /** Verdict-first publish — finds-or-creates the active draft for the
-   *  PR, then submits. Used by the Submit panel so the user can ship a
-   *  body-only Approve / Comment without first staging a comment. */
-  publishReviewForPr: (payload: {
-    prId: number;
-    repo: string;
-    number: number;
-    headSha: string | null;
-    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
-    body: string | null;
-  }): Promise<AiReviewDraftDto> => ipcRenderer.invoke('ai:publishForPr', payload),
-  updateAiReviewComment: (draftId: number, commentId: number, editedBody: string | null): Promise<AiReviewDraftDto> =>
-    ipcRenderer.invoke('ai:editComment', draftId, commentId, editedBody),
-  deleteAiReviewComment: (draftId: number, commentId: number): Promise<AiReviewDraftDto> =>
-    ipcRenderer.invoke('ai:deleteComment', draftId, commentId),
-  setAiReviewCommentDismissed: (draftId: number, commentId: number, dismissed: boolean): Promise<AiReviewDraftDto> =>
-    ipcRenderer.invoke('ai:dismissComment', draftId, commentId, dismissed),
   addPullRequestReaction: (
     repo: string,
     number: number,
@@ -519,34 +477,23 @@ const bridge: Bridge = {
   ): Promise<void> => ipcRenderer.invoke('pr:addPullRequestReaction', repo, number, content),
   addReviewCommentReaction: (
     repo: string,
+    number: number,
     commentId: number,
     content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
-  ): Promise<void> => ipcRenderer.invoke('pr:addReviewReaction', repo, commentId, content),
+  ): Promise<void> => ipcRenderer.invoke('pr:addReviewReaction', repo, number, commentId, content),
   addIssueCommentReaction: (
     repo: string,
+    number: number,
     commentId: number,
     content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
-  ): Promise<void> => ipcRenderer.invoke('pr:addIssueReaction', repo, commentId, content),
+  ): Promise<void> => ipcRenderer.invoke('pr:addIssueReaction', repo, number, commentId, content),
   setReviewThreadResolved: (
     repo: string,
+    number: number,
     prId: number,
     rootCommentId: number,
     resolved: boolean,
-  ): Promise<void> => ipcRenderer.invoke('pr:setThreadResolved', repo, prId, rootCommentId, resolved),
-  /** Stage a human-authored inline comment into the active review draft.
-   *  Returns the refreshed draft so the tray + inline rail can repaint. */
-  stageReviewComment: (payload: {
-    prId: number;
-    repo: string;
-    number: number;
-    headSha: string | null;
-    filePath: string;
-    line: number;
-    side: 'LEFT' | 'RIGHT';
-    startLine?: number | null;
-    startSide?: 'LEFT' | 'RIGHT' | null;
-    body: string;
-  }): Promise<AiReviewDraftDto> => ipcRenderer.invoke('ai:stageComment', payload),
+  ): Promise<void> => ipcRenderer.invoke('pr:setThreadResolved', repo, number, prId, rootCommentId, resolved),
   writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('shell:writeClipboard', text),
   mountReview: (repo: string, number: number, bounds): Promise<void> =>
     ipcRenderer.invoke('review:mount', repo, number, bounds),
@@ -742,6 +689,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:byThread', threadId),
   getReviewPassForPr: (repo: string, number: number) =>
     ipcRenderer.invoke('reviews:forPr', repo, number),
+  getReviewPassPublication: (passId: string) =>
+    ipcRenderer.invoke('reviews:publication:get', passId),
   publishReviewPass: (passId: string, verdict: string, findingIds: string[]) =>
     ipcRenderer.invoke('reviews:publish', { passId, verdict, findingIds }),
   spawnBuildFromReview: (passId: string, opts?: {
@@ -751,6 +700,12 @@ const bridge: Bridge = {
     selectedFindingIds?: string[];
   }) =>
     ipcRenderer.invoke('reviews:spawnBuild', { passId, ...(opts ?? {}) }),
+  getReviewBuildCommentProposal: (passId: string) =>
+    ipcRenderer.invoke('reviews:buildComments:get', passId),
+  approveReviewBuildComments: (passId: string, commandId: string) =>
+    ipcRenderer.invoke('reviews:buildComments:approve', { passId, commandId }),
+  discardReviewBuildComments: (passId: string, commandId: string) =>
+    ipcRenderer.invoke('reviews:buildComments:discard', { passId, commandId }),
   arbitrateReviewFinding: (passId: string, findingId: string, resolution: 'include' | 'drop') =>
     ipcRenderer.invoke('reviews:arbitrate', { passId, findingId, resolution }),
   editReviewFinding: (passId: string, findingId: string, comment: string) =>
@@ -843,12 +798,6 @@ const bridge: Bridge = {
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>
     ipcRenderer.invoke('workspaces:repos:autoFix', { workspaceId, owner, repo, enabled }),
-  shipAndContinue: (
-    threadId: string,
-    taskId: string,
-    opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
-  ): Promise<WorkUnitTaskDto> =>
-    ipcRenderer.invoke('threads:tasks:ship', { threadId, taskId, opts }),
   cancelTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:cancel', { threadId, taskId }),
   pauseTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
@@ -965,8 +914,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:files', id),
   renameTask: (id: string, title: string): Promise<ThreadDto> =>
     ipcRenderer.invoke('threads:rename', { id, title }),
-  sendTaskMessage: (id: string, taskId: string, input: string): Promise<ThreadSendResultDto> =>
-    ipcRenderer.invoke('threads:send', { id, taskId, input }),
   decideTaskPermission: (
     id: string,
     callId: string,
@@ -981,7 +928,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:interrupt', id, turnId),
   interruptStage: (id: string): Promise<void> => ipcRenderer.invoke('stages:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),
-  resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:resume', id),
   deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:delete', id),
   getThreadDeleteEligibility: (id: string): Promise<{ deletable: boolean; reason?: string }> =>
     ipcRenderer.invoke('threads:deleteEligibility', id),
@@ -1074,10 +1020,12 @@ const bridge: Bridge = {
     prId: string,
     body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[]; body?: string | null },
   ) => ipcRenderer.invoke('pr:publishReview', prId, body),
+  getLocalPrReviewPublication: (prId: string) =>
+    ipcRenderer.invoke('pr:reviewPublication:get', prId),
   getAgentReview: (prId: string) => ipcRenderer.invoke('agentReview:get', prId),
   startQuickReview: (prId: string) => ipcRenderer.invoke('quickReview:start', prId),
   getQuickReviewStatus: (prId: string) => ipcRenderer.invoke('quickReview:status', prId),
-  getLatestQuickReview: (prId: string): Promise<AiReviewDraftDto | null> =>
+  getLatestQuickReview: (prId: string): Promise<AgentReviewData | null> =>
     ipcRenderer.invoke('quickReview:latest', prId),
   startAgentReview: (
     prId: string,

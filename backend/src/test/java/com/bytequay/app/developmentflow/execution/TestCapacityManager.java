@@ -39,6 +39,7 @@ import static com.bytequay.app.developmentflow.execution.CapacityManager.Denial.
 import static com.bytequay.app.developmentflow.execution.CapacityManager.Denial.TRUNK_LIMIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.Denial.UNCONFIGURED_LANE;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.Denial.WORKSPACE_LIMIT;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.Denial.WORKSPACE_REPOSITORY_GIT_LIMIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.LEGACY;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -153,6 +154,38 @@ class TestCapacityManager
         assertAdmitted(fixture.tryAcquire(
                 request("read-only", V2, REVIEW,
                         "w1", "trunk-a", "task-a", false, false),
+                "dispatcher"));
+    }
+
+    @Test
+    void serializesWorkspaceRepositoryGitWithTaskGitInEitherDirection()
+    {
+        CapacityManager.CapacityRequest repositoryGit =
+                new CapacityManager.CapacityRequest(
+                        "repository-git", V2, Set.of(LOCAL_GIT, GITHUB),
+                        new CapacityManager.CapacityScope(
+                                "w1", null, null, null),
+                        false, false, false);
+        CapacityManager.CapacityRequest taskGit = request(
+                "task-git", V2, LOCAL_GIT,
+                "w1", "trunk-1", "task-1", false, true);
+
+        Fixture taskFirst = fixture(policy(100, 100));
+        assertAdmitted(taskFirst.tryAcquire(taskGit, "dispatcher"));
+        assertDenied(taskFirst.tryAcquire(repositoryGit, "dispatcher"),
+                WORKSPACE_REPOSITORY_GIT_LIMIT);
+
+        Fixture repositoryFirst = fixture(policy(100, 100));
+        assertAdmitted(repositoryFirst.tryAcquire(repositoryGit, "dispatcher"));
+        assertDenied(repositoryFirst.tryAcquire(taskGit, "dispatcher"),
+                WORKSPACE_REPOSITORY_GIT_LIMIT);
+        assertAdmitted(repositoryFirst.tryAcquire(
+                new CapacityManager.CapacityRequest(
+                        "other-repository-git", V2,
+                        Set.of(LOCAL_GIT, GITHUB),
+                        new CapacityManager.CapacityScope(
+                                "w2", null, null, null),
+                        false, false, false),
                 "dispatcher"));
     }
 
@@ -356,58 +389,6 @@ class TestCapacityManager
     }
 
     @Test
-    void legacyPermitUsesSameManagerAndReleasesIdempotently()
-    {
-        Fixture fixture = fixture(policy(100, 100));
-        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
-        CapacityManager.CapacityRequest request = request(
-                "legacy", LEGACY, CLI, "w1", "t1", "task-1", false, false);
-
-        LegacyCapacityBridge.Permit permit = bridge.tryAcquire(
-                request, "legacy-worker").orElseThrow();
-        assertThat(permit.lease().operationId()).isEqualTo("legacy");
-        fixture.clock.advance(Duration.ofSeconds(10));
-        permit.heartbeat();
-        permit.close();
-        permit.close();
-
-        assertThat(fixture.store.activeCount(fixture.clock.instant())).isZero();
-        assertThatThrownBy(permit::lease).isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void bridgeAndV2ShareLaneWorkspaceTrunkAndTaskCaps()
-    {
-        Fixture fixture = fixture(policy(2, 1));
-        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
-
-        LegacyCapacityBridge.Permit first = bridge.tryAcquire(
-                request("legacy-a", LEGACY, CLI,
-                        "w1", "trunk-a", "task-a", false, false),
-                "legacy-a").orElseThrow();
-        assertDenied(fixture.tryAcquire(
-                request("v2-same-trunk", V2, API,
-                        "w1", "trunk-a", "task-b", false, false),
-                "dispatcher"), TRUNK_LIMIT);
-        assertDenied(fixture.tryAcquire(
-                request("v2-same-task", V2, API,
-                        "w1", "trunk-a", "task-a", false, false),
-                "dispatcher"), TASK_MUTATION_LIMIT);
-        assertAdmitted(fixture.tryAcquire(
-                request("v2-other-trunk", V2, API,
-                        "w1", "trunk-b", "task-b", false, false),
-                "dispatcher"));
-        assertDenied(fixture.tryAcquire(
-                request("legacy-workspace-full", LEGACY, API,
-                        "w1", "trunk-c", "task-c", false, false),
-                "legacy-c"), WORKSPACE_LIMIT);
-
-        assertThat(fixture.store.activeCount(NOW)).isEqualTo(2);
-        first.close();
-        assertThat(fixture.store.activeCount(NOW)).isEqualTo(1);
-    }
-
-    @Test
     void releaseAndExpiryWakeRegisteredWaitersAndDeregistrationStopsHints()
     {
         Fixture fixture = fixture(policy(100, 100));
@@ -441,75 +422,6 @@ class TestCapacityManager
     }
 
     @Test
-    void bridgeStopsExactlyOnceAfterDefinitiveLeaseLoss()
-    {
-        Fixture fixture = fixture(policy(100, 100));
-        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
-        AtomicInteger stops = new AtomicInteger();
-        LegacyCapacityBridge.Permit permit = bridge.tryAcquire(
-                request("lost", LEGACY, CLI,
-                        "w1", "t1", "task-1", false, false),
-                "legacy",
-                stops::incrementAndGet).orElseThrow();
-
-        fixture.clock.advance(Duration.ofSeconds(31));
-        bridge.maintainLeases();
-        bridge.maintainLeases();
-
-        assertThat(stops).hasValue(1);
-        assertThat(bridge.activePermitCount()).isZero();
-        assertThatThrownBy(permit::lease).isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void transientHeartbeatFailureRetriesBeforeExpiry()
-    {
-        Fixture fixture = fixture(policy(100, 100));
-        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
-        AtomicInteger stops = new AtomicInteger();
-        LegacyCapacityBridge.Permit permit = bridge.tryAcquire(
-                request("retry-heartbeat", LEGACY, API,
-                        "w1", "t1", "task-1", false, false),
-                "legacy",
-                stops::incrementAndGet).orElseThrow();
-
-        fixture.clock.advance(Duration.ofSeconds(10));
-        fixture.store.failNextHeartbeat();
-        bridge.maintainLeases();
-        assertThat(stops).hasValue(0);
-        assertThat(bridge.activePermitCount()).isEqualTo(1);
-
-        fixture.clock.advance(Duration.ofSeconds(5));
-        bridge.maintainLeases();
-        assertThat(permit.lease().expiresAt())
-                .isEqualTo(fixture.clock.instant().plusSeconds(30));
-        assertThat(stops).hasValue(0);
-        permit.close();
-    }
-
-    @Test
-    void failedCloseIsRetriedWithoutLeakingOrRenewingCompletedWork()
-    {
-        Fixture fixture = fixture(policy(100, 100));
-        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
-        LegacyCapacityBridge.Permit permit = bridge.tryAcquire(
-                request("release-retry", LEGACY, CLI,
-                        "w1", "t1", "task-1", false, false),
-                "legacy").orElseThrow();
-
-        fixture.store.failNextRelease();
-        assertThatThrownBy(permit::close)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("release failed");
-        assertThat(bridge.activePermitCount()).isEqualTo(1);
-
-        bridge.maintainLeases();
-
-        assertThat(bridge.activePermitCount()).isZero();
-        assertThat(fixture.store.activeCount(fixture.clock.instant())).isZero();
-    }
-
-    @Test
     void initialHardCeilingsCannotBeOverridden()
     {
         assertThatThrownBy(() -> CapacityManager.CapacityPolicy.initial(
@@ -539,6 +451,13 @@ class TestCapacityManager
                 false, true, false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("read-only");
+        assertThatThrownBy(() -> new CapacityManager.CapacityRequest(
+                "repository-git-with-trunk", V2,
+                Set.of(LOCAL_GIT, GITHUB),
+                new CapacityManager.CapacityScope("w1", "t1", null, null),
+                false, false, false))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exact workspace repository lease");
     }
 
     @Test

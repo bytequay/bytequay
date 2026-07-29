@@ -304,9 +304,8 @@ function ThreadTile({
   const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ARCHIVED' || thread.status === 'ERRORED';
   const displayStatus = displayStatusForTask(thread, scheduler);
   const isRunning = displayStatus === 'RUNNING';
-  // Shared key with ThreadDetailPage's reply box — text typed in a tile
-  // is also visible if the user pops the same thread into full detail
-  // view, since both render the same logical "reply to this thread" input.
+  // Keep a separate durable draft per Trunk tile while the operator moves
+  // between groups or changes the grid layout.
   const [draft, setDraft] = usePersistentDraft(`reply:${thread.id}`);
   // Tiles have tight vertical space — cap at ~120px (≈ 6 lines) so a
   // long draft doesn't crowd out the conversation. Overflow scrolls.

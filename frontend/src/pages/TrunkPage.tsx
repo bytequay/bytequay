@@ -40,7 +40,7 @@ const OVERVIEW_WIDTH_KEY = 'bq.trunkOverviewWidth';
 export function TrunkPage({
   threadId, thread, sidebar, conversation, conversationIndex, collapsed = false, composer,
   tasks, onOpenTask, formatTime = defaultActivityTime, conversationFooter,
-  historyTasks, hideConversationPrompts = false, onResume, resuming = false, resumeError = null,
+  historyTasks, hideConversationPrompts = false,
 }: {
   threadId: string;
   thread: {
@@ -76,9 +76,6 @@ export function TrunkPage({
   formatTime?: (ms: number) => string;
   conversationFooter?: ReactNode;
   hideConversationPrompts?: boolean;
-  onResume?: () => void;
-  resuming?: boolean;
-  resumeError?: string | null;
 }) {
   const pane = useTrunkPane(threadId);
   const panel = useWorkspacePanelData(thread.workspaceId);
@@ -188,13 +185,8 @@ export function TrunkPage({
                   <span className="trunk-page-v2__error-copy">
                     <strong>Agent stopped</strong>
                     <small>{thread.errorMessage ?? 'The agent process exited before it could reply.'}</small>
-                    {resumeError !== null && <small>{resumeError}</small>}
+                    <small>Send a new message below to continue on a new Trunk turn.</small>
                   </span>
-                  {onResume !== undefined && (
-                    <button type="button" onClick={onResume} disabled={resuming}>
-                      {resuming ? 'Resuming…' : 'Resume thread'}
-                    </button>
-                  )}
                 </div>
               )}
               <div className="conv-index-host">
@@ -355,7 +347,6 @@ function WorkspaceOverviewPanel({
   const visibleBacklog = showAllBacklog ? activeBacklog : activeBacklog.slice(0, 3);
   const hiddenBacklogCount = activeBacklog.length - visibleBacklog.length;
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
-  const runningSessionId = runningSession?.sessionId;
   // A running task opens its (finished) task page; a live agent session/trunk would
   // jump to the still-in-progress session view — disable Watch for those.
   const runningOpensTask = runningItem !== undefined && runningItem.taskId !== null && runningItem.sessionId === null;
@@ -410,12 +401,7 @@ function WorkspaceOverviewPanel({
           <h3>RUNNING NOW</h3>
           {(runningItem !== undefined || runningTrunk !== undefined) ? (
             <div className="trunk-page-v2__running-card">
-              {runningSessionId !== null && runningSessionId !== undefined ? (
-                <button type="button" className="trunk-page-v2__running-dot" aria-label="Pause agent"
-                  title="Pause agent" onClick={() => {
-                    void workspaceApi.sessionAction(runningSessionId, 'pause').then(() => onRefresh());
-                  }} />
-              ) : <i />}
+              <i />
               <span>
                 <strong>{runningItem?.title ?? runningTrunk?.title ?? 'Review session'}</strong>
                 <small>{runningItem?.summary ?? `${runningTrunk?.provider ?? 'agent'} · ${runningTrunk?.model ?? 'working'}`}</small>

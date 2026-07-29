@@ -96,9 +96,8 @@ const TOOL_COLOR: Record<ToolKind, string> = {
  * the legend in {@code docs/mockups/design/threads/SUMMARY.md}.
  *
  * <p>Auto-scrolls to bottom on new content unless the user has
- * scrolled away. The composer + status bar live in the parent
- * (ThreadDetailPage) so they can frame the scroll area without
- * resizing it.
+ * scrolled away. The composer + status bar live in the host surface so
+ * they can frame the scroll area without resizing it.
  */
 export function ConversationPane({
   messages, pendingPermission, onDecide, banner, liveText = '', tasks,
@@ -733,9 +732,8 @@ function renderInline(text: string): React.ReactNode {
 
 const monoFont = 'var(--font-mono)';
 
-// All theme-sensitive colors are CSS custom properties set on the
-// terminal-wrap div in ThreadDetailPage. ConversationPane just reads
-// them via var(--term-*) — see DARK_TERM / LIGHT_TERM there.
+// All theme-sensitive colors are CSS custom properties set by the host.
+// ConversationPane just reads them via var(--term-*).
 
 const scrollStyle: React.CSSProperties = {
   flex: 1,

@@ -24,7 +24,6 @@ import com.bytequay.app.domain.PRDashboardEntry;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PRTriageState;
 import com.bytequay.app.domain.PullRequest;
-import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
@@ -231,11 +230,27 @@ class PRServiceImpl
     public PR createForTask(
             String taskId, String branchName, String baseBranch, String title, String description)
     {
+        throw conflict("Task-owned PR creation is retired outside the exact V2 Local Development owner");
+    }
+
+    @Override
+    public PR createForTaskInCommand(
+            String taskId, String branchName, String baseBranch,
+            String title, String description)
+    {
         requireText(taskId, "taskId");
         requireText(branchName, "branchName");
         requireText(baseBranch, "baseBranch");
         requireText(title, "title");
-        // Idempotent — Dev calls this on its first commit and may retry.
+        String workflow = taskStore.findWorkflowVersion(taskId)
+                .orElseThrow(() -> conflict(
+                        "Task " + taskId + " has no immutable workflow route"));
+        if (!"V2".equals(workflow)) {
+            throw conflict("Historical LEGACY Task " + taskId
+                    + " is read-only; create a V2 Task");
+        }
+        TaskCommandExecutor.requireCurrent(taskId);
+        // Idempotent owner projection: duplicate result delivery reuses it.
         Optional<PR> existing = store.findByTaskId(taskId);
         if (existing.isPresent()) {
             return existing.get();
@@ -243,8 +258,6 @@ class PRServiceImpl
         PR pr = PR.create(
                 UUID.randomUUID().toString(), taskId, branchName, baseBranch, title, description, now());
         PR saved = store.save(pr);
-        backfillPlanSelfReview(taskId, saved.id());
-        backfillPlanApproved(taskId, saved.id());
         notifyUpdated(saved.id());
         return saved;
     }
@@ -402,67 +415,6 @@ class PRServiceImpl
         return new PRTriageState(
                 state.prId(), viewedAt, state.reviewedAt(), state.handledAction(),
                 state.snoozedUntil(), state.snoozedAt(), state.snoozeWakeReason());
-    }
-
-    /** The plan self-review (R20) predates the local PR — its start and finish
-     *  events are backfilled onto the timeline, at their original timestamps,
-     *  the first time a local PR row is created for this task. */
-    private void backfillPlanSelfReview(String taskId, String prId)
-    {
-        stageStore.findStagesByTask(taskId).stream()
-                .filter(s -> s.type() == StageType.PLAN_STAGE)
-                .findFirst()
-                .ifPresent(plan -> {
-                    List<StageEvent> events = stageStore.findEventsByStage(plan.id());
-                    events.stream()
-                            .filter(e -> e.eventType() == StageEventType.PLAN_SELF_REVIEW_STARTED)
-                            .findFirst()
-                            .ifPresent(started -> appendEvent(
-                                    prId, PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
-                                    /* localOnly */ true, started.eventAt(),
-                                    payload("reviewEvent", "started", "scope", "plan",
-                                            "iteration", 1, "roundId", null)));
-                    events.stream()
-                            .filter(e -> e.eventType() == StageEventType.PLAN_SELF_REVIEWED)
-                            .findFirst()
-                            .ifPresent(reviewed -> appendEvent(
-                                    prId, PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
-                                    /* localOnly */ true, reviewed.eventAt(),
-                                    payload("reviewEvent", "finished", "scope", "plan",
-                                            "verdict", verdictOf(reviewed), "iteration", 1,
-                                            "roundId", null)));
-                });
-    }
-
-    private String verdictOf(StageEvent event)
-    {
-        try {
-            return event.payloadJson() == null ? null
-                    : mapper.readTree(event.payloadJson()).path("verdict").asText(null);
-        }
-        catch (JsonProcessingException e) {
-            return null;
-        }
-    }
-
-    /** The plan's {@code PLAN_APPROVED} event predates the local PR at the
-     *  usual first approval — backfilled onto the timeline, at its original
-     *  timestamp, the first time a local PR row is created for this task. A
-     *  later re-approval (replan after the PR already exists) takes the live
-     *  {@link #recordPlanApproved} path instead. */
-    private void backfillPlanApproved(String taskId, String prId)
-    {
-        stageStore.findStagesByTask(taskId).stream()
-                .filter(s -> s.type() == StageType.PLAN_STAGE)
-                .findFirst()
-                .flatMap(plan -> stageStore.findEventsByStage(plan.id()).stream()
-                        .filter(e -> e.eventType() == StageEventType.PLAN_APPROVED)
-                        .findFirst()
-                        .map(approved -> Map.entry(plan, approved)))
-                .ifPresent(entry -> appendEvent(
-                        prId, PRTimelineEntry.TYPE_PLAN_FINALIZED, PRTimelineEntry.ACTOR_USER,
-                        /* localOnly */ true, entry.getValue().eventAt(),
-                        payload("planStageId", entry.getKey().id().toString())));
     }
 
     @Override
@@ -670,6 +622,11 @@ class PRServiceImpl
     public PR updateDetails(String prId, String title, String description)
     {
         PR pr = require(prId);
+        if (v2LocalReview != null && v2LocalReview.handles(pr)) {
+            v2LocalReview.updateDetails(pr, title, description);
+            return require(prId);
+        }
+        rejectTaskOwnedFallback(pr, "title/body editing");
         PR saved = store.save(pr.withDetails(title, description));
         notifyUpdated(prId);
         return saved;
@@ -1175,13 +1132,12 @@ class PRServiceImpl
                     pr, origin, scope, filePath, lineNumber, side,
                     startLine, startSide, author, body, parentCommentId);
         }
+        rejectTaskOwnedFallback(pr, "comment creation");
         if (pr.taskId() == null) {
             return addComment(pr, origin, scope, filePath, lineNumber, side,
                     startLine, startSide, author, body, parentCommentId);
         }
-        return TaskPhaseMachine.withTaskLock(pr.taskId(), () ->
-                addComment(require(prId), origin, scope, filePath, lineNumber, side,
-                        startLine, startSide, author, body, parentCommentId));
+        throw new IllegalStateException("unreachable Task-owned PR fallback");
     }
 
     private PRComment addComment(
@@ -1329,6 +1285,7 @@ class PRServiceImpl
         }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        rejectTaskOwnedFallback(require(comment.prId()), "comment deletion");
         if (!PRComment.ORIGIN_LOCAL.equals(comment.origin()) ||
                 comment.publishedAt() != null ||
                 comment.resolvedAt() != null ||
@@ -1489,6 +1446,7 @@ class PRServiceImpl
         }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        rejectTaskOwnedFallback(require(comment.prId()), "comment resolution");
         PRComment saved = store.saveComment(comment.withResolved(now(), PRTimelineEntry.ACTOR_USER));
         notifyUpdated(comment.prId());
         return saved;
@@ -1509,9 +1467,7 @@ class PRServiceImpl
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PR pr = require(comment.prId());
-        if (pr.taskId() != null) {
-            return TaskPhaseMachine.withTaskLock(pr.taskId(), () -> reopenComment(require(pr.id()), commentId));
-        }
+        rejectTaskOwnedFallback(pr, "comment reopening");
         return reopenComment(pr, commentId);
     }
 
@@ -1592,6 +1548,7 @@ class PRServiceImpl
         }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        rejectTaskOwnedFallback(require(comment.prId()), "comment dismissal");
         PRComment saved = store.saveComment(comment.withDismissed(now()));
         notifyUpdated(comment.prId());
         return saved;
@@ -1710,6 +1667,7 @@ class PRServiceImpl
         }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        rejectTaskOwnedFallback(require(comment.prId()), "comment editing");
         if (!PRComment.ORIGIN_LOCAL.equals(comment.origin()) || comment.publishedAt() != null) {
             throw new IllegalArgumentException("only pending local comments can be edited");
         }
@@ -1731,6 +1689,25 @@ class PRServiceImpl
     {
         return store.findById(prId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown local PR: " + prId));
+    }
+
+    private void rejectTaskOwnedFallback(PR pr, String action)
+    {
+        if (pr.taskId() == null) {
+            return;
+        }
+        String workflow = taskStore.findWorkflowVersion(pr.taskId())
+                .orElseThrow(() -> conflict(
+                        "Task " + pr.taskId() + " has no immutable workflow route"));
+        if ("LEGACY".equals(workflow)) {
+            throw conflict("Historical LEGACY Task " + pr.taskId()
+                    + " is read-only; " + action + " is retired");
+        }
+        if (!"V2".equals(workflow)) {
+            throw conflict("unsupported Task workflow version " + workflow);
+        }
+        throw conflict("V2 Task-owned PR " + action
+                + " must use its exact Local Development owner");
     }
 
     private void notifyUpdated(String prId)

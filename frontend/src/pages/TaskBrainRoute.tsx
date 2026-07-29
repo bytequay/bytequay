@@ -839,8 +839,7 @@ export function TaskBrainRoute({
         closedNote: task.terminal
           ? 'This task is closed — ask the brain, or reopen to continue…'
           : undefined,
-        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'task', threadId, taskId }}
-          agentLockPending={working} />,
+        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'task', threadId, taskId }} />,
         meta: `Task #${task.taskNumber} · ${formatDuration(data.aggregate.activeTimeSec)} · ${formatCost(data.aggregate.costCents)}`,
       }}
       run={{

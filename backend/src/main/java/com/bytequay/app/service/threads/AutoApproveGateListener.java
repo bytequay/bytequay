@@ -23,10 +23,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -54,7 +50,6 @@ import static java.util.Objects.requireNonNull;
  * {@code fallbackExecution} keeps it working for the (non-transactional)
  * callers that park a gate outside a transaction.
  */
-@Component
 public class AutoApproveGateListener
 {
     private static final Logger log = LoggerFactory.getLogger(AutoApproveGateListener.class);
@@ -120,7 +115,6 @@ public class AutoApproveGateListener
      * re-approves such gates, capping attempts so a genuinely broken action
      * escalates to the user rather than looping forever.
      */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 120_000)
     public void reconcileStrandedGates()
     {
         Instant cutoff = Instant.now().minus(STRANDED_AFTER);
@@ -172,7 +166,6 @@ public class AutoApproveGateListener
         }
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onGateParked(GateParkedEvent event)
     {
         if (event.taskId() == null) {
@@ -188,7 +181,6 @@ public class AutoApproveGateListener
      * parked while auto-approve was off would sit unresolved forever after
      * the user turns it on.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onAutoApproveEnabled(AutoApproveEnabledEvent event)
     {
         if (!taskStore.isAutoApprove(event.taskId())) {

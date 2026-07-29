@@ -27,12 +27,7 @@ import com.bytequay.app.service.stage.PlanStageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.annotation.Order;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -180,8 +175,6 @@ public class TaskRuntimeStopReconciler
      *  before queued-turn recovery can redispatch it. Recovery completion
      *  is a later ordered pass: it may enqueue fresh work, which must not
      *  be mistaken for an orphan by the scheduler's startup scan. */
-    @Order(0)
-    @EventListener(ApplicationReadyEvent.class)
     public void reconcileOnStartup()
     {
         forEachStoppedTask(task -> reconcileStoppedTask(task.id()));
@@ -189,8 +182,6 @@ public class TaskRuntimeStopReconciler
 
     /** Complete durable resume/recovery requests only after the scheduler
      *  has recovered pre-restart RUNNING/QUEUED turns at order 20. */
-    @Order(25)
-    @EventListener(ApplicationReadyEvent.class)
     public void completePendingRequestsOnStartup()
     {
         forEachStoppedTask(task -> {
@@ -202,7 +193,6 @@ public class TaskRuntimeStopReconciler
     /** Park and terminal transitions publish teardown work: run it after
      *  the stop committed (immediately when there is no transaction), so
      *  a rolled-back park cannot kill a live runtime. */
-    @TransactionalEventListener(fallbackExecution = true)
     public void onPhaseTransitioned(TaskPhaseTransitionedEvent event)
     {
         if (taskStore.isV2Task(event.taskId())) {
@@ -219,7 +209,6 @@ public class TaskRuntimeStopReconciler
         }
     }
 
-    @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
     public void sweep()
     {
         forEachStoppedTask(task -> {

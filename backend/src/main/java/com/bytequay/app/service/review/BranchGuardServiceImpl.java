@@ -18,7 +18,6 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.BranchGuardStore;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -78,7 +77,6 @@ class BranchGuardServiceImpl
      *  {@link #enableOnFirstPush} only acts the first time — subsequent
      *  pushes are no-ops here regardless of whether the user later
      *  disabled it. */
-    @EventListener
     public void onPhaseTransitioned(TaskPhaseTransitionedEvent event)
     {
         if (event.to() == TaskPhase.PUSHED_AWAITING_CI) {

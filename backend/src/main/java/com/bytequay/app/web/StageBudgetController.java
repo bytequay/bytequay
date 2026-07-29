@@ -14,57 +14,39 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.stage.ExtendBudgetRequest;
-import com.bytequay.app.service.stage.StageBudgetService;
 import com.bytequay.app.service.stage.StageMetrics;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.UUID;
-
-import static java.util.Objects.requireNonNull;
-
 /**
- * The two recovery actions a user takes when a ci-fixing stage's auto-push
- * budget is exhausted: extend it, or fall back to per-push review. Both
- * 404 on an unknown stage and 422 unless the stage is actually awaiting
- * a budget decision (see {@link StageBudgetService}).
+ * Fail-closed compatibility routes for the retired LEGACY stage budget.
+ * V2 recovery is exposed through the typed Task CI-repair endpoint.
  */
 @RestController
 public class StageBudgetController
 {
-    private final StageBudgetService budgetService;
-
-    public StageBudgetController(StageBudgetService budgetService)
-    {
-        this.budgetService = requireNonNull(budgetService, "budgetService is null");
-    }
-
     @PostMapping("/api/stages/{stageId}/budget/extend")
     public StageMetrics extend(
             @PathVariable String stageId,
             @RequestBody(required = false) ExtendBudgetRequest body)
     {
-        Integer additional = body == null ? null : body.additional();
-        return budgetService.extendBudget(parse(stageId), additional);
+        throw retired();
     }
 
     @PostMapping("/api/stages/{stageId}/budget/fallback-to-review")
     public StageMetrics fallbackToReview(@PathVariable String stageId)
     {
-        return budgetService.fallbackToReview(parse(stageId));
+        throw retired();
     }
 
-    private static UUID parse(String raw)
+    private static ResponseStatusException retired()
     {
-        try {
-            return UUID.fromString(raw);
-        }
-        catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "bad stage id: " + raw);
-        }
+        return new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "LEGACY stage budget controls are retired; use typed V2 CI-repair recovery");
     }
 }

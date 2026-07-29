@@ -23,7 +23,6 @@ import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
 import com.bytequay.app.service.review.InvestigationReviewModel.ReviewTurnPrompt;
 import com.bytequay.app.service.skills.CavemanPrompt;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -35,7 +34,6 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -56,14 +54,13 @@ public class InvestigationReviewRunner
     private final ReviewProviderEndpoints endpoints;
     private final ReviewPassService legacyRoster;
     private final InvestigationReviewTools tools;
-    private final AgentScheduler scheduler;
     private final SessionKnowledgeProvider projectKnowledge;
     private final ObjectMapper mapper;
 
     public InvestigationReviewRunner(
             TurnRunner turnRunner, CliReviewRunner cliRunner,
             ReviewProviderEndpoints endpoints, ReviewPassService legacyRoster,
-            InvestigationReviewTools tools, AgentScheduler scheduler,
+            InvestigationReviewTools tools,
             SessionKnowledgeProvider projectKnowledge, ObjectMapper mapper)
     {
         this.turnRunner = requireNonNull(turnRunner, "turnRunner is null");
@@ -71,7 +68,6 @@ public class InvestigationReviewRunner
         this.endpoints = requireNonNull(endpoints, "endpoints is null");
         this.legacyRoster = requireNonNull(legacyRoster, "legacyRoster is null");
         this.tools = requireNonNull(tools, "tools is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.projectKnowledge = requireNonNull(projectKnowledge, "projectKnowledge is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -155,7 +151,7 @@ public class InvestigationReviewRunner
         ReviewTurnPrompt launch = investigationPrompt(
                 reviewId, snapshot, objectives, coverageContext, persona);
         return runPrepared(
-                provider, reviewId, assignmentId, snapshot,
+                provider, reviewId, assignmentId,
                 launch.systemPrompt(), launch.prompt(), false, costCapCents);
     }
 
@@ -223,7 +219,7 @@ public class InvestigationReviewRunner
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
     {
         return guidanceTurn(
-                provider, snapshot,
+                provider,
                 planGuidancePrompt(snapshot, objectives, guidance), costCapCents);
     }
 
@@ -247,7 +243,7 @@ public class InvestigationReviewRunner
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
     {
         return guidanceTurn(
-                provider, snapshot,
+                provider,
                 verifyGuidancePrompt(snapshot, objectives, guidance), costCapCents);
     }
 
@@ -266,17 +262,15 @@ public class InvestigationReviewRunner
     }
 
     private RunOutcome guidanceTurn(
-            ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
-            ReviewTurnPrompt prepared, int costCapCents)
+            ProviderChoice provider, ReviewTurnPrompt prepared,
+            int costCapCents)
     {
         String system = prepared.systemPrompt();
         String prompt = prepared.prompt();
         if ("cli".equals(provider.runner())) {
-            Path workingDir = snapshot.localRoot() == null
-                    ? Path.of(System.getProperty("java.io.tmpdir")) : snapshot.localRoot();
-            CliReviewRunner.Result result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
+            CliReviewRunner.Result result = cliRunner.run(
                     CliReviewRunner.Provider.of(provider.providerId()), system + "\n\n" + prompt,
-                    null, workingDir, null, costCapCents));
+                    null, frozenWorkingDirectory(), null, costCapCents);
             return new RunOutcome(
                     provider, cents(result.costUsdMilli()), result.text(), 0, 0, 1, result.end());
         }
@@ -289,14 +283,13 @@ public class InvestigationReviewRunner
                 return costSoFarMilliUsd >= (long) costCapCents * 10;
             }
         };
-        Callable<TurnResult> work = () -> turnRunner.runTurn(
+        TurnResult result = turnRunner.runTurn(
                 new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
                         endpoint.modelId(), endpoint.transport() == TurnSpec.Transport.ANTHROPIC
                                 ? system : null,
                         messages(endpoint.transport(), system, prompt), mapper.createArrayNode(),
                         1_024, 1),
                 call -> ToolExecutor.ToolCallResult.error("planning guidance has no tools"), hooks);
-        TurnResult result = scheduler.invokeAll(List.of(work)).get(0);
         return new RunOutcome(provider, cents(result.costMilliUsd()), result.finalText(),
                 result.tokensIn(), result.tokensOut(), result.rounds(), result.end().name());
     }
@@ -322,7 +315,7 @@ public class InvestigationReviewRunner
     {
         ReviewTurnPrompt prepared = selfRefutationPrompt(snapshot, findingBundles);
         return runPrepared(
-                provider, reviewId, assignmentId, snapshot,
+                provider, reviewId, assignmentId,
                 prepared.systemPrompt(), prepared.prompt(), false, costCapCents);
     }
 
@@ -349,7 +342,7 @@ public class InvestigationReviewRunner
     {
         ReviewTurnPrompt prepared = reconstructionPrompt(snapshot, locations, persona);
         return runPrepared(
-                provider, reviewId, assignmentId, snapshot,
+                provider, reviewId, assignmentId,
                 prepared.systemPrompt(), prepared.prompt(), true, costCapCents);
     }
 
@@ -382,7 +375,7 @@ public class InvestigationReviewRunner
         ReviewTurnPrompt prepared = verificationPrompt(
                 snapshot, verifierRunId, findingBundle, blindReconstruction, persona);
         return runPrepared(
-                provider, reviewId, assignmentId, snapshot,
+                provider, reviewId, assignmentId,
                 prepared.systemPrompt(), prepared.prompt(), true, costCapCents);
     }
 
@@ -428,41 +421,28 @@ public class InvestigationReviewRunner
                 """);
         String prompt = contextPrompt(snapshot, objectives);
         if ("cli".equals(provider.runner())) {
-            Path workingDir = snapshot.localRoot() == null
-                    ? Path.of(System.getProperty("java.io.tmpdir")) : snapshot.localRoot();
-            CliReviewRunner.Result result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
+            CliReviewRunner.Result result = cliRunner.run(
                     CliReviewRunner.Provider.of(provider.providerId()), system + "\n\n" + prompt,
-                    null, workingDir, null));
+                    null, frozenWorkingDirectory(), null);
             return amendment(result.text());
         }
         ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(provider.providerId());
-        Callable<TurnResult> work = () -> turnRunner.runTurn(
+        TurnResult result = turnRunner.runTurn(
                 new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
                         endpoint.modelId(), endpoint.transport() == TurnSpec.Transport.ANTHROPIC ? system : null,
                         messages(endpoint.transport(), system, prompt), mapper.createArrayNode(),
                         1_024, 1),
                 call -> ToolExecutor.ToolCallResult.error("planning has no tools"), TurnHooks.NONE);
-        return amendment(scheduler.invokeAll(List.of(work)).get(0).finalText());
-    }
-
-    private RunOutcome run(
-            ProviderChoice provider, String reviewId, String assignmentId,
-            InvestigationReviewContext.Snapshot snapshot, String system,
-            String prompt, boolean verifier, int costCapCents)
-    {
-        String styledSystem = CavemanPrompt.wrap(system);
-        return runPrepared(
-                provider, reviewId, assignmentId, snapshot,
-                styledSystem, prompt, verifier, costCapCents);
+        return amendment(result.finalText());
     }
 
     private RunOutcome runPrepared(
             ProviderChoice provider, String reviewId, String assignmentId,
-            InvestigationReviewContext.Snapshot snapshot, String styledSystem,
+            String styledSystem,
             String prompt, boolean verifier, int costCapCents)
     {
         return "cli".equals(provider.runner())
-                ? runCli(provider, reviewId, assignmentId, snapshot,
+                ? runCli(provider, reviewId, assignmentId,
                         styledSystem + "\n\n" + prompt, costCapCents)
                 : runApi(provider, reviewId, assignmentId, styledSystem, prompt, verifier, costCapCents);
     }
@@ -482,20 +462,19 @@ public class InvestigationReviewRunner
                 return costSoFarMilliUsd >= (long) costCapCents * 10;
             }
         };
-        Callable<TurnResult> work = () -> turnRunner.runTurn(
+        TurnResult result = turnRunner.runTurn(
                 new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
                         endpoint.modelId(), endpoint.transport() == TurnSpec.Transport.ANTHROPIC
                                 ? system : null,
                         messages, tools.tools(endpoint.transport(), verifier),
                         MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS), executor, hooks);
-        TurnResult result = scheduler.invokeAll(List.of(work)).get(0);
         return new RunOutcome(provider, cents(result.costMilliUsd()), result.finalText(),
                 result.tokensIn(), result.tokensOut(), result.rounds(), result.end().name());
     }
 
     private RunOutcome runCli(
             ProviderChoice provider, String reviewId, String assignmentId,
-            InvestigationReviewContext.Snapshot snapshot, String prompt, int costCapCents)
+            String prompt, int costCapCents)
     {
         CliReviewRunner.Provider cli = CliReviewRunner.Provider.of(provider.providerId());
         if (cli != CliReviewRunner.Provider.CLAUDE) {
@@ -503,11 +482,9 @@ public class InvestigationReviewRunner
         }
         String url = MCP_BASE + "/api/agent-reviews/" + reviewId
                 + "/assignments/" + assignmentId + "/mcp";
-        Path workingDir = snapshot.localRoot() == null
-                ? Path.of(System.getProperty("java.io.tmpdir")) : snapshot.localRoot();
-        CliReviewRunner.Result result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
-                cli, prompt, null, workingDir,
-                new CliReviewRunner.McpEndpoint(reviewId, assignmentId, url), costCapCents));
+        CliReviewRunner.Result result = cliRunner.run(
+                cli, prompt, null, frozenWorkingDirectory(),
+                new CliReviewRunner.McpEndpoint(reviewId, assignmentId, url), costCapCents);
         return new RunOutcome(
                 provider, cents(result.costUsdMilli()), result.text(), 0, 0, 1, result.end());
     }
@@ -526,6 +503,12 @@ public class InvestigationReviewRunner
         user.put("content", prompt);
         messages.add(user);
         return messages;
+    }
+
+    private static Path frozenWorkingDirectory()
+    {
+        return Path.of(System.getProperty("java.io.tmpdir"))
+                .toAbsolutePath().normalize();
     }
 
     static String retrievalHint(InvestigationReviewContext.Snapshot snapshot)

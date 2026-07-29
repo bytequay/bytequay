@@ -2,7 +2,7 @@
 
 Status: **LOCKED**
 
-Version: **1.9**
+Version: **3.3**
 
 Decision date: **2026-07-28**
 
@@ -24,22 +24,22 @@ implementation.
 
 ## Purpose
 
-The current flow has accumulated many race fixes around one structural
-problem: several classes can infer and mutate the same lifecycle state.
+The former flow accumulated many race fixes around one structural problem:
+several classes could infer and mutate the same lifecycle state.
 AgentScheduler, Task lifecycle services, Stage lifecycle services, Brain
 review coordination, validation listeners, PR polling, and projections all
-participate in transitions. A callback can therefore be correct in isolation
-and still be wrong for the current Task, Stage, generation, code fingerprint,
-or remote head.
+participated in transitions. A callback could therefore be correct in
+isolation and still be wrong for the current Task, Stage, generation, code
+fingerprint, or remote head.
 
-The target design has one rule:
+The locked design has one rule:
 
 > A domain owner changes its own state synchronously. Asynchronous
 > infrastructure executes requested work and reports facts; it never decides
 > the next domain state.
 
-The target must preserve the complete existing development and review product,
-not only the happy path.
+The implementation preserves the complete development and review product, not
+only the happy path.
 
 ## Preserved product topology and journey
 
@@ -160,8 +160,8 @@ compatibility matrix below; no ignored document is needed to implement them.
     review/validation blockers. Automation cannot use the override, and
     structural Git/authorization safety checks are never overridable.
 23. **C23** — CapacityManager is the sole admission-policy authority and sole
-    writer of CapacityLease. No dispatcher, executor, adapter, or legacy bridge
-    may launch an Operation without its exact lease.
+    writer of CapacityLease. No dispatcher, executor, or adapter may launch an
+    Operation without its exact lease.
 24. **C24** — A Task, Stage, Turn, Operation, or provider session is not a JVM
     thread. Only an admitted running execution temporarily borrows a worker;
     durable queueing and external/user waits hold no worker.
@@ -169,20 +169,34 @@ compatibility matrix below; no ignored document is needed to implement them.
     one shared virtual-thread-per-admitted-operation executor and one small
     scheduled maintenance executor. Async families are logical lanes, not
     separate pools, and executor queues never represent workflow state.
-26. **C26** — During mixed LEGACY/V2 operation, both paths acquire from the
-    same CapacityManager ceilings through a thin legacy admission bridge.
+26. **C26** — New Task creation is permanently V2-only. Application creation
+    enters through typed TaskCreationHandoff, and the database rejects every
+    non-V2 Task insert. LEGACY Task, Turn, Stage, AgentRun, validation, and
+    effect rows are immutable history: no legacy scheduler, admission bridge,
+    executor, or recovery loop may claim or mutate them. Normal Task work
+    cannot create an AgentRun. The sole schema-compatibility exception is an
+    already-terminal, hidden, detached review header required by retained
+    `review_round` foreign keys; it is inserted once with no Workspace, Trunk,
+    Task, or Stage ownership and is never a Session, lifecycle state,
+    accounting projection, or execution
+    authority. ReviewAssignmentTurn owns the corresponding work and result.
     Normal Task work cannot consume reserved Trunk-control capacity.
+    Development-flow canary
+    properties and conditional bean gates do not exist after cutover:
+    ExecutionDispatcher and V2 runtime/MCP beans are unconditional, and the
+    route diagnostic reports only `v2Only=true`.
 27. **C27** — Manual direct-merge consent freezes exactly one merge method
     (`merge`, `squash`, or `rebase`) with the exact-head MergeAuthorization.
     Recovery uses that frozen method and never substitutes another strategy.
     Historical V2 operations created before method capture retain the former
     `squash` behavior. Merge-queue execution remains queue-owned.
 28. **C28** — Every explicit user-authorized GitHub write carries one stable
-    client command id. The Task stores that id with the exact PR subject and
-    immutable payload; an identical retry replays the same durable action and
-    terminal result, while reuse for different input is rejected. Before the
-    first remote effect, execution freezes the matching remote-effect ids that
-    already exist, and recovery may adopt only an id outside that baseline.
+    client command id. Its Task or zero-Task review Trunk owner stores that id
+    with the exact PR subject and immutable payload; an identical retry replays
+    the same durable action and terminal result, while reuse for different
+    input is rejected. Before the first remote effect, execution freezes the
+    matching remote-effect ids that already exist, and recovery may adopt only
+    an id outside that baseline.
     A top-level comment may be authorized against an exact terminal PR after
     merge or close; reviews, queue changes, and other Stage-bound writes still
     require their live owner and current open-head fence.
@@ -197,18 +211,244 @@ compatibility matrix below; no ignored document is needed to implement them.
 30. **C30** — `thread_settings.max_running_tasks` is the sole persisted Trunk
     Task-ceiling input. Upgrade migration V275 normalizes invalid historical
     values and projects an explicit legacy `threads.parallel_slots > 1` value
-    into that field once; `parallel_slots` then remains legacy-drain data, not
-    a second admission authority. Capacity notifications are post-commit
-    hints: ExecutionDispatcher queues a coalesced retry on its owned
+    into that field once; `parallel_slots` then remains historical
+    compatibility data, not a second admission authority. Capacity
+    notifications are post-commit hints: ExecutionDispatcher queues a
+    coalesced retry on its owned
     maintenance executor, and transaction-completion callbacks perform no
     repository work.
-31. **C31** — Legacy retirement diagnostics fail closed while any nonterminal
-    LEGACY Task, queued/running legacy Turn, live legacy AgentRun, unfinished
-    legacy validation claim, or unconsumed legacy effect remains. AgentRun
-    liveness is QUEUED, RUNNING, PAUSED, or AWAITING_GATE. A detached run is
-    legacy drain work unless its exact ReviewRound and ReviewSession identify
-    a V2 owner Task. A cancellation-requested validation remains drain-owned
-    until completion or durable supersession proves it stopped.
+31. **C31** — On 2026-07-29 the product owner confirmed that there are no users
+    and no production legacy data, and explicitly waived the rollout's drain
+    observation and retention-window preconditions. Legacy execution was
+    therefore retired immediately. The waiver is specific to this cutover: it
+    does not authorize deletion of historical rows, and it is not a general
+    precedent for a future migration. Historical LEGACY rows remain readable
+    and immutable, compatibility mutation ports fail closed, and reintroducing
+    legacy execution requires a new locked decision and migration. “No
+    retention window” means there is no waiting period before runtime removal;
+    preserving any rows that happen to exist is a data-safety rule and does not
+    delay or keep legacy execution alive.
+32. **C32** — A user-requested local test run is a durable Validation-family
+    Operation against one exact active V2 Task code subject. An HTTP caller may
+    wait for its result as a convenience, but request timeout does not cancel,
+    duplicate, or make the work synchronous. A stable command id is retained
+    while the Operation is nonterminal, and result acceptance projects one
+    deterministic local check and timeline event at most once.
+33. **C33** — Every ReviewAssignmentTurn freezes a positive cost reservation.
+    Accepted provider receipts plus live reservations cannot exceed the
+    ReviewRound cap, including concurrently admitted seats and follow-up Turns.
+    Terminal Turns release unused reservation; retries and follow-ups require a
+    new reservation from the remaining durable budget.
+34. **C34** — A synchronous development-flow command performs database work
+    only. In particular, Approve & ship freezes authorization and promotion
+    requirements without Git, filesystem, credential, provider, or GitHub I/O.
+    ExecutionDispatcher proves those requirements while executing the durable
+    Operation. Every review command that can admit a new seat—initial start,
+    Continue, Re-review, an answer-driven follow-up, or a scheduled/delta
+    request—likewise persists exact snapshot intent and performs no source
+    capture or provider I/O synchronously. Periodic V2 redrive and archival
+    scans run only as dispatcher-owned MaintenanceWork; they may request owner
+    commands but are never lifecycle owners or independent schedulers.
+35. **C35** — Workspace issue intake and quality scans are discovery-only
+    scheduled initiators. They may create a typed V2 Task assignment and issue
+    an exact synchronous Plan owner command, but they cannot inspect or mutate
+    legacy lifecycle rows, create AgentRuns, or launch execution. Automated
+    Plan approval records `AUTOMATION` as its actor kind and must satisfy the
+    same current-revision, self-review, and follow-up fences as a human or
+    policy approval.
+36. **C36** — Every user-visible write on a Task-owned remote PR enters one
+    typed, durable user-remote-action protocol. The authorization freezes the
+    semantic action, immutable payload, exact Task/Remote Stage generation,
+    PR binding, head/base SHA, and stable client command id before dispatcher
+    execution. This includes manual CI rerun, draft/readiness, title/body,
+    close, inline and thread comments, edits/deletes, reviewer/assignee/label
+    changes, reactions, and thread resolution. A repeated command id replays
+    the same authorization; a changed payload is rejected. Only an exact
+    top-level comment may use the preserved terminal-PR exception; every other
+    action requires the current open Remote Stage.
+37. **C37** — A dispatched code-writing Operation captures every worktree fact
+    needed for result acceptance while its exact CapacityLease and writer
+    fence are still active. The immutable raw result carries the output head,
+    fingerprint, cleanliness, frozen base, and merge base as applicable.
+    Synchronous result delivery performs database work only; it must not run
+    Git, inspect the filesystem, or reconstruct evidence after releasing the
+    execution lease.
+38. **C38** — A reviewed quality-scan `CreateIssue` proposal is not a legacy
+    publish action. The quality Task is first canceled; approval then performs
+    one database-only command that claims the exact notification, freezes its
+    repository/title/body and a stable remote marker, and creates one
+    Task-owned `GITHUB_EFFECT` DispatchTicket. ExecutionDispatcher alone calls
+    GitHub. Restart reconciliation probes the marker and never repeats issue
+    creation. Result delivery records issue provenance and resolves only that
+    notification/operation; approval, discard, failure, and recovery never
+    invoke TaskPhaseMachine or transition the already-canceled Task. The first
+    terminal delivery freezes its exact result/error and delivery timestamp;
+    an identical replay is accepted, while a changed replay is rejected and
+    provenance is never recorded twice.
+39. **C39** — Every seat-admitting review command for a V2 Task is a
+    database-only command. Initial start also creates the placeholder
+    ReviewSession; start, Continue, Re-review, answer, and scheduled/delta
+    commands each create one exact TaskReviewSnapshot Operation and one
+    Task-owned `LOCAL_GIT` DispatchTicket for that command. The Operation
+    freezes Task epoch, worktree path, code fingerprint, exact head and base,
+    options, command payload, and review identity. ExecutionDispatcher captures
+    the exact diff only after exclusive Task admission and the writer fence.
+    Accepted delivery re-enters TaskCommandExecutor before its fresh database
+    transaction creates ReviewAssignmentTurns; request and delivery perform no
+    Git or provider I/O. A stale or canceled Task, changed code subject, or
+    changed ReviewSession–Task link supersedes the Operation without admitting
+    review work, and terminal replay must match the first exact result.
+40. **C40** — Spawn build has two explicit ownership modes. Findings on a PR
+    writable by the user create a Trunk-owned `REVIEW_FINDINGS` Task assignment
+    and resolve only from its TaskOutcome. Findings on somebody else's PR use
+    a live zero-Task BUILD Trunk: its immutable AGREED or human-included
+    ARBITRATED selection becomes a comment-only proposal and can never
+    materialize a writable Task or worktree. Approve and discard are
+    database-only commands. Approval freezes one stable command, exact reviewed
+    head, marker-bearing review payload, and Trunk-owned
+    `GITHUB_EFFECT` DispatchTicket; discard performs no remote effect. The
+    dispatcher posts or recovers one COMMENT review outside the frozen remote
+    baseline. A delayed GitHub read stays on the same semantic mutation attempt
+    and spends no mutation retry budget, but a separate durable observation
+    count/deadline prevents an infinite wait. Exact finding revisions resolve
+    only after accepted success, and the Trunk cannot be purged while delivery
+    or finalization remains live. This immutable zero-Task publication is
+    deliberately one-shot: terminal failure never rearms or reuses its
+    authorization. The UI exposes the durable reason and directs the user to a
+    new review pass/selection for a new publication; Task Retry rules do not
+    manufacture a Task or mutate this frozen proposal.
+41. **C41** — Publishing a standalone `ReviewPass` is a one-shot durable
+    zero-Task review-Trunk effect. A newly seated review thread is created on
+    the V2 route; a historical LEGACY thread or `TASK_PHASE`-hosted pass is
+    rejected before any authorization, ticket, wake, or lifecycle write.
+    Authorization freezes the exact base repository, head repository/ref,
+    reviewed head SHA, verdict, ordered finding ids and revisions, rendered
+    marker payload, and stable client command. It creates one Trunk-owned
+    `GITHUB_EFFECT` DispatchTicket; only ExecutionDispatcher may execute or
+    probe the GitHub review. Accepted delivery alone may mark exactly those
+    findings POSTED and the pass PUBLISHED. Queued, running, retryable failure,
+    indeterminate, published, and terminal failure remain readable after app
+    restart. A terminal one-shot failure never rearms; the UI directs the user
+    to start a new review pass. Unfinished or unfinalized publication blocks
+    physical Trunk purge, while finalized accepted history purges explicitly
+    child-before-parent.
+42. **C42** — A V2 TaskTurn or StageTurn receives only its typed V2 tool
+    profile. Legacy lifecycle, TaskPhase, generic artifact, PR-check, and
+    review-verdict mutation tools are never exposed to that provider session.
+    After a successful writer-capable StageTurn, ExecutionDispatcher
+    checkpoints any provider changes as a deterministic commit inside the
+    exact Task writer fence, excluding ByteQuay's hook directory, and captures
+    the resulting head, fingerprint, cleanliness, frozen base, and merge base
+    before releasing either lease. A clean no-change Turn creates no empty
+    commit. Owner delivery consumes only that immutable evidence.
+43. **C43** — A Task-owned PR has one stable local identity and one write
+    boundary. Creation or remote adoption occurs only inside its exact typed
+    Task command/Operation; generic PR synchronization and controller
+    fallbacks cannot create, replace, alias, or refresh that Task binding.
+    Task-owned reads use the stored binding, and a taskless request cannot
+    infer ownership from repository, number, current branch, or a nullable
+    Task id.
+44. **C44** — The desktop persists each explicit remote-write command id
+    atomically before transport, keyed by a digest of its complete semantic
+    intent rather than by its body text. Transport loss and process restart
+    retain the same id. After a durable authorization response, a surface may
+    clear the transport-retry key only if it truthfully reports the action as
+    queued; a surface claiming published, merged, or any other completed state
+    clears only from the durable terminal projection. Definitive client
+    rejection may also clear the key. Authorization alone is never displayed
+    as external-effect success.
+45. **C45** — A visible GitHub write for a PR with no Task owner uses one
+    deterministic born-V2 REVIEW Trunk for the exact Workspace/repository/PR
+    identity. Its database-only authorization requires an unambiguous
+    Workspace repository mapping and a complete cached remote subject,
+    including exact base and head SHAs; it performs no GitHub read. One
+    immutable Trunk-owned `GITHUB_EFFECT` action freezes the semantic action,
+    payload, stable command id, remote baseline, and subject. Dispatcher
+    execution and exact accepted delivery own the effect and durable status
+    projection. This covers draft/readiness, title/body, comments and reviews,
+    edit/delete/reply, reviewer/assignee/label changes, reactions, thread
+    resolution, CI rerun, approval, merge/dequeue, and auto-merge controls.
+    A taskless push-driven CI trigger is rejected because it has no Task
+    worktree or writer fence. Historical direct AI-review publication and
+    random-command service overloads are retired rather than bypassing this
+    protocol.
+46. **C46** — `AgentRun` is immutable compatibility data after cutover. A new
+    row may be inserted only as the exact already-terminal, hidden
+    `review_compatibility_header` required by the retained `review_round`
+    foreign key. That header has null Trunk, Task, and Stage ownership and can
+    never be updated, reparented, resumed, accounted, or exposed as a Session.
+    ReviewSession and ReviewAssignmentTurn own all review lifecycle and usage.
+47. **C47** — Quick review is a one-seat preset of the typed ReviewSession and
+    ReviewAssignmentTurn flow. Its pre-seat snapshot is an unscoped
+    `REMOTE_OBSERVATION` operation with lane mask 64. It freezes the exact
+    repository, remote PR number, base branch, base/head, diff, and
+    capabilities, admits through CapacityManager, reserves durable round
+    budget, and exposes diff-only investigation tools; repository-file access,
+    self-refutation, and a separate verifier seat are unavailable. It has no
+    Workspace, Trunk, or Task execution owner, does not count as a running Task,
+    and has no application-executor job, in-memory run map, legacy AI-review
+    draft, or direct provider/GitHub publication path. Review GET endpoints are
+    projection-only.
+48. **C48** — Every typed ReviewRound stores one immutable source snapshot
+    before any seat is admitted. The snapshot includes the repository, remote
+    PR number, base branch, PR title and description, exact base/head, diff,
+    changed-file list, complete bodies for every non-deleted changed file,
+    capabilities, and source coordinates retained only as capture provenance.
+    Full review advertises `frozen-changed-files`: it may read those persisted
+    bodies but cannot claim arbitrary repository source, repository callers,
+    or Git history. Quick review remains diff-only. Every result, guidance,
+    restart, deterministic coverage pass, verification, and finalization
+    continuation loads that row only; uncaptured paths fail closed, typed CLI
+    work uses a neutral non-checkout directory, and no continuation may fetch
+    GitHub, run Git, or read mutable filesystem state after the dispatch lease.
+    V2 Task reviews derive it from the accepted TaskReviewSnapshot result, and
+    standalone reviews derive it from the accepted ReviewSessionSnapshot
+    result.
+49. **C49** — Every seat-admitting command for a standalone ReviewSession is
+    database-only and creates one durable ReviewSessionSnapshot Operation with
+    a ReviewSession-owned DispatchTicket. Quick capture follows C47. Full
+    capture is Workspace-only, uses combined `LOCAL_GIT` + `GITHUB` lane mask
+    48, and is serialized symmetrically against every same-Workspace
+    `LOCAL_GIT` CapacityLease. It has no Trunk or Task owner and consumes no
+    running-Task count. The Operation freezes repository, remote PR number,
+    base branch, PR title and description, exact base/head, command payload,
+    Workspace and local
+    repository coordinates before I/O. A changed PR subject, Workspace
+    repository binding, local path, or later Task/Trunk attachment supersedes
+    it without admitting a seat. Accepted delivery alone persists the frozen
+    ReviewRound snapshot and admits typed seats.
+50. **C50** — Migration V292 widens DispatchTicket ownership to
+    `REVIEW_SESSION` only through a forward-only canonical SQLite table
+    rebuild that preserves every row, explicit index, trigger, foreign key,
+    and integrity invariant. Migration V293 adds the standalone and
+    per-command Task snapshot Operations, their preparation projection, exact
+    ticket-shape guards, and purge guards: a live ticket blocks deletion and a
+    terminal ticket is deleted with its owning snapshot Operation. Neither
+    migration weakens historical-row immutability.
+51. **C51** — Workspace deletion is the one force-delete boundary for a
+    standalone full ReviewSession. It persists cancellation on every exact
+    ReviewSessionSnapshot and ReviewAssignmentTurn ticket before signaling an
+    active handler, transactionally authorizes the ReviewSession cascade, then
+    removes the exact outbox, delivery claim, execution evidence, CapacityLease,
+    and DispatchTicket graph before deleting the Workspace parent. An unknown
+    standalone-review ticket shape or uncanceled live ticket fails closed. A
+    non-cooperative handler may return after the cancellation signal and purge
+    commit, but the absent ticket and owner fence result delivery and evidence
+    finalization from recreating any state; evidence failure remains fatal while
+    the exact ticket still exists.
+52. **C52** — Workspace repository detach and re-clone are destructive
+    Workspace commands, not generic Session pause controls. They are rejected
+    until every V2 Task in the Workspace is terminal and every Workspace-scoped
+    DispatchTicket is terminal; paused Tasks and waiting, retryable, claimed,
+    result-pending, or delivering tickets are not quiescent. The application
+    performs an actionable preflight, while database guards are authoritative
+    at the serialized write boundary. The reciprocal admission guard rejects a
+    new Workspace-scoped DispatchTicket while the repository is detached or an
+    active re-clone is queued, forking, cloning, or syncing. A race therefore
+    has one winner: either the ticket commits and blocks the destructive
+    command, or the destructive command commits and blocks the ticket. There is
+    no Workspace-wide pause mutation; exact Task and Stage owners must cancel
+    or finish their own work before repository replacement.
 
 ## Owners and boundaries
 
@@ -220,7 +460,7 @@ compatibility matrix below; no ignored document is needed to implement them.
 | LocalDevelopmentStageManager | Local implementation checkpoint, validation, private local review threads/batches, publish eligibility |
 | RemoteDevelopmentStageManager | Accepted remote head, CI checkpoint, remote inbox and rounds, readiness, merge workflow |
 | CleanupStageManager | Quiescence and cleanup checklist |
-| ReviewSessionManager | PR-subject advisory review sessions, optional Workspace/Task attachment, seats, findings, guidance, and budgets |
+| ReviewSessionManager | PR-subject advisory review sessions, optional Workspace/Task attachment, durable standalone snapshot preparation, seats, findings, guidance, and budgets |
 | ExecutionDispatcher | DispatchTicket claim, execution lease/heartbeat, provider/process lifecycle, infrastructure retry, cancellation and result delivery; requests admission from CapacityManager |
 | CapacityManager | Sole capacity-lease writer and policy owner for global, Workspace, Trunk, Task, control, and resource-lane admission |
 | RemoteObserver | GitHub webhook/poll ingestion and delivery of immutable observations |
@@ -466,6 +706,12 @@ ReviewAssignmentTurn belongs to one review seat/assignment. It supports the
 standalone and advisory multi-agent review product without inventing a fake
 Task or Stage.
 
+Each Turn freezes a positive provider-cost reservation at admission. The
+database rejects a Turn or later round-budget reduction when accepted receipts
+plus live reservations would exceed the ReviewRound cap. Completion records
+the exact receipt and releases unused reservation; a retry or follow-up Turn
+reserves again from the durable remainder.
+
 ### Typed supporting records
 
 Correctness-bearing conversation records follow the same ownership split:
@@ -518,13 +764,17 @@ Cross-domain use cases call owners explicitly in a documented order.
 
 Command transactions are atomic. A requested asynchronous record, its
 DispatchTicket, and the outbox wake commit before execution can begin.
+Review start, Continue, Re-review, answer, and scheduled/delta commands end at
+that durable boundary; none reads GitHub, runs Git, inspects a worktree, or
+launches a provider before commit.
 
 ### Asynchronous execution pattern
 
 1. ExecutionDispatcher claims a DispatchTicket after capacity admission.
 2. It leases and heartbeats the ticket.
 3. It invokes an agent, local process, Git, or GitHub adapter.
-4. It records raw execution evidence.
+4. It records raw execution evidence, including fenced output-code facts for
+   a code-writing attempt before releasing its execution and writer leases.
 5. It submits a synchronous result command to the owning use case.
 6. The owner accepts, rejects, or supersedes the result.
 
@@ -549,6 +799,55 @@ There are seven infrastructure families:
 
 First push, CI repair, remote feedback, branch sync, and Cleanup are domain
 protocols composed from these families. They do not get their own schedulers.
+User-requested local tests belong to Validation; they do not add an eighth
+family. A desktop request may wait for a terminal result, but the durable
+Operation continues after a transport timeout and keeps the same command id
+until terminal completion.
+
+The user-visible push-driven CI trigger is not an alias for rerunning failed
+checks. Its typed user action composes the Local Git and GitHub lanes in one
+writer-required DispatchTicket; the command transaction performs no I/O. The
+dispatched operation creates or adopts one exact marker empty commit, pushes it
+under the Task's writer fence, and proves the local, remote-branch, and PR heads
+before advancing the current worktree subject. Recovery resumes that same
+marker commit instead of creating another one.
+
+Quality-scan issue creation also remains inside the existing GitHub-effects
+family; it is not an eighth family and owns no scheduler. Its approval endpoint
+returns after durable authorization. A GITHUB lease covers both the initial
+marker probe and the create call. If the process loses the response after the
+mutation begins, later attempts only probe the exact marker; absence is parked
+for reconciliation rather than treated as permission to create again.
+
+Zero-Task external PR actions also reuse the GitHub-effects family and the
+shared dispatcher. Their deterministic review Trunk is a durable domain owner,
+not a worker, pool, or scheduler. Merge and auto-merge semantic actions retain
+their exact remote subject and method/policy evidence even when delivered by
+that shared handler; this does not create an additional async family.
+
+Review snapshot preparation also composes existing families rather than adding
+an eighth family. A TaskReviewSnapshot is Task-owned `LOCAL_GIT`. A standalone
+quick ReviewSessionSnapshot is unscoped `REMOTE_OBSERVATION`; a standalone full
+ReviewSessionSnapshot combines `LOCAL_GIT` and `GITHUB` under one Workspace
+lease. Only the accepted snapshot result can make a ReviewRound eligible to
+admit typed review Turns. Full capture also copies the complete body of each
+non-deleted changed file into that immutable row while the lease is held;
+after release, changed-file reads and deterministic reference coverage use
+only those copies.
+
+Retiring AgentScheduler does not create a replacement scheduler for helper
+calls. GlobalReviewRunner, HarnessDiagnosisService, LessonExtractor,
+InvestigationReviewRunner, and CliReviewRunner invoke their provider
+synchronously in the execution context established by their caller. They own
+no queue, retry loop, worker pool, or lifecycle transition. When such a call is
+part of a Task-owned V2 Operation, dispatcher and capacity admission occur
+before the helper is entered. Standalone review assignments remain typed
+ReviewAssignmentTurns; the older ReviewPass renderer uses an exact
+ReviewCallContext and runs calls synchronously inside its existing bounded
+review owner rather than introducing legacy admission.
+Typed review provider processes always receive a neutral non-checkout working
+directory. Their source surface is the typed tool contract backed by the
+ReviewRound snapshot, never ambient checkout access.
 
 ### Worker and executor contract
 
@@ -582,11 +881,17 @@ expiry. The seven async families are logical lanes on those executors, not
 seven dispatcher pools. RemoteObserver and unrelated application subsystems
 may keep their own read-only or hardware-specific executors.
 
-During LEGACY/V2 coexistence, a thin legacy admission bridge makes
-AgentScheduler acquire and release the same CapacityManager leases as V2.
-Separate LEGACY and V2 global counters are forbidden because they would
-oversubscribe the machine. The bridge changes legacy admission only; legacy
-domain coordination continues to drain through its existing path.
+The scheduled executor also invokes registered MaintenanceWork in short,
+bounded passes. MaintenanceWork may discover eligible exact owners and issue a
+synchronous owner command that persists durable work. It cannot perform the
+effect, hold workflow state in its schedule, or create another executor. Idle
+Task archival and standing-consent local auto-publish redrive use this path.
+
+There is no mixed-version execution path after retirement. ExecutionDispatcher
+and CapacityManager are the only development-flow execution and admission
+authorities. Historical LEGACY rows may appear in read projections, but no
+worker claims them and no legacy bridge, scheduler, pool, semaphore, or
+recovery loop participates in admission.
 
 ### Worktree writer lease
 
@@ -642,6 +947,11 @@ Rules:
   Stage command does not consume execution capacity.
 - Read-only advisory review seats use their review lane and cannot edit the
   worktree.
+- A standalone full-review snapshot owns no Task, but its Workspace-scoped
+  `LOCAL_GIT` + `GITHUB` lease conflicts symmetrically with every
+  same-Workspace `LOCAL_GIT` lease. It does not increment the Workspace or
+  Trunk executing-Task count. A quick snapshot is an unscoped, diff-only
+  `REMOTE_OBSERVATION` lease and likewise does not count as a Task.
 - Waiting for CI, review, permission, a user gate, or a timer consumes no slot.
 - Creating Task B while Task A runs is allowed. Task B is created immediately;
   its first operation may wait for admission without inventing a QUEUED Task
@@ -653,11 +963,11 @@ Rules:
 - At most one nonterminal Task owns a stable PR identity.
 - No Thread.status busy gate may block a sibling Task.
 
-At initial cutover, the shared LEGACY/V2 hard ceilings remain four CLI
-executions and six API executions. One permit inside each ceiling is reserved
-for Trunk control; Task-owned work cannot consume that reservation. Other
-lanes, including validation and read-only review, require explicit configured
-ceilings before canary and may not bypass CapacityManager.
+The V2 hard ceilings remain four CLI executions and six API executions. One
+permit inside each ceiling is reserved for Trunk control; Task-owned work
+cannot consume that reservation. Other lanes, including validation and
+read-only review, require explicit configured ceilings and may not bypass
+CapacityManager.
 
 Workspace and Trunk limits have one policy source each. V275 projects valid
 legacy parallel-slots data once into thread settings and guards that setting
@@ -671,6 +981,14 @@ TaskIntent owned by Trunk. Do not revive TaskPhase.QUEUED or a JSON queue.
 
 Next returns UI focus to Trunk and leaves the current Task alive at its exact
 wait/gate checkpoint. Only Trunk materializes another Task.
+
+### Manual cherry-pick conflict boundary
+
+A Workspace cherry-pick conflict is not development-flow execution. The
+command returns the retained worktree path and exact conflict paths so the user
+can resolve or abort manually. It creates no Trunk, Task, Stage, Turn, provider
+session, or legacy scheduler work. A later automated conflict-resolution
+feature would require a typed V2 Operation and a separately locked contract.
 
 ## End-to-end flow
 
@@ -736,14 +1054,26 @@ Task creation is a synchronous Trunk-to-Task use case:
 2. TaskManager creates a PROVISIONING Task with workflow version, epoch one,
    policy revision, Task sequence, and immutable assignment.
 3. TaskManager requests ProvisionTaskOperation.
-4. Provisioning creates or adopts the exact branch/worktree.
+4. Provisioning discovers any existing PR subject and creates or adopts the
+   exact branch/worktree under dispatcher admission.
 5. TaskManager accepts provisioning evidence and opens Plan.
+
+Steps 1–3 are one database-only command: they perform no credential, GitHub,
+Git, filesystem, or provider I/O. For an existing PR, creation freezes the
+local repository route and PR number. A review-findings Task additionally
+freezes the current review selection. The ProvisionTaskOperation owns remote
+discovery under combined GitHub and Local Git capacity, proves the exact base
+and head repositories, refs, and SHAs, and records that subject in its durable
+source proof and result. Delivery rejects a changed review selection or a
+result whose discovered subject differs from the frozen route and PR number.
+Exact remote fields retained on older assignments remain readable for upgrade
+and replay but are not synchronous input to new Task creation.
 
 TaskAssignment variants must cover:
 
 - NEW_FROM_TRUNK with plan seed, planning-base SHA, and prompt
-- EXISTING_OWN_PR with repository, PR number, and exact remote head
-- REVIEW_FINDINGS with review session and selected finding ids
+- EXISTING_OWN_PR with repository route and PR number
+- REVIEW_FINDINGS with review session, PR number, and selected finding ids
 - ISSUE with issue identity
 - AUTOMATION with producer and reason
 - QUALITY_SCAN with evidence identity
@@ -845,7 +1175,7 @@ Steer is a synchronous Stage command.
 
 ### User-requested agent review
 
-There are two explicit commands:
+There are two explicit Task-review start commands:
 
 - RequestAdvisoryReview creates or continues a ReviewSession and does not block
   the Task.
@@ -867,17 +1197,51 @@ Workspace and Task attachment metadata. It supports:
 - scheduled or user-requested delta review after the head moves
 - remote review adoption
 - manual selection, verdict, and publication
-- Spawn build from review through a Trunk-owned TaskAssignment containing the
-  ReviewSession id, selected finding ids, PR identity, and reviewed head
+- Spawn build from review through either a writable Task assignment or a
+  zero-Task comment proposal, selected from immutable PR authorship and route
+
+For a V2 Task review, every command that could admit another seat—initial
+start, Continue, Re-review, answer, or a scheduled/delta request—first freezes
+the current Task epoch, worktree, code fingerprint, exact head/base, command
+payload, review options, and ReviewSession in one transaction. A per-command
+TaskReviewSnapshot Operation captures the exact diff under exclusive Task
+admission and the writer fence. Its accepted delivery enters the exact Task
+command boundary before creating ReviewAssignmentTurns in a fresh transaction.
+Neither request nor delivery reads Git or invokes a provider. A stale or
+canceled Task, changed code subject, or changed Task attachment supersedes the
+snapshot and admits no seat.
+
+For a standalone ReviewSession, those same commands persist a
+ReviewSessionSnapshot Operation instead. Quick review is unscoped,
+`REMOTE_OBSERVATION` lane 64, and diff-only. Full review is Workspace-only,
+uses combined `LOCAL_GIT` + `GITHUB` lane 48, and freezes the configured local
+repository coordinates while CapacityManager excludes every same-Workspace
+`LOCAL_GIT` lease in both admission orders. Neither scope creates or counts an
+executing Task. Both freeze repository, remote PR number, base branch, exact
+base/head, diff, capabilities, and applicable local coordinates before a seat
+is admitted. A subject, repository binding, local path, or ownership-link
+change supersedes the Operation rather than rebuilding input synchronously.
 
 Review seats are read-only. They cannot edit a Task worktree. Selected findings
 enter Local or Remote Development through an explicit immutable feedback batch.
 Unselected findings remain advisory history.
 
-For a local PR, imported review findings become private local comments. A
-ReviewSession cannot publish them or manufacture a GitHub approval. One
-nonterminal build Task per PR remains enforced. Review findings are resolved
-from that Task's explicit outcome, not merely because a Task was created.
+For a local or otherwise writable PR, imported review findings become private
+local comments. A ReviewSession cannot publish them or manufacture a GitHub
+approval. One nonterminal build Task per PR remains enforced. Review findings
+are resolved from that Task's explicit outcome, not merely because a Task was
+created.
+
+For somebody else's PR, `suggested_change` creates a zero-Task BUILD Trunk and
+an immutable comment proposal; Task creation and worktree materialization fail
+closed. The user reviews the frozen proposal locally and then explicitly
+approves or discards
+the proposal. Approval records a stable command and one Trunk-owned
+`GITHUB_EFFECT` ticket without calling GitHub. Execution verifies the exact
+reviewed head and creates or recovers one COMMENT review containing the frozen
+inline and top-level comments. Discard has no remote effect. Only accepted
+success resolves the exact frozen finding revisions; an unfinished action also
+blocks physical Trunk purge.
 
 If a standalone external-PR review is later attached to a Task, attachment
 does not silently make it blocking. The user or calling use case must choose.
@@ -885,6 +1249,13 @@ does not silently make it blocking. The user or calling use case must choose.
 ### Promotion from local to remote
 
 Approve and ship is the single promotion authority.
+
+Its synchronous command is database-only. It freezes authorization, required
+preflight facts, effect identities, and one DispatchTicket; it performs no Git,
+filesystem, credential, provider, or GitHub I/O. The dispatched publish
+Operation proves the required clean worktree, minimum commits ahead, branch,
+base, and publish permission immediately before external effects. Failure
+leaves durable evidence and cannot be converted into an approval claim.
 
 PublishAuthorization freezes:
 
@@ -1235,6 +1606,17 @@ JSON, notification payloads, prompt source strings, or generic AgentRun rows.
 - brain_review_episode
 - local_review_thread, comment_revision, and local_feedback_batch
 - review_session, review_assignment, review_finding, disposition, and publish authorization
+- immutable review_round source snapshot with repository, remote PR number,
+  base branch, PR title/description, exact base/head, diff, changed-file list,
+  complete non-deleted changed-file bodies, capabilities, and capture-only
+  local coordinates
+- task_review_snapshot_operation and per-command Task review-round snapshot
+  operation for exact Task input capture under Task writer admission
+- review_session_snapshot_operation for durable standalone quick/full capture,
+  terminal preparation projection, and ReviewSession-owned dispatch
+- review_build_comment_proposal, proposal item, action, and dispatch records
+- zero-Task external_pr_action and dispatch records, with the exact cached PR
+  base/head subject and terminal delivery projection
 - validation_operation and validation_evidence
 - publish_operation, publish_authorization, and effect_step
 - remote_pr_binding, remote_pr_snapshot, CI check snapshot, and remote_inbox_item
@@ -1268,6 +1650,16 @@ may be renamed or extended when their semantics match.
   identity, and remote state as appropriate.
 - Cancellation records intent before process interruption.
 - A late result is recorded and then accepted or superseded synchronously.
+- A review snapshot result is accepted only if its frozen repository, remote PR
+  number, base branch, PR prompt metadata, exact base/head, owner/link,
+  Workspace binding, local coordinates, and command identity still match. Any
+  mismatch is superseded before seat admission. After acceptance, mutable PR
+  identity and source locations are never consulted for round execution.
+- Snapshot delivery is replay-safe: the first terminal result is immutable and
+  an identical redelivery is accepted, while a changed redelivery fails
+  closed. A nonterminal snapshot ticket prevents owner purge; deleting a
+  terminal snapshot Operation deletes its terminal ticket in the same owner
+  cleanup boundary.
 - Polling is a recovery backstop, not a transition owner.
 - There is one serialization boundary per Task command. Sibling Tasks do not
   share it.
@@ -1302,6 +1694,12 @@ Stage rail, PR lifecycle, Task trace, activity, notifications, cost/tokens, and
 timeline are projections. They cannot clear blockers, accept results, or
 advance owners.
 
+A ReviewSession projection exposes its latest snapshot preparation as
+REQUESTED, COMPLETED, FAILED, CANCELED, or SUPERSEDED, with scope and terminal
+error when present. REQUESTED is a durable pre-seat state and continues to poll
+across restart; a terminal preparation failure is not misreported as a
+completed ReviewRound. This projection cannot capture input or admit a seat.
+
 A promoted Trunk conversation is one compatibility read over two immutable
 ledgers: retained LEGACY rows first in their positive sequence space, followed
 by typed rows ordered by the Trunk aggregate version that exposed them. Typed
@@ -1309,8 +1707,9 @@ compatibility sequence values are the negative of that durable, JSON-safe
 version. They are UI identities and exact paging cursors only; physical typed
 Turn/message sequences remain positive and domain-local. Readers must not
 compare the mixed values numerically, infer ownership from their sign, or use
-`seq < cursor`. A tail refresh restarts an incomplete paging cursor because a
-draining LEGACY child may append inside the positive prefix after promotion.
+`seq < cursor`. Historical LEGACY rows are immutable after retirement, so the
+positive prefix cannot gain new execution output; a tail refresh still
+restarts an incomplete paging cursor to preserve the compatibility protocol.
 
 Typed provider trace is a separate read keyed by exact Trunk, ThreadTurn,
 DispatchTicket, execution, and request message. Tool, thinking, and error
@@ -1365,11 +1764,13 @@ second workflow coordinator.
 | Replan with history and runtime teardown | Task command + new Plan generation | Preserved and fenced |
 | Stage stream, steer and interrupt | exact StageTurn/Operation | Preserved |
 | Development/validation/Brain loop | Local Stage + BrainReviewEpisode | Preserved without coordinator ping-pong |
+| User Run tests | exact Task-owned Validation Operation | Durable and idempotent; a waiting HTTP response does not own execution |
 | DevReport and deep context handoff | immutable DevReport | Preserved |
 | Private local PR and review timeline | stable PR + LocalReviewThread/Batch | Preserved across promotion/Cleanup |
 | Manual publish override | audited PublishOverride | Preserved; automation forbidden |
-| Quick/full/scheduled/delta agent review | PR-owned ReviewSession | Preserved |
-| Spawn build from review | Trunk-owned REVIEW_FINDINGS assignment | Preserved |
+| Quick/full/scheduled/delta agent review, Continue, Re-review, and answer | PR-owned ReviewSession + per-command TaskReviewSnapshot or ReviewSessionSnapshot Operation | Preserved; every seat-admitting command is DB-only, source capture is durable and exact, and standalone quick/full admission uses its locked unscoped/Workspace capacity shape |
+| Concurrent review cost limit | ReviewRound receipts + ReviewAssignmentTurn reservations | Frozen before launch and enforced across seats/follow-ups |
+| Spawn build from review | writable REVIEW_FINDINGS Task assignment or foreign-PR zero-Task comment proposal | Preserved for AGREED and human-included ARBITRATED findings, with authorship-specific ownership and no unauthorized worktree |
 | First push and Draft PR create/adopt | PublishOperation/effect steps | Preserved and crash-safe |
 | Direct/fork routing | RemotePrBinding | Preserved |
 | CI pending/green/red/no-check policy | exact-head RemotePrSnapshot | Preserved and made explicit |
@@ -1377,8 +1778,11 @@ second workflow coordinator.
 | Scheduled branch guard | Remote Stage BranchSyncEpisode + Task write lease | Preserved |
 | Remote comment/review-body handling | RemoteInboxItem/RemoteFeedbackBatch | Preserved; body-only verdict fixed |
 | Reply/resolve/push round gate | immutable authorization + effect cursor | Preserved and recoverable |
+| Direct user remote-PR controls | Task-owned user-remote-action or zero-Task external-pr-action authorization + DispatchTicket | Preserved across restart with stable command replay, honest terminal projection, and exact-subject fencing |
+| Push-driven CI trigger | typed user action + writer-required Local Git/GitHub DispatchTicket | One restart-safe empty commit and exact push; distinct from failed-check rerun |
 | Auto-ready/keep-draft | TaskAutomationPolicy | Preserved |
 | autoApprove/autoMerge/min approvals | policy revision + exact evidence/authorization | Preserved and exact-head |
+| Standing-consent local auto-publish | dispatcher MaintenanceWork + owner command | Deterministic redrive; no independent scheduler or direct effect |
 | Merge queue bounce/retry | MergeOperation | Preserved |
 | Pause/resume/retry/archive | Task lifecycle + exact blocker/operation | Preserved without generic resume |
 | Durable permissions and approval budgets | PermissionRequest/policy grant | Preserved and restart-safe |
@@ -1387,12 +1791,13 @@ second workflow coordinator.
 | Task trace/timeline/status/notifications | read-only projections | Preserved |
 | Task completion summary/follow-ups | TaskOutcome + Trunk inbox | Preserved and made reliable |
 | Runtime/worktree/branch cleanup | Cleanup Stage/step ledger | Preserved and made durable |
-| Legacy drain and retirement diagnostics | invariant auditor + typed drain counters | Fail closed until every legacy runtime owner has drained |
+| Historical LEGACY compatibility | read-only projections + invariant auditor | Rows remain readable; no worker claims them and every mutation seam fails closed |
+| Issue/quality scheduled intake | typed V2 assignment + exact Plan owner command | Discovery preserved; automation owns no lifecycle or executor |
 | Removed future-Task queue | none | Remains removed |
 
 ## Required acceptance scenarios
 
-The design is not implemented until all scenarios pass with restart and
+These scenarios remain the regression contract, including restart and
 duplicate-delivery variants where applicable.
 
 1. Create a zero-Task Trunk, talk to it, and create Task A.
@@ -1469,12 +1874,13 @@ duplicate-delivery variants where applicable.
     completion events.
 49. Verify Cleanup preserves PR, review, timeline, transcript, validation and
     effect-audit history.
-50. Verify mixed LEGACY/V2 sibling Tasks and historical traces remain readable.
+50. Load terminal historical LEGACY siblings beside V2 Tasks; verify their
+    traces remain readable and no legacy execution is claimed or resumed.
 51. Leave Tasks waiting for capacity, CI, review, permission, and user input;
     verify they hold no workflow worker or executing-Task capacity lease.
-52. Run mixed LEGACY/V2 agent, validation, Git, and review work; verify one
-    shared global/Workspace/Trunk policy is enforced with no pool or semaphore
-    bypass.
+52. Run all new agent, validation, Git, and Task-owned review work solely
+    through V2; verify CapacityManager enforces the global/Workspace/Trunk
+    policy with no legacy bridge, pool, or semaphore bypass.
 53. Restart with claimed capacity and execution leases; reconcile or expire
     them without accepting two writers, and keep reserved Trunk control
     available while Task lanes are saturated.
@@ -1506,12 +1912,10 @@ duplicate-delivery variants where applicable.
     non-positive writes. Raise a committed limit and prove a denied V2 ticket
     is retried by ExecutionDispatcher immediately without waiting for the
     periodic scan or re-entering the settings transaction's database resource.
-62. Leave LEGACY AgentRuns queued, running, paused, awaiting a gate, and in a
-    standalone detached review; leave an unfinished or cancellation-requested
-    LEGACY validation claim. Verify retirement remains blocked until every run
-    is terminal and every validation is completed or durably superseded, while
-    detached review artifacts whose exact ReviewSession owns a V2 Task do not
-    enter the legacy count.
+62. Upgrade a database containing historical LEGACY rows. Verify the rows
+    remain readable, no worker or recovery loop claims them, every retired
+    mutation port fails closed, and migration V277 rejects a new LEGACY Task
+    while accepting typed V2 Task creation.
 63. Create two sibling Tasks concurrently from one Trunk; serialize only the
     Trunk authorization, assign distinct monotonic policy revisions and Trunk
     versions, then let both Task bundles proceed independently.
@@ -1528,6 +1932,179 @@ duplicate-delivery variants where applicable.
     child-message leakage into conversation order, server-derived Trunk status,
     lifetime usage including retries, activity ordering before truncation, and
     projected Workspace card counts/spend/activity without legacy write-back.
+67. Request Run tests twice with one stable command id, lose or time out the
+    first HTTP response, and verify one exact Validation-family Operation,
+    process execution, accepted result, local PR check, and timeline event. A
+    changed code subject supersedes the stale result without projection.
+68. Approve & ship an eligible local PR and prove its command transaction
+    performs no Git, filesystem, credential, provider, or GitHub I/O. Restart
+    before dispatch and verify the Operation proves every frozen promotion
+    requirement before its first effect.
+69. Admit review seats and follow-up Turns concurrently near the ReviewRound
+    cost cap. Verify durable receipts plus live reservations never exceed the
+    cap, retries reserve again, and terminal unused reservation is released.
+70. Call every public Task, Stage, review, publish, and remote-action mutation
+    seam for a historical LEGACY Task; each fails closed before scheduling,
+    Git, provider, or GitHub I/O while the same history remains readable.
+71. Trigger idle archival and standing-consent local auto-publish repeatedly.
+    Verify only dispatcher MaintenanceWork discovers candidates, owner
+    commands are idempotent, and no independent scheduler performs effects or
+    changes lifecycle state.
+72. Let issue intake and a quality scan create V2 Tasks and auto-approve their
+    reviewed Plans. Verify each automation records an `AUTOMATION` approval
+    against the exact current Plan revision, never reads a legacy Task phase,
+    and creates no AgentRun or direct provider execution.
+73. Invoke every visible remote-PR write for a V2 Task, lose the first HTTP
+    response, and retry with the same command id. Verify one immutable semantic
+    authorization, one dispatcher-owned effect, exact open-head fencing (or
+    the top-level terminal-comment exception), payload-mismatch rejection, and
+    no direct controller GitHub call.
+74. Complete Local Development, remote-feedback repair, and remote CI/branch
+    repair Turns, then deliver each result after its execution lease has been
+    released. Verify the dispatcher-captured output subject is accepted once
+    and result delivery performs no Git or filesystem inspection; reject a
+    missing, dirty, stale-base, or wrong-merge-base subject.
+75. Invoke rerun-failed when no failed check run exists and verify it does not
+    stand in for the push-driven CI trigger. Crash that trigger after its empty
+    marker commit and again after its push but before PR-head refresh. Verify
+    one marker commit, one eventual exact push, combined capacity and writer
+    ownership, one current-worktree-subject advance, ordinary Remote observation
+    of the new head, and no duplicate effect when the command is replayed.
+    Delay PR-head propagation across repeated probes and verify the same
+    semantic attempt remains live rather than exhausting its budget.
+76. Approve and discard reviewed quality-scan `CreateIssue` proposals. Verify
+    approval performs database work only, owns one exact Task-scoped GitHub
+    ticket, survives restart by marker probe without a second create, and
+    resolves the exact notification on typed result delivery. Replay the same
+    terminal result and a changed one; verify the former is idempotent, the
+    latter is rejected, and provenance is recorded once. Verify discard performs
+    no remote call, and neither path writes Task phase or lifecycle. Retitle and
+    close the created issue and place it beyond the first 100 results; marker-
+    first paginated recovery must still find the exact issue.
+77. Create existing-own-PR and review-findings Tasks while the GitHub adapter
+    is unavailable. Verify synchronous creation commits only route, PR number,
+    and immutable local/review input; provisioning waits for combined GitHub
+    and Local Git capacity, discovers one exact remote subject, rejects a stale
+    review selection, and replays durable proof without adopting a changed
+    subject. Upgrade historical exact rows and V1 results and prove they remain
+    readable and deliverable.
+78. Request an agent review for one exact V2 Task subject. Verify the HTTP
+    command atomically records the placeholder ReviewSession, Task snapshot
+    Operation, and `LOCAL_GIT` ticket without Git or provider I/O. Restart before
+    capture and before delivery; accept one exact diff inside TaskCommandExecutor
+    and create ReviewAssignmentTurns once. Replay the same result, move the head,
+    and cancel the Task; only exact current evidence may admit review work and a
+    stale placeholder becomes terminal without launching a seat.
+79. Spawn review work for somebody else's PR. Verify it creates a zero-Task
+    BUILD Trunk and immutable comment proposal, rejects Task/worktree creation,
+    and exposes database-only approve and discard commands. Reuse a command id
+    with the same and changed payload, move the reviewed head, and crash around
+    the GitHub COMMENT review; exact baseline/marker recovery creates one review
+    and mismatched input fails closed. Delay GitHub visibility beyond the
+    ordinary attempt limit and verify probe-only observation spends no semantic
+    mutation retry, while its separate bound eventually records an actionable
+    terminal failure instead of polling forever. Discard makes no remote call,
+    an archived Trunk cannot approve, included ARBITRATED findings behave like
+    AGREED findings, findings resolve only after accepted success, and physical
+    purge is rejected until delivery and finalization complete, then succeeds
+    in child-before-parent delete order. A terminal failure displays its reason
+    and requires a new review pass/selection rather than rearming the action.
+80. Publish a standalone ReviewPass, lose the authorization response, restart
+    before and after the GitHub effect, and prove one born-V2 zero-Task review
+    Trunk, one marker-bearing review, and one accepted finalization of the
+    frozen finding revisions. Reject LEGACY/TASK_PHASE ownership before any
+    write, keep unfinished work purge-protected, and expose a one-shot terminal
+    failure without rearming it.
+81. Complete a dirty writer-capable StageTurn. Verify its provider tools contain
+    only the typed V2 profile, its changes are staged and committed inside the
+    exact writer fence, ByteQuay hooks are excluded, and the immutable clean
+    output subject is captured before lease release. A clean no-change Turn
+    creates no empty commit; a result missing exact captured evidence cannot
+    advance its owner.
+82. Synchronize and mutate PRs while a Task owns one stable PR binding. Verify
+    generic sync and taskless controllers neither replace nor alias the Task
+    binding, stored Task reads remain exact, and no nullable/latest/branch
+    inference selects an owner.
+83. Invoke every visible write on a PR with no Task owner, including approval,
+    merge, dequeue, and auto-merge controls. Verify database-only authorization
+    resolves one exact Workspace repository and born-V2 REVIEW Trunk, requires
+    a complete cached base/head subject, creates one Trunk-owned action and
+    dispatcher ticket, and performs no controller GitHub call. Restart through
+    authorization, effect, and delivery; the client reuses its command id
+    across transport ambiguity, may report queued from durable authorization,
+    and reports completion only from the durable terminal projection. Reject an
+    ambiguous/missing repository mapping, stale/incomplete subject, changed
+    command payload, direct AI-review publication, and taskless empty-commit CI
+    trigger before external I/O.
+84. Kill the desktop after persisting a remote-write command id but before the
+    request or response. Verify restart reuses the id for the exact semantic
+    intent, corrupt command storage fails closed, two intentional identical
+    writes can receive distinct ids after terminal completion, and accepted
+    authorization may clear the transport key only when the UI reports queued
+    and never displays external-effect success.
+85. Insert the sole allowed review compatibility header and verify it is
+    already terminal, hidden, detached from Trunk/Task/Stage, and immutable.
+    Reject every other AgentRun insert, update, reparent, transition, resume,
+    accounting write, and Session-control path without affecting its linked
+    ReviewRound history.
+86. Start quick review twice for one exact external PR head. Verify one typed
+    one-seat ReviewRound, durable capacity/budget admission, diff-only tools,
+    no repository read tool, restart-safe status, and idempotent terminal
+    projection. Prove no application executor, in-memory quick-run map, legacy
+    AI draft endpoint, or direct publish path can perform the review.
+87. Restart or steer after every typed review seat result. Verify each
+    continuation reads the immutable ReviewRound snapshot only, never Git,
+    GitHub, or the filesystem; complete frozen changed-file bodies remain
+    readable after the checkout changes or is deleted, uncaptured paths fail
+    closed, deterministic coverage searches only frozen bodies, and typed CLI
+    work starts outside the checkout. Block a result whose route, prompt
+    metadata, base/head, or snapshot identity does not match the exact round.
+88. For a Task-attached review, invoke initial start, Continue, Re-review,
+    answer, and scheduled/delta review. Verify each command commits its own
+    exact TaskReviewSnapshot and Task-owned `LOCAL_GIT` ticket without Git,
+    GitHub, filesystem, or provider I/O; capture runs only after exact Task
+    writer admission, and accepted delivery re-enters TaskCommandExecutor
+    before admitting a seat.
+89. For a standalone ReviewSession, run every seat-admitting command in quick
+    and full scope. Verify quick capture is unscoped `REMOTE_OBSERVATION` lane
+    64 with diff-only capabilities; full capture is Workspace-only
+    `LOCAL_GIT` + `GITHUB` lane 48, conflicts with every same-Workspace
+    `LOCAL_GIT` lease in both admission orders, and neither scope consumes a
+    running-Task count.
+90. Change the repository, remote PR number, base branch, base/head, Workspace
+    repository binding, PR title/description, local path, changed-file body, or
+    ReviewSession Task/Trunk attachment after snapshot authorization. Verify
+    the frozen result is superseded and no seat starts. Restart and replay
+    exact delivery; verify the immutable repository/number/branch/prompt
+    metadata/base/head/diff/changed-file bodies/capabilities/capture
+    coordinates are reused without source I/O and a changed terminal replay
+    fails closed.
+91. Upgrade a populated pre-V292 database through V293. Verify the canonical
+    DispatchTicket rebuild preserves every row, explicit index, trigger,
+    foreign key, and integrity check while adding only `REVIEW_SESSION` owner
+    support. Verify V293 ticket-shape guards reject mismatched ownership and
+    lanes, live snapshot tickets block purge, and terminal owner cleanup
+    removes the terminal ticket without orphaning either side.
+92. Delete a Workspace containing terminal and genuinely claimed/running
+    standalone full-review work. Verify cancellation intent commits and the
+    dispatcher signals the exact running handler before ReviewSession removal;
+    the typed snapshot/turn rows, outbox wake, delivery claim, execution
+    evidence/log, CapacityLease, DispatchTicket, and purge authorization all
+    disappear without a foreign-key violation. Hold a non-cooperative handler
+    past purge commit and Workspace deletion, then let it return success; no
+    owner, evidence, ticket, delivery, or Workspace state is recreated. An
+    unexpected ticket shape and an evidence failure for a still-live ticket
+    must continue to fail closed.
+93. Attempt Workspace repository detach and re-clone while the Workspace has
+    an active, paused, provisioning, or Cleanup Task, or a requested, claimed,
+    retryable, result-pending, or delivering DispatchTicket. Verify both
+    commands fail without changing repository state. Race ticket admission
+    against each destructive command and verify exactly one commits: an
+    admitted ticket blocks detach/re-clone, while a committed detach or active
+    re-clone blocks later Workspace-scoped tickets. After every V2 Task and
+    ticket is terminal, verify the destructive command succeeds; verify ticket
+    admission resumes only after repository reattachment or successful
+    re-clone completion.
 
 ## Patterns to preserve
 
@@ -1542,24 +2119,33 @@ Reuse and adapt:
 - exact push and round-gate authorization records
 - worktree leases and provider session accounting
 
-## Structures to retire
+## Retired runtime and retained compatibility source
 
-Retire after migration:
+The following runtime authorities have been physically removed:
 
-- AgentScheduler as a domain coordinator
-- nullable Task/Stage identity on ThreadTurn
-- TaskPhase as a cross-Stage workflow
-- generic Task status as both runtime and lifecycle
-- CI_FIXING, REVIEW_STAGE, REVIEW_ROUND, and BRANCH_GUARD backing Stages
-- source-string switches that decide domain meaning
-- generic AgentRun as workflow source of truth
-- projections that mutate Task status
-- latest/active Task inference
-- notification payloads as gate authority
-- in-memory-only pending permission requests
-- immediate cosmetic CleanupStage closure
-- task-flow-specific executor queues, semaphores, and raw-thread launches that
-  bypass CapacityManager
+- AgentScheduler and its shared agent-runner pool
+- LegacyCapacityBridge, LegacyCapacityLeaseMaintainer, and LegacySagaCapacity
+- LegacyReviewAdmission
+- TaskRuntimeProjector and its executor
+- the legacy validation executor and lease-renewal pools
+
+Retired compatibility mutation seams remain only where an older API still
+needs a stable type. RetiredThreadTurnScheduler rejects enqueue requests,
+ValidationExecutorRegistry rejects execution and renewal, and RetiredSagaGate
+never admits work. They own no worker, queue, callback, capacity lease,
+recovery loop, or state transition.
+
+Some legacy source classes and schemas are intentionally still present. This
+includes TaskPhaseMachine, TaskLifecycleDriver, AutomationCoordinator,
+TaskPrePushDriver, TaskRuntimeStopReconciler, TaskSchedulerConflictBridge,
+CiFixRunExecutor, LocalCiFixExecutor, StageLifecycle, PlanStageService, and
+ReviewPassService. Their presence is not runtime authority: they may support
+historical reads, DTO/API compatibility, or a fail-closed boundary, but they
+cannot create or claim new legacy work. TaskIdleArchiver is active V2
+MaintenanceWork and InvestigationReviewService is the typed
+ReviewAssignmentTurn coordinator; neither is a legacy execution owner.
+Physical deletion of read-only compatibility source is optional cleanup and
+is not a migration-completion condition.
 
 Legacy pseudo-Stage rows remain immutable historical episodes/review
 references. Ambiguous legacy nullable-scope Turn rows are sealed for manual
@@ -1578,6 +2164,175 @@ reconciliation; they are never reassigned using latest/active inference.
   promised extension until separately designed and implemented.
 
 ## Change log
+
+### 3.3 — 2026-07-30
+
+- Made repository detach and re-clone explicit Workspace destructive commands
+  that require terminal V2 Tasks and DispatchTickets instead of pretending a
+  Workspace-wide pause can stop aggregate-owned execution.
+- Added reciprocal database guards so repository replacement and new durable
+  admission are serialized, with exactly one winner under a race.
+
+### 3.2 — 2026-07-30
+
+- Made every seat-admitting review command database-only. Task-attached start,
+  Continue, Re-review, answer, and scheduled/delta requests now use an exact
+  per-command TaskReviewSnapshot before typed seat admission.
+- Added the durable standalone ReviewSessionSnapshot boundary: quick capture is
+  unscoped, diff-only `REMOTE_OBSERVATION` lane 64; full capture is
+  Workspace-only `LOCAL_GIT` + `GITHUB` lane 48, is mutually exclusive with
+  same-Workspace Local Git work, and does not count as a Task.
+- Froze repository, remote PR number, base branch, PR title/description, exact
+  base/head, diff, complete non-deleted changed-file bodies, capabilities, and
+  capture-only local coordinates in the immutable round source; owner/link or
+  subject changes supersede capture before seat launch. Full reviews expose
+  only frozen changed-file reads after capture; quick reviews remain diff-only.
+- Locked the V292 canonical DispatchTicket rebuild and the V293 snapshot
+  operation, preparation projection, exact-shape, and cleanup guards.
+
+### 3.1 — 2026-07-30
+
+- Made the retained AgentRun foreign-key header terminal, hidden, ownerless,
+  and fully immutable; ReviewSession and ReviewAssignmentTurn are the only
+  review lifecycle and accounting owners.
+- Replaced the application-executor quick-review bypass with a one-seat typed
+  ReviewAssignmentTurn preset, enforced diff-only tool access, and made review
+  reads projection-only.
+- Persisted an immutable source snapshot for every typed ReviewRound so result,
+  guidance, restart, deterministic coverage, verification, and finalization
+  continuations are DB-only, including frozen PR prompt context and complete
+  changed-file bodies.
+- Retired legacy Stage streaming and replaced the production ThreadRegistry
+  runner with a fail-closed, threadless compatibility executor.
+
+### 3.0 — 2026-07-29
+
+- Completed the no-user hard cutover: V2 provider sessions expose only typed
+  tools, successful code-writing StageTurns checkpoint changes under the exact
+  writer fence, and Task-owned PR identity cannot be mutated by generic sync
+  or taskless controller fallbacks.
+- Persisted desktop remote-command ids before transport and required durable
+  terminal projections before the UI clears an accepted command or reports
+  its GitHub effect complete.
+- Routed every supported taskless PR write through one exact zero-Task REVIEW
+  Trunk, immutable external-action record, and dispatcher ticket; required a
+  complete cached base/head subject and retired direct AI-review/random-command
+  bypasses. A taskless empty-commit CI trigger now fails closed because it has
+  no worktree writer owner.
+
+### 2.9 — 2026-07-29
+
+- Made standalone ReviewPass publication a V2 zero-Task review-Trunk
+  `GITHUB_EFFECT` with exact remote subject, finding revisions, stable command,
+  marker payload, bounded recovery, and accepted-delivery finalization.
+- Required new review threads to be born on V2 and rejected historical LEGACY
+  or TASK_PHASE publication before any write; exposed durable publication
+  state for restart-safe queued, indeterminate, success, and terminal-failure
+  UI.
+- Blocked purge while publication remains live and defined explicit
+  child-before-parent deletion after accepted finalization.
+
+### 2.8 — 2026-07-29
+
+- Split review-build execution by PR ownership. Writable authored PRs retain
+  the `REVIEW_FINDINGS` Task path; somebody else's PR now creates a zero-Task
+  comment proposal with database-only approve/discard and one Trunk-owned,
+  exact-head, restart-safe GitHub review Operation.
+- Required finding resolution only after accepted remote success and blocked
+  physical Trunk purge while comment delivery or finalization remains live.
+- Separated bounded GitHub observation from mutation attempts, admitted
+  human-included ARBITRATED findings, rejected archived owners, and made a
+  terminal one-shot failure actionable through a new review pass rather than
+  silently rearming frozen authorization.
+
+### 2.7 — 2026-07-29
+
+- Made V2 Task review startup database-only. It atomically freezes one exact
+  Task code subject and DispatchTicket; dispatcher-owned `LOCAL_GIT` capture
+  runs under exclusive writer admission before Task-command-bound delivery
+  creates ReviewAssignmentTurns.
+- Required stale, canceled, duplicate, and restarted snapshot delivery to fail
+  closed without Git or provider work in the request/delivery transactions.
+
+### 2.6 — 2026-07-29
+
+- Made existing-PR Task creation database-only. The immutable assignment now
+  freezes repository route, PR number, and any review selection; dispatcher-
+  owned provisioning discovers and proves the exact remote subject under
+  combined GitHub and Local Git capacity before opening Plan.
+- Kept historical exact assignments and V1 provisioning evidence readable
+  across the schema upgrade while requiring exact V2 remote-subject evidence
+  for newly deferred assignments.
+
+### 2.5 — 2026-07-29
+
+- Removed V2 quality-scan `CreateIssue` approval from synchronous legacy
+  PublishService execution. Approval now freezes a marker-bearing operation
+  for the dispatcher-owned GitHub lane; typed, database-only delivery resolves
+  the exact notification without changing the already-canceled Task.
+
+### 2.4 — 2026-07-29
+
+- Preserved the push-driven CI control as a distinct, durable Local Git plus
+  GitHub protocol. It creates or resumes one exact marker empty commit under
+  dispatcher admission and the Task writer fence; failed-check rerun is not a
+  semantic substitute.
+
+### 2.3 — 2026-07-29
+
+- Required every code-writing AgentTurn to capture its immutable output code
+  subject inside dispatcher-owned execution while the CapacityLease and
+  writer fence remain active; synchronous result delivery is database-only.
+
+### 2.2 — 2026-07-29
+
+- Routed scheduled issue intake and quality scans through typed V2 Task
+  assignment and exact Plan owner commands, with truthful `AUTOMATION`
+  approval identity and no legacy lifecycle inference.
+- Completed durable exact-head parity for the direct user controls exposed on
+  Task-owned remote PRs, using one stable-command authorization and dispatcher
+  protocol instead of controller-side GitHub writes or predictable 409s.
+
+### 2.1 — 2026-07-29
+
+- Classified manual Run tests as a durable, idempotent Validation-family
+  Operation and separated HTTP waiting from execution ownership.
+- Froze per-ReviewAssignmentTurn cost reservations and required concurrent
+  receipts plus reservations to remain within the ReviewRound cap.
+- Made synchronous Approve & ship database-only and moved promotion-requirement
+  proof into the dispatched publish Operation.
+- Put idle archival and standing-consent auto-publish discovery under
+  dispatcher-owned MaintenanceWork rather than independent schedules.
+- Added hard-cutover acceptance coverage for every historical LEGACY mutation
+  boundary.
+
+### 2.0 — 2026-07-29
+
+- Locked immediate legacy-runtime retirement after the product owner confirmed
+  there are no users or production legacy data, explicitly waiving the former
+  drain-observation and undefined retention-window preconditions.
+- Made new Task creation permanently V2-only through TaskCreationHandoff and
+  migration V277's database trigger while retaining historical LEGACY rows as
+  immutable, readable data.
+- Removed development-flow canary properties and conditional bean gates;
+  ExecutionDispatcher and V2 runtime/MCP beans are unconditional and the route
+  diagnostic reports only `v2Only=true`.
+- Recorded the physical removal of AgentScheduler, the legacy capacity
+  bridge/maintainer/saga admission components, LegacyReviewAdmission,
+  TaskRuntimeProjector, and their task-flow-specific execution facilities.
+- Required every retained compatibility mutation seam to fail closed and
+  clarified that remaining legacy source may serve read-only/API compatibility
+  without being an execution authority.
+- Recorded that GlobalReviewRunner, HarnessDiagnosisService, LessonExtractor,
+  InvestigationReviewRunner, and CliReviewRunner invoke providers
+  synchronously in their owning execution context instead of scheduling a
+  second asynchronous job.
+- Preserved standalone reviews as typed ReviewAssignmentTurns; older
+  ReviewPass calls use an exact ReviewCallContext and execute synchronously in
+  their bounded review owner rather than through legacy admission.
+- Kept cherry-pick conflicts manual: the retained worktree and conflict paths
+  are returned to the user, with no legacy Task, Turn, Stage, or agent
+  execution created.
 
 ### 1.9 — 2026-07-29
 

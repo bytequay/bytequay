@@ -20,7 +20,8 @@ import com.fasterxml.jackson.databind.JsonNode;
  * planning turn on the task's PlanStage. Carries the user's opening prompt
  * as the planning seed (it is <em>not</em> enqueued onto the dev thread —
  * development can't start until the plan is approved). The brain layer
- * listens and enqueues the planning turn via the Agent Scheduler.
+ * is retained only as a compatibility signal; V2 planning uses a typed Plan
+ * owner command and durable dispatcher ticket.
  *
  * @param taskId        the freshly-created task
  * @param initialPrompt the user's opening request, or null/blank when the

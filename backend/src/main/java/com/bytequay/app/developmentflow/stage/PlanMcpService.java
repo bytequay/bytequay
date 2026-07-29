@@ -28,7 +28,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectReader;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -38,9 +37,6 @@ import static java.util.Objects.requireNonNull;
 
 /** Minimal operation-scoped MCP server for the read-only V2 Task Brain. */
 @Component
-@ConditionalOnProperty(
-        name = "bytequay.development-flow.v2-dispatch-enabled",
-        havingValue = "true")
 public final class PlanMcpService
 {
     private static final String PROTOCOL_VERSION = "2024-11-05";

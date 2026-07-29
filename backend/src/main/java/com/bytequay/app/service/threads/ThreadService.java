@@ -59,14 +59,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -100,7 +96,6 @@ import static java.util.Objects.requireNonNull;
  */
 @Service
 public class ThreadService
-        implements ApplicationEventPublisherAware
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadService.class);
 
@@ -123,10 +118,6 @@ public class ThreadService
     private static final int TURN_EVENT_HISTORY_LIMIT = 200;
     /** Active-turn list cap for thread-list and group-page summaries. */
     private static final int ACTIVE_TURN_LIMIT = 500;
-    /** Character cap on a derived task name; longer titles cut at the
-     *  last word boundary so the row and branch slug stay short. */
-    private static final int TASK_NAME_MAX = 60;
-
     private final ThreadStore store;
     private final TaskStore taskStore;
     private final PullRequestService pullRequests;
@@ -134,15 +125,11 @@ public class ThreadService
     private final ThreadTurnStore turnStore;
     private final ThreadTurnEventStore turnEventStore;
     private final ThreadRegistry registry;
-    private final McpPermissionGate gate;
     private final ThreadTurnScheduler scheduler;
-    private final WorktreeLeaseService leases;
     private final GitRunner git;
     private final WorktreeService worktreeService;
-    private final RoleRegistry roleRegistry;
     private final IdGenerator idGenerator;
     private final WorkspaceDataPurger dataPurger;
-    private final CheckpointSummariser titleSummariser;
     /** Set by Spring; POJO unit tests construct this service directly and do
      * not persist AgentReview-owned threads. */
     private InvestigationReviewService investigationReviews;
@@ -153,7 +140,7 @@ public class ThreadService
      *  the legacy no-snapshot path unless they exercise this integration. */
     private WorkModelResolver workModelResolver;
     private WorkModelService workModels;
-    /** Optional production cutover boundary; direct POJO tests stay legacy. */
+    /** Permanent production cutover boundary. */
     private V2TaskCreationService v2TaskCreation;
     /** Typed Trunk runtime, supplied only when the V2 dispatcher graph exists. */
     private V2ThreadControlService v2ThreadControls;
@@ -161,11 +148,6 @@ public class ThreadService
     private V2DevelopmentFlowProjection v2TaskProjection;
     /** Read-only replacement for stale legacy Thread lifecycle fields. */
     private V2TrunkRuntimeProjection v2TrunkRuntime;
-    private TransactionTemplate legacyTaskTransactions;
-    /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
-     *  null in POJO unit tests that construct this service directly, where
-     *  task-creation side effects (stage init) aren't under test. */
-    private ApplicationEventPublisher events;
 
     public ThreadService(
             ThreadStore store,
@@ -192,15 +174,15 @@ public class ThreadService
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
         this.registry = requireNonNull(registry, "registry is null");
-        this.gate = requireNonNull(gate, "gate is null");
+        requireNonNull(gate, "gate is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
-        this.leases = requireNonNull(leases, "leases is null");
+        requireNonNull(leases, "leases is null");
         this.git = requireNonNull(git, "git is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
-        this.roleRegistry = requireNonNull(roleRegistry, "roleRegistry is null");
+        requireNonNull(roleRegistry, "roleRegistry is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
-        this.titleSummariser = requireNonNull(titleSummariser, "titleSummariser is null");
+        requireNonNull(titleSummariser, "titleSummariser is null");
     }
 
     @Autowired
@@ -223,14 +205,10 @@ public class ThreadService
     }
 
     @Autowired
-    void setV2TaskCreation(
-            V2TaskCreationService v2TaskCreation,
-            PlatformTransactionManager transactionManager)
+    void setV2TaskCreation(V2TaskCreationService v2TaskCreation)
     {
         this.v2TaskCreation = requireNonNull(
                 v2TaskCreation, "v2TaskCreation is null");
-        this.legacyTaskTransactions = new TransactionTemplate(requireNonNull(
-                transactionManager, "transactionManager is null"));
     }
 
     @Autowired(required = false)
@@ -252,12 +230,6 @@ public class ThreadService
     {
         this.v2TrunkRuntime = requireNonNull(
                 v2TrunkRuntime, "v2TrunkRuntime is null");
-    }
-
-    @Override
-    public void setApplicationEventPublisher(ApplicationEventPublisher publisher)
-    {
-        this.events = publisher;
     }
 
     public List<Thread> listByStatus(ThreadStatus status, int limit)
@@ -495,6 +467,7 @@ public class ThreadService
         requireNonNull(patch, "patch is null");
         Thread current = store.findThreadById(threadId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no thread: " + threadId));
+        requireV2Trunk(current);
 
         String nextTitle = current.title();
         if (patch.title() != null && !patch.title().isBlank()) {
@@ -527,36 +500,20 @@ public class ThreadService
     public Thread setWorkModel(String threadId, WorkModel workModel)
     {
         requireNonNull(threadId, "threadId is null");
-        Thread current = store.findThreadById(threadId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no thread: " + threadId));
-        if (isV2Trunk(threadId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Trunk engines are frozen at creation");
-        }
-        Thread next = new Thread(
-                current.id(), current.kind(), current.provider(), current.agentSessionId(),
-                current.title(), current.status(),
-                current.model(),
-                current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
-                current.createdAt(), Instant.now(),
-                current.endedAt(), current.errorMessage(),
-                current.flow(),
-                current.workspaceId(),
-                workModel);
-        store.saveThread(next);
-        return store.findThreadById(threadId).orElse(next);
+        Thread current = requireTask(threadId);
+        requireV2Trunk(current);
+        throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                "V2 Trunk engines are frozen at creation");
     }
 
     /** Make a persisted thread-scope picker change visible to its next trunk
      *  subprocess turn. Running turns keep the command they already spawned. */
     public void updateTrunkWorkModel(String threadId, WorkModel resolved)
     {
-        if (isV2Trunk(threadId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Trunk engines are frozen at creation");
-        }
-        registry.updateTrunkWorkModel(threadId, resolved);
+        Thread current = requireTask(threadId);
+        requireV2Trunk(current);
+        throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                "V2 Trunk engines are frozen at creation");
     }
 
     /**
@@ -606,6 +563,11 @@ public class ThreadService
             NewTaskRequest request,
             Map<String, WorkModel> engineSnapshot)
     {
+        if (!routesNewTaskToV2(request.workspaceId())) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "V2 Trunk creation is not configured");
+        }
         if (!engineSnapshot.isEmpty()) {
             request = request.withEngine(requireNonNull(
                     engineSnapshot.get(SessionAudience.PLAN), "plan engine is null"));
@@ -661,9 +623,7 @@ public class ThreadService
             requireNonNull(threadEngines, "threadEngines is null")
                     .replace(thread.id(), engineSnapshot);
         }
-        if (v2TaskCreation != null && v2TaskCreation.routes(thread.workspaceId())) {
-            v2TaskCreation.prepareNewTrunk(thread.id(), thread.workspaceId());
-        }
+        v2TaskCreation.prepareNewTrunk(thread.id(), thread.workspaceId());
         // initialPrompt — if present — feeds the title derivation
         // above but is NOT enqueued as a trunk turn. Treat it as
         // setup context the user prepared in the create dialog; the
@@ -727,160 +687,12 @@ public class ThreadService
     {
         requireNonNull(request, "request is null");
         Thread thread = requireTask(threadId);
-        if (isV2Trunk(thread.id()) || routesNewTaskToV2(thread.workspaceId())) {
-            if (v2TaskCreation == null) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(503),
-                        "V2 Task creation is not configured");
-            }
-            return v2TaskCreation.create(thread, request);
+        requireV2Trunk(thread);
+        if (v2TaskCreation == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(503),
+                    "V2 Task creation is not configured");
         }
-        if (legacyTaskTransactions != null) {
-            return legacyTaskTransactions.execute(status ->
-                    materialiseLegacyTask(thread, request));
-        }
-        return materialiseLegacyTask(thread, request);
-    }
-
-    private Task materialiseLegacyTask(Thread thread, NewTaskRequest request)
-    {
-        String threadId = thread.id();
-        if (request.workingDir() == null || request.workingDir().isBlank()) {
-            throw new IllegalArgumentException("workingDir is required to materialise a task");
-        }
-        Instant now = Instant.now();
-        String taskType = request.taskType() == null || request.taskType().isBlank()
-                ? "DEVELOP"
-                : request.taskType().trim();
-        // seq is allocated before the id so the id can embed it as
-        // ".k<seq>". The previous shape generated a UUID and then
-        // computed seq after the worktree existed; the new id format
-        // makes seq a structural part of the name, so it has to land
-        // first. taskStore.maxSeqForThread is monotonic per-thread,
-        // and the surrounding @Transactional keeps two concurrent
-        // materialiseTask calls on the same thread serialised.
-        long seq = taskStore.maxSeqForThread(threadId).orElse(0L) + 1L;
-        String taskId = idGenerator.newTaskId(threadId, seq);
-        // The task's own title (the purpose, e.g. from create_task) names
-        // both the row and the branch slug; the thread title is the
-        // fallback for direct-created tasks that carry no title.
-        String taskName = taskDisplayName(request.title(), thread.title());
-        // The worktree directory is still named after the task id (one
-        // worktree per task), so the on-disk dir matches the row; only the
-        // branch is named for the purpose.
-        Path repoRoot = Path.of(request.workingDir()).toAbsolutePath().normalize();
-        // Only trunk-agent cuts pin to the planning snapshot: create_task
-        // runs inside a trunk turn, so the snapshot is fresh as of that
-        // turn's sync. Other origins (user, issue-monitor, quality-scan)
-        // have no relation to the trunk's planning view and branch from
-        // the freshly-fetched remote base instead.
-        String plannedBaseSha = Task.ORIGIN_AGENT.equals(request.origin())
-                ? store.findPlanningSnapshot(threadId)
-                        .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()))
-                        .map(ThreadStore.PlanningSnapshot::baseSha)
-                        .orElse(null)
-                : null;
-        Optional<WorktreeService.WorktreeHandle> handle = worktreeService.create(
-                repoRoot, taskId, taskName, plannedBaseSha);
-        if (plannedBaseSha != null && handle.isEmpty()) {
-            throw new IllegalStateException(
-                    "could not cut task from planned base " + plannedBaseSha);
-        }
-        try {
-            String branchName = handle
-                    .map(WorktreeService.WorktreeHandle::branchName)
-                    .orElse(request.branchName());
-            // The PR base: the upstream default for a fork-based clone (e.g.
-            // master for a trinodb/trino fork), else the local default. Read
-            // after create() so the just-fetched upstream HEAD is current.
-            // Previously hardcoded "main", which mis-targeted master repos and
-            // forks alike.
-            String baseBranch = worktreeService.resolveBaseBranchName(Path.of(request.workingDir()));
-            // Persist an immutable ByteQuay role reference, not a provider prompt
-            // snapshot. The registry renders this version for every provider.
-            String roleSkillText = roleRegistry.taskRoleReference();
-            Task task = new Task(
-                    taskId,
-                    threadId,
-                    seq,
-                    TaskStatus.PENDING,
-                    branchName,
-                    handle.map(worktreeHandle -> worktreeHandle.worktreePath().toString()).orElse(null),
-                    baseBranch,
-                    request.workingDir(),
-                    /* processPid */ null,
-                    /* logPath */ null,
-                    /* prNumber */ null,
-                    /* prState */ null,
-                    /* ciState */ null,
-                    taskType,
-                    request.linkedPrNumber(),
-                    request.linkedIssueNumber(),
-                    /* costUsdMilli */ 0L,
-                    /* tokensIn */ 0L,
-                    /* tokensOut */ 0L,
-                    /* agentSessionId */ null,
-                    now,
-                    /* endedAt */ null,
-                    /* errorMessage */ null,
-                    taskName,
-                    roleSkillText,
-                    /* workModel */ null,
-                    request.origin());
-            taskStore.saveTask(task);
-            // The snapshot survives the cut: it always reflects the current
-            // planning worktree, and the next trunk turn's sync applies any
-            // base movement the background fetcher brought down.
-            // TaskCreatedEvent owns the ordering: after this transaction commits,
-            // StageLifecycle opens the PlanStage and only then publishes the
-            // planning kickoff. A queued task still defers that kickoff.
-            if (events != null) {
-                events.publishEvent(new TaskCreatedEvent(
-                        task.id(), request.initialPrompt(), request.trunkPlan(),
-                        !request.deferPlanKickoff()));
-            }
-            return task;
-        }
-        catch (RuntimeException e) {
-            // Git is outside the database transaction. If persistence or an
-            // event listener rejects the cut, compensate the already-created
-            // worktree so a retry can reuse this task id safely.
-            handle.ifPresent(created -> worktreeService.remove(
-                    repoRoot, created.worktreePath().toString(), created.branchName()));
-            throw e;
-        }
-    }
-
-    /**
-     * The display name for a materialised task: the task's own title
-     * (its purpose) when present, else the thread title. Short titles
-     * pass through unchanged; titles long enough to need shortening are
-     * handed to the AI for a goal-oriented rewrite (e.g. "Remove dead
-     * skill routes" rather than a sentence chopped off mid-clause), and
-     * only fall back to mechanical word-boundary truncation if that
-     * call fails — task creation must never block on it. Null only
-     * when neither source carries text.
-     */
-    private String taskDisplayName(String taskTitle, String threadTitle)
-    {
-        String source = taskTitle != null && !taskTitle.isBlank() ? taskTitle : threadTitle;
-        if (source == null || source.isBlank()) {
-            return null;
-        }
-        String trimmed = source.strip();
-        if (trimmed.length() <= TASK_NAME_MAX) {
-            return trimmed;
-        }
-        String aiTitle = titleSummariser.summariseTaskTitle(trimmed);
-        return aiTitle != null ? aiTitle : truncateAtWordBoundary(trimmed);
-    }
-
-    private static String truncateAtWordBoundary(String trimmed)
-    {
-        // Cut at the last word boundary within the cap so the name never
-        // ends mid-word.
-        String head = trimmed.substring(0, TASK_NAME_MAX);
-        int lastSpace = head.lastIndexOf(' ');
-        return (lastSpace > 0 ? head.substring(0, lastSpace) : head).strip();
+        return v2TaskCreation.create(thread, request);
     }
 
     private static String deriveTitle(String supplied, String firstMessage)
@@ -1026,7 +838,7 @@ public class ThreadService
      *  ownership is checked against the expected trunk before enqueue. */
     public String send(String threadId, String taskId, String input)
     {
-        Thread thread = requireTask(threadId);
+        requireTask(threadId);
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("taskId is required for a task turn");
         }
@@ -1037,11 +849,11 @@ public class ThreadService
             throw new IllegalArgumentException(
                     "task " + taskId + " does not belong to thread " + threadId);
         }
-        if (taskStore.isV2Task(task.id())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Task follow-ups must target its current Stage");
+        if (!taskStore.isV2Task(task.id())) {
+            throw legacyRuntimeRetired("Task", task.id());
         }
-        return scheduler.enqueueTaskTurn(thread, input, task.id());
+        throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                "V2 Task follow-ups must target its current Stage");
     }
 
     /** Trunk-scope counterpart of {@link #send} — drives the trunk
@@ -1051,10 +863,8 @@ public class ThreadService
     public String sendTrunk(String threadId, String input)
     {
         Thread thread = requireTask(threadId);
-        if (prepareV2TrunkIfRouted(thread)) {
-            return requireV2ThreadControls().send(thread, input, TurnInitiator.user());
-        }
-        return scheduler.enqueueTrunkTurn(thread, input);
+        requireV2Trunk(thread);
+        return requireV2ThreadControls().send(thread, input, TurnInitiator.user());
     }
 
     /** Background counterpart to {@link #sendTrunk}; the durable initiator
@@ -1063,10 +873,8 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         TurnInitiator initiator = TurnInitiator.unattended(source);
-        if (prepareV2TrunkIfRouted(thread)) {
-            return requireV2ThreadControls().send(thread, input, initiator);
-        }
-        return scheduler.enqueueTrunkTurn(thread, input, initiator);
+        requireV2Trunk(thread);
+        return requireV2ThreadControls().send(thread, input, initiator);
     }
 
     public void interruptTrunk(String threadId)
@@ -1079,13 +887,8 @@ public class ThreadService
         requireNonNull(threadId, "threadId is null");
         Thread thread = requireTask(threadId);
         requireTrunkThread(thread);
-        if (isV2Trunk(thread.id())) {
-            requireV2ThreadControls().interrupt(thread.id(), turnId);
-            return;
-        }
-        registry.findTrunk(threadId)
-                .orElseGet(() -> registry.getOrCreateTrunk(thread))
-                .interrupt();
+        requireV2Trunk(thread);
+        requireV2ThreadControls().interrupt(thread.id(), turnId);
     }
 
     /**
@@ -1120,64 +923,25 @@ public class ThreadService
     {
         requireNonNull(threadId, "threadId is null");
         Thread thread = requireTask(threadId);
-        if (isV2Trunk(thread.id())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 jump-in requires typed Task and Stage quiescence");
-        }
-        if (thread.status() == ThreadStatus.RUNNING) {
-            // Interrupt every live stage-agent so a mid-flight CLI exits at
-            // its next tool boundary and releases its worktree lease.
-            registry.findAll(threadId).forEach(ThreadAgent::interrupt);
-        }
-        // Release the lease on every task's worktree. The CLI agents'
-        // shutdown paths also release on exit; doing it here makes the
-        // transfer atomic. A thread can hold several tasks' worktrees at
-        // once (a shipped task in CI-fixing alongside a fresh one), so we
-        // release them all rather than guessing a single "active" one.
-        for (Task task : taskStore.listTasksByThread(threadId)) {
-            String worktree = task.worktreePath();
-            if (worktree != null && !worktree.isBlank()) {
-                leases.release(worktree);
-            }
-        }
-        // Deliberately do NOT mark the thread's parked notifications
-        // read here. Jump-in transfers the lease but does not resolve
-        // the parked work: an AWAITING_REVIEW proposal still needs an
-        // approve/discard, and a NEEDS_ATTENTION task is still stuck.
-        // Quieting them would hide unresolved work from the bell + strip
-        // while the agent stays gated, and (for CI failures) defeat the
-        // auto-fix dedup that keys on the UNREAD row. They clear when
-        // the underlying work is actually resolved.
-        return store.findThreadById(threadId).orElse(thread);
+        requireV2Trunk(thread);
+        throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                "V2 jump-in requires typed Task and Stage quiescence");
     }
 
     public void resume(String threadId)
     {
         Thread thread = store.findThreadById(threadId)
                 .orElseThrow(() -> new NoSuchElementException("no thread: " + threadId));
-        if (isV2Trunk(thread.id())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Trunk turns resume through their durable dispatcher owner");
-        }
-        registry.getOrCreateTrunkAgent(thread).resume();
+        requireV2Trunk(thread);
+        throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                "V2 Trunk turns resume through their durable dispatcher owner");
     }
 
     public void stop(String threadId)
     {
         Thread thread = requireTask(threadId);
-        if (isV2Trunk(thread.id())) {
-            requireV2ThreadControls().interrupt(thread.id());
-            return;
-        }
-        scheduler.cancelQueuedTurns(threadId);
-        // Stop every live Task agent before evicting — a thread may have
-        // several Tasks running. evict() then drops all of
-        // them and releases each worktree lease.
-        List<ThreadAgent> live = registry.findAll(threadId);
-        if (!live.isEmpty()) {
-            live.forEach(ThreadAgent::stop);
-            registry.evict(threadId);
-        }
+        requireV2Trunk(thread);
+        requireV2ThreadControls().interrupt(thread.id());
     }
 
     /**
@@ -1206,7 +970,8 @@ public class ThreadService
         if (existing.isEmpty()) {
             return;
         }
-        boolean v2 = isV2Trunk(threadId);
+        requireV2Trunk(existing.orElseThrow());
+        boolean v2 = true;
         // Refuse while any task is still in flight — running / queued
         // tasks hold worktrees and live agent processes, and deleting
         // out from under them would strand both. A zero-task
@@ -1249,7 +1014,9 @@ public class ThreadService
         if (store.findThreadById(threadId).isEmpty()) {
             return;
         }
-        boolean v2 = isV2Trunk(threadId);
+        Thread thread = store.findThreadById(threadId).orElseThrow();
+        requireV2Trunk(thread);
+        boolean v2 = true;
         V2ThreadControlService.DeletionPermit permit = v2
                 ? prepareV2Deletion(threadId) : null;
         teardownAndDelete(
@@ -1333,6 +1100,22 @@ public class ThreadService
         return store.findTurnVersion(threadId).filter("V2"::equals).isPresent();
     }
 
+    private void requireV2Trunk(Thread thread)
+    {
+        if (!isV2Trunk(thread.id())) {
+            throw legacyRuntimeRetired("Trunk", thread.id());
+        }
+    }
+
+    private static ResponseStatusException legacyRuntimeRetired(
+            String ownerKind, String ownerId)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "Historical LEGACY " + ownerKind + " " + ownerId
+                        + " is read-only; use a typed V2 owner");
+    }
+
     private static boolean isRetainedTrunkMessage(ThreadMessage message)
     {
         boolean trunkScope = message.scope() == ThreadScope.TRUNK
@@ -1345,30 +1128,6 @@ public class ThreadService
     private boolean routesNewTaskToV2(String workspaceId)
     {
         return v2TaskCreation != null && v2TaskCreation.routes(workspaceId);
-    }
-
-    /** Move a quiescent pre-cutover Trunk onto typed turns before accepting
-     *  new conversation work. Existing LEGACY Task work keeps its immutable
-     *  route and continues to drain independently. */
-    private boolean prepareV2TrunkIfRouted(Thread thread)
-    {
-        if (isV2Trunk(thread.id())) {
-            requireV2ThreadControls();
-            if (v2TaskCreation != null) {
-                // Heal any sparse snapshot left by an earlier cutover build;
-                // a complete V2 snapshot is immutable and this is a no-op.
-                v2TaskCreation.prepareTrunk(thread.id(), thread.workspaceId());
-            }
-            return true;
-        }
-        if (!routesNewTaskToV2(thread.workspaceId())) {
-            return false;
-        }
-        // Do not persist the one-way route switch unless the typed runtime is
-        // actually wired to accept the turn immediately afterward.
-        requireV2ThreadControls();
-        v2TaskCreation.prepareTrunk(thread.id(), thread.workspaceId());
-        return true;
     }
 
     private V2ThreadControlService requireV2ThreadControls()
@@ -1831,7 +1590,7 @@ public class ThreadService
     public void notifyPermissionRequested(
             String threadId, String agentKey, String callId, String toolName, String summary)
     {
-        sessionForAgent(threadId, agentKey).notifyPermissionRequested(callId, toolName, summary);
+        throw typedPermissionRequired(threadId);
     }
 
     /** Applies the user's decision to a pending permission prompt.
@@ -1854,21 +1613,7 @@ public class ThreadService
             String preApproveToolName,
             Integer preApproveCount)
     {
-        // The UI sends only the callId; resolve the agent that raised the
-        // prompt from the gate so the decision event lands in that stage's
-        // feed (not a thread-level "active session" guess).
-        String agentKey = gate.agentKeyFor(callId);
-        ThreadAgent session = sessionForAgent(threadId, agentKey);
-        boolean resolved = session.decide(callId, decision);
-        if (preApproveToolName != null
-                && !preApproveToolName.isBlank()
-                && preApproveCount != null
-                && preApproveCount != 0) {
-            // Keep the historical behaviour: a late click can still grant a
-            // budget for future calls even when this call already timed out.
-            session.grantToolBudget(preApproveToolName, preApproveCount);
-        }
-        return resolved;
+        throw typedPermissionRequired(threadId);
     }
 
     /** Called from the MCP hot path — quiet (returns
@@ -1879,12 +1624,7 @@ public class ThreadService
      *  call should fall through to the normal user prompt. */
     public OptionalInt tryConsumeToolBudget(String threadId, String agentKey, String toolName)
     {
-        try {
-            return sessionForAgent(threadId, agentKey).tryConsumeToolBudget(toolName);
-        }
-        catch (NoSuchElementException ignored) {
-            return OptionalInt.empty();
-        }
+        throw typedPermissionRequired(threadId);
     }
 
     /** Persist + publish a {@code permission_auto_allowed} notice so
@@ -1894,12 +1634,7 @@ public class ThreadService
     public void notifyPermissionAutoAllowed(
             String threadId, String agentKey, String callId, String toolName, int remaining)
     {
-        try {
-            sessionForAgent(threadId, agentKey).notifyPermissionAutoAllowed(callId, toolName, remaining);
-        }
-        catch (NoSuchElementException ignored) {
-            // session vanished — nothing to notify
-        }
+        throw typedPermissionRequired(threadId);
     }
 
     /** Subscribe to live events. The returned {@link Runnable}
@@ -1909,35 +1644,20 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         requireTrunkThread(thread);
-        if (isV2Trunk(thread.id())) {
-            return requireV2ThreadControls().subscribe(thread.id(), listener);
-        }
-        return registry.getOrCreateTrunkAgent(thread).subscribeToEvents(listener);
+        requireV2Trunk(thread);
+        return requireV2ThreadControls().subscribe(thread.id(), listener);
     }
 
     /** The exact agent that issued an MCP call, by its {@code agentKey}
      *  (Task id or the reserved trunk key). Routing
      *  permission prompts / decisions this way lands them in the stage that
      *  raised them instead of a thread-level "active session" guess. */
-    private ThreadAgent sessionForAgent(String threadId, String agentKey)
+    private ResponseStatusException typedPermissionRequired(String threadId)
     {
-        if (agentKey == null || agentKey.isBlank()) {
-            throw new NoSuchElementException("permission call has no agent key");
-        }
-        if (isV2Trunk(threadId)) {
-            Task exactTask = taskStore.findTaskById(agentKey)
-                    .filter(task -> threadId.equals(task.threadId()))
-                    .filter(task -> taskStore.findWorkflowVersion(task.id())
-                            .filter("LEGACY"::equals).isPresent())
-                    .orElseThrow(() -> new NoSuchElementException(
-                            "V2 permission calls use the typed execution endpoint"));
-            return registry.findByAgentKey(threadId, exactTask.id())
-                    .orElseThrow(() -> new NoSuchElementException(
-                            "no live agent " + agentKey + " on thread " + threadId));
-        }
-        return registry.findByAgentKey(threadId, agentKey)
-                .orElseThrow(() -> new NoSuchElementException(
-                        "no live agent " + agentKey + " on thread " + threadId));
+        requireTask(threadId);
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "Legacy permission sessions are retired; use the typed V2 execution endpoint");
     }
 
     private static void requireTrunkThread(Thread thread)

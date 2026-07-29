@@ -109,7 +109,6 @@ export default function WorkspaceSessionsPage({
           }
         }}
         onOpenReview={onOpenReview}
-        onChanged={refresh}
       />
     );
   }
@@ -285,7 +284,7 @@ function SessionListSubtitle({
 }
 
 function SessionDetail({
-  session, loading, sessionId, onBack, onOpenThread, onOpenReview, onChanged,
+  session, loading, sessionId, onBack, onOpenThread, onOpenReview,
 }: {
   session: WorkspaceSessionDto | undefined;
   loading: boolean;
@@ -293,10 +292,7 @@ function SessionDetail({
   onBack: () => void;
   onOpenThread: () => void;
   onOpenReview?: (target: WorkspaceReviewSessionTarget) => void;
-  onChanged: () => Promise<void>;
 }) {
-  const [acting, setActing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [reviewTarget, setReviewTarget] = useState<ReviewSessionTarget | null>(null);
   const [reviewTargetError, setReviewTargetError] = useState<string | null>(null);
   const reviewRoundId = session?.durableReview ? session.reviewRoundId ?? null : null;
@@ -346,21 +342,6 @@ function SessionDetail({
     );
   }
 
-  const act = async (action: 'pause' | 'resume' | 'stop' | 'restart') => {
-    setActing(true);
-    setError(null);
-    try {
-      await workspaceApi.sessionAction(session.id, action);
-      await onChanged();
-    }
-    catch (reason) {
-      setError(message(reason));
-    }
-    finally {
-      setActing(false);
-    }
-  };
-
   const phases = session.phases ?? defaultPhases(session.kind);
   const currentPhase = Math.max(0, Math.min(phases.length - 1, session.stepCursor - 1));
   const timeline = session.timeline ?? derivedTimeline(session);
@@ -401,22 +382,6 @@ function SessionDetail({
           {' · '}{compactTokens(session.tokensIn + session.tokensOut)} · {elapsed(session)}
         </span>
         <span className="wu-session-live-spacer" />
-        {session.controls.pause && (
-          <button type="button" className="wu-session-control"
-            disabled={acting} onClick={() => { void act('pause'); }}>Pause</button>
-        )}
-        {session.controls.resume && (
-          <button type="button" className="wu-session-control"
-            disabled={acting} onClick={() => { void act('resume'); }}>Resume</button>
-        )}
-        {session.controls.restart && (
-          <button type="button" className="wu-session-control"
-            disabled={acting} onClick={() => { void act('restart'); }}>Restart</button>
-        )}
-        {session.controls.stop && (
-          <button type="button" className="wu-session-control danger"
-            disabled={acting} onClick={() => { void act('stop'); }}>Stop</button>
-        )}
         {session.durableReview ? (
           <button type="button" className="wu-session-open-trunk"
             disabled={reviewTarget === null || onOpenReview === undefined}
@@ -503,7 +468,6 @@ function SessionDetail({
               )}
             </div>
           ))}
-          {error !== null && <div className="wu-session-live-error">{error}</div>}
         </div>
         <aside className="wu-session-live-side">
           <section className="wu-session-change-card">

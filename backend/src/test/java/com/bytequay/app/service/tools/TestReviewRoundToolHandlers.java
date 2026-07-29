@@ -21,6 +21,8 @@ import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.RoundGateSaga;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -87,6 +90,29 @@ class TestReviewRoundToolHandlers
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
         verify(roundGate, never()).editPayload(anyString(), anyString(), any(Runnable.class));
+        verify(stageStore, never()).saveReviewComment(any());
+    }
+
+    @Test
+    void retiredRoundGateReturnsAnErrorBeforeSavingTheDraft()
+    {
+        UUID roundId = UUID.randomUUID();
+        ReviewComment comment = comment(roundId, "task-1");
+        when(stageStore.findReviewCommentById(comment.id())).thenReturn(Optional.of(comment));
+        when(roundStore.findLiveByTask("task-1")).thenReturn(Optional.of(
+                round(roundId, "task-1", "run-1")));
+        doThrow(new ResponseStatusException(
+                HttpStatus.CONFLICT, "LEGACY review-round gates are read-only"))
+                .when(roundGate).editPayload(
+                        eq("task-1"), eq(roundId.toString()), any(Runnable.class));
+
+        ToolOutcome outcome = handlers.recordRoundReply(
+                new ReviewRoundToolHandlers.RecordRoundReplyArgs(
+                        comment.id().toString(), "Fixed"),
+                new ToolCall(ThreadScope.STAGE, "thread-1", null, AgentRole.TASK,
+                        "task-1", "stage-1", "run-1"));
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
         verify(stageStore, never()).saveReviewComment(any());
     }
 

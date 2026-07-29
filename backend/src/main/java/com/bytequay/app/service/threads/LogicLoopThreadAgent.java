@@ -249,8 +249,7 @@ public class LogicLoopThreadAgent
      *  {@code run_checks}, and provider-driven skill discovery. Add a name here only
      *  after confirming the trunk can complete its planning loop without
      *  it. */
-    // Package-private so the characterization test can pin the contract:
-    // the trunk must be able to plan and queue, not just cut one task.
+    // Package-private so the characterization test can pin the contract.
     static final Set<String> TRUNK_TOOL_ALLOWLIST = Set.of(
             "recall_memory",
             "lookup_memory",
@@ -267,12 +266,6 @@ public class LogicLoopThreadAgent
             // Explicitly replace the stable planning snapshot mid-cycle.
             "sync_repo",
             "create_task",
-            // Planning the queue is core trunk work — without these the
-            // trunk can cut a task but never line one up behind the active
-            // one, reorder the plan, or drop a stale entry.
-            "queue_task",
-            "reorder_queue",
-            "drop_queued_task",
             // trunk-role.md already instructs the trunk extensively to ask
             // rather than assume — this was the missing mechanical half.
             "ask_user_question");

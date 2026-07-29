@@ -13,35 +13,16 @@
  */
 package com.bytequay.app.service.workspaces;
 
-import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
-import com.bytequay.app.domain.StageType;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.Thread;
-import com.bytequay.app.domain.ThreadFlow;
-import com.bytequay.app.domain.ThreadKind;
-import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.stage.StageStateMachine;
-import com.bytequay.app.service.threads.ThreadService;
-import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -66,26 +47,11 @@ class TestWorkspaceCherryPickService
     private final WatchedRepoStore watchedRepos =
             mock(WatchedRepoStore.class);
     private final GitRunner git = mock(GitRunner.class);
-    private final TaskStore tasks = mock(TaskStore.class);
-    private final ThreadStore trunks = mock(ThreadStore.class);
-    private final ThreadService threadService = mock(ThreadService.class);
-    private final StageStateMachine stages = mock(StageStateMachine.class);
-    private final ThreadTurnScheduler scheduler =
-            mock(ThreadTurnScheduler.class);
-    private final AgentRunService runs = mock(AgentRunService.class);
-    private final IdGenerator ids = mock(IdGenerator.class);
     private final WorkspaceCherryPickService service =
             new WorkspaceCherryPickService(
                     resolver,
                     watchedRepos,
-                    git,
-                    tasks,
-                    trunks,
-                    threadService,
-                    stages,
-                    scheduler,
-                    runs,
-                    ids);
+                    git);
 
     @Test
     void cherryPicksAContiguousSelectionOldestFirstAndRemovesWorktree()
@@ -159,7 +125,7 @@ class TestWorkspaceCherryPickService
     }
 
     @Test
-    void conflictKeepsTheWorktreeAndSchedulesACiFixInTheSourceTrunk()
+    void conflictKeepsTheWorktreeForManualResolution()
             throws Exception
     {
         Path main = prepareRepository();
@@ -175,38 +141,6 @@ class TestWorkspaceCherryPickService
                         "bbbb",
                         List.of("src/Widget.java"),
                         "merge conflict"));
-        Thread trunk = trunk();
-        Task sourceTask = mock(Task.class);
-        when(sourceTask.threadId()).thenReturn(trunk.id());
-        when(tasks.findTaskByBranch("feature"))
-                .thenReturn(Optional.of(sourceTask));
-        when(trunks.findThreadById(trunk.id()))
-                .thenReturn(Optional.of(trunk));
-        when(tasks.maxSeqForThread(trunk.id()))
-                .thenReturn(Optional.of(2L));
-        when(ids.newTaskId(trunk.id(), 3L))
-                .thenReturn("task-conflict");
-        StageInstance stage = new StageInstance(
-                UUID.fromString("00000000-0000-0000-0000-000000000042"),
-                "task-conflict",
-                StageType.CI_FIXING_STAGE,
-                StageState.OPEN,
-                Instant.parse("2026-07-17T00:00:00Z"),
-                null,
-                null);
-        when(stages.ensureRunOpen(
-                "task-conflict", AgentRun.KIND_CI_FIX,
-                StageType.CI_FIXING_STAGE, null))
-                .thenReturn(stage);
-        AgentRun run = run(trunk.id(), stage.id().toString());
-        when(runs.openSchedulerSession(
-                eq(trunk),
-                eq("task-conflict"),
-                eq(stage.id().toString()),
-                eq(AgentRun.KIND_CI_FIX),
-                anyString()))
-                .thenReturn(run);
-
         WorkspaceCherryPickService.CherryPickResult result =
                 service.cherryPick(
                         WORKSPACE_ID,
@@ -218,26 +152,12 @@ class TestWorkspaceCherryPickService
         assertThat(result.conflictPaths())
                 .containsExactly("src/Widget.java");
         assertThat(result.worktreePath()).isNotBlank();
-        assertThat(result.trunkId()).isEqualTo(trunk.id());
-        assertThat(result.taskId()).isEqualTo("task-conflict");
-        assertThat(result.sessionId()).isEqualTo(run.id());
-        ArgumentCaptor<Task> savedTask =
-                ArgumentCaptor.forClass(Task.class);
-        verify(tasks).saveTask(savedTask.capture());
-        assertThat(savedTask.getValue().threadId())
-                .isEqualTo(trunk.id());
-        assertThat(savedTask.getValue().branchName())
-                .startsWith("cherry-pick/main-");
-        assertThat(savedTask.getValue().worktreePath())
-                .isEqualTo(result.worktreePath());
-        verify(scheduler).enqueueStageTurn(
-                eq(trunk),
-                startsWith("Resolve the in-progress cherry-pick"),
-                eq("task-conflict"),
-                eq(stage.id().toString()),
-                any(),
-                eq(run.id()),
-                eq(TurnLiveness.CODE));
+        assertThat(result.trunkId()).isNull();
+        assertThat(result.taskId()).isNull();
+        assertThat(result.sessionId()).isNull();
+        assertThat(result.message())
+                .contains("Resolve or abort it manually")
+                .contains(result.worktreePath());
         verify(git, never()).worktreeRemove(
                 eq(main), any(Path.class));
     }
@@ -278,58 +198,5 @@ class TestWorkspaceCherryPickService
                 "agent@example.test",
                 "2026-07-17T00:00:00Z",
                 "Commit " + sha);
-    }
-
-    private static Thread trunk()
-    {
-        Instant now = Instant.parse("2026-07-17T00:00:00Z");
-        return new Thread(
-                "trunk-source",
-                ThreadKind.CLI_AGENT,
-                "claude-code",
-                null,
-                "Source branch",
-                ThreadStatus.IDLE,
-                "sonnet",
-                0,
-                0,
-                0,
-                now,
-                now,
-                null,
-                null,
-                ThreadFlow.BUILD,
-                WORKSPACE_ID,
-                null);
-    }
-
-    private static AgentRun run(String threadId, String stageId)
-    {
-        return new AgentRun(
-                "run-conflict",
-                "task-conflict",
-                AgentRun.KIND_CI_FIX,
-                AgentRun.SOURCE_SCHEDULED,
-                null,
-                null,
-                stageId,
-                AgentRun.STATUS_QUEUED,
-                0,
-                null,
-                null,
-                null,
-                Instant.parse("2026-07-17T00:00:00Z"),
-                null,
-                WORKSPACE_ID,
-                threadId,
-                "claude-code",
-                "sonnet",
-                0,
-                0,
-                0,
-                0,
-                "Resolve conflict",
-                null,
-                null);
     }
 }

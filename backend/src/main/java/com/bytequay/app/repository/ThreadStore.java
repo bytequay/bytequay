@@ -44,6 +44,15 @@ public interface ThreadStore
      *  rewritten — callers should pass the full updated state. */
     void saveThread(Thread thread);
 
+    /**
+     * Create a thread directly on the V2 Trunk route. Implementations that
+     * do not persist route metadata may use the ordinary insert path.
+     */
+    default void saveV2Thread(Thread thread)
+    {
+        saveThread(thread);
+    }
+
     /** Single-row lookup by id. Empty when no such thread exists. */
     Optional<Thread> findThreadById(String id);
 

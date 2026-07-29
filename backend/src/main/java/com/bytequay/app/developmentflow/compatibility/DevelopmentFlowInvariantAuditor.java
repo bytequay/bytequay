@@ -21,7 +21,7 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-/** Read-only canary and drain checks. Findings are diagnostics, never commands. */
+/** Read-only V2 invariants and historical-shape checks; never a command owner. */
 @Component
 public final class DevelopmentFlowInvariantAuditor
 {
@@ -206,6 +206,30 @@ public final class DevelopmentFlowInvariantAuditor
                   AND lease.released_at_ms IS NULL
                   AND ticket.id IS NULL
                 """, "A live V2 CapacityLease must belong to its currently claimed ticket");
+        add(findings, "V2_WORKSPACE_REPOSITORY_NOT_QUIESCENT", "WORKSPACE", """
+                SELECT COUNT(*)
+                FROM workspaces workspace
+                WHERE (workspace.detached_at_ms IS NOT NULL
+                    OR EXISTS (
+                        SELECT 1 FROM workspace_creation creation
+                        WHERE creation.workspace_id = workspace.id
+                          AND creation.operation_kind = 'reclone'
+                          AND creation.state IN (
+                              'queued', 'forking', 'cloning', 'syncing')))
+                  AND (EXISTS (
+                        SELECT 1
+                        FROM tasks task
+                        JOIN threads trunk ON trunk.id = task.thread_id
+                        WHERE trunk.workspace_id = workspace.id
+                          AND task.workflow_version = 'V2'
+                          AND task.lifecycle_state NOT IN (
+                              'COMPLETED', 'CANCELED', 'REMOTE_CLOSED'))
+                    OR EXISTS (
+                        SELECT 1 FROM dispatch_ticket ticket
+                        WHERE ticket.workspace_id = workspace.id
+                          AND ticket.status NOT IN (
+                              'SUCCEEDED', 'FAILED', 'CANCELED')))
+                """, "A detached or re-cloning Workspace cannot retain active V2 owners");
         add(findings, "V2_WRITER_WITHOUT_WORKTREE_FENCE", "WRITER", """
                 SELECT COUNT(*) FROM capacity_lease capacity
                 WHERE capacity.workflow_source = 'V2'

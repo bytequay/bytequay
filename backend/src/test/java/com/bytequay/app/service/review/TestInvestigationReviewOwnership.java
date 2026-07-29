@@ -13,26 +13,23 @@
  */
 package com.bytequay.app.service.review;
 
-import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.InvestigationReviewData;
 import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
-import com.bytequay.app.domain.InvestigationReviewData.ReviewCapabilities;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
-import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
+import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -41,7 +38,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -83,21 +79,18 @@ class TestInvestigationReviewOwnership
     }
 
     @Test
-    void standaloneFullReviewRequiresTheWatchedCloneToContainTheReviewedCommit()
+    void standaloneFullReviewRequiresAWorkspaceRepositoryBinding()
     {
         PR pr = externalPr();
         when(store.findActiveReviewByPr(pr.id())).thenReturn(Optional.empty());
         when(prs.findById(pr.id())).thenReturn(Optional.of(pr));
-        when(workspaces.ownsVerifiedLocalRepo(WORKSPACE_ID, pr.repo())).thenReturn(true);
-        when(contexts.load(pr, true)).thenReturn(new InvestigationReviewContext.Snapshot(
-                pr, "base-sha", "head-sha", "", List.of(), null, null,
-                ReviewCapabilities.remoteOnly()));
+        when(workspaces.listRepos(WORKSPACE_ID)).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.start(
                 pr.id(), new InvestigationReviewService.StartOptions(null, null, WORKSPACE_ID)))
                 .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
                     assertThat(error.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
-                    assertThat(error.getReason()).contains("reviewed commit");
+                    assertThat(error.getReason()).contains("must own this PR repository");
                 });
 
         verify(store, never()).insertReview(any(), any());
@@ -105,54 +98,58 @@ class TestInvestigationReviewOwnership
     }
 
     @Test
-    void standaloneFullReviewOwnsTheRunThroughTheWorkspaceWithoutAReviewThread()
+    void standaloneFullReviewRequestsAFrozenReviewSessionSnapshot()
     {
         PR pr = externalPr();
-        Path repositoryRoot = Path.of("/tmp/bytequay-review-workspace");
-        InvestigationReviewContext.Snapshot snapshot = new InvestigationReviewContext.Snapshot(
-                pr, "base-sha", "head-sha", "", List.of(), repositoryRoot, repositoryRoot,
-                ReviewCapabilities.localSource());
-        ReviewerDefRow reviewer = new ReviewerDefRow(
-                "general-api", "General API", "General reviewer", "api",
-                mapper.createObjectNode().put("provider", "auto"), null,
-                List.of("trivial"), true);
-        AgentRun detached = new AgentRun(
-                "run-1", null, AgentRun.KIND_PANEL_REVIEW, null,
-                null, "round-1", null, AgentRun.STATUS_RUNNING,
-                0, 50, null, null, Instant.EPOCH, null);
-
+        AgentReviewRow review = new AgentReviewRow(
+                "review-1", pr.repo(), pr.id(), "base-sha", "head-sha",
+                "ACTIVE", WORKSPACE_ID, null, null);
+        ReviewSessionSnapshotRuntime snapshots = mock(
+                ReviewSessionSnapshotRuntime.class);
         when(store.findActiveReviewByPr(pr.id())).thenReturn(Optional.empty());
         when(prs.findById(pr.id())).thenReturn(Optional.of(pr));
-        when(workspaces.ownsVerifiedLocalRepo(WORKSPACE_ID, pr.repo())).thenReturn(true);
-        when(contexts.load(pr, true)).thenReturn(snapshot);
-        when(store.reviewerDefs()).thenReturn(List.of(reviewer));
-        when(runner.choose(eq("api"), isNull()))
-                .thenReturn(new ProviderChoice("openai", "api", "openai"));
-        when(runs.openDetached(
-                eq(AgentRun.KIND_PANEL_REVIEW), isNull(), any(), eq(50)))
-                .thenReturn(detached);
-        when(runs.attachOwnership(
-                detached.id(), WORKSPACE_ID, null,
-                "agent-review", "agent-review", "Review acme/widget#42"))
-                .thenReturn(detached.withOwnership(
-                        WORKSPACE_ID, null, "agent-review", "agent-review",
-                        "Review acme/widget#42"));
-        when(store.insertLiveRound(any(ReviewRoundRow.class), any(Instant.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(workspaces.listRepos(WORKSPACE_ID)).thenReturn(List.of(
+                new WorkspaceRepo(
+                        WORKSPACE_ID, pr.repo(), "main", false, Instant.EPOCH)));
+        when(snapshots.requestNew(
+                eq(pr), eq(WORKSPACE_ID),
+                eq(ReviewSessionSnapshotRuntime.Scope.FULL), any()))
+                .thenReturn(review);
+        service.setReviewAssignmentTurnRuntime(
+                mock(ReviewAssignmentTurnRuntime.class));
+        service.setReviewSessionSnapshots(snapshots);
 
-        service.start(
+        InvestigationReviewData result = service.start(
                 pr.id(), new InvestigationReviewService.StartOptions(null, null, WORKSPACE_ID));
 
-        ArgumentCaptor<AgentReviewRow> owner = ArgumentCaptor.forClass(AgentReviewRow.class);
-        verify(store).insertReview(owner.capture(), any(Instant.class));
-        assertThat(owner.getValue().workspaceId()).isEqualTo(WORKSPACE_ID);
-        assertThat(owner.getValue().ownerThreadId()).isNull();
-        assertThat(owner.getValue().ownerTaskId()).isNull();
+        assertThat(result.review()).isEqualTo(review);
+        verify(snapshots).requestNew(
+                eq(pr), eq(WORKSPACE_ID),
+                eq(ReviewSessionSnapshotRuntime.Scope.FULL), any());
+        verifyNoInteractions(contexts, runner);
         verify(threads, never()).saveThread(any());
         verify(threads, never()).findReviewTrunk(any(), any());
-        verify(runs).attachOwnership(
-                detached.id(), WORKSPACE_ID, null,
-                "agent-review", "agent-review", "Review acme/widget#42");
+    }
+
+    @Test
+    void workspacePurgeCancelsStandaloneTypedRound()
+    {
+        AgentReviewRow review = new AgentReviewRow(
+                "review-1", "acme/widget", "pr-1", "base-sha", "head-sha",
+                "ACTIVE", WORKSPACE_ID, null, null);
+        ReviewRoundRow round = new ReviewRoundRow(
+                "round-1", review.id(), "run-1", "initial", "full",
+                "head-sha", null, "RUNNING", new RoundBudget(50, 10), 0);
+        ReviewAssignmentTurnRuntime typed = mock(ReviewAssignmentTurnRuntime.class);
+        when(store.reviewsByWorkspace(WORKSPACE_ID)).thenReturn(List.of(review));
+        when(store.rounds(review.id())).thenReturn(List.of(round));
+        when(typed.ownsRound(round.id())).thenReturn(true);
+        service.setReviewAssignmentTurnRuntime(typed);
+
+        service.purgeByWorkspace(WORKSPACE_ID);
+
+        verify(typed).cancelRound(round.id());
+        verify(store).deleteReview(review.id());
     }
 
     private static PR externalPr()

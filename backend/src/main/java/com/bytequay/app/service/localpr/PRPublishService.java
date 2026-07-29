@@ -13,44 +13,32 @@
  */
 package com.bytequay.app.service.localpr;
 
-import com.bytequay.app.config.AsyncConfig;
+import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.Projection;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
 import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
-import com.bytequay.app.domain.CreateReviewCommand;
-import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergePullRequestCommand;
-import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
-import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
-import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
-import com.bytequay.app.service.threads.TaskExternalEffectGate;
 import com.bytequay.app.service.threads.TaskService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -60,20 +48,11 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class PRPublishService
 {
-    private static final Logger log = LoggerFactory.getLogger(PRPublishService.class);
-
     private final PRService prService;
     private final TaskStore taskStore;
-    private final PullRequestRepository pullRequests;
-    private final PatResolver patResolver;
-    private final BrainReviewService brainReview;
-    private final PullRequestService pullRequestDetails;
-    private final ReadyToMergeService readyToMerge;
-    private final TaskService taskService;
     private final TaskPushSaga pushSaga;
     private final V2PrRemoteControlService v2Controls;
     private final V2UserRemoteActionRuntime v2UserRemoteActions;
-    private final Executor executor;
 
     public PRPublishService(
             PRService prService,
@@ -86,22 +65,20 @@ public class PRPublishService
             TaskService taskService,
             TaskPushSaga pushSaga,
             V2PrRemoteControlService v2Controls,
-            V2UserRemoteActionRuntime v2UserRemoteActions,
-            @Qualifier(AsyncConfig.APPLICATION_EXECUTOR) Executor executor)
+            V2UserRemoteActionRuntime v2UserRemoteActions)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
-        this.brainReview = requireNonNull(brainReview, "brainReview is null");
-        this.pullRequestDetails = requireNonNull(pullRequestDetails, "pullRequestDetails is null");
-        this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
-        this.taskService = requireNonNull(taskService, "taskService is null");
+        requireNonNull(pullRequests, "pullRequests is null");
+        requireNonNull(patResolver, "patResolver is null");
+        requireNonNull(brainReview, "brainReview is null");
+        requireNonNull(pullRequestDetails, "pullRequestDetails is null");
+        requireNonNull(readyToMerge, "readyToMerge is null");
+        requireNonNull(taskService, "taskService is null");
         this.pushSaga = requireNonNull(pushSaga, "pushSaga is null");
         this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
         this.v2UserRemoteActions = requireNonNull(
                 v2UserRemoteActions, "v2UserRemoteActions is null");
-        this.executor = requireNonNull(executor, "executor is null");
     }
 
     /**
@@ -109,89 +86,37 @@ public class PRPublishService
      * through some other path (a push/open_pr gate, auto-approved or not; the
      * ship/next tool flow) instead of this service's own {@link #push}. That
      * row otherwise only advances when the user clicks the local-PR panel's
-     * own Push button, so a push resolved elsewhere would leave it stuck
-     * offering "ready to push" for a push that already happened. Runs after
-     * the publishing transaction commits; best-effort — never fails the
-     * caller over a sync miss.
+     * own Push button. V2 owns that projection in its publish result command;
+     * this retained compatibility entry point therefore accepts V2 as a no-op
+     * and fails closed for historical LEGACY Tasks.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onPushedElsewhere(PrPushedEvent event)
     {
-        submitAfterCommit("syncing local PR push state for task " + event.taskId(),
-                () -> reconcilePushedElsewhere(event));
+        reconcilePushedElsewhere(event);
     }
 
-    /** Synchronous reconciliation entry point for callers that are already
-     * outside a publishing transaction, such as the periodic PR sync. */
+    /** Compatibility entry point for callers such as the periodic PR sync. */
     void reconcilePushedElsewhere(PrPushedEvent event)
     {
-        try {
-            if (isV2Task(event.taskId())) {
-                return;
-            }
-            if (pushSaga.adoptRemotePullRequest(
-                    event.taskId(), event.repo(), event.remotePrNumber(), event.remotePrUrl())) {
-                return;
-            }
-            prService.findByTask(event.taskId()).ifPresent(pr -> {
-                PR current = pr;
-                if (PR.STATUS_LOCAL_DRAFTED.equals(current.status())) {
-                    current = brainReview.reviewBeforeLocalOpen(current.id(), PRTimelineEntry.ACTOR_AGENT);
-                }
-                if (PR.STATUS_LOCAL_OPEN.equals(current.status())) {
-                    prService.recordPush(current.id(), event.repo(), event.remotePrNumber(), event.remotePrUrl());
-                }
-            });
+        if (isV2Task(event.taskId())) {
+            return;
         }
-        catch (RuntimeException e) {
-            log.warn("syncing local PR push state for task {} failed: {}", event.taskId(), e.getMessage());
-        }
+        throw legacyTaskPrRetired(event.taskId());
     }
 
     /**
      * Auto-merge's answer to the Local Review page's manual Push button: once
      * the dev-end brain review clears (the PR just reached {@code
-     * local-open}), push straight to remote instead of waiting on that click
-     * — but only for a clean approval (not a budget-exhaustion escalation,
-     * R23) on a task opted into {@code auto_merge}. Best-effort and silent on
-     * {@link #push}'s ordinary preconditions (an open comment thread, a
-     * failing local check) — those just mean the manual button stays
-     * available, same as for any other task.
+     * local-open}), the V2 maintenance path may authorize publish. This old
+     * event callback performs no scheduling: V2 is already handled by its
+     * typed owner and historical LEGACY Tasks fail closed.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onLocalReviewCleared(LocalReviewClearedEvent event)
     {
-        submitAfterCommit("auto-pushing local PR " + event.prId(),
-                () -> autoPushAfterLocalReview(event));
-    }
-
-    private void autoPushAfterLocalReview(LocalReviewClearedEvent event)
-    {
-        if (!event.approved() || !taskStore.isAutoMerge(event.taskId())) {
+        if (!event.approved() || isV2Task(event.taskId())) {
             return;
         }
-        try {
-            push(event.prId());
-            // The toggle is the user's standing approval for this gate. Keep
-            // the decision on the PR even though no manual button was clicked.
-            prService.recordGateApproval(event.prId(), "push", "auto-merge");
-            log.info("auto-merge: approved and pushed local PR {} for task {} without waiting on the manual button",
-                    event.prId(), event.taskId());
-        }
-        catch (RuntimeException e) {
-            log.warn("auto-merge: push of local PR {} for task {} failed: {}",
-                    event.prId(), event.taskId(), e.getMessage());
-        }
-    }
-
-    private void submitAfterCommit(String action, Runnable work)
-    {
-        try {
-            executor.execute(work);
-        }
-        catch (RuntimeException e) {
-            log.warn("submitting {} failed: {}", action, e.getMessage());
-        }
+        throw legacyTaskPrRetired(event.taskId());
     }
 
     /** Push {@code prId}'s branch and open a Draft PR, then strip locals + flip
@@ -212,12 +137,20 @@ public class PRPublishService
      */
     public PR push(String prId, boolean userOverride)
     {
+        return push(null, prId, userOverride);
+    }
+
+    /** V2 user action variant with a stable client command identity. */
+    public PR push(String commandId, String prId, boolean userOverride)
+    {
         Optional<PR> candidate = prService.findById(prId);
         if (candidate.isPresent() && isV2(candidate.orElseThrow())) {
             PR pr = candidate.orElseThrow();
-            v2Controls.approveAndShip(pr.taskId(), prId, userOverride);
+            v2Controls.approveAndShip(
+                    requireV2CommandId(commandId), pr.taskId(), prId, userOverride);
             return prService.findById(prId).orElse(pr);
         }
+        candidate.ifPresent(PRPublishService::rejectLegacyTaskPr);
         return pushSaga.push(prId, userOverride);
     }
 
@@ -237,100 +170,26 @@ public class PRPublishService
      */
     public PR merge(String prId, String method)
     {
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Idempotency-Key is required for a V2 remote action");
+    }
+
+    /** V2 user action variant with a stable client command identity. */
+    public PR merge(String commandId, String prId, String method)
+    {
         PR identified = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
         if (isV2(identified)) {
-            v2Controls.merge(identified.taskId(), method);
+            v2Controls.merge(
+                    requireV2CommandId(commandId), identified.taskId(), method);
             return prService.findById(prId).orElse(identified);
         }
-        if (identified.taskId() == null || identified.taskId().isBlank()) {
-            return mergeLocked(prId, method);
-        }
-        return TaskExternalEffectGate.withEffectGate(
-                identified.taskId(), () -> mergeLocked(prId, method));
-    }
-
-    private PR mergeLocked(String prId, String method)
-    {
-        PR pr = prService.findById(prId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
-        if (!PR.STATUS_REMOTE_OPEN.equals(pr.status()) || pr.remotePrNumber() == null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "local PR " + prId + " is not an open, review-ready remote PR");
-        }
-        RemoteTarget target = resolveRemoteTarget(pr);
-        String pat = target.pat();
-        PullRequestRef ref = target.ref();
-
-        PullRequestDetail detail = pullRequestDetails.fetchFreshPullRequestDetail(
-                ref.owner() + "/" + ref.repo(), ref.number());
-        if (!readyToMerge.isReadyForMerge(pr.taskId(), detail)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "pull request is not ready to merge: CI, approvals, comments, review rounds, and mergeability must be clear");
-        }
-
-        Optional<PullRequestRepository.MergeQueueProbe> probe;
-        try {
-            probe = pullRequests.probeMergeQueue(pat, ref);
-        }
-        catch (RuntimeException e) {
-            log.debug("merge queue probe failed for local PR {}, falling back to direct merge: {}", prId, e.getMessage());
-            probe = Optional.empty();
-        }
-        if (probe.isPresent()) {
-            MergeResult queued = pullRequests.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
-            if (!queued.queued()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "GitHub did not queue PR #" + pr.remotePrNumber() + ": " + queued.message());
-            }
-            authorizeQueuedTaskMerge(pr);
-            return prService.findById(prId).orElse(pr);
-        }
-
-        MergeResult result;
-        try {
-            result = pullRequests.mergePullRequest(pat, ref, mergeCommand(method));
-        }
-        catch (ResponseStatusException e) {
-            if (requiresMergeQueue(e)) {
-                Optional<String> nodeId = pullRequests.pullRequestNodeId(pat, ref);
-                if (nodeId.isPresent()) {
-                    MergeResult queued = pullRequests.enqueuePullRequest(pat, nodeId.get());
-                    if (queued.queued()) {
-                        authorizeQueuedTaskMerge(pr);
-                        return prService.findById(prId).orElse(pr);
-                    }
-                }
-            }
-            throw e;
-        }
-        if (!result.merged()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "GitHub did not merge PR #" + pr.remotePrNumber() + ": " + result.message());
-        }
-        PR merged = prService.recordMerged(prId);
-        if (pr.taskId() != null && !pr.taskId().isBlank()) {
-            taskService.completeTasksForMergedPr(
-                    ref.owner() + "/" + ref.repo(), ref.number());
-        }
-        return merged;
-    }
-
-    private void authorizeQueuedTaskMerge(PR pr)
-    {
-        if (pr.taskId() != null && !pr.taskId().isBlank()) {
-            taskService.authorizeMergeForPr(pr.repo(), pr.remotePrNumber());
-        }
-    }
-
-    /** True when a direct-merge rejection is GitHub requiring the change to
-     *  go through the merge queue (HTTP 405 with a queue message) — mirrors
-     *  {@link com.bytequay.app.service.pr.PullRequestService}'s own check. */
-    private static boolean requiresMergeQueue(ResponseStatusException e)
-    {
-        return e.getStatusCode().value() == 405
-                && e.getReason() != null
-                && e.getReason().toLowerCase(Locale.ROOT).contains("merge queue");
+        rejectLegacyTaskPr(identified);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), prId, SemanticAction.MERGE,
+                ActionPayload.value(method == null ? "REBASE" : method));
+        return identified;
     }
 
     /** User-gated removal of a pushed PR from its repo's merge queue —
@@ -338,7 +197,9 @@ public class PRPublishService
      *  side when the PR isn't queued. */
     public PR dequeue(String prId)
     {
-        return dequeue(UUID.randomUUID().toString(), prId);
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Idempotency-Key is required for a V2 remote action");
     }
 
     public PR dequeue(String commandId, String prId)
@@ -353,8 +214,10 @@ public class PRPublishService
                     requireV2CommandId(commandId), pr.taskId(), prId);
             return prService.findById(prId).orElse(pr);
         }
-        RemoteTarget target = resolveRemoteTarget(pr);
-        pullRequests.dequeuePullRequest(target.pat(), target.ref());
+        rejectLegacyTaskPr(pr);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), prId, SemanticAction.DEQUEUE,
+                ActionPayload.empty());
         return prService.findById(prId).orElse(pr);
     }
 
@@ -363,7 +226,9 @@ public class PRPublishService
      *  branchDeletedAt} so the button disappears afterward. */
     public PR deleteBranch(String prId)
     {
-        return deleteBranch(UUID.randomUUID().toString(), prId);
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Idempotency-Key is required for a V2 remote action");
     }
 
     public PR deleteBranch(String commandId, String prId)
@@ -379,16 +244,22 @@ public class PRPublishService
                     pr.branchName());
             return prService.findById(prId).orElse(pr);
         }
-        RemoteTarget target = resolveRemoteTarget(pr);
-        pullRequests.deleteBranch(target.pat(), target.ref(), pr.branchName());
-        return prService.recordBranchDeleted(prId);
+        rejectLegacyTaskPr(pr);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), prId,
+                SemanticAction.DELETE_REMOTE_BRANCH,
+                new ActionPayload(
+                        1, null, null, pr.branchName(), List.of()));
+        return pr;
     }
 
     /** Explicit user action from the GitHub-style PR composer. Posts a
      * top-level issue comment to the pushed PR for either origin. */
     public PR postComment(String prId, String body)
     {
-        return postComment(UUID.randomUUID().toString(), prId, body);
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Idempotency-Key is required for a V2 remote action");
     }
 
     public PR postComment(String commandId, String prId, String body)
@@ -407,29 +278,14 @@ public class PRPublishService
                     HandledAction.COMMENTED);
             return prService.findById(prId).orElse(pr);
         }
-        RemoteTarget target = resolveRemoteTarget(pr);
-        pullRequests.createIssueComment(target.pat(), target.ref(), body.trim());
-        markReviewRequestHandled(pr, HandledAction.COMMENTED);
+        rejectLegacyTaskPr(pr);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), prId,
+                null, SemanticAction.POST_TOP_LEVEL_COMMENT,
+                ActionPayload.body(body.trim()),
+                HandledAction.COMMENTED.name());
         return pr;
     }
-
-    /** Resolves the (PAT, REST ref) pair for a pushed PR of either origin. A
-     *  pushed PR carries {@code repo}/{@code remotePrNumber} directly on its
-     *  row (a task row is stamped at push time and repaired on startup), so
-     *  the remote no longer needs re-deriving from the task's working dir —
-     *  which may be gone once the PR is merged. */
-    private RemoteTarget resolveRemoteTarget(PR pr)
-    {
-        if (pr.repo() == null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + pr.id() + " has no repo");
-        }
-        String[] ownerRepo = pr.repo().split("/", 2);
-        return new RemoteTarget(
-                patResolver.resolve(pr.repo()),
-                new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber()));
-    }
-
-    private record RemoteTarget(String pat, PullRequestRef ref) {}
 
     /**
      * Batch every unpublished, unresolved-and-not-dismissed local draft on an
@@ -440,7 +296,9 @@ public class PRPublishService
      */
     public PR publishReview(String prId)
     {
-        return publishReview(prId, "COMMENT", null, null);
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Idempotency-Key is required for a V2 remote action");
     }
 
     /** Publish only the explicitly included investigation findings/comments
@@ -450,7 +308,9 @@ public class PRPublishService
     public PR publishReview(
             String prId, String verdict, List<String> findingIds, List<String> commentIds)
     {
-        return publishReview(prId, verdict, findingIds, commentIds, null);
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Idempotency-Key is required for a V2 remote action");
     }
 
     /** Publishes the selected draft comments plus an optional overall review
@@ -461,9 +321,9 @@ public class PRPublishService
     public PR publishReview(
             String prId, String verdict, List<String> findingIds, List<String> commentIds, String reviewBody)
     {
-        return publishReview(
-                UUID.randomUUID().toString(), prId, verdict,
-                findingIds, commentIds, reviewBody);
+        throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Idempotency-Key is required for a V2 remote action");
     }
 
     public PR publishReview(
@@ -509,13 +369,6 @@ public class PRPublishService
                 .collect(Collectors.joining("\n\n"));
         String body = requestedBody.isEmpty() ? draftBody
                 : draftBody.isEmpty() ? requestedBody : requestedBody + "\n\n" + draftBody;
-        List<ReviewLineComment> lineComments = drafts.stream()
-                .filter(c -> PRComment.SCOPE_FILE_LINE.equals(c.scope()))
-                .map(c -> new ReviewLineComment(
-                        c.filePath(), Optional.empty(), Optional.of(c.lineNumber()),
-                        c.side() == null ? "RIGHT" : c.side(), c.body(),
-                        Optional.ofNullable(c.startLine()), Optional.ofNullable(c.startSide())))
-                .toList();
         HandledAction handledAction = switch (event) {
             case "APPROVE" -> HandledAction.APPROVED;
             case "REQUEST_CHANGES" -> HandledAction.CHANGES_REQUESTED;
@@ -528,18 +381,16 @@ public class PRPublishService
                     handledAction);
             return prService.findById(prId).orElse(pr);
         }
-        String[] ownerRepo = pr.repo().split("/", 2);
-        PullRequestRef ref = new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber());
-        String pat = patResolver.resolve(pr.repo());
-        pullRequests.createReview(pat, ref, new CreateReviewCommand(
-                Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), event, lineComments));
-        markReviewRequestHandled(pr, handledAction);
+        rejectLegacyTaskPr(pr);
+        v2UserRemoteActions.publishExternalReview(
+                requireV2CommandId(commandId), prId, null, event, body, drafts,
+                handledAction);
+        return pr;
+    }
 
-        Instant when = Instant.now();
-        for (PRComment draft : drafts) {
-            prService.markPublished(draft.id(), when);
-        }
-        return prService.findById(prId).orElse(pr);
+    public Optional<Projection> findExternalReviewPublication(String prId)
+    {
+        return v2UserRemoteActions.findExternalReviewPublication(prId);
     }
 
     private void markReviewRequestHandled(PR pr, HandledAction action)
@@ -551,10 +402,73 @@ public class PRPublishService
         }
     }
 
+    /**
+     * Resolve the immutable workflow owner for a GitHub PR before a generic
+     * dashboard endpoint performs a remote write. An empty result is a proven
+     * non-V2 route; inconsistent V2 ownership fails closed instead of falling
+     * through to a direct GitHub mutation.
+     */
+    public Optional<PR> findV2TaskPullRequest(String repo, int remotePrNumber)
+    {
+        Optional<PR> taskPr = prService.findTaskByRepoAndNumber(repo, remotePrNumber);
+        if (taskPr.isPresent()) {
+            PR pr = taskPr.orElseThrow();
+            if (pr.taskId() == null || pr.taskId().isBlank()) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Task-owned PR " + repo + "#" + remotePrNumber
+                                + " has no Task identity");
+            }
+            if (workflowVersion(pr.taskId())) {
+                return taskPr;
+            }
+            throw legacyTaskPrRetired(pr.taskId());
+        }
+
+        String ref = repo + "#" + remotePrNumber;
+        List<Task> linked = taskStore.findTasksByPrRef(ref);
+        if (linked.isEmpty()) {
+            linked = taskStore.findActiveTaskByPrRef(ref).stream().toList();
+        }
+        if (!linked.isEmpty()) {
+            Task owner = linked.getLast();
+            if (workflowVersion(owner.id())) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "V2 Task " + owner.id() + " owns " + ref
+                                + " but its local PR identity is unavailable");
+            }
+            throw legacyTaskPrRetired(owner.id());
+        }
+        return Optional.empty();
+    }
+
+    /** Resolve the taskless aggregate used by the V289 REVIEW-Trunk route. */
+    public Optional<PR> findExternalPullRequest(String repo, int remotePrNumber)
+    {
+        return prService.findByRepoAndNumber(repo, remotePrNumber)
+                .filter(pr -> pr.taskId() == null);
+    }
+
     private boolean isV2(PR pr)
     {
         return pr.taskId() != null && !pr.taskId().isBlank()
                 && workflowVersion(pr.taskId());
+    }
+
+    private static void rejectLegacyTaskPr(PR pr)
+    {
+        if (pr.taskId() != null && !pr.taskId().isBlank()) {
+            throw legacyTaskPrRetired(pr.taskId());
+        }
+    }
+
+    private static ResponseStatusException legacyTaskPrRetired(String taskId)
+    {
+        return new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Historical LEGACY Task-owned PR for " + taskId
+                        + " is read-only; use the typed V2 remote owner");
     }
 
     private static String requireV2CommandId(String commandId)
@@ -577,7 +491,8 @@ public class PRPublishService
         return taskStore.findWorkflowVersion(taskId)
                 .map(version -> {
                     if (!"V2".equals(version) && !"LEGACY".equals(version)) {
-                        throw new IllegalStateException(
+                        throw new ResponseStatusException(
+                                HttpStatus.CONFLICT,
                                 "unsupported Task workflow version " + version);
                     }
                     return "V2".equals(version);

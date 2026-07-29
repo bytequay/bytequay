@@ -18,6 +18,7 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.review.BrainReviewService;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Set;
 
@@ -77,8 +78,14 @@ public class BrainReviewToolHandlers
                 && !ReviewRound.VERDICT_CHANGES_REQUESTED.equals(args.verdict())) {
             return ToolOutcome.Completed.error("verdict must be 'approved' or 'changes_requested'");
         }
-        brainReview.recordVerdict(
-                taskId, call.requireStageId(), call.agentRunId(), args.scope(), args.verdict());
+        try {
+            brainReview.recordVerdict(
+                    taskId, call.requireStageId(), call.agentRunId(), args.scope(), args.verdict());
+        }
+        catch (ResponseStatusException e) {
+            return ToolOutcome.Completed.error(
+                    e.getReason() == null ? e.getMessage() : e.getReason());
+        }
         return ToolOutcome.Completed.ok("recorded " + args.verdict() + " (" + args.scope() + ")");
     }
 }

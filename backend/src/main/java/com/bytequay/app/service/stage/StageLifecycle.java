@@ -27,13 +27,7 @@ import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.Optional;
@@ -60,8 +54,12 @@ import static java.util.Objects.requireNonNull;
  * the post-push idle waits) is a deliberate no-op that leaves the current
  * stage in place. The one intentional throw is the plan guard: opening the
  * DevelopmentStage without an approved plan is illegal, not a no-op.
+ *
+ * <p>This is retained only for direct legacy compatibility tests. It is
+ * intentionally neither a Spring bean nor an event/startup listener after the
+ * V2 cutover; typed Task and Stage managers exclusively own production
+ * lifecycle transitions.
  */
-@Component
 public class StageLifecycle
 {
     private static final Logger log = LoggerFactory.getLogger(StageLifecycle.class);
@@ -83,7 +81,6 @@ public class StageLifecycle
         this.events = requireNonNull(events, "events is null");
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onTaskCreated(TaskCreatedEvent event)
     {
         TaskCommandExecutor.dispatchAfterCommit(() -> {
@@ -101,8 +98,6 @@ public class StageLifecycle
      * durable steps, so an existing stage does not prove the kickoff landed.
      * The brain uses a keyed enqueue, making this replay idempotent.
      */
-    @Order(30)
-    @EventListener(ApplicationReadyEvent.class)
     public void reconcilePlanningTasksOnStartup()
     {
         for (Task task : taskStore.listByPhases(List.of(TaskPhase.PLANNING), 1_000)) {
@@ -121,7 +116,6 @@ public class StageLifecycle
         }
     }
 
-    @EventListener
     public void onPhaseTransition(TaskPhaseTransitionedEvent event)
     {
         reconcile(event.taskId(), event.to(), event.reason());

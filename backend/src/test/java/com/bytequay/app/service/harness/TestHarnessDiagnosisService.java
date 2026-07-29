@@ -23,7 +23,6 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.CommitDetailEntry;
 import com.bytequay.app.service.local.GitRunner.CommitFileChange;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService.ResolvedRelation;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService.WorkspaceRelationDto;
@@ -57,7 +56,7 @@ class TestHarnessDiagnosisService
     private final WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
     private final HarnessDiagnosisService service = new HarnessDiagnosisService(
             mock(TurnRunner.class), mock(ReviewProviderEndpoints.class),
-            mock(AgentScheduler.class), mock(AppSettingsStore.class), git,
+            mock(AppSettingsStore.class), git,
             relations, mapper);
 
     @BeforeEach

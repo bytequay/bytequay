@@ -13,14 +13,17 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.FindingRow;
 import com.bytequay.app.domain.InvestigationReviewData.InvestigationStepRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewCapabilities;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.repository.sqlite.InvestigationReviewStore.ReviewRoundSnapshot;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor.ToolCallResult;
 import com.bytequay.app.service.agents.TurnSpec;
-import com.bytequay.app.service.localpr.PRService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -28,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
 
@@ -44,8 +48,7 @@ class TestInvestigationReviewTools
     void recordFindingRequiresAnExactFileRangeAndBlockingSeverity()
     {
         InvestigationReviewTools tools = new InvestigationReviewTools(
-                mock(InvestigationReviewStore.class), mock(InvestigationReviewContext.class),
-                mock(PRService.class), new ObjectMapper());
+                mock(InvestigationReviewStore.class), new ObjectMapper());
 
         JsonNode schema = StreamSupport.stream(
                         tools.tools(TurnSpec.Transport.OPENAI_COMPAT, false).spliterator(), false)
@@ -72,7 +75,7 @@ class TestInvestigationReviewTools
                 "o1", "round1", "criterion1", "Preserve correctness", "failure-class",
                 "applicable", "pending")));
         InvestigationReviewTools tools = new InvestigationReviewTools(
-                store, mock(InvestigationReviewContext.class), mock(PRService.class), new ObjectMapper());
+                store, new ObjectMapper());
 
         ObjectNode input = new ObjectMapper().createObjectNode();
         input.put("objective_id", "o1");
@@ -102,7 +105,7 @@ class TestInvestigationReviewTools
             return true;
         });
         InvestigationReviewTools tools = new InvestigationReviewTools(
-                store, mock(InvestigationReviewContext.class), mock(PRService.class), new ObjectMapper());
+                store, new ObjectMapper());
 
         ObjectNode input = new ObjectMapper().createObjectNode();
         input.put("finding_id", "f1");
@@ -130,7 +133,7 @@ class TestInvestigationReviewTools
             return true;
         });
         InvestigationReviewTools tools = new InvestigationReviewTools(
-                store, mock(InvestigationReviewContext.class), mock(PRService.class), new ObjectMapper());
+                store, new ObjectMapper());
 
         ObjectNode input = new ObjectMapper().createObjectNode();
         input.put("action_type", "readRange");
@@ -145,5 +148,70 @@ class TestInvestigationReviewTools
         assertThat(arguments.isObject()).isTrue();
         assertThat(arguments.path("path").asText()).isEqualTo("X.java");
         assertThat(arguments.path("start_line").asInt()).isEqualTo(51);
+    }
+
+    @Test
+    void quickReviewExecutorRejectsReadFileBeforeReadingSnapshot()
+    {
+        InvestigationReviewStore store = mock(InvestigationReviewStore.class);
+        when(store.assignmentBelongsToReview("assignment-1", "review-1"))
+                .thenReturn(true);
+        when(store.assignmentRoundIsRunning("assignment-1")).thenReturn(true);
+        when(store.assignmentUsesQuickReviewScope("assignment-1"))
+                .thenReturn(true);
+        InvestigationReviewTools tools = new InvestigationReviewTools(
+                store, new ObjectMapper());
+
+        ToolCallResult result = tools.executor("review-1", "assignment-1")
+                .execute(new ToolCall(
+                        "t1", "read_file", "{}",
+                        new ObjectMapper().createObjectNode()));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.text()).contains("limited to the frozen pull-request diff");
+        verify(store, never()).findRoundSnapshotByAssignment(any());
+    }
+
+    @Test
+    void ordinaryFullReviewReadsFileFromThePersistedRoundSnapshot()
+    {
+        InvestigationReviewStore store = mock(InvestigationReviewStore.class);
+        AgentReviewRow review = new AgentReviewRow(
+                "review-1", "acme/widget", "pr-1", "base-1", "head-1",
+                "ACTIVE", null, null, null);
+        ReviewRoundSnapshot frozen = new ReviewRoundSnapshot(
+                "round-1", "acme/widget", 42, "main", "Frozen review", "",
+                "base-1", "head-1",
+                "diff --git a/A.java b/A.java\n@@ -1 +1 @@\n-return false;\n+return true;\n",
+                List.of(new DiffFile(
+                        "A.java", "modified", 1, 1,
+                        "@@ -1 +1 @@\n-return false;\n+return true;")),
+                Map.of("A.java", "return true;\n"), null, null,
+                ReviewCapabilities.frozenChangedFiles(), 1L);
+        when(store.assignmentBelongsToReview("assignment-1", review.id()))
+                .thenReturn(true);
+        when(store.assignmentRoundIsRunning("assignment-1")).thenReturn(true);
+        when(store.assignmentUsesQuickReviewScope("assignment-1"))
+                .thenReturn(false);
+        when(store.stepBelongsToAssignment("step-1", "assignment-1"))
+                .thenReturn(true);
+        when(store.findReview(review.id())).thenReturn(Optional.of(review));
+        when(store.findRoundSnapshotByAssignment("assignment-1"))
+                .thenReturn(Optional.of(frozen));
+        when(store.mutateWhileAssignmentRoundRunning(any(), any())).thenAnswer(call -> {
+            call.getArgument(1, Runnable.class).run();
+            return true;
+        });
+        InvestigationReviewTools tools = new InvestigationReviewTools(
+                store, new ObjectMapper());
+        ObjectNode input = new ObjectMapper().createObjectNode();
+        input.put("step_id", "step-1");
+        input.put("path", "A.java");
+
+        ToolCallResult result = tools.executor(review.id(), "assignment-1")
+                .execute(new ToolCall("t1", "read_file", "{}", input));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(result.text()).contains("return true");
     }
 }

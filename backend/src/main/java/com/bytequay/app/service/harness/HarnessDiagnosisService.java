@@ -25,7 +25,6 @@ import com.bytequay.app.service.harness.HarnessModels.Edit;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService.ResolvedRelation;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -43,7 +42,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -64,7 +62,6 @@ public class HarnessDiagnosisService
 
     private final TurnRunner runner;
     private final ReviewProviderEndpoints endpoints;
-    private final AgentScheduler scheduler;
     private final AppSettingsStore settings;
     private final GitRunner git;
     private final WorkspaceRelationService relations;
@@ -73,7 +70,6 @@ public class HarnessDiagnosisService
     public HarnessDiagnosisService(
             TurnRunner runner,
             ReviewProviderEndpoints endpoints,
-            AgentScheduler scheduler,
             AppSettingsStore settings,
             GitRunner git,
             WorkspaceRelationService relations,
@@ -81,7 +77,6 @@ public class HarnessDiagnosisService
     {
         this.runner = requireNonNull(runner, "runner is null");
         this.endpoints = requireNonNull(endpoints, "endpoints is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.git = requireNonNull(git, "git is null");
         this.relations = requireNonNull(relations, "relations is null");
@@ -124,14 +119,13 @@ public class HarnessDiagnosisService
                 return costSoFarMilliUsd >= costCapMilliUsd;
             }
         };
-        Callable<TurnResult> work = () -> runner.runTurn(
+        TurnResult result = runner.runTurn(
                 new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
                         endpoint.modelId(), endpoint.transport() == TurnSpec.Transport.ANTHROPIC
                                 ? system : null,
                         messages, toolSchemas(endpoint.transport()),
                         MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
                 tools, hooks);
-        TurnResult result = scheduler.invokeAll(List.of(work)).getFirst();
         Diagnosis diagnosis = parseAndValidate(
                 result.finalText(), failure, root, baseSha, unrelatedSignatures);
         return new DiagnosisOutcome(diagnosis, result.costMilliUsd(), result.finalText(),
@@ -161,14 +155,13 @@ public class HarnessDiagnosisService
                 return costSoFarMilliUsd >= costCapMilliUsd;
             }
         };
-        Callable<TurnResult> work = () -> runner.runTurn(
+        TurnResult result = runner.runTurn(
                 new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
                         endpoint.modelId(), endpoint.transport() == TurnSpec.Transport.ANTHROPIC
                                 ? system : null,
                         messages, toolSchemas(endpoint.transport()),
                         MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
                 tools, hooks);
-        TurnResult result = scheduler.invokeAll(List.of(work)).getFirst();
         String answer = result.finalText() == null ? "" : result.finalText().strip();
         if (answer.isEmpty()) {
             throw new IllegalStateException("the answer came back empty");

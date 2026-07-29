@@ -19,11 +19,13 @@ import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.service.review.BranchGuardService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import static java.util.Objects.requireNonNull;
 
@@ -71,8 +73,10 @@ public class BranchGuardController
                     patch == null ? null : patch.schedule());
             return requireV2Projection().project(taskId);
         }
-        return guards.update(taskId, patch == null ? null : patch.enabled(),
-                patch == null ? null : patch.schedule());
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "Historical LEGACY Task " + taskId
+                        + " is read-only; use the typed V2 branch policy owner");
     }
 
     private boolean isV2Task(String taskId)

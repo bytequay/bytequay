@@ -16,23 +16,30 @@ package com.bytequay.app.service.agents;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.sun.net.httpserver.HttpServer;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Contract tests for the shared provider tool-round loop. The
@@ -96,42 +103,34 @@ class TestTurnRunner
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    private HttpServer server;
-    private ConcurrentLinkedDeque<String> responses;
+    private Deque<String> responses;
     private List<String> requestBodies;
     private TurnRunner runner;
 
     @BeforeEach
+    @SuppressWarnings("unchecked")
     void setUp()
-            throws IOException
+            throws Exception
     {
-        responses = new ConcurrentLinkedDeque<>();
+        responses = new ArrayDeque<>();
         requestBodies = new ArrayList<>();
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/v1/messages", exchange -> {
-            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            synchronized (requestBodies) {
-                requestBodies.add(body);
-            }
-            String response = responses.pollFirst();
-            if (response == null) {
-                response = ANTHROPIC_FINAL_ROUND;
-            }
-            byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
-            exchange.sendResponseHeaders(200, bytes.length);
-            try (OutputStream out = exchange.getResponseBody()) {
-                out.write(bytes);
-            }
-        });
-        server.start();
-        runner = new TurnRunner(HttpClient.newHttpClient(), mapper);
-    }
-
-    @AfterEach
-    void tearDown()
-    {
-        server.stop(0);
+        HttpClient httpClient = mock(HttpClient.class);
+        when(httpClient.send(
+                any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenAnswer(invocation -> {
+                    HttpRequest request = invocation.getArgument(0);
+                    requestBodies.add(requestBody(request));
+                    String body = responses.pollFirst();
+                    if (body == null) {
+                        body = ANTHROPIC_FINAL_ROUND;
+                    }
+                    HttpResponse<InputStream> response = mock(HttpResponse.class);
+                    when(response.statusCode()).thenReturn(200);
+                    when(response.body()).thenReturn(new ByteArrayInputStream(
+                            body.getBytes(StandardCharsets.UTF_8)));
+                    return response;
+                });
+        runner = new TurnRunner(httpClient, mapper);
     }
 
     @Test
@@ -321,7 +320,7 @@ class TestTurnRunner
         messages.add(user);
         return new TurnSpec(
                 TurnSpec.Transport.ANTHROPIC,
-                "http://127.0.0.1:" + server.getAddress().getPort() + "/v1/messages",
+                "https://provider.test/v1/messages",
                 "test-key",
                 "claude-sonnet-4-6",
                 "system prompt",
@@ -329,5 +328,40 @@ class TestTurnRunner
                 tools,
                 1024,
                 maxIterations);
+    }
+
+    private static String requestBody(HttpRequest request)
+    {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        CompletableFuture<String> body = new CompletableFuture<>();
+        request.bodyPublisher().orElseThrow().subscribe(new Flow.Subscriber<>()
+        {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription)
+            {
+                subscription.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(ByteBuffer item)
+            {
+                byte[] chunk = new byte[item.remaining()];
+                item.get(chunk);
+                bytes.writeBytes(chunk);
+            }
+
+            @Override
+            public void onError(Throwable failure)
+            {
+                body.completeExceptionally(failure);
+            }
+
+            @Override
+            public void onComplete()
+            {
+                body.complete(bytes.toString(StandardCharsets.UTF_8));
+            }
+        });
+        return body.join();
     }
 }

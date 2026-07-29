@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
@@ -300,7 +301,7 @@ class TestReadyToMerge
     }
 
     @Test
-    void escalatesToNeedsAttentionAndNotifiesOnceRetriesAreExhausted()
+    void legacyRetryExhaustionFailsClosedWithoutPartialMutation()
     {
         String threadId = seedThread();
         String taskId = seedTask(threadId);
@@ -310,12 +311,14 @@ class TestReadyToMerge
         taskStore.setMergeQueueRetries(taskId, 2);              // already exhausted
         Task task = taskStore.findTaskById(taskId).orElseThrow();
 
-        readyToMerge.evaluate(task, readyDetail());
+        assertThatThrownBy(() -> readyToMerge.evaluate(task, readyDetail()))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TaskPhaseMachine is retired");
 
-        assertThat(taskStore.isMergeAuthorized(taskId)).isFalse();
+        assertThat(taskStore.isMergeAuthorized(taskId)).isTrue();
         assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
-                .isEqualTo(TaskPhase.NEEDS_ATTENTION);
-        assertThat(needsAttentionNotifications(threadId)).isEqualTo(1);
+                .isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
+        assertThat(needsAttentionNotifications(threadId)).isZero();
     }
 
     private long needsAttentionNotifications(String threadId)

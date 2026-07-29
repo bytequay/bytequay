@@ -1380,8 +1380,8 @@ export type ResolvedWorkModelDto = {
     scopeId: string | null;
     scopeLabel: string;
   };
-  /** True after this scope has started its first provider-native turn.
-   *  The model may still change, but the agent/provider may not. */
+  /** Historical lock projection. V2 scopes freeze their full work-model
+   *  snapshot at creation and expose it read-only regardless of this bit. */
   agentLocked: boolean;
 };
 
@@ -2572,6 +2572,61 @@ export type ReviewPassDetailDto = {
   findings: ReviewFindingDto[];
 };
 
+/** Restart-safe state of the one-shot remote publication for a review pass. */
+export type ReviewPassPublicationDto = {
+  reviewPassId: string;
+  commandId: string;
+  status: 'QUEUED' | 'PUBLISHING' | 'PUBLISHED' | 'FAILED' | 'INDETERMINATE';
+  terminal: boolean;
+  reviewAction: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
+  findingIds: string[];
+  externalEffectId: string | null;
+  evidence: string | null;
+  lastError: string | null;
+};
+
+/** Restart-safe state of one explicit review publication on the unified PR
+ * surface. PUBLISHED is exposed only after accepted delivery is finalized. */
+export type LocalPrReviewPublicationDto = {
+  prId: string;
+  reviewId: string | null;
+  commandId: string;
+  status: 'QUEUED' | 'PUBLISHING' | 'PUBLISHED' | 'FAILED' | 'INDETERMINATE';
+  terminal: boolean;
+  finalized: boolean;
+  blocksNewPublication: boolean;
+  externalEffectId: string | null;
+  lastError: string | null;
+};
+
+export type ReviewBuildCommentProposalItemDto = {
+  position: number;
+  findingId: string;
+  kind: 'INLINE' | 'TOP_LEVEL';
+  path: string | null;
+  line: number | null;
+  body: string;
+};
+
+/** Frozen comment-only handoff for somebody else's PR. Approval and discard
+ *  are durable local decisions; only the V2 dispatcher talks to GitHub. */
+export type ReviewBuildCommentProposalDto = {
+  threadId: string;
+  reviewPassId: string;
+  repoFullName: string;
+  pullRequestNumber: number;
+  expectedHeadSha: string;
+  selectionDigest: string;
+  status: 'PENDING' | 'APPROVED' | 'PUBLISHED' | 'FAILED' | 'DISCARDED';
+  decision: 'APPROVE' | 'DISCARD' | null;
+  commandId: string | null;
+  actionStatus: string | null;
+  externalEffectId: string | null;
+  evidence: string | null;
+  lastError: string | null;
+  items: ReviewBuildCommentProposalItemDto[];
+};
+
 /** One LLM reviewer the assign-review-task dialog renders as a
  *  panel chip. {@code configured} mirrors whether an API key is set
  *  — unconfigured rows surface as disabled chips with a hint. */
@@ -3142,15 +3197,15 @@ export type Bridge = {
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string) => Promise<void>;
   /** Edits a top-level issue / PR comment authored by the user.
    *  Backend rejects with 403 for comments authored by someone else. */
-  editIssueComment: (repo: string, commentId: number, body: string) => Promise<void>;
+  editIssueComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   /** Edits a per-line review comment authored by the user. */
-  editReviewComment: (repo: string, commentId: number, body: string) => Promise<void>;
+  editReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   /** Deletes a top-level issue / PR comment. Allowed for the comment's
    *  author or a user with repo write access; backend rejects otherwise. */
-  deleteIssueComment: (repo: string, commentId: number) => Promise<void>;
+  deleteIssueComment: (repo: string, number: number, commentId: number) => Promise<void>;
   /** Deletes a per-line review comment. Same permission rules as
    *  {@link deleteIssueComment}. */
-  deleteReviewComment: (repo: string, commentId: number) => Promise<void>;
+  deleteReviewComment: (repo: string, number: number, commentId: number) => Promise<void>;
   /** Posts a brand-new per-line review comment on a specific diff line.
    *  The backend resolves the live PR head immediately before posting.
    *  {@code side} is "LEFT" for the old file, "RIGHT" for the new file. */
@@ -3505,29 +3560,13 @@ export type Bridge = {
   /** Resolve the effective work model for a thread (cascade: thread →
    *  workspace → global default). */
   getThreadWorkModel: (threadId: string) => Promise<ResolvedWorkModelDto>;
-  /** Set (or clear) the thread's work-model override and return the
-   *  resolved outcome — the caller does not need a follow-up get. */
-  setThreadWorkModel: (threadId: string, model: WorkModelDto | null) => Promise<ResolvedWorkModelDto>;
   /** Resolve the effective work model for a task (cascade: task →
    *  thread → workspace → global default). */
   getTaskWorkModel: (threadId: string, taskId: string) => Promise<ResolvedWorkModelDto>;
-  /** Set (or clear) the task's work-model override and return the
-   *  resolved outcome. */
-  setTaskWorkModel: (
-    threadId: string,
-    taskId: string,
-    model: WorkModelDto | null,
-  ) => Promise<ResolvedWorkModelDto>;
   /** Resolve the effective work model for a stage (cascade: stage →
    *  task → thread → workspace → global default) — the most-specific
    *  rung on the cascade. */
   getStageWorkModel: (stageId: string) => Promise<ResolvedWorkModelDto>;
-  /** Set (or clear) the stage's work-model override and return the
-   *  resolved outcome. A stage's agent session is built once and
-   *  reused across every iteration within it, so this takes effect
-   *  the next time this stage builds a fresh session, not on a
-   *  session already running. */
-  setStageWorkModel: (stageId: string, model: WorkModelDto | null) => Promise<ResolvedWorkModelDto>;
   /** Local ds4 inference server lifecycle. Status is the cheap poll
    *  every page surface (widget + Settings) shares; the rest drive
    *  the management actions. */
@@ -3561,7 +3600,6 @@ export type Bridge = {
    *  prompt. Returns name + trigger + body for the modal to render
    *  pre-filled — the user confirms / edits before saving. */
   draftSkill: (prompt: string, scope: string) => Promise<SkillDraftDto>;
-  runAiReview: (prId: number, repo: string, number: number) => Promise<AiReviewDraftDto>;
   /** Sends the user's draft comment text to the active LLM and returns
    *  a polished rewrite. Used by the "Better words" button — UI replaces
    *  the textarea contents with the response. */
@@ -3570,40 +3608,6 @@ export type Bridge = {
    *  root-cause-and-fix reply for the merge bar's "Ask AI to fix"
    *  button. The body is the trimmed last-N-bytes of the Actions log. */
   diagnoseCheckFailure: (checkName: string, log: string) => Promise<string>;
-  getLatestAiReview: (prId: number) => Promise<AiReviewDraftDto | null>;
-  deleteAiReview: (draftId: number) => Promise<void>;
-  /** Async start — backend runs the review on its executor and returns
-   *  immediately. Poll {@link getAiReviewStatus} until state is DONE/FAILED,
-   *  then fetch the persisted draft via {@link getLatestAiReview}. */
-  startAiReview: (prId: number, repo: string, number: number) => Promise<{ state: string }>;
-  getAiReviewStatus: (repo: string, number: number) => Promise<{ state: 'IDLE' | 'RUNNING' | 'DONE' | 'FAILED'; error: string | null }>;
-  /** Publishes a stored draft to GitHub as a single review. {@code event}
-   *  is one of "COMMENT", "APPROVE", or "REQUEST_CHANGES" — controls the
-   *  GitHub review action. */
-  publishAiReview: (
-    draftId: number,
-    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
-    body?: string | null,
-  ) => Promise<AiReviewDraftDto>;
-  /** Submit a verdict-only or mixed review for a PR — backend
-   *  finds-or-creates the draft so the user can Approve / Comment
-   *  without first staging an inline comment. */
-  publishReviewForPr: (payload: {
-    prId: number;
-    repo: string;
-    number: number;
-    headSha: string | null;
-    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
-    body: string | null;
-  }) => Promise<AiReviewDraftDto>;
-  /** Edits a single AI comment's body. Pass null/empty to clear the edit
-   *  and revert to the AI's original. Returns the parent draft refreshed. */
-  updateAiReviewComment: (draftId: number, commentId: number, editedBody: string | null) => Promise<AiReviewDraftDto>;
-  /** Drops a single AI comment from a draft. Returns the parent draft refreshed. */
-  deleteAiReviewComment: (draftId: number, commentId: number) => Promise<AiReviewDraftDto>;
-  /** Toggles the dismissed flag on a comment. Dismissed comments are kept
-   *  on the row but excluded from the publish payload. */
-  setAiReviewCommentDismissed: (draftId: number, commentId: number, dismissed: boolean) => Promise<AiReviewDraftDto>;
   /** Adds an emoji reaction to the pull request description. */
   addPullRequestReaction: (
     repo: string,
@@ -3615,6 +3619,7 @@ export type Bridge = {
    *  heart / hooray / rocket / eyes). Idempotent on the GitHub side. */
   addReviewCommentReaction: (
     repo: string,
+    number: number,
     commentId: number,
     content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
   ) => Promise<void>;
@@ -3623,6 +3628,7 @@ export type Bridge = {
    *  review-comment variant. */
   addIssueCommentReaction: (
     repo: string,
+    number: number,
     commentId: number,
     content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
   ) => Promise<void>;
@@ -3631,23 +3637,11 @@ export type Bridge = {
    *  translates to the GraphQL node id internally. */
   setReviewThreadResolved: (
     repo: string,
+    number: number,
     prId: number,
     rootCommentId: number,
     resolved: boolean,
   ) => Promise<void>;
-  /** Stage a human-authored inline comment into the active review draft. */
-  stageReviewComment: (payload: {
-    prId: number;
-    repo: string;
-    number: number;
-    headSha: string | null;
-    filePath: string;
-    line: number;
-    side: 'LEFT' | 'RIGHT';
-    startLine?: number | null;
-    startSide?: 'LEFT' | 'RIGHT' | null;
-    body: string;
-  }) => Promise<AiReviewDraftDto>;
   writeClipboard: (text: string) => Promise<void>;
   // Embedded GitHub review, implemented as a WebContentsView overlaid on the
   // main window's content area. Bounds are in CSS pixels (getBoundingClientRect).
@@ -3850,6 +3844,10 @@ export type Bridge = {
    *  so the PR Changes page can overlay its AGREED findings at their line
    *  positions. Null when the PR has no review pass. */
   getReviewPassForPr: (repo: string, number: number) => Promise<ReviewPassDetailDto | null>;
+  /** Durable publication projection; null before authorization. */
+  getReviewPassPublication: (
+    passId: string,
+  ) => Promise<ReviewPassPublicationDto | null>;
   /** Read the scheduled-reviews opt-in toggle. */
   getScheduledReviewSettings: () => Promise<{ enabled: boolean }>;
   /** Flip the scheduled-reviews opt-in toggle. The backend reads
@@ -4013,20 +4011,16 @@ export type Bridge = {
   getReviewThreadPrSummaries: (
     threadIds: string[],
   ) => Promise<ReviewThreadPrSummaryDto[]>;
-  /** Post the pass to GitHub as a PR review. {@code findingIds} is
-   *  the subset of findings the user has confirmed for posting; the
-   *  rest stay on the pass as AGREED but never reach GitHub.
-   *  Returns the updated detail (pass.phase = PUBLISHED, findings
-   *  flipped to POSTED). */
+  /** Authorize the pass's one-shot durable GitHub review publication. */
   publishReviewPass: (
     passId: string,
     verdict: ReviewVerdictDto,
     findingIds: string[],
-  ) => Promise<ReviewPassDetailDto>;
+  ) => Promise<ReviewPassPublicationDto>;
   /** Spawn a build thread from a TERMINATE-d pass to apply its AGREED
    *  findings. {@code mode} is "author_is_reviewer" (forked off
-   *  pr.head) or "suggested_change" (non-writable; V2 Task materialization
-   *  currently fails closed until it has a comment-only owner). Throws on the
+   *  pr.head) or "suggested_change" (a zero-Task comment-only Trunk with
+   *  frozen proposals that the user approves or discards). Throws on the
    *  backend's 409 / 422 gates (not TERMINATE, conflicting replay, no
    *  eligible findings, no / ambiguous workspace). */
   spawnBuildFromReview: (
@@ -4038,6 +4032,18 @@ export type Bridge = {
       selectedFindingIds?: string[];
     },
   ) => Promise<{ threadId: string; taskId: string | null; mode: string }>;
+  /** Null for the writable author-is-reviewer path. */
+  getReviewBuildCommentProposal: (
+    passId: string,
+  ) => Promise<ReviewBuildCommentProposalDto | null>;
+  approveReviewBuildComments: (
+    passId: string,
+    commandId: string,
+  ) => Promise<ReviewBuildCommentProposalDto>;
+  discardReviewBuildComments: (
+    passId: string,
+    commandId: string,
+  ) => Promise<ReviewBuildCommentProposalDto>;
   /** Flip the headless auto-fix opt-in for one repo. Off by default
    *  per CLAUDE.md; only when this is explicitly true does the
    *  automation coordinator queue a headless turn against a failing-
@@ -4048,16 +4054,6 @@ export type Bridge = {
     repo: string,
     enabled: boolean,
   ) => Promise<WorkspaceRepoDto>;
-  /** Close out one task on a thread and roll over to a fresh task,
-   *  the "Ship & continue" action. The backend commits + pushes the
-   *  current task's branch, opens its PR if not already up, then
-   *  cuts the next task on either {@code main} (default) or stacked
-   *  on the current branch. Returns the newly-created next task. */
-  shipAndContinue: (
-    threadId: string,
-    taskId: string,
-    opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
-  ) => Promise<WorkUnitTaskDto>;
   /** Close a task: interrupt the agent, mark it CANCELED, and reap its
    *  worktree + branch. Terminal and destructive — the caller confirms
    *  first. */
@@ -4066,8 +4062,7 @@ export type Bridge = {
    *  worktree + session intact so it can be resumed. The thread won't run a
    *  paused task, freeing the user to work on something else. */
   pauseTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
-  /** Resume a paused, errored, or archived task back to IDLE so it can run again.
-   *  ({@link resumeTask} is the thread-level revive; this is per-task.) */
+  /** Resume a paused, errored, or archived task back to IDLE so it can run again. */
   resumePausedTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
   /** Explicitly restart an exhausted post-ship CI loop. Unlike ordinary
    *  Resume, this action may rerun failed GitHub Actions. */
@@ -4147,8 +4142,7 @@ export type Bridge = {
     taskId: string,
     minApprovals: number,
   ) => Promise<{ minApprovals: number }>;
-  /** Trunk-scope counterpart of {@link sendTaskMessage} — drives the
-   *  trunk planning agent for cross-task talk. The persisted row lands
+  /** Drives the Trunk planning agent for cross-task talk. The persisted row lands
    *  with {@code task_id = null} so it filters into the trunk slice
    *  rather than any Task's segment. */
   sendTrunkMessage: (
@@ -4203,9 +4197,6 @@ export type Bridge = {
   /** Rename a thread. Trimmed and non-blank — empty / whitespace
    *  values are rejected on the backend. Returns the updated row. */
   renameTask: (id: string, title: string) => Promise<ThreadDto>;
-  /** Send a follow-up turn to a non-terminal thread and return its
-   *  durable scheduler turn id. */
-  sendTaskMessage: (id: string, taskId: string, input: string) => Promise<ThreadSendResultDto>;
   /** Reply to a {@code permission_request}. When {@code preApprove}
    *  is supplied, the backend records the per-call decision and then
    *  grants an auto-approval budget for future invocations of the same
@@ -4230,13 +4221,6 @@ export type Bridge = {
   /** Terminal — releases the underlying agent loop and removes the
    *  thread from the live registry. */
   stopTask: (id: string) => Promise<void>;
-  /** Resume an ERRORED (or AWAITING) thread back to IDLE so the user
-   *  can send another turn. The agent's CLI session id is preserved
-   *  on the thread row, so the next {@code sendTask} call spawns a
-   *  fresh subprocess with {@code claude --resume <id>} and picks
-   *  up where the previous turn died — useful after a token-quota
-   *  reset or transient agent error. */
-  resumeTask: (id: string) => Promise<void>;
   /** Permanent removal — only allowed for COMPLETED / ERRORED threads.
    *  Drops the thread row, its conversation log, and per-file rollups.
    *  Rejects with an error from the backend if the thread is still
@@ -4361,17 +4345,22 @@ export type Bridge = {
   publishLocalPrReview: (
     prId: string,
     body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[]; body?: string | null },
-  ) => Promise<LocalPR>;
+  ) => Promise<LocalPR | LocalPrReviewPublicationDto>;
+  /** Current durable taskless review publication, if one has been
+   * authorized. Used to restore queued and terminal state after restart. */
+  getLocalPrReviewPublication: (
+    prId: string,
+  ) => Promise<LocalPrReviewPublicationDto | null>;
   /** Persisted investigation-review aggregate; null means this PR has never
    *  been reviewed. Every review surface consumes this exact payload. */
   getAgentReview: (prId: string) => Promise<AgentReviewData | null>;
-  /** Diff-only one-shot review for an external PR whose repository is not watched. */
+  /** One-seat, diff-only ReviewAssignmentTurn for an unwatched external PR. */
   startQuickReview: (prId: string) => Promise<{ state: 'RUNNING' }>;
   getQuickReviewStatus: (prId: string) => Promise<{
     state: 'IDLE' | 'RUNNING' | 'DONE' | 'FAILED';
     error: string | null;
   }>;
-  getLatestQuickReview: (prId: string) => Promise<AiReviewDraftDto | null>;
+  getLatestQuickReview: (prId: string) => Promise<AgentReviewData | null>;
   startAgentReview: (
     prId: string,
     body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },

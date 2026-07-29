@@ -2394,10 +2394,6 @@ function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown
       : visualCommits;
   }
   if (path.endsWith('/sessions')) return visualSessions;
-  if (path.includes('/api/sessions/')) {
-    const id = path.split('/')[3];
-    return visualSessions.find(value => value.id === id) ?? visualSessions[0];
-  }
   if (path.endsWith('/memory/aggregate')) return visualMemory(frame);
   if (path.endsWith('/settings')) return visualSettings;
   if (path.endsWith('/onboarding')) return visualOnboarding(frame);

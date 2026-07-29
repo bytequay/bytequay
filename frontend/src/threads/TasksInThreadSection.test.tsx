@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bridge, WorkUnitTaskDto } from '../types';
+import type { LocalPR } from '../types/localPr';
 import { TasksInThreadSection } from './TasksInThreadSection';
 
 // React 19 enforces this flag before async act() works.
@@ -75,15 +76,11 @@ describe('TasksInThreadSection', () => {
   });
 
   it('routes Ship & continue against the newest non-terminal task', async () => {
-    const ship = vi.fn(async () => task({
-      id: 'task-3', seq: 3, status: 'IDLE', branchName: 'auto/next',
-    }));
-    installBridge(
+    const promotion = installBridge(
       async () => [
         task({ id: 'task-1', seq: 1, status: 'COMPLETED', branchName: 'auto/first' }),
         task({ id: 'task-2', seq: 2, status: 'IDLE', branchName: 'auto/second' }),
       ],
-      ship,
     );
 
     render(<TasksInThreadSection threadId="thread-1" />);
@@ -92,10 +89,25 @@ describe('TasksInThreadSection', () => {
     fireEvent.click(screen.getByRole('button', { name: /Ship & continue/i }));
 
     await waitFor(() => {
-      expect(ship).toHaveBeenCalledTimes(1);
       // Active task is the newest non-terminal one (task-2, not the
       // already-completed task-1).
-      expect(ship).toHaveBeenCalledWith('thread-1', 'task-2');
+      expect(promotion.getPrForTask).toHaveBeenCalledWith('task-2');
+      expect(promotion.pushLocalPr).toHaveBeenCalledWith('pr-task-2');
+    });
+  });
+
+  it('surfaces a missing local PR instead of falling back to legacy ship', async () => {
+    installBridge(
+      async () => [task({ id: 'task-1', seq: 1, status: 'IDLE' })],
+      { getPrForTask: async () => null },
+    );
+
+    render(<TasksInThreadSection threadId="thread-1" />);
+    await waitFor(() => expect(screen.getByText('idle')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /Ship & continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/has no local PR to ship/)).toBeTruthy();
     });
   });
 
@@ -116,18 +128,50 @@ describe('TasksInThreadSection', () => {
 
 function installBridge(
   handler: Bridge['listTasksForThread'],
-  ship?: Bridge['shipAndContinue'],
-): Bridge['shipAndContinue'] {
+  overrides: Partial<Pick<Bridge, 'getPrForTask' | 'pushLocalPr'>> = {},
+) {
   const listTasksForThread = vi.fn((id: string) => handler(id));
-  const fallback: Bridge['shipAndContinue'] = async () => task({ id: 'next', seq: 99 });
-  const shipAndContinue = vi.fn((ship ?? fallback));
+  const getPrForTask = vi.fn(overrides.getPrForTask
+    ?? (async (taskId: string) => localPr(taskId)));
+  const pushLocalPr = vi.fn(overrides.pushLocalPr
+    ?? (async (prId: string) => localPr(prId.replace(/^pr-/, ''))));
   (window as unknown as {
-    bridge: Pick<Bridge, 'listTasksForThread' | 'shipAndContinue'>;
+    bridge: Pick<Bridge, 'listTasksForThread' | 'getPrForTask' | 'pushLocalPr'>;
   }).bridge = {
     listTasksForThread: listTasksForThread as Bridge['listTasksForThread'],
-    shipAndContinue: shipAndContinue as Bridge['shipAndContinue'],
+    getPrForTask: getPrForTask as Bridge['getPrForTask'],
+    pushLocalPr: pushLocalPr as Bridge['pushLocalPr'],
   };
-  return shipAndContinue;
+  return { getPrForTask, pushLocalPr };
+}
+
+function localPr(taskId: string): LocalPR {
+  return {
+    id: `pr-${taskId}`,
+    taskId,
+    branchName: 'auto/task',
+    baseBranch: 'main',
+    title: 'Task PR',
+    description: '',
+    status: 'local-open',
+    createdAt: 0,
+    pushedAt: null,
+    remotePrNumber: null,
+    remotePrUrl: null,
+    mergedAt: null,
+    closedAt: null,
+    origin: 'task',
+    repo: null,
+    author: null,
+    syncedAt: null,
+    syncedAdditions: null,
+    syncedDeletions: null,
+    syncedMergeable: null,
+    syncedMergeableState: null,
+    syncedMergeQueueEnabled: false,
+    syncedMergeQueueState: null,
+    branchDeletedAt: null,
+  };
 }
 
 function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {

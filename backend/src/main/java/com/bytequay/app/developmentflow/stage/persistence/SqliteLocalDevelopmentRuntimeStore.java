@@ -211,7 +211,10 @@ public class SqliteLocalDevelopmentRuntimeStore
                        code.base_sha AS current_base_sha,
                        identity.worktree_path, ticket.id AS ticket_id,
                        ticket.status AS ticket_status,
-                       trunk.workspace_id, task.thread_id AS trunk_id
+                       trunk.workspace_id, task.thread_id AS trunk_id,
+                       identity.branch_name,
+                       COALESCE(NULLIF(task.base_branch, ''), 'main') AS base_branch,
+                       COALESCE(NULLIF(task.name, ''), identity.branch_name) AS task_name
                 FROM stage_turn turn
                 JOIN local_stage_turn_request request
                   ON request.stage_turn_id = turn.id
@@ -882,7 +885,8 @@ public class SqliteLocalDevelopmentRuntimeStore
                 rs.getString("current_head_sha"), rs.getString("current_base_sha"),
                 rs.getString("worktree_path"), rs.getString("ticket_id"),
                 rs.getString("ticket_status"), rs.getString("workspace_id"),
-                rs.getString("trunk_id"));
+                rs.getString("trunk_id"), rs.getString("branch_name"),
+                rs.getString("base_branch"), rs.getString("task_name"));
     }
 
     private static StageTurnDeliveryReceipt stageTurnReceipt(ResultSet rs)
@@ -1046,7 +1050,8 @@ public class SqliteLocalDevelopmentRuntimeStore
             long taskVersion, String currentStageId, Long currentStageGeneration,
             String currentCodeFingerprint, String currentHeadSha,
             String currentBaseSha, String worktreePath, String ticketId,
-            String ticketStatus, String workspaceId, String trunkId)
+            String ticketStatus, String workspaceId, String trunkId,
+            String branchName, String baseBranch, String taskName)
     {
         public ResultFence fence()
         {

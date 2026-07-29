@@ -15,8 +15,6 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.AgendaPhase;
 import com.bytequay.app.domain.AgendaPhaseStatus;
-import com.bytequay.app.domain.CreateReviewCommand;
-import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -87,10 +85,10 @@ import static java.util.Objects.requireNonNull;
  * single reviewer's findings persist as {@code AGREED} straight away
  * (no consensus to extract).
  *
- * <p>Panel-of-2+: {@code KICKOFF → INDEPENDENT (parallel)
+ * <p>Panel-of-2+: {@code KICKOFF → INDEPENDENT
  * → CROSS_REVIEW → TERMINATE}. INDEPENDENT runs the reviewers
- * concurrently against the same diff so no reviewer anchors on
- * another. CROSS_REVIEW transitions through a heuristic consensus
+ * serially against the same frozen diff and without sharing prior seat
+ * replies. CROSS_REVIEW transitions through a heuristic consensus
  * pass (no LLM round yet — Phase 3 follow-up adds the LLM-driven
  * cross-review + debate loop). Findings reported at the same
  * {@code (path, line)} by every reviewer land as a single AGREED row
@@ -117,7 +115,7 @@ public class ReviewPassService
     private final LeadToolset leadToolset;
     private final ReviewBudgetMeter budgetMeter;
     private final ReviewDiffCache diffCache;
-    private final LegacyReviewAdmission reviewAdmission;
+    private final ReviewCallContext reviewCalls;
     private final ApplicationEventPublisher events;
 
     public ReviewPassService(
@@ -134,7 +132,7 @@ public class ReviewPassService
             LeadToolset leadToolset,
             ReviewBudgetMeter budgetMeter,
             ReviewDiffCache diffCache,
-            LegacyReviewAdmission reviewAdmission,
+            ReviewCallContext reviewCalls,
             SkillStore skills,
             ApplicationEventPublisher events)
     {
@@ -145,7 +143,7 @@ public class ReviewPassService
         this.leadToolset = requireNonNull(leadToolset, "leadToolset is null");
         this.budgetMeter = requireNonNull(budgetMeter, "budgetMeter is null");
         this.diffCache = requireNonNull(diffCache, "diffCache is null");
-        this.reviewAdmission = requireNonNull(reviewAdmission, "reviewAdmission is null");
+        this.reviewCalls = requireNonNull(reviewCalls, "reviewCalls is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -324,7 +322,7 @@ public class ReviewPassService
                 // opened from, so it shows in that workspace's thread list.
                 workspaceId,
                 /* workModel */ null);
-        threadStore.saveThread(thread);
+        threadStore.saveV2Thread(thread);
 
         // 3. Pass row at KICKOFF — a later step transitions it as the
         //    panel runs. round 0; caps honour the request when set.
@@ -343,6 +341,8 @@ public class ReviewPassService
                 now,
                 /* endedAt */ null);
         reviewStore.savePass(pass);
+        reviewStore.setPassRemoteSubject(
+                pass.id(), raw.baseRepo(), raw.headRepo(), raw.headRef());
 
         // 4. Seat the panel: the Lead + N reviewers + the human row.
         //    The Lead runs on the panel's lead member (the dialog's
@@ -513,8 +513,8 @@ public class ReviewPassService
      * <ul>
      *   <li>KICKOFF — one Lead round that sets the agenda (the spine
      *       installs the canonical default if the Lead doesn't).</li>
-     *   <li>INDEPENDENT — the spine fans every reviewer seat out in
-     *       parallel through the scheduler's API lane; seats run
+     *   <li>INDEPENDENT — the spine runs every reviewer seat serially
+     *       through the exact review call context; seats run
      *       agentic turns with the read-only tools and report
      *       findings. A failed seat abstains; the pass only fails if
      *       every seat failed.</li>
@@ -545,7 +545,7 @@ public class ReviewPassService
             String leadBrief = latestLeadBrief(pass.id(), seated.lead().id());
 
             markAgenda(pass.id(), AGENDA_INDEPENDENT, AgendaPhaseStatus.IN_PROGRESS);
-            runIndependentParallel(pass.id(), roster, leadBrief);
+            runIndependentSerial(pass.id(), roster, leadBrief);
             markAgenda(pass.id(), AGENDA_INDEPENDENT, AgendaPhaseStatus.DONE);
 
             transition(pass.id(), ReviewPhase.CROSS_REVIEW);
@@ -643,7 +643,7 @@ public class ReviewPassService
             Cross-examine the independent findings: for each substantive finding, \
             dispatch the OTHER reviewers to react — quote the specific claim in \
             your dispatch body (reviewers cannot see each other). Several \
-            dispatches in one turn run in parallel.""";
+            dispatches in one turn run serially in dispatch order.""";
 
     private static final String CONSENSUS_GUIDANCE = """
             Weigh the panel and classify EVERY reported finding with \
@@ -683,7 +683,7 @@ public class ReviewPassService
         log.info("Review pass {} kickoff produced no usable agenda; installing the default.",
                 passId);
         reviewStore.savePass(pass.withAgendaJson(AgendaJsonCodec.write(List.of(
-                new AgendaPhase(AGENDA_INDEPENDENT, "Independent reviews (parallel)",
+                new AgendaPhase(AGENDA_INDEPENDENT, "Independent reviews (serial)",
                         AgendaPhaseStatus.OPEN),
                 new AgendaPhase(AGENDA_CROSS_REVIEW, "Cross-review the findings",
                         AgendaPhaseStatus.OPEN),
@@ -710,24 +710,22 @@ public class ReviewPassService
                 .orElse(AgendaPhaseStatus.OPEN);
     }
 
-    /** Fan every reviewer seat out concurrently through the
-     *  scheduler's API lane. A failed seat logs and abstains; the
-     *  pass only fails when no seat answered at all. */
-    private void runIndependentParallel(String passId, PanelSeatConfig roster, String leadBrief)
+    /** Run every reviewer seat in stable order. A failed seat abstains. */
+    private void runIndependentSerial(String passId, PanelSeatConfig roster, String leadBrief)
     {
         ReviewPass pass = reload(passId);
         String directive = leadBrief == null || leadBrief.isBlank()
                 ? INDEPENDENT_DIRECTIVE
                 : "The lead's brief on this PR:\n" + leadBrief.strip() + "\n\n" + INDEPENDENT_DIRECTIVE;
-        List<LegacyReviewAdmission.Work<ReviewMessage>> work = new ArrayList<>();
+        List<ReviewCallContext.Work<ReviewMessage>> work = new ArrayList<>();
         for (PanelSeatConfig.Seat seat : roster.reviewerSeats()) {
             String attemptId = ReviewerSeat.attemptId(
                     seat.participantId(), directive, ReviewPhase.INDEPENDENT, 0, null);
-            LegacyReviewAdmission.ProviderLane lane =
+            ReviewCallContext.ProviderLane lane =
                     CliReviewRunner.Provider.isCliProvider(seat.providerId())
-                            ? LegacyReviewAdmission.ProviderLane.CLI
-                            : LegacyReviewAdmission.ProviderLane.API;
-            work.add(new LegacyReviewAdmission.Work<>(pass, lane, attemptId, () -> {
+                            ? ReviewCallContext.ProviderLane.CLI
+                            : ReviewCallContext.ProviderLane.API;
+            work.add(new ReviewCallContext.Work<>(pass, lane, attemptId, () -> {
                 try {
                     return reviewerSeat.runDispatchedTurnAlreadyAdmitted(
                             pass, roster, seat.participantId(),
@@ -743,7 +741,7 @@ public class ReviewPassService
             }));
         }
         int findingsBefore = reviewStore.listFindingsForPass(passId).size();
-        List<ReviewMessage> results = reviewAdmission.invokeAll(work);
+        List<ReviewMessage> results = reviewCalls.invokeAll(work);
         if (!results.isEmpty() && results.stream().allMatch(Objects::isNull)) {
             throw new IllegalStateException("every reviewer seat failed its independent turn");
         }
@@ -1177,7 +1175,7 @@ public class ReviewPassService
 
                 transition(passId, ReviewPhase.INDEPENDENT);
                 markAgenda(passId, AGENDA_INDEPENDENT, AgendaPhaseStatus.IN_PROGRESS);
-                runIndependentParallel(passId, roster, leadBrief);
+                runIndependentSerial(passId, roster, leadBrief);
                 markAgenda(passId, AGENDA_INDEPENDENT, AgendaPhaseStatus.DONE);
 
                 transition(passId, ReviewPhase.CROSS_REVIEW);
@@ -1637,122 +1635,17 @@ public class ReviewPassService
     {
     }
 
-    /**
-     * Publish a terminated review pass to the PR as a GitHub review.
-     * The user picks the verdict + which findings to include via the
-     * panel UI's publish form; this method validates, composes the
-     * GitHub payload, posts it, marks the selected findings
-     * {@link ReviewFindingStatus#POSTED}, and transitions the pass
-     * into {@link ReviewPhase#PUBLISHED}.
-     *
-     * <p>Findings with both a {@code path} and a positive {@code line}
-     * become inline review comments; whole-PR notes (path or line
-     * missing) fold into the review body so nothing the user picked is
-     * silently dropped.
-     */
-    @Transactional
+    /** Retained compatibility seam. Runtime publication is authorized through
+     *  the durable standalone ReviewPass protocol in V2UserRemoteActionRuntime. */
+    @Deprecated(forRemoval = true)
     public ReviewPassDetail publishPass(
             String passId, ReviewVerdict verdict, List<String> includedFindingIds)
     {
         requireNonNull(passId, "passId is null");
         requireNonNull(verdict, "verdict is null");
         requireNonNull(includedFindingIds, "includedFindingIds is null");
-
-        ReviewPass pass = reviewStore.findPassById(passId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no review pass: " + passId));
-        if (pass.phase() == ReviewPhase.PUBLISHED) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "review pass " + passId + " is already published");
-        }
-        if (pass.phase() == ReviewPhase.ARBITRATE) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "review pass " + passId + " is at ARBITRATE — resolve disputed "
-                            + "findings via the ballot before publishing");
-        }
-
-        List<ReviewFinding> allFindings = reviewStore.listFindingsForPass(passId);
-        Set<String> includedIds = new LinkedHashSet<>(includedFindingIds);
-        List<ReviewFinding> selected = new ArrayList<>();
-        for (ReviewFinding f : allFindings) {
-            if (includedIds.contains(f.id())) {
-                selected.add(f);
-            }
-        }
-
-        // Compose the review body: reviewer's INDEPENDENT summary
-        // followed by any whole-PR / file-no-line findings as a list
-        // so the user's selection doesn't lose them.
-        String summary = reviewSummaryBody(pass);
-        List<ReviewFinding> inlineable = new ArrayList<>();
-        List<ReviewFinding> wholePr = new ArrayList<>();
-        for (ReviewFinding f : selected) {
-            if (f.path() != null && f.line() != null && f.line() > 0) {
-                inlineable.add(f);
-            }
-            else {
-                wholePr.add(f);
-            }
-        }
-        String body = composeBody(summary, wholePr);
-
-        List<ReviewLineComment> inlineComments = inlineable.stream()
-                .map(f -> new ReviewLineComment(
-                        f.path(),
-                        Optional.empty(),
-                        Optional.of(f.line()),
-                        "RIGHT",
-                        renderFindingBody(f)))
-                .toList();
-
-        CreateReviewCommand command = new CreateReviewCommand(
-                pass.headSha() == null ? Optional.empty() : Optional.of(pass.headSha()),
-                body.isBlank() ? Optional.empty() : Optional.of(body),
-                verdict.dbValue().toUpperCase(Locale.ROOT),
-                inlineComments);
-
-        String pat = patResolver.resolve(pass.repoFullName());
-        PullRequestRef ref = parseRef(pass.repoFullName(), pass.prNumber());
-        try {
-            pullRequests.createReview(pat, ref, command);
-        }
-        catch (RuntimeException e) {
-            log.warn("Review pass {} publish to GitHub failed: {}", passId, e.getMessage());
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "GitHub rejected the review: " + e.getMessage(), e);
-        }
-
-        // GitHub doesn't hand back per-comment ids from the bulk
-        // createReview endpoint, so we mark the rows POSTED without a
-        // posted_comment_id. Phase 2+ may switch to per-finding posts
-        // and capture ids.
-        Instant publishedAt = Instant.now();
-        for (ReviewFinding f : selected) {
-            reviewStore.saveFinding(new ReviewFinding(
-                    f.id(), f.reviewPassId(),
-                    f.path(), f.line(),
-                    f.severity(),
-                    ReviewFindingStatus.POSTED,
-                    f.body(),
-                    f.resolution(),
-                    /* postedCommentId */ null,
-                    f.createdAt(),
-                    f.debateStatus(), f.debateRounds()));
-        }
-
-        ReviewPass published = new ReviewPass(
-                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
-                pass.headSha(),
-                ReviewPhase.PUBLISHED,
-                pass.round(), pass.roundCap(),
-                pass.costCapMilli(), pass.costUsdMilli(),
-                verdict,
-                pass.createdAt(),
-                publishedAt,
-                pass.spawnedBuildThreadId(), pass.agendaJson());
-        reviewStore.savePass(published);
-
-        return buildDetail(published);
+        throw new IllegalStateException(
+                "direct ReviewPass publication is retired; use the durable V2 command");
     }
 
     /**
@@ -1775,42 +1668,6 @@ public class ReviewPassService
             reviewStore.savePass(withPhase(pass, ReviewPhase.COMPLETED, Instant.now()));
         }
         return findPassWithDetail(passId).orElseThrow();
-    }
-
-    /** The reviewer's most-recent INDEPENDENT message is the natural
-     *  body for the GitHub review. Falls back to a generated line if
-     *  the transcript is empty (defensive — shouldn't happen on a
-     *  terminated pass). */
-    private String reviewSummaryBody(ReviewPass pass)
-    {
-        List<ReviewMessage> messages = reviewStore.listMessagesForPass(pass.id());
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            ReviewMessage m = messages.get(i);
-            if (m.phase() == ReviewPhase.INDEPENDENT && m.body() != null && !m.body().isBlank()) {
-                return m.body().strip();
-            }
-        }
-        return "Review by ByteQuay panel.";
-    }
-
-    private static String composeBody(String summary, List<ReviewFinding> wholePr)
-    {
-        if (wholePr.isEmpty()) {
-            return summary;
-        }
-        StringBuilder out = new StringBuilder(summary);
-        out.append("\n\n**Whole-PR notes**\n");
-        for (ReviewFinding f : wholePr) {
-            out.append("- ").append(renderFindingBody(f)).append('\n');
-        }
-        return out.toString();
-    }
-
-    private static String renderFindingBody(ReviewFinding f)
-    {
-        // Inline a severity tag so the GitHub-side reader knows the
-        // panel's call without clicking through to the review thread.
-        return "[" + f.severity().dbValue() + "] " + (f.body() == null ? "" : f.body());
     }
 
     private ReviewPassDetail buildDetail(ReviewPass pass)

@@ -23,6 +23,7 @@ import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperati
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionStatus;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ClaimMode;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.EffectResult;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -186,6 +187,26 @@ class TestUserRemoteActionOperationHandler
     }
 
     @Test
+    void commentAndCloseReconciliationResumesItsOrderedIdempotentSteps()
+            throws Exception
+    {
+        Action claimed = composite(ActionStatus.CLAIMED, 1);
+        when(store.require("operation-1")).thenReturn(claimed);
+        when(store.claim(
+                "action-1", 1, ClaimMode.PROBE, "execution-1", NOW,
+                NOW.plusSeconds(30))).thenReturn(claimed);
+        when(gateway.execute(claimed, context)).thenReturn(
+                new EffectResult(true,
+                        "comment-and-close:issue-comment:91", "both proven"));
+
+        DispatchTicket.DispatchResult result = handler.reconcile(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        verify(gateway).execute(claimed, context);
+        verify(gateway, never()).probe(claimed, context);
+    }
+
+    @Test
     void restartAfterClaimBeforeBaselineSafelyExecutesAfterCapturingIt()
             throws Exception
     {
@@ -207,6 +228,51 @@ class TestUserRemoteActionOperationHandler
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
         verify(gateway).execute(baselined, context);
         verify(gateway, never()).probe(baselined, context);
+    }
+
+    @Test
+    void pushedCiCommitWaitsForDelayedPrHeadWithoutSpendingAnotherAttempt()
+            throws Exception
+    {
+        context = context("fingerprint-1");
+        Action requested = ciTrigger(ActionStatus.REQUESTED, 0);
+        Action claimed = ciTrigger(ActionStatus.CLAIMED, 1);
+        when(store.require("operation-1"))
+                .thenReturn(requested, claimed);
+        when(store.claim(
+                "action-1", 0, ClaimMode.EXECUTE, "execution-1", NOW,
+                NOW.plusSeconds(30))).thenReturn(claimed);
+        when(store.claim(
+                "action-1", 1, ClaimMode.PROBE, "execution-1", NOW,
+                NOW.plusSeconds(30))).thenReturn(claimed);
+        when(gateway.execute(claimed, context))
+                .thenReturn(new EffectResult(
+                        false, null,
+                        "empty commit is pushed; waiting for the PR head probe"))
+                .thenReturn(new EffectResult(
+                        true, "ci-trigger-empty-commit:head-2",
+                        "PR head reached the pushed empty commit"));
+
+        assertThatThrownBy(() -> handler.execute(context))
+                .isInstanceOf(ExecutionPorts.OperationDeferredException.class)
+                .satisfies(failure -> assertThat(
+                        ((ExecutionPorts.OperationDeferredException) failure)
+                                .retryAt())
+                        .isEqualTo(NOW.plusSeconds(5)));
+        DispatchTicket.DispatchResult recovered = handler.reconcile(context);
+
+        assertThat(recovered.outcome()).isEqualTo(
+                DispatchTicket.Outcome.SUCCEEDED);
+        verify(store).deferProbe(
+                "action-1", 1, NOW.plusSeconds(5),
+                "empty commit is pushed; waiting for the PR head probe");
+        verify(store, never()).finishIndeterminate(
+                "action-1", 1,
+                "V2 user remote action outcome is not proven: empty commit is pushed; waiting for the PR head probe",
+                NOW);
+        verify(store).finishSucceeded(
+                "action-1", 1, "ci-trigger-empty-commit:head-2",
+                "PR head reached the pushed empty commit", NOW);
     }
 
     @Test
@@ -250,6 +316,11 @@ class TestUserRemoteActionOperationHandler
 
     private static ExecutionContext context()
     {
+        return context(null);
+    }
+
+    private static ExecutionContext context(String expectedCodeFingerprint)
+    {
         ExecutionContext context = mock(ExecutionContext.class);
         DispatchTicket.DispatchEnvelope envelope = mock(
                 DispatchTicket.DispatchEnvelope.class);
@@ -263,16 +334,22 @@ class TestUserRemoteActionOperationHandler
         when(envelope.owner()).thenReturn(new DispatchTicket.OwnerReference(
                 DispatchTicket.OwnerKind.TASK, "task-1",
                 UserRemoteActionOperationHandler.CALLBACK_ROUTE));
-        when(envelope.fence()).thenReturn(fence());
+        when(envelope.fence()).thenReturn(fence(expectedCodeFingerprint));
         when(lease.expiresAt()).thenReturn(NOW.plusSeconds(30));
         return context;
     }
 
     private static DispatchTicket.OperationFence fence()
     {
+        return fence(null);
+    }
+
+    private static DispatchTicket.OperationFence fence(
+            String expectedCodeFingerprint)
+    {
         return new DispatchTicket.OperationFence(
                 1L, "stage-1", 1L, "operation-1", 1,
-                null, "head-1", "base-1");
+                expectedCodeFingerprint, "head-1", "base-1");
     }
 
     private static Action action(ActionStatus status, int attemptCount)
@@ -299,5 +376,50 @@ class TestUserRemoteActionOperationHandler
                 baseline,
                 status == ActionStatus.SUCCEEDED ? "effect-1" : null,
                 status == ActionStatus.SUCCEEDED ? "proof" : null);
+    }
+
+    private static Action composite(ActionStatus status, int attemptCount)
+    {
+        String payloadJson = """
+                {"version":2,"body":"closing","reviewAction":null,
+                "branchName":null,"drafts":[],"targetId":null,
+                "value":null,"selected":null,"filePath":null,
+                "lineNumber":null,"side":null,"startLine":null,
+                "startSide":null}
+                """.replace("\n", "");
+        return new Action(
+                "action-1", "operation-1", ActionKind.DEQUEUE,
+                SemanticAction.COMMENT_AND_CLOSE, status,
+                1, attemptCount, 3, "task-1", "command-1", 1, "stage-1",
+                1, "binding-1", "pr-1", "acme/widget", "acme/widget", 17,
+                "feature", "head-1", "base-1", payloadJson,
+                digest(payloadJson), ActionPayload.body("closing"), null,
+                NOW.minusSeconds(1), List.of("issue-comment:90"), null, null);
+    }
+
+    private static Action ciTrigger(ActionStatus status, int attemptCount)
+    {
+        ActionPayload payload = ActionPayload.empty();
+        String payloadJson = """
+                {"version":2,"body":null,"reviewAction":null,
+                "branchName":null,"drafts":[],"targetId":null,
+                "value":null,"selected":null,"filePath":null,
+                "lineNumber":null,"side":null,"startLine":null,
+                "startSide":null}
+                """.replace("\n", "");
+        return new Action(
+                "action-1", "operation-1", ActionKind.DEQUEUE,
+                SemanticAction.TRIGGER_CI_EMPTY_COMMIT, status,
+                1, attemptCount, 3, "task-1", "command-1", 1,
+                "stage-1", 1, "binding-1", "pr-1", "acme/widget",
+                "acme/widget", 17, "feature", "/tmp/worktree",
+                "fingerprint-1", "head-1", "base-1", payloadJson,
+                digest(payloadJson), payload, null, NOW.minusSeconds(1),
+                List.of("local-head:head-1", "remote-head:head-1",
+                        "pr-head:head-1"),
+                status == ActionStatus.SUCCEEDED
+                        ? "ci-trigger-empty-commit:head-2" : null,
+                status == ActionStatus.SUCCEEDED
+                        ? "PR head reached the pushed empty commit" : null);
     }
 }

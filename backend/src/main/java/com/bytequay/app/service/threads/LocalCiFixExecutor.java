@@ -56,7 +56,6 @@ public class LocalCiFixExecutor
     private final AgentRunService agentRuns;
     private final ThreadTurnScheduler scheduler;
     private final WorktreeLeaseService leaseService;
-    private final TaskStore taskStore;
 
     public LocalCiFixExecutor(
             ThreadStore threadStore,
@@ -71,7 +70,7 @@ public class LocalCiFixExecutor
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        requireNonNull(taskStore, "taskStore is null");
     }
 
     /**
@@ -85,20 +84,13 @@ public class LocalCiFixExecutor
      */
     public boolean tryFix(Task task, List<ValidationFailure> failures)
     {
-        if (taskStore.isV2Task(task.id())) {
-            return false;
-        }
-        return tryFix(task, failures, false);
+        throw retired();
     }
 
     /** Same-transaction form used by validation acceptance. */
     public boolean tryFixInCommand(Task task, List<ValidationFailure> failures)
     {
-        if (taskStore.isV2Task(task.id())) {
-            return false;
-        }
-        TaskCommandExecutor.requireCurrent(task.id());
-        return tryFix(task, failures, true);
+        throw retired();
     }
 
     private boolean tryFix(Task task, List<ValidationFailure> failures, boolean inCommand)
@@ -163,20 +155,19 @@ public class LocalCiFixExecutor
     /** Local checks passed — close any live local CI-fix run for the task. */
     public void closeIfGreen(String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            return;
-        }
-        closeIfGreen(taskId, false);
+        throw retired();
     }
 
     /** Same-transaction form used by validation acceptance. */
     public void closeIfGreenInCommand(String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            return;
-        }
-        TaskCommandExecutor.requireCurrent(taskId);
-        closeIfGreen(taskId, true);
+        throw retired();
+    }
+
+    private static UnsupportedOperationException retired()
+    {
+        return new UnsupportedOperationException(
+                "LEGACY local CI fixing is retired; use the typed V2 validation owner");
     }
 
     private void closeIfGreen(String taskId, boolean inCommand)

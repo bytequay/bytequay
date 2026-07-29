@@ -19,12 +19,14 @@ import com.bytequay.app.domain.ReviewRoundState;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.review.ReviewRoundService;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -33,7 +35,7 @@ import static org.mockito.Mockito.when;
 class TestReviewRoundControllerRouting
 {
     @Test
-    void routesLegacyAndV2TasksAndApprovalsToTheirImmutableOwners()
+    void preservesLegacyReadsButRoutesOnlyV2ApprovalMutations()
     {
         ReviewRoundService legacy = mock(ReviewRoundService.class);
         V2RemoteFeedbackControlService v2 =
@@ -51,19 +53,22 @@ class TestReviewRoundControllerRouting
         when(v2.findByTask("v2-task")).thenReturn(List.of(v2Round));
         when(v2.findTaskId("legacy-round")).thenReturn(Optional.empty());
         when(v2.findTaskId("v2-batch")).thenReturn(Optional.of("v2-task"));
-        when(legacy.approve("legacy-round")).thenReturn(legacyRound);
+        when(legacy.findById("legacy-round")).thenReturn(Optional.of(legacyRound));
         when(v2.approve("v2-batch")).thenReturn(v2Round);
 
         assertThat(controller.roundsForTask("legacy-task"))
                 .containsExactly(legacyRound);
         assertThat(controller.roundsForTask("v2-task"))
                 .containsExactly(v2Round);
-        assertThat(controller.approve("legacy-round")).isEqualTo(legacyRound);
+        assertThatThrownBy(() -> controller.approve("legacy-round"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
         assertThat(controller.approve("v2-batch")).isEqualTo(v2Round);
 
         verify(legacy).findByTask("legacy-task");
         verify(v2).findByTask("v2-task");
-        verify(legacy).approve("legacy-round");
+        verify(legacy).findById("legacy-round");
+        verify(legacy, never()).approve("legacy-round");
         verify(v2).approve("v2-batch");
         verify(legacy, never()).findByTask("v2-task");
         verify(legacy, never()).approve("v2-batch");

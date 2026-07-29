@@ -155,6 +155,8 @@ class TestSqliteProvisionTaskOperationStore
                 CREATE TABLE task_assignment(
                     id TEXT PRIMARY KEY,
                     kind TEXT NOT NULL,
+                    source_id TEXT,
+                    pr_number INTEGER,
                     repository_id TEXT,
                     planning_base_sha TEXT,
                     base_repository_id TEXT,
@@ -163,6 +165,41 @@ class TestSqliteProvisionTaskOperationStore
                     head_ref TEXT,
                     remote_base_sha TEXT,
                     remote_head_sha TEXT)
+                """);
+        jdbc.execute("""
+                CREATE TABLE review_build_selection(
+                    thread_id TEXT PRIMARY KEY,
+                    review_pass_id TEXT NOT NULL,
+                    pr_number INTEGER NOT NULL,
+                    reviewed_head_sha TEXT NOT NULL,
+                    base_repository_id TEXT NOT NULL,
+                    head_repository_id TEXT NOT NULL,
+                    base_ref TEXT NOT NULL,
+                    head_ref TEXT NOT NULL,
+                    selection_digest TEXT NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE review_build_selection_item(
+                    thread_id TEXT NOT NULL,
+                    review_pass_id TEXT NOT NULL,
+                    finding_id TEXT NOT NULL,
+                    finding_revision INTEGER NOT NULL,
+                    content_digest TEXT NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE task_assignment_review_finding(
+                    assignment_id TEXT NOT NULL,
+                    source_review_id TEXT NOT NULL,
+                    finding_id TEXT NOT NULL,
+                    finding_revision INTEGER NOT NULL,
+                    content_digest TEXT NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE review_findings(
+                    id TEXT PRIMARY KEY,
+                    review_pass_id TEXT NOT NULL,
+                    revision INTEGER NOT NULL,
+                    status TEXT NOT NULL)
                 """);
         jdbc.execute("""
                 CREATE TABLE task_creation_context(
@@ -283,6 +320,7 @@ class TestSqliteProvisionTaskOperationStore
                 "task-1",
                 1,
                 BaseSource.PLANNING_SNAPSHOT,
+                null,
                 "acme/widget",
                 "acme/widget",
                 "main",

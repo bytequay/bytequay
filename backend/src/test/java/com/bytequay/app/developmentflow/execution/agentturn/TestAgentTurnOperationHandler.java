@@ -19,6 +19,8 @@ import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
+import com.bytequay.app.service.checks.CodeFingerprints;
+import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +47,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestAgentTurnOperationHandler
@@ -53,12 +56,23 @@ class TestAgentTurnOperationHandler
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private WorktreeWriterLeaseManager writers;
+    private CodeFingerprints fingerprints;
+    private GitRunner git;
     private FakeProvider provider;
 
     @BeforeEach
     void setUp()
+            throws Exception
     {
         writers = mock(WorktreeWriterLeaseManager.class);
+        fingerprints = mock(CodeFingerprints.class);
+        git = mock(GitRunner.class);
+        when(fingerprints.fingerprint(Path.of(WORKTREE)))
+                .thenReturn("fingerprint-2");
+        when(git.headSha(Path.of(WORKTREE))).thenReturn("head-2");
+        when(git.hasUncommittedChanges(Path.of(WORKTREE))).thenReturn(false);
+        when(git.mergeBase(Path.of(WORKTREE), "head-2", "base-1"))
+                .thenReturn(Optional.of("base-1"));
         provider = new FakeProvider();
     }
 
@@ -121,6 +135,27 @@ class TestAgentTurnOperationHandler
     }
 
     @Test
+    void successfulPlanTurnRemainsReadOnlyAndNeedsNoOutputCodeSubject()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(TASK_TURN, false);
+
+        DispatchTicket.DispatchResult result = handler(planTurn())
+                .execute(context(envelope));
+
+        AgentTurnOwnerResultCodec.OwnerResult decoded =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result);
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        assertThat(decoded.payload().purpose()).isEqualTo("PLAN_DRAFT");
+        assertThat(decoded.payload().outputCodeSubject()).isNull();
+        assertThat(provider.request.access())
+                .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
+        verify(writers, never()).acquire(any(), any());
+        verifyNoInteractions(fingerprints, git);
+    }
+
+    @Test
     void admitsOnlyExplicitTerminalTaskBrainConversationWithoutTaskLease()
             throws Exception
     {
@@ -151,29 +186,42 @@ class TestAgentTurnOperationHandler
         DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
         AgentTurnOperationHandler.ExactTurn turn = turn(
                 STAGE_TURN, launchInput(STAGE_TURN));
-        AgentTurnOperationHandler handler = handler(turn);
+        ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
+        AgentTurnOperationHandler handler = handler(turn, contexts);
         ExecutionContext context = context(envelope);
-        WorktreeWriterLeaseManager.Lease lease = new WorktreeWriterLeaseManager.Lease(
-                WORKTREE, "task-1", "operation-1", 1, 19, "dispatcher",
-                Instant.EPOCH, Instant.EPOCH.plusSeconds(30));
-        when(writers.acquire(context, WORKTREE)).thenReturn(lease);
-        WorktreeWriterLeaseManager.WriterAuthorization authorization =
-                mock(WorktreeWriterLeaseManager.WriterAuthorization.class);
-        WorktreeWriterLeaseManager.MutationFence mutationFence =
-                mock(WorktreeWriterLeaseManager.MutationFence.class);
-        when(mutationFence.worktreePath()).thenReturn(WORKTREE);
-        when(mutationFence.taskId()).thenReturn("task-1");
-        when(mutationFence.operationId()).thenReturn("operation-1");
-        when(mutationFence.taskEpoch()).thenReturn(1L);
-        when(mutationFence.fencingToken()).thenReturn(19L);
-        when(writers.authorizeMutation(context, lease)).thenReturn(authorization);
+        AtomicBoolean insideAuthorization = new AtomicBoolean();
+        WorktreeWriterLeaseManager.Lease lease = authorizeStageMutation(
+                context, insideAuthorization);
+        when(git.hasUncommittedChanges(Path.of(WORKTREE)))
+                .thenReturn(true, false);
         doAnswer(invocation -> {
-            provider.events.add("authorize");
-            Function<WorktreeWriterLeaseManager.MutationFence, ?> mutation =
-                    invocation.getArgument(0);
-            return mutation.apply(mutationFence);
-        }).when(authorization).run(any());
+            assertThat(insideAuthorization).isTrue();
+            provider.events.add("stage");
+            return null;
+        }).when(git).stageAll(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+        when(git.commit(
+                Path.of(WORKTREE), "ByteQuay checkpoint: IMPLEMENT"))
+                .thenAnswer(invocation -> {
+                    assertThat(insideAuthorization).isTrue();
+                    provider.events.add("commit");
+                    return Optional.of("head-2");
+                });
+        when(git.headSha(Path.of(WORKTREE))).thenAnswer(invocation -> {
+            assertThat(insideAuthorization).isTrue();
+            provider.events.add("observe");
+            return "head-2";
+        });
         provider.result = successful();
+        provider.onStart = () -> assertThat(contexts.find(
+                        "trunk-1",
+                        AgentTurnOperationHandler.mcpAgentKey(
+                                STAGE_TURN, "stage-turn-1", "operation-1"))
+                .orElseThrow().toolNames())
+                .contains("run_checks", "ask_user_question")
+                .doesNotContain(
+                        "record_local_review", "record_dev_report",
+                        "record_pr_check", "record_review_verdict");
 
         DispatchTicket.DispatchResult result = handler.execute(context);
 
@@ -182,12 +230,52 @@ class TestAgentTurnOperationHandler
                 .isEqualTo(AgentTurnProviderSession.Access.WORKTREE_WRITE);
         assertThat(provider.session.writerFence.fencingToken()).isEqualTo(19);
         assertThat(provider.session.writerFence.operationId()).isEqualTo("operation-1");
-        assertThat(provider.events).containsExactly("open", "authorize", "start");
+        assertThat(provider.events)
+                .containsExactly(
+                        "open", "authorize", "start", "stage", "commit", "observe");
         verify(writers).acquire(context, WORKTREE);
         verify(writers).authorizeMutation(context, lease);
+        verify(git).stageAll(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+        verify(git).commit(
+                Path.of(WORKTREE), "ByteQuay checkpoint: IMPLEMENT");
         AgentTurnOperationHandler.Evidence evidence = MAPPER.readValue(
                 result.evidenceJson(), AgentTurnOperationHandler.Evidence.class);
         assertThat(evidence.writerFence().fencingToken()).isEqualTo(19);
+        assertThat(evidence.outputCodeSubject()).isNotNull();
+        AgentTurnOwnerResultCodec.OwnerResult decoded =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result);
+        assertThat(decoded.requireOutputCodeSubject("base-1")).isEqualTo(
+                new AgentTurnOperationHandler.OutputCodeSubject(
+                        "fingerprint-2", "head-2", "base-1", true, "base-1"));
+        assertThatThrownBy(() -> decoded.requireOutputCodeSubject("other-base"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exact frozen base");
+    }
+
+    @Test
+    void successfulStageTurnWithNoChangesDoesNotCreateAnEmptyCheckpoint()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = turn(
+                STAGE_TURN, launchInput(STAGE_TURN));
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        when(git.headSha(Path.of(WORKTREE))).thenReturn("head-1");
+        when(git.mergeBase(Path.of(WORKTREE), "head-1", "base-1"))
+                .thenReturn(Optional.of("base-1"));
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        AgentTurnOwnerResultCodec.OwnerResult decoded =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result);
+        assertThat(decoded.requireOutputCodeSubject("base-1").headSha())
+                .isEqualTo("head-1");
+        verify(git, never()).stageAll(any(), any());
+        verify(git, never()).commit(any(), any());
     }
 
     @Test
@@ -303,7 +391,8 @@ class TestAgentTurnOperationHandler
         AgentTurnOperationHandler handler = new AgentTurnOperationHandler(
                 (kind, id) -> kind == turn.ownerKind() && id.equals(turn.turnId())
                         ? Optional.of(turn) : Optional.empty(),
-                provider, writers, contexts, new ToolExposurePolicy(), MAPPER);
+                provider, writers, fingerprints, git, contexts,
+                new ToolExposurePolicy(), MAPPER);
         provider.onStart = () -> assertThat(contexts.requestStop(
                 "trunk-1",
                 AgentTurnOperationHandler.mcpAgentKey(
@@ -385,13 +474,57 @@ class TestAgentTurnOperationHandler
                 .hasMessageContaining("stale");
     }
 
+    private WorktreeWriterLeaseManager.Lease authorizeStageMutation(
+            ExecutionContext context,
+            AtomicBoolean insideAuthorization)
+    {
+        WorktreeWriterLeaseManager.Lease lease = new WorktreeWriterLeaseManager.Lease(
+                WORKTREE, "task-1", "operation-1", 1, 19, "dispatcher",
+                Instant.EPOCH, Instant.EPOCH.plusSeconds(30));
+        WorktreeWriterLeaseManager.WriterAuthorization authorization =
+                mock(WorktreeWriterLeaseManager.WriterAuthorization.class);
+        WorktreeWriterLeaseManager.MutationFence mutationFence =
+                mock(WorktreeWriterLeaseManager.MutationFence.class);
+        when(writers.acquire(context, WORKTREE)).thenReturn(lease);
+        when(mutationFence.worktreePath()).thenReturn(WORKTREE);
+        when(mutationFence.taskId()).thenReturn("task-1");
+        when(mutationFence.operationId()).thenReturn("operation-1");
+        when(mutationFence.taskEpoch()).thenReturn(1L);
+        when(mutationFence.fencingToken()).thenReturn(19L);
+        when(writers.authorizeMutation(context, lease)).thenReturn(authorization);
+        doAnswer(invocation -> {
+            provider.events.add("authorize");
+            Function<WorktreeWriterLeaseManager.MutationFence, ?> mutation =
+                    invocation.getArgument(0);
+            insideAuthorization.set(true);
+            try {
+                return mutation.apply(mutationFence);
+            }
+            finally {
+                insideAuthorization.set(false);
+            }
+        }).when(authorization).run(any());
+        return lease;
+    }
+
     private AgentTurnOperationHandler handler(AgentTurnOperationHandler.ExactTurn turn)
+    {
+        return handler(turn, new ActiveAgentContextRegistry());
+    }
+
+    private AgentTurnOperationHandler handler(
+            AgentTurnOperationHandler.ExactTurn turn,
+            ActiveAgentContextRegistry contexts)
     {
         return new AgentTurnOperationHandler(
                 (kind, id) -> kind == turn.ownerKind() && id.equals(turn.turnId())
                         ? Optional.of(turn) : Optional.empty(),
                 provider,
                 writers,
+                fingerprints,
+                git,
+                contexts,
+                new ToolExposurePolicy(),
                 MAPPER);
     }
 
@@ -536,6 +669,16 @@ class TestAgentTurnOperationHandler
                 null,
                 "codex",
                 "gpt-5.6");
+    }
+
+    private static AgentTurnOperationHandler.ExactTurn planTurn()
+    {
+        return new AgentTurnOperationHandler.ExactTurn(
+                TASK_TURN, "task-turn-1", "trunk-1", "workspace-1", "task-1",
+                1, "stage-1", 1L, "PLAN", "PLAN_DRAFT", "QUEUED",
+                "operation-1", 1, "fingerprint-1", "head-1", "base-1",
+                launchInput(), WORKTREE, "ACTIVE", "stage-1", 1L, false,
+                "fingerprint-1", "head-1", "base-1", "codex", "gpt-5.6");
     }
 
     private static AgentTurnOperationHandler.ExactTurn terminalTurn(String purpose)

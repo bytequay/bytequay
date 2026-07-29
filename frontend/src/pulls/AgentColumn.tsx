@@ -325,12 +325,13 @@ function RoundTail({ round, roundNumber, model }: { round: ReviewRoundRow; round
   );
 }
 
-export function AgentReviewConversation({ bundle, data, round, roundNumber, trunkLabel, onBack, onTogglePanel, onStopRound, onStartRound, onSendMessage }: {
+export function AgentReviewConversation({ bundle, data, round, roundNumber, trunkLabel, preparationError, onBack, onTogglePanel, onStopRound, onStartRound, onSendMessage }: {
   bundle: LocalPRBundle;
   data: AgentReviewData;
   round: ReviewRoundRow;
   roundNumber: number;
   trunkLabel?: string;
+  preparationError?: string | null;
   onBack: () => void;
   onTogglePanel?: () => void;
   onStopRound: (roundId: string) => void;
@@ -398,6 +399,12 @@ export function AgentReviewConversation({ bundle, data, round, roundNumber, trun
         )}
         <button type="button" className="agent-review-v2__panel-toggle" onClick={onTogglePanel} title="Toggle PR panel" aria-label="Toggle PR panel" style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: 0, background: 'transparent', borderRadius: 7, color: '#6e7781', flexShrink: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.2" /><path d="M15 4v16" /></svg></button>
       </div>
+
+      {preparationError !== null && preparationError !== undefined && (
+        <div role="alert" style={{ flexShrink: 0, padding: '8px 20px', borderBottom: '1px solid #ffcecb', background: '#ffebe9', color: '#82071e', fontSize: 12.5 }}>
+          The latest review source could not be prepared: {preparationError} The previous round remains available below.
+        </div>
+      )}
 
       <div className="agent-review-v2__feed" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '18px 28px 10px' }}>
         <div style={{ maxWidth: 780, margin: '0 auto' }}>
@@ -468,12 +475,21 @@ export default function AgentColumn({ prId, workspaceId, trunkLabel, onBack, onT
 }) {
   const { bundle, refresh } = usePR(prId);
   const {
-    data, latestRound, latestRoundNumber, startRound, sendRoundMessage, cancelRound,
+    data, latestRound, latestRoundNumber, startRound, sendRoundMessage, cancelRound, error,
   } = useAgentReviewState(bundle, refresh, undefined, workspaceId, true);
 
+  if (data?.snapshot_preparation?.status === 'REQUESTED') {
+    return <div role="status" style={{ flex: 1, minWidth: 0, display: 'grid', placeItems: 'center', minHeight: 0, background: '#fff', color: '#8b949e', fontSize: 13 }}>Preparing the exact review source…</div>;
+  }
+  if (data !== null && latestRound === undefined && error !== null) {
+    return <div role="alert" style={{ flex: 1, minWidth: 0, display: 'grid', placeItems: 'center', minHeight: 0, background: '#fff', color: '#cf222e', fontSize: 13 }}>{error}</div>;
+  }
   if (data === null || latestRound === undefined || bundle === null) {
     return <div style={{ flex: 1, minWidth: 0, display: 'grid', placeItems: 'center', minHeight: 0, background: '#fff', color: '#8b949e', fontSize: 13 }}>No agent review yet.</div>;
   }
+  const preparationFailed = data.snapshot_preparation !== undefined
+    && data.snapshot_preparation !== null
+    && ['FAILED', 'CANCELED', 'SUPERSEDED'].includes(data.snapshot_preparation.status);
   return (
     <AgentReviewConversation
       bundle={bundle}
@@ -481,6 +497,7 @@ export default function AgentColumn({ prId, workspaceId, trunkLabel, onBack, onT
       round={latestRound}
       roundNumber={latestRoundNumber}
       trunkLabel={trunkLabel}
+      preparationError={preparationFailed ? error : null}
       onBack={onBack}
       onTogglePanel={onTogglePanel}
       onStopRound={cancelRound}

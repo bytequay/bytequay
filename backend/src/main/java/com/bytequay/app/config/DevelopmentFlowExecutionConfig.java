@@ -17,8 +17,6 @@ import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
-import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
-import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
 import com.bytequay.app.developmentflow.execution.ResultDeliveryRouter;
 import com.bytequay.app.developmentflow.execution.TaskTurnResultDeliveryRouter;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
@@ -45,13 +43,23 @@ import com.bytequay.app.developmentflow.execution.provisioning.SqliteProvisionTa
 import com.bytequay.app.developmentflow.execution.publish.GitHubPublishEffects;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
+import com.bytequay.app.developmentflow.execution.quality.QualityIssuePublishOperationHandler;
+import com.bytequay.app.developmentflow.execution.quality.SqliteQualityIssuePublishStore;
+import com.bytequay.app.developmentflow.execution.quality.V2QualityIssuePublishRuntime;
+import com.bytequay.app.developmentflow.execution.remote.CompositeUserRemoteActionStore;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteEffects;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteObserver;
+import com.bytequay.app.developmentflow.execution.remote.GitHubReviewBuildCommentGateway;
 import com.bytequay.app.developmentflow.execution.remote.GitHubUserRemoteActionGateway;
 import com.bytequay.app.developmentflow.execution.remote.RemoteFeedbackEffectOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.ReviewBuildCommentOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.ReviewPublicationOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteReviewBuildCommentStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteReviewPassPublicationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
@@ -70,6 +78,8 @@ import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.LocalValidationResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.ManualPrValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.ManualPrValidationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.MergeResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
@@ -117,6 +127,7 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
+import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
@@ -125,6 +136,7 @@ import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
@@ -133,6 +145,12 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnContinuation;
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
+import com.bytequay.app.service.review.ReviewSessionSnapshotOperationHandler;
+import com.bytequay.app.service.review.ReviewSessionSnapshotResultDeliveryPort;
+import com.bytequay.app.service.review.TaskReviewRoundSnapshotOperationHandler;
+import com.bytequay.app.service.review.TaskReviewRoundSnapshotResultDeliveryPort;
+import com.bytequay.app.service.review.TaskReviewSnapshotOperationHandler;
+import com.bytequay.app.service.review.TaskReviewSnapshotResultDeliveryPort;
 import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.WorktreeService;
@@ -143,7 +161,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -164,8 +181,8 @@ import static com.bytequay.app.developmentflow.execution.CapacityManager.Capacit
 import static java.util.Objects.requireNonNull;
 
 /**
- * Shared capacity wiring is always active during LEGACY/V2 coexistence.
- * V2 dispatch requires explicit Remote effect gateways and fails closed when
+ * Shared capacity wiring is always active for the permanent V2 runtime.
+ * Dispatch requires explicit Remote effect gateways and fails closed when
  * either external adapter is absent.
  */
 @Configuration(proxyBeanMethods = false)
@@ -173,9 +190,6 @@ public class DevelopmentFlowExecutionConfig
 {
     @Bean
     @Primary
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public ExecutionPorts.ResultDeliveryPort v2ResultDelivery(
             PlanningBaseTurnRuntime planningBase,
             PlanRuntimeCoordinator planRuntime,
@@ -203,7 +217,12 @@ public class DevelopmentFlowExecutionConfig
             TaskOutcomeSummaryRuntime outcomeSummaryRuntime,
             TaskBrainConversationRuntime taskBrainConversation,
             V2UserRemoteActionRuntime userRemoteActions,
+            V2QualityIssuePublishRuntime qualityIssuePublishes,
             V2ReadinessAssistanceRuntime readinessAssistance,
+            ManualPrValidationResultDeliveryPort manualValidation,
+            TaskReviewSnapshotResultDeliveryPort taskReviewSnapshots,
+            TaskReviewRoundSnapshotResultDeliveryPort taskReviewRoundSnapshots,
+            ReviewSessionSnapshotResultDeliveryPort reviewSessionSnapshots,
             ObjectProvider<ReviewAssignmentTurnContinuation> reviewContinuation,
             JdbcTemplate jdbc,
             ObjectMapper json)
@@ -273,6 +292,14 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(LocalDevelopmentRuntimeCoordinator.TURN_CALLBACK,
                         localDelivery),
                 Map.entry(LocalValidationOperationHandler.CALLBACK_ROUTE, validation),
+                Map.entry(ManualPrValidationOperationHandler.CALLBACK_ROUTE,
+                        manualValidation),
+                Map.entry(TaskReviewSnapshotOperationHandler.CALLBACK_ROUTE,
+                        taskReviewSnapshots),
+                Map.entry(TaskReviewRoundSnapshotOperationHandler.CALLBACK_ROUTE,
+                        taskReviewRoundSnapshots),
+                Map.entry(ReviewSessionSnapshotOperationHandler.CALLBACK_ROUTE,
+                        reviewSessionSnapshots),
                 Map.entry(PublishOperationHandler.CALLBACK_ROUTE, publish),
                 Map.entry(CleanupOperationHandler.CALLBACK_ROUTE, cleanup),
                 Map.entry(RemoteFeedbackRuntimeCoordinator.TURN_CALLBACK, remoteTurn),
@@ -306,6 +333,15 @@ public class DevelopmentFlowExecutionConfig
                         reviews),
                 Map.entry(UserRemoteActionOperationHandler.CALLBACK_ROUTE,
                         userRemoteActions),
+                Map.entry(UserRemoteActionOperationHandler.EXTERNAL_CALLBACK_ROUTE,
+                        userRemoteActions),
+                Map.entry(ReviewBuildCommentOperationHandler.CALLBACK_ROUTE,
+                        userRemoteActions),
+                Map.entry(ReviewBuildCommentOperationHandler
+                                .REVIEW_PASS_CALLBACK_ROUTE,
+                        userRemoteActions),
+                Map.entry(QualityIssuePublishOperationHandler.CALLBACK_ROUTE,
+                        qualityIssuePublishes),
                 Map.entry(RemoteFeedbackEffectOperationHandler
                                 .READINESS_ASSISTANCE_CALLBACK_ROUTE,
                         readinessAssistance),
@@ -326,9 +362,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(AgentTurnProviderSession.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public AgentTurnProviderSession v2AgentTurnProviderSession(
             CredentialService credentials,
             Ds4LifecycleService ds4,
@@ -344,40 +377,37 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(ProvisionTaskOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public ProvisionTaskOperationHandler v2ProvisionTaskOperationHandler(
             SqliteProvisionTaskOperationStore operations,
             GitRunnerProvisioningGit git,
             WorktreeWriterLeaseManager writers,
+            PullRequestRepository pullRequests,
+            PatResolver pats,
             ObjectMapper json)
     {
-        return new ProvisionTaskOperationHandler(operations, git, writers, json);
+        return new ProvisionTaskOperationHandler(
+                operations, git, writers, pullRequests, pats, json);
     }
 
     @Bean
     @ConditionalOnMissingBean(AgentTurnOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public AgentTurnOperationHandler v2AgentTurnOperationHandler(
             SqliteAgentTurnOperationStore operations,
             AgentTurnProviderSession provider,
             WorktreeWriterLeaseManager writers,
+            CodeFingerprints fingerprints,
+            GitRunner git,
             ActiveAgentContextRegistry activeContexts,
             ToolExposurePolicy tools,
             ObjectMapper json)
     {
         return new AgentTurnOperationHandler(
-                operations, provider, writers, activeContexts, tools, json);
+                operations, provider, writers, fingerprints, git,
+                activeContexts, tools, json);
     }
 
     @Bean
     @ConditionalOnMissingBean(ThreadTurnOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public ThreadTurnOperationHandler v2ThreadTurnOperationHandler(
             SqliteThreadTurnOperationStore operations,
             AgentTurnProviderSession provider,
@@ -392,9 +422,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(PlanningBaseRefreshOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public PlanningBaseRefreshOperationHandler v2PlanningBaseRefreshOperationHandler(
             SqlitePlanningBaseTurnStore operations,
             WorktreeService worktrees,
@@ -407,9 +434,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(ReviewAssignmentTurnOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public ReviewAssignmentTurnOperationHandler v2ReviewAssignmentTurnOperationHandler(
             SqliteReviewAssignmentTurnStore operations,
             AgentTurnProviderSession provider,
@@ -421,9 +445,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(RemoteObservationOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public RemoteObservationOperationHandler v2RemoteObservationOperationHandler(
             SqliteRemoteRuntimeStore operations,
             GitHubRemoteObserver observer,
@@ -434,9 +455,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(RemoteEffectOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public RemoteEffectOperationHandler v2RemoteEffectOperationHandler(
             SqliteRemoteRuntimeStore operations,
             GitHubRemoteEffects effects,
@@ -449,9 +467,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(MergeOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public MergeOperationHandler v2MergeOperationHandler(
             SqliteMergeOperationStore operations,
             GitHubMergeEffects effects,
@@ -466,9 +481,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(LocalValidationOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public LocalValidationOperationHandler v2LocalValidationOperationHandler(
             SqliteLocalDevelopmentRuntimeStore store,
             List<ValidationCheck> checks,
@@ -482,9 +494,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(PublishOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public PublishOperationHandler v2PublishOperationHandler(
             SqlitePublishOperationStore operations,
             GitHubPublishEffects effects,
@@ -497,9 +506,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(CleanupOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public CleanupOperationHandler v2CleanupOperationHandler(
             SqliteCleanupOperationStore operations,
             SqliteCleanupEffects effects,
@@ -512,9 +518,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(RemoteFeedbackValidationOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public RemoteFeedbackValidationOperationHandler
             v2RemoteFeedbackValidationOperationHandler(
                     SqliteRemoteFeedbackLoopStore store,
@@ -529,9 +532,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(RemoteFeedbackEffectOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public RemoteFeedbackEffectOperationHandler v2RemoteFeedbackEffectOperationHandler(
             SqliteRemoteFeedbackEffectOperationStore operations,
             RemoteFeedbackEffectOperationHandler.EffectGateway effects,
@@ -543,35 +543,59 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(UserRemoteActionOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public UserRemoteActionOperationHandler v2UserRemoteActionOperationHandler(
-            SqliteUserRemoteActionStore operations,
+            SqliteUserRemoteActionStore taskActions,
+            SqliteExternalPrActionStore externalActions,
             GitHubUserRemoteActionGateway github,
             ObjectMapper json)
     {
         return new UserRemoteActionOperationHandler(
-                operations, github, json, Clock.systemUTC());
+                new CompositeUserRemoteActionStore(taskActions, externalActions),
+                github, json, Clock.systemUTC());
     }
 
     @Bean
     @ConditionalOnMissingBean(V2UserRemoteActionRuntime.class)
     public V2UserRemoteActionRuntime v2UserRemoteActionRuntime(
             SqliteUserRemoteActionStore operations,
+            SqliteExternalPrActionStore externalActions,
+            SqliteReviewBuildCommentStore reviewBuildComments,
+            SqliteReviewPassPublicationStore reviewPassPublications,
             PRService prs,
             ObjectMapper json,
             InvestigationReviewService investigationReviews)
     {
         return new V2UserRemoteActionRuntime(
-                operations, prs, json, investigationReviews);
+                operations, externalActions, reviewBuildComments,
+                reviewPassPublications,
+                prs, json,
+                investigationReviews);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ReviewBuildCommentOperationHandler.class)
+    public ReviewBuildCommentOperationHandler reviewBuildCommentOperationHandler(
+            ReviewPublicationOperationStore operations,
+            GitHubReviewBuildCommentGateway github,
+            ObjectMapper json)
+    {
+        return new ReviewBuildCommentOperationHandler(
+                operations, github, json, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(QualityIssuePublishOperationHandler.class)
+    public QualityIssuePublishOperationHandler qualityIssuePublishOperationHandler(
+            SqliteQualityIssuePublishStore operations,
+            QualityIssuePublishOperationHandler.Gateway github,
+            ObjectMapper json)
+    {
+        return new QualityIssuePublishOperationHandler(
+                operations, github, json, Clock.systemUTC());
     }
 
     @Bean
     @ConditionalOnMissingBean(RemoteMarkReadyOperationHandler.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public RemoteMarkReadyOperationHandler v2RemoteMarkReadyOperationHandler(
             SqliteRemoteMarkReadyOperationStore operations,
             RemoteMarkReadyOperationHandler.MarkReadyGateway github,
@@ -583,9 +607,6 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(ExecutionPorts.OperationHandlerRegistry.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public ExecutionPorts.OperationHandlerRegistry v2OperationHandlers(
             ProvisionTaskOperationHandler provisioning,
             AgentTurnOperationHandler agentTurns,
@@ -593,11 +614,17 @@ public class DevelopmentFlowExecutionConfig
             PlanningBaseRefreshOperationHandler planningBase,
             ReviewAssignmentTurnOperationHandler reviewTurns,
             LocalValidationOperationHandler localValidation,
+            ManualPrValidationOperationHandler manualValidation,
+            TaskReviewSnapshotOperationHandler taskReviewSnapshots,
+            TaskReviewRoundSnapshotOperationHandler taskReviewRoundSnapshots,
+            ReviewSessionSnapshotOperationHandler reviewSessionSnapshots,
             PublishOperationHandler publish,
             CleanupOperationHandler cleanup,
             RemoteFeedbackValidationOperationHandler remoteValidation,
             RemoteFeedbackEffectOperationHandler remoteEffects,
             UserRemoteActionOperationHandler userRemoteActions,
+            ReviewBuildCommentOperationHandler reviewBuildComments,
+            QualityIssuePublishOperationHandler qualityIssuePublishes,
             RemoteMarkReadyOperationHandler markReady,
             RemoteObservationOperationHandler observations,
             RemoteEffectOperationHandler remoteFiniteEffects,
@@ -617,6 +644,14 @@ public class DevelopmentFlowExecutionConfig
                         reviewTurns),
                 Map.entry(LocalValidationOperationHandler.OPERATION_KIND,
                         localValidation),
+                Map.entry(ManualPrValidationOperationHandler.OPERATION_KIND,
+                        manualValidation),
+                Map.entry(TaskReviewSnapshotOperationHandler.OPERATION_KIND,
+                        taskReviewSnapshots),
+                Map.entry(TaskReviewRoundSnapshotOperationHandler.OPERATION_KIND,
+                        taskReviewRoundSnapshots),
+                Map.entry(ReviewSessionSnapshotOperationHandler.OPERATION_KIND,
+                        reviewSessionSnapshots),
                 Map.entry(PublishOperationHandler.OPERATION_KIND, publish),
                 Map.entry(CleanupOperationHandler.OPERATION_KIND, cleanup),
                 Map.entry(RemoteFeedbackValidationOperationHandler.OPERATION_KIND,
@@ -628,6 +663,15 @@ public class DevelopmentFlowExecutionConfig
                         remoteEffects),
                 Map.entry(UserRemoteActionOperationHandler.OPERATION_KIND,
                         userRemoteActions),
+                Map.entry(UserRemoteActionOperationHandler.EXTERNAL_OPERATION_KIND,
+                        userRemoteActions),
+                Map.entry(ReviewBuildCommentOperationHandler.OPERATION_KIND,
+                        reviewBuildComments),
+                Map.entry(ReviewBuildCommentOperationHandler
+                                .REVIEW_PASS_OPERATION_KIND,
+                        reviewBuildComments),
+                Map.entry(QualityIssuePublishOperationHandler.OPERATION_KIND,
+                        qualityIssuePublishes),
                 Map.entry(RemoteMarkReadyOperationHandler.OPERATION_KIND, markReady),
                 Map.entry(RemoteObservationOperationHandler.OPERATION_KIND,
                         observations),
@@ -696,21 +740,6 @@ public class DevelopmentFlowExecutionConfig
     {
         return new CapacityManager(
                 leases, policies, Clock.systemUTC(), Duration.ofSeconds(30));
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(LegacyCapacityBridge.class)
-    public LegacyCapacityBridge legacyCapacityBridge(CapacityManager capacityManager)
-    {
-        return new LegacyCapacityBridge(capacityManager);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean(LegacyCapacityLeaseMaintainer.class)
-    public LegacyCapacityLeaseMaintainer legacyCapacityLeaseMaintainer(
-            LegacyCapacityBridge bridge)
-    {
-        return new LegacyCapacityLeaseMaintainer(bridge);
     }
 
     @Bean
@@ -794,9 +823,6 @@ public class DevelopmentFlowExecutionConfig
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public ExecutionDispatcher v2ExecutionDispatcher(
             CapacityManager capacityManager,
             ExecutionPorts.DispatchTicketStore tickets,

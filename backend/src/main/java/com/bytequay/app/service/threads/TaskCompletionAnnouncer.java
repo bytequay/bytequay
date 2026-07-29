@@ -25,9 +25,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -54,7 +51,6 @@ import static java.util.Objects.requireNonNull;
  * mechanical fallback instead, so a lost/failed brain turn can never leave
  * the trunk permanently missing a marker.
  */
-@Component
 public class TaskCompletionAnnouncer
 {
     /** Message {@code type} for the trunk completion marker (also read by the
@@ -91,7 +87,6 @@ public class TaskCompletionAnnouncer
      * fires this same event type, so a pending-turn-id match is what tells
      * us this particular finish is the one we asked for.
      */
-    @EventListener
     @Transactional
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {
@@ -122,7 +117,6 @@ public class TaskCompletionAnnouncer
      * marker for that task. Runs every 5 minutes; only acts on a completed
      * task past the grace period with no marker yet.
      */
-    @Scheduled(fixedDelay = 300_000, initialDelay = 180_000)
     public void sweepStaleCompletions()
     {
         for (Task task : taskStore.listByPhases(Set.of(TaskPhase.COMPLETED), SWEEP_LIMIT)) {

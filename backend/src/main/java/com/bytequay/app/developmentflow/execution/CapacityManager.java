@@ -175,6 +175,11 @@ public final class CapacityManager
             }
         }
 
+        if (active.stream().anyMatch(lease ->
+                workspaceRepositoryGitConflicts(request, lease))) {
+            return Admission.denied(Denial.WORKSPACE_REPOSITORY_GIT_LIMIT);
+        }
+
         String taskId = request.scope().taskId();
         if (taskId != null && active.stream()
                 .filter(lease -> taskId.equals(lease.scope().taskId()))
@@ -496,6 +501,47 @@ public final class CapacityManager
         return value;
     }
 
+    /** A full standalone review reads GitHub and may fetch the shared watched
+     * clone. It is serialized with every LOCAL_GIT lease in that Workspace so
+     * no Task worktree/repository operation can race the shared-repo update. */
+    private static boolean workspaceRepositoryGitConflicts(
+            CapacityRequest request, CapacityLease lease)
+    {
+        if (!Objects.equals(
+                request.scope().workspaceId(), lease.scope().workspaceId())
+                || request.scope().workspaceId() == null
+                || !request.lanes().contains(CapacityLane.LOCAL_GIT)
+                || !lease.lanes().contains(CapacityLane.LOCAL_GIT)) {
+            return false;
+        }
+        return isWorkspaceRepositoryGit(request)
+                || isWorkspaceRepositoryGit(lease);
+    }
+
+    private static boolean isWorkspaceRepositoryGit(CapacityRequest request)
+    {
+        return request.lanes().equals(Set.of(
+                    CapacityLane.LOCAL_GIT, CapacityLane.GITHUB))
+                && request.scope().workspaceId() != null
+                && request.scope().trunkId() == null
+                && request.scope().taskId() == null
+                && !request.trunkControl()
+                && !request.exclusiveTask()
+                && !request.writerRequired();
+    }
+
+    private static boolean isWorkspaceRepositoryGit(CapacityLease lease)
+    {
+        return lease.lanes().equals(Set.of(
+                    CapacityLane.LOCAL_GIT, CapacityLane.GITHUB))
+                && lease.scope().workspaceId() != null
+                && lease.scope().trunkId() == null
+                && lease.scope().taskId() == null
+                && !lease.trunkControl()
+                && !lease.exclusiveTask()
+                && !lease.writerRequired();
+    }
+
     public enum CapacityLane
     {
         CLI(1),
@@ -558,6 +604,7 @@ public final class CapacityManager
         LANE_LIMIT,
         WORKSPACE_LIMIT,
         TRUNK_LIMIT,
+        WORKSPACE_REPOSITORY_GIT_LIMIT,
         TASK_MUTATION_LIMIT,
         TASK_SCOPE_CONFLICT,
         OPERATION_ALREADY_LEASED,
@@ -646,11 +693,21 @@ public final class CapacityManager
             boolean trunkPlanningGit = lanes.equals(Set.of(CapacityLane.LOCAL_GIT))
                     && trunkControl
                     && scope.taskId() == null;
+            boolean workspaceRepositoryGit = lanes.equals(Set.of(
+                        CapacityLane.LOCAL_GIT, CapacityLane.GITHUB))
+                    && scope.workspaceId() != null
+                    && scope.trunkId() == null
+                    && scope.taskId() == null
+                    && !trunkControl
+                    && !exclusiveTask
+                    && !writerRequired;
             if (lanes.contains(CapacityLane.LOCAL_GIT)
                     && !writerRequired
-                    && !trunkPlanningGit) {
+                    && !trunkPlanningGit
+                    && !workspaceRepositoryGit) {
                 throw new IllegalArgumentException(
-                        "LOCAL_GIT work requires a Task writer or Trunk control lease");
+                        "LOCAL_GIT work requires a Task writer, Trunk control, "
+                                + "or exact workspace repository lease");
             }
             if (lanes.contains(CapacityLane.VALIDATION) && !exclusiveTask) {
                 throw new IllegalArgumentException(

@@ -50,10 +50,8 @@ import static java.util.Objects.requireNonNull;
  * and the findings table, nothing else.
  *
  * <p>When one Lead turn carries several {@code dispatch_to_reviewer}
- * calls, the round's batch is fanned out concurrently through shared
- * review admission, and the
- * results come back in dispatch order — that is what makes a
- * five-reviewer panel cost one Lead round of wall-clock, not five.
+ * calls, the exact review call context runs them serially in dispatch order.
+ * The compatibility renderer deliberately owns no second executor or queue.
  */
 @Component
 public class LeadToolset
@@ -67,20 +65,20 @@ public class LeadToolset
     private final ReviewStore reviewStore;
     private final SeatToolset readTools;
     private final ReviewerSeat reviewerSeat;
-    private final LegacyReviewAdmission reviewAdmission;
+    private final ReviewCallContext reviewCalls;
     private final ObjectMapper mapper;
 
     public LeadToolset(
             ReviewStore reviewStore,
             SeatToolset readTools,
             ReviewerSeat reviewerSeat,
-            LegacyReviewAdmission reviewAdmission,
+            ReviewCallContext reviewCalls,
             ObjectMapper mapper)
     {
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.readTools = requireNonNull(readTools, "readTools is null");
         this.reviewerSeat = requireNonNull(reviewerSeat, "reviewerSeat is null");
-        this.reviewAdmission = requireNonNull(reviewAdmission, "reviewAdmission is null");
+        this.reviewCalls = requireNonNull(reviewCalls, "reviewCalls is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -123,9 +121,9 @@ public class LeadToolset
         }
 
         /** Executor for one Lead round. {@code prefetch} (wired to
-         *  {@code TurnHooks.onToolCallsParsed}) fans multi-dispatch
-         *  rounds out in parallel; {@code execute} then serves the
-         *  prefetched results in order. */
+         *  {@code TurnHooks.onToolCallsParsed}) evaluates multi-dispatch
+         *  rounds serially; {@code execute} then serves the prefetched
+         *  results in order. */
         public RoundExecutor roundExecutor(ReviewPhase phase, int round)
         {
             return new RoundExecutor(this, phase, round);
@@ -154,11 +152,7 @@ public class LeadToolset
             this.round = round;
         }
 
-        /** Fan out this round's reviewer dispatches concurrently
-         *  through the scheduler's API lane. Lead messages persist
-         *  sequentially first (stable transcript order), then the
-         *  seat turns run in parallel; results land keyed by call id
-         *  so {@link #execute} returns them in dispatch order. */
+        /** Prefetch reviewer dispatches in stable transcript order. */
         public void prefetch(List<ToolCall> calls)
         {
             List<ToolCall> dispatches = calls.stream()
@@ -167,7 +161,7 @@ public class LeadToolset
             if (dispatches.size() < 2) {
                 return;
             }
-            List<LegacyReviewAdmission.Work<ToolCallResult>> work = new ArrayList<>();
+            List<ReviewCallContext.Work<ToolCallResult>> work = new ArrayList<>();
             List<ToolCall> accepted = new ArrayList<>();
             for (ToolCall call : dispatches) {
                 Dispatch dispatch;
@@ -184,14 +178,14 @@ public class LeadToolset
                         .byParticipantId(dispatch.participantId())
                         .orElseThrow(() -> new IllegalStateException(
                                 "dispatched reviewer is missing from the roster"));
-                LegacyReviewAdmission.ProviderLane lane =
+                ReviewCallContext.ProviderLane lane =
                         CliReviewRunner.Provider.isCliProvider(seat.providerId())
-                                ? LegacyReviewAdmission.ProviderLane.CLI
-                                : LegacyReviewAdmission.ProviderLane.API;
+                                ? ReviewCallContext.ProviderLane.CLI
+                                : ReviewCallContext.ProviderLane.API;
                 String attemptId = ReviewerSeat.attemptId(
                         dispatch.participantId(), dispatch.body(), phase, round,
                         dispatch.leadMessageId());
-                work.add(new LegacyReviewAdmission.Work<>(
+                work.add(new ReviewCallContext.Work<>(
                         pass, lane, attemptId,
                         () -> runDispatch(
                                 session, phase, round, dispatch,
@@ -200,17 +194,7 @@ public class LeadToolset
             if (work.isEmpty()) {
                 return;
             }
-            List<ToolCallResult> results;
-            try {
-                results = reviewAdmission.invokeAll(work);
-            }
-            catch (LegacyReviewAdmission.ReviewCapacityUnavailableException unavailable) {
-                accepted.forEach(call -> prefetched.put(
-                        call.id(),
-                        ToolCallResult.error(
-                                "Review capacity is busy; retry this reviewer dispatch.")));
-                return;
-            }
+            List<ToolCallResult> results = reviewCalls.invokeAll(work);
             for (int i = 0; i < accepted.size(); i++) {
                 prefetched.put(accepted.get(i).id(), results.get(i));
             }
@@ -305,8 +289,8 @@ public class LeadToolset
     // ── Dispatch ──────────────────────────────────────────────────────
 
     /** Validated, ready-to-run dispatch: the lead's mention message is
-     *  already persisted (sequentially, so transcript order is the
-     *  dispatch order even when the seat turns run in parallel). */
+     *  already persisted, so transcript and seat execution share the
+     *  same dispatch order. */
     private record Dispatch(String participantId, String body, String findingId, String leadMessageId)
     {
     }

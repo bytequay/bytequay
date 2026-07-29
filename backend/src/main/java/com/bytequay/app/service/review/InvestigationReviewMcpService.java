@@ -77,7 +77,8 @@ public class InvestigationReviewMcpService
                 case "initialize" -> responses.ok(id, new InitializeResult(
                         protocolVersion(rpc.params()), Capabilities.empty(),
                         new ServerInfo("bytequay-investigation-review", "1.0.0")));
-                case "tools/list" -> listTools(id, purpose, subjectKey);
+                case "tools/list" -> listTools(
+                        id, assignmentId, purpose, subjectKey);
                 case "tools/call" -> call(
                         reviewId, assignmentId, purpose, subjectKey,
                         verifierRunId, id, rpc.params());
@@ -93,14 +94,17 @@ public class InvestigationReviewMcpService
         }
     }
 
-    private JsonNode listTools(JsonNode id, String purpose, String subjectKey)
+    private JsonNode listTools(
+            JsonNode id, String assignmentId, String purpose, String subjectKey)
     {
         ArrayNode catalog = responses.mapper().createArrayNode();
         catalog.addAll(tools.tools(TurnSpec.Transport.ANTHROPIC, false));
         catalog.addAll(tools.tools(TurnSpec.Transport.ANTHROPIC, true));
         List<ToolDescriptor> descriptors = new ArrayList<>();
         for (JsonNode node : catalog) {
-            if (!allowedTools(purpose, subjectKey).contains(node.path("name").asText())) {
+            if (!allowedTools(
+                    purpose, subjectKey, tools.usesQuickReviewScope(assignmentId))
+                    .contains(node.path("name").asText())) {
                 continue;
             }
             descriptors.add(new ToolDescriptor(
@@ -127,7 +131,9 @@ public class InvestigationReviewMcpService
             return responses.error(id, -32602, "invalid tools/call params: " + e.getMessage());
         }
         JsonNode arguments = params.arguments();
-        if (!allowedTools(purpose, subjectKey).contains(params.name())) {
+        if (!allowedTools(
+                purpose, subjectKey, tools.usesQuickReviewScope(assignmentId))
+                .contains(params.name())) {
             return responses.toolResponse(id, responses.deny(
                     "tool is not allowed for ReviewAssignmentTurn purpose " + purpose));
         }
@@ -157,8 +163,14 @@ public class InvestigationReviewMcpService
                 : responses.plainText(id, result.text());
     }
 
-    private static Set<String> allowedTools(String purpose, String subjectKey)
+    private static Set<String> allowedTools(
+            String purpose, String subjectKey, boolean quickReview)
     {
+        if (quickReview && INVESTIGATE.equals(purpose)) {
+            return Set.of(
+                    "record_assignment", "record_hypothesis", "record_step",
+                    "read_diff", "search_diff", "record_finding", "record_evidence");
+        }
         return switch (purpose) {
             case INVESTIGATE -> Set.of(
                     "record_assignment", "record_hypothesis", "record_step",

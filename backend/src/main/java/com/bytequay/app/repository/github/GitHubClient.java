@@ -40,6 +40,7 @@ import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoIssueIntakePage;
+import com.bytequay.app.domain.RepoIssuePage;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
@@ -2506,20 +2507,18 @@ public class GitHubClient
     @Override
     public List<PullRequestReview> listReviews(String pat, PullRequestRef pr)
     {
-        try {
-            List<GitHubReview> reviews = gitHubRestClient.get()
-                    .uri("/repos/{owner}/{repo}/pulls/{number}/reviews",
-                            pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", authorization(pat))
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<>() {});
-            return reviews == null ? List.of()
-                    : reviews.stream().map(GitHubClient::toPullRequestReview)
-                            .toList();
+        Paged<GitHubReview> reviews = walkEvidencePages(
+                pat, "/repos/{owner}/{repo}/pulls/{number}/reviews",
+                new ParameterizedTypeReference<>() {},
+                pr.owner(), pr.repo(), pr.number());
+        if (!reviews.complete()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(502),
+                    "GitHub review history could not be read exhaustively");
         }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
+        return reviews.items().stream()
+                .map(GitHubClient::toPullRequestReview)
+                .toList();
     }
 
     private static PullRequestReview toPullRequestReview(GitHubReview review)
@@ -2595,6 +2594,40 @@ public class GitHubClient
             int newest = items.stream().mapToInt(GitHubIssueItem::number).max().orElse(0);
             int oldest = items.stream().mapToInt(GitHubIssueItem::number).min().orElse(0);
             return new RepoIssueIntakePage(openIssues, newest, oldest, items.size() == perPage);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public RepoIssuePage fetchRepoIssuePage(
+            String pat, RepoRef repo, int page, int perPage)
+    {
+        if (page < 1 || perPage < 1 || perPage > 100) {
+            throw new IllegalArgumentException("invalid GitHub issue page request");
+        }
+        try {
+            List<GitHubIssueItem> items = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/issues")
+                            .queryParam("state", "all")
+                            .queryParam("sort", "created")
+                            .queryParam("direction", "desc")
+                            .queryParam("page", page)
+                            .queryParam("per_page", perPage)
+                            .build(repo.owner(), repo.repo()))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (items == null || items.isEmpty()) {
+                return new RepoIssuePage(List.of(), false);
+            }
+            return new RepoIssuePage(
+                    items.stream()
+                            .filter(item -> item.pullRequest() == null)
+                            .map(GitHubClient::toRepoIssue)
+                            .toList(),
+                    items.size() == perPage);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

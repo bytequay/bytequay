@@ -20,16 +20,17 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageRuntimeService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -73,33 +74,27 @@ class TestPlanControlRouting
     }
 
     @Test
-    void leavesLegacyPlanControlsOnTheExistingService()
+    void rejectsLegacyPlanMutationsWithoutCallingEitherOwner()
     {
         UUID planStageId = UUID.randomUUID();
         UUID followupId = UUID.randomUUID();
         when(routes.taskForStage(planStageId.toString()))
                 .thenReturn(Optional.empty());
         when(tasks.isV2Task("task-legacy")).thenReturn(false);
-        when(legacy.approveByStage(planStageId))
-                .thenReturn(new PlanStageService.ApproveResult(
-                        "local-legacy", "/legacy"));
-        when(legacy.replan("task-legacy"))
-                .thenReturn(new PlanStageService.ReplanResult(
-                        "plan-legacy", false));
 
-        assertThat(controller.approvePlan(planStageId.toString()))
-                .isEqualTo(new PlanStageService.ApproveResult(
-                        "local-legacy", "/legacy"));
-        assertThat(controller.replan("task-legacy"))
-                .isEqualTo(new PlanStageService.ReplanResult(
-                        "plan-legacy", false));
-        controller.resolveFollowup(
+        assertThatThrownBy(() -> controller.approvePlan(planStageId.toString()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
+        assertThatThrownBy(() -> controller.replan("task-legacy"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
+        assertThatThrownBy(() -> controller.resolveFollowup(
                 planStageId.toString(), followupId.toString(),
-                new StageController.FollowupPatch("dismissed"));
+                new StageController.FollowupPatch("dismissed")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        verify(legacy).approveByStage(planStageId);
-        verify(legacy).replan("task-legacy");
-        verify(legacy).resolveFollowup(followupId, "dismissed");
+        verifyNoInteractions(legacy);
         verifyNoInteractions(controls);
     }
 
@@ -109,7 +104,6 @@ class TestPlanControlRouting
                 mock(StageService.class),
                 mock(StageDetailService.class),
                 mock(StageSteeringService.class),
-                mock(StageRuntimeService.class),
                 legacy,
                 mock(StageStore.class),
                 tasks,

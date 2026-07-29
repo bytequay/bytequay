@@ -31,14 +31,11 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -72,7 +69,7 @@ class TestThreadSettingsServiceCapacity
             service.save("trunk", settings(2));
             verifyNoInteractions(capacity);
         });
-        verify(capacity, timeout(2_000)).policyChanged();
+        verify(capacity).policyChanged();
         assertThat(service.findOverrides("trunk").orElseThrow().maxRunningTasks())
                 .isEqualTo(2);
 
@@ -108,13 +105,12 @@ class TestThreadSettingsServiceCapacity
             service.clear("trunk");
             verify(capacity).policyChanged();
         });
-        verify(capacity, timeout(2_000).times(2)).policyChanged();
+        verify(capacity, times(2)).policyChanged();
         assertThat(service.findOverrides("trunk")).isEmpty();
     }
 
     @Test
-    void committedWakeDoesNotReenterTheSingleConnectionPool()
-            throws Exception
+    void committedWakeIsOnlyAnInProcessSignal()
     {
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:sqlite:" + tempDir.resolve("single-pool.db"));
@@ -132,14 +128,7 @@ class TestThreadSettingsServiceCapacity
                         prompt_addendum TEXT,
                         updated_at_ms INTEGER NOT NULL)
                     """);
-            CountDownLatch wakeCompleted = new CountDownLatch(1);
             CapacityManager capacity = mock(CapacityManager.class);
-            doAnswer(ignored -> {
-                assertThat(jdbc.queryForObject("SELECT 1", Integer.class))
-                        .isEqualTo(1);
-                wakeCompleted.countDown();
-                return null;
-            }).when(capacity).policyChanged();
             ThreadSettingsService service = new ThreadSettingsService(
                     new JdbcThreadSettingsStore(jdbc), 4, 5_000, 20_000,
                     capacity);
@@ -149,7 +138,7 @@ class TestThreadSettingsServiceCapacity
             transactions.executeWithoutResult(ignored ->
                     service.save("trunk", settings(2)));
 
-            assertThat(wakeCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+            verify(capacity).policyChanged();
         }
     }
 

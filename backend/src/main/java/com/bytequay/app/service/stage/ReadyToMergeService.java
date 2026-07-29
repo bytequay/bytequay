@@ -207,9 +207,14 @@ public class ReadyToMergeService
         }
         // Retries exhausted with a green head — not a simple transient. Park
         // for the human, require fresh approval afterward, notify.
+        // The legacy TaskPhaseMachine is a fail-closed compatibility boundary;
+        // invoke it before touching consent or notification state so an
+        // accidentally-routed legacy command cannot partially mutate retained
+        // historical data.
+        phaseMachine.observe(task.id(), TaskPhase.NEEDS_ATTENTION,
+                "merge_queue_failed_repeatedly");
         taskStore.clearMergeNotificationSent(task.id());
         taskStore.clearMergeAuthorization(task.id());
-        phaseMachine.observe(task.id(), TaskPhase.NEEDS_ATTENTION, "merge_queue_failed_repeatedly");
         notifyMergeQueueFailed(task, detail, pr);
     }
 

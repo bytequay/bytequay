@@ -18,8 +18,6 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.ThreadStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -44,7 +42,6 @@ import static java.util.Objects.requireNonNull;
  * scheduled-review sweeper uses, and it's coarse enough to avoid
  * thrashing.
  */
-@Service
 public class IdleThreadArchiver
 {
     private static final Logger log = LoggerFactory.getLogger(IdleThreadArchiver.class);
@@ -66,7 +63,6 @@ public class IdleThreadArchiver
         this.behavior = requireNonNull(behavior, "behavior is null");
     }
 
-    @Scheduled(fixedDelayString = "PT1H", initialDelayString = "PT5M")
     public void sweep()
     {
         try {

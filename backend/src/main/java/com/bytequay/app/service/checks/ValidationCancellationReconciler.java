@@ -22,10 +22,6 @@ import com.bytequay.app.repository.ValidationPassStore.PendingValidationCancel;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -47,7 +43,6 @@ import static java.util.Objects.requireNonNull;
  * possibly live validation; stopped tasks keep their axes and only
  * record the failure.
  */
-@Component
 public class ValidationCancellationReconciler
 {
     private static final Logger log = LoggerFactory.getLogger(ValidationCancellationReconciler.class);
@@ -71,13 +66,11 @@ public class ValidationCancellationReconciler
         this.executorIdentity = ProcessHandle.current().pid() + "@" + hostName();
     }
 
-    @EventListener(ApplicationReadyEvent.class)
     public void reconcileOnStartup()
     {
         sweep();
     }
 
-    @Scheduled(fixedDelay = 5_000, initialDelay = 15_000)
     public void sweep()
     {
         for (PendingValidationCancel pending : store.findCancelPending()) {

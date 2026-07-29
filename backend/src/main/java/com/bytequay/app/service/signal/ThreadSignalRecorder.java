@@ -18,8 +18,6 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.threads.TaskCreatedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 
@@ -31,7 +29,6 @@ import static java.util.Objects.requireNonNull;
  * signal is best-effort context, so any failure here is swallowed and
  * must never disturb the work that fired the event.
  */
-@Component
 public class ThreadSignalRecorder
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadSignalRecorder.class);
@@ -46,7 +43,6 @@ public class ThreadSignalRecorder
     }
 
     /** A new task on the thread becomes an informational signal. */
-    @EventListener
     public void onTaskCreated(TaskCreatedEvent event)
     {
         try {

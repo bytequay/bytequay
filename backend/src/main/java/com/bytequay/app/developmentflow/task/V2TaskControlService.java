@@ -95,16 +95,32 @@ public final class V2TaskControlService
 
     public TaskManager.State cancel(String taskId)
     {
+        return cancel(taskId, ACTOR);
+    }
+
+    public TaskManager.State cancelByAutomation(
+            String taskId, String automationKind)
+    {
+        requireNonNull(automationKind, "automationKind is null");
+        if (automationKind.isBlank()) {
+            throw new IllegalArgumentException("automationKind is blank");
+        }
+        return cancel(taskId, "automation/" + automationKind);
+    }
+
+    private TaskManager.State cancel(String taskId, String actor)
+    {
         TaskManager.State current = requireTask(taskId);
         if (current.lifecycle() == TaskLifecycle.CANCELING
                 || current.lifecycle() == TaskLifecycle.CLEANING
                 || current.lifecycle() == TaskLifecycle.CANCELED) {
-            terminateWaits(taskId, "Task canceled");
+            terminateWaits(taskId, actor, "Task canceled");
             cancelLiveTickets(taskId);
             return current;
         }
-        TaskManager.State requested = tasks.requestCancel(command(current)).state();
-        terminateWaits(taskId, "Task canceled");
+        TaskManager.State requested = tasks.requestCancel(
+                command(current, actor)).state();
+        terminateWaits(taskId, actor, "Task canceled");
         cancelLiveTickets(taskId);
         return requested;
     }
@@ -266,10 +282,10 @@ public final class V2TaskControlService
         liveTicketIds(taskId).forEach(tickets::requestCancel);
     }
 
-    private void terminateWaits(String taskId, String reason)
+    private void terminateWaits(String taskId, String actor, String reason)
     {
         userWaits.cancelOpenWaitsForTask(
-                taskId, ACTOR, reason, Instant.now());
+                taskId, actor, reason, Instant.now());
     }
 
     private List<String> liveTicketIds(String taskId)

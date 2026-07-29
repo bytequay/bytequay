@@ -13,7 +13,8 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AiReviewDraftDto } from '../types';
+import type { LocalPrReviewPublicationDto } from '../types';
+import type { AgentReviewData } from '../review/agentReviewTypes';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import type { DashboardPR } from '../types/dashboardPr';
 import PullDetailPane, { PullDetailBody } from './PullDetailPane';
@@ -23,6 +24,49 @@ afterEach(() => {
   cleanup();
   delete (globalThis as { bridge?: unknown }).bridge;
 });
+
+function externalReviewRow(): DashboardPR {
+  return {
+    id: 'external-review-pr', repo: 'trinodb/trino', number: 84,
+    title: 'External review', author: 'octocat', htmlUrl: 'https://example.test/84',
+    createdAt: null, updatedAt: null, origin: 'REVIEW_REQUESTED', labels: [], labelColors: null,
+    draft: false, viewedAt: null, reviewedAt: null, handledAction: null,
+    requestedReviewers: [], ciStatus: null, additions: 3, deletions: 1, commentCount: 0,
+    attentionReason: null, state: 'open', closedAt: null, mergedAt: null, mergeable: null,
+    mergeableState: null, headPushedAt: null, reviewerVerdicts: null,
+    snoozedUntil: null, snoozeWakeReason: null,
+  };
+}
+
+function externalReviewBundle(): LocalPRBundle {
+  return {
+    pr: {
+      id: 'external-review-pr', taskId: null, branchName: 'feature/review', baseBranch: 'master',
+      title: 'External review', description: '', status: 'remote-open', createdAt: 0, pushedAt: 0,
+      remotePrNumber: 84, remotePrUrl: 'https://example.test/84', mergedAt: null, closedAt: null,
+      origin: 'external', repo: 'trinodb/trino', author: 'octocat', syncedAt: null,
+      syncedAdditions: 3, syncedDeletions: 1, syncedMergeable: null, syncedMergeableState: null,
+      syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null,
+    },
+    commits: [], timeline: [], checks: [], comments: [{
+      id: 'pending-comment', localPrId: 'external-review-pr', origin: 'local',
+      scope: 'file-line', filePath: 'src/Foo.java', lineNumber: 8, side: 'RIGHT',
+      startLine: null, startSide: null, author: 'you', body: 'Please fix this', createdAt: 1,
+      resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null,
+      publishedAt: null,
+    }],
+  };
+}
+
+function reviewPublication(
+  overrides: Partial<LocalPrReviewPublicationDto> = {},
+): LocalPrReviewPublicationDto {
+  return {
+    prId: 'external-review-pr', reviewId: 'review-1', commandId: 'command-1', status: 'QUEUED',
+    terminal: false, finalized: false, blocksNewPublication: true,
+    externalEffectId: null, lastError: null, ...overrides,
+  };
+}
 
 describe('PullDetailPane', () => {
   it('keeps the standalone row API and omits the non-design GitHub tab button', () => {
@@ -149,6 +193,68 @@ describe('PullDetailPane', () => {
     expect(screen.queryByRole('button', { name: 'Submit review • 0' })).toBeNull();
   });
 
+  it('keeps a queued taskless review frozen while durable publication runs', async () => {
+    const publication = reviewPublication();
+    const getLocalPrReviewPublication = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(publication);
+    const publishLocalPrReview = vi.fn().mockResolvedValue(publication);
+    window.bridge = {
+      getLocalPrReviewPublication,
+      publishLocalPrReview,
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
+    } as unknown as typeof window.bridge;
+    const refresh = vi.fn();
+
+    render(
+      <PullDetailBody
+        row={toRow(externalReviewRow())}
+        bundle={externalReviewBundle()}
+        refresh={refresh}
+      />,
+    );
+
+    await waitFor(() => expect(getLocalPrReviewPublication).toHaveBeenCalledOnce());
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit review • 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+
+    expect((await screen.findByRole('status')).textContent)
+      .toContain('Review queued for publication.');
+    expect((screen.getByRole('button', { name: 'Review queued…' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(publishLocalPrReview).toHaveBeenCalledWith('external-review-pr', {
+      verdict: 'COMMENT', findingIds: [], comments: ['pending-comment'], body: null,
+    });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('restores a terminal taskless publication failure after restart', async () => {
+    const failed = reviewPublication({
+      reviewId: null,
+      status: 'FAILED',
+      terminal: true,
+      finalized: true,
+      lastError: 'GitHub rejected the frozen review.',
+    });
+    window.bridge = {
+      getLocalPrReviewPublication: vi.fn().mockResolvedValue(failed),
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
+    } as unknown as typeof window.bridge;
+
+    render(
+      <PullDetailBody
+        row={toRow(externalReviewRow())}
+        bundle={externalReviewBundle()}
+        refresh={vi.fn()}
+      />,
+    );
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toContain('GitHub rejected the frozen review. Reselect the comments before trying again.');
+    expect((screen.getByRole('button', { name: 'Review publication blocked' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+  });
+
   it('renders pushed task-local review threads as read-only history', () => {
     window.bridge = {
       fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
@@ -242,21 +348,40 @@ describe('PullDetailPane', () => {
       headPushedAt: null, reviewerVerdicts: null, snoozedUntil: null, snoozeWakeReason: null,
       reviewState: 'none',
     };
-    const result: AiReviewDraftDto = {
-      id: 2, prId: 1,
-      summary: 'The **supplied diff** changes `retry` behavior.<script>alert(1)</script>', providerId: 'openai',
-      model: 'review-model', headSha: 'abc', status: 'DRAFT', createdAt: '2026-07-19T00:00:00Z',
-      updatedAt: '2026-07-19T00:00:00Z',
-      comments: [{
-        id: 3, filePath: 'src/retry.ts', lineNumber: 21,
-        body: '**Critical:** this retry can loop forever.',
-        editedBody: null, severity: 'blocker', dismissed: false, source: 'AI', side: 'RIGHT',
-        startLine: null, startSide: null,
-      }, {
-        id: 4, filePath: 'src/style.ts', lineNumber: 9,
-        body: 'Optional naming cleanup.', editedBody: null, severity: 'suggestion',
-        dismissed: false, source: 'AI', side: 'RIGHT', startLine: null, startSide: null,
+    const result: AgentReviewData = {
+      review: {
+        id: 'quick-review', repo_id: 'external/project', pr_id: dto.id,
+        base_commit: 'base', reviewed_head_commit: 'abc', status: 'ACTIVE',
+        workspace_id: null, owner_thread_id: null, owner_task_id: null,
+      },
+      rounds: [{
+        id: 'quick-round', review_id: 'quick-review', agent_run_id: 'compatibility-header',
+        trigger: 'initial', scope: 'quick', start_commit: 'abc', end_commit: 'abc',
+        status: 'COMPLETED_WITH_QUESTIONS',
+        budget_json: { cost_cap_cents: 50, wall_clock_minutes: 5 }, cost_cents: 8,
+        capabilities_json: { source_mode: 'remote-only', available: ['pr_diff'], unavailable: ['repository_source'] },
+        trigger_stage_id: null,
       }],
+      findings: [{
+        id: 'finding-1', review_id: 'quick-review', round_id: 'quick-round',
+        objective_id: 'objective-1', criterion_kind: 'hard-invariant',
+        path: 'src/retry.ts', start_line: 21, end_line: 21,
+        claim: 'The **supplied diff** makes `retry` loop forever.<script>alert(1)</script>',
+        severity: 5, confidence_class: 'SUPPORTED', verification_status: 'unknown',
+        requested_action: 'Restore the terminating branch.', lifecycle_status: 'candidate',
+        last_checked_commit: 'abc',
+      }, {
+        id: 'finding-2', review_id: 'quick-review', round_id: 'quick-round',
+        objective_id: 'objective-2', criterion_kind: 'repo-convention',
+        path: 'src/style.ts', start_line: 9, end_line: 9,
+        claim: 'Optional naming cleanup.', severity: 2, confidence_class: 'TENTATIVE',
+        verification_status: 'unknown', requested_action: 'Rename it.',
+        lifecycle_status: 'candidate', last_checked_commit: 'abc',
+      }],
+      runs: [], criteria: [], objectives: [], assignments: [], hypotheses: [], steps: [],
+      observations: [], evidence: [], verifications: [], relations: [], outcomes: [],
+      knowledge_items: [], knowledge_provenance: [], activity_facts: [], round_messages: [],
+      reviewed_commits: [], round_message_targets: {}, pr_comments: [], pr_timeline_events: [],
     };
     const refresh = vi.fn();
 
@@ -283,7 +408,7 @@ describe('PullDetailPane', () => {
     expect(screen.getByText('retry').tagName).toBe('CODE');
     expect(container.querySelector('script')).toBeNull();
     expect(screen.getByText('src/retry.ts:21')).not.toBeNull();
-    expect(screen.getByText('Critical:').tagName).toBe('STRONG');
+    expect(screen.getByText('Requested action:').tagName).toBe('STRONG');
     expect(screen.queryByText('Optional naming cleanup.')).toBeNull();
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   });

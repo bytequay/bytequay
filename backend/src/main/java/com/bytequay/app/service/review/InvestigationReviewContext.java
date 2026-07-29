@@ -29,9 +29,14 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -41,7 +46,6 @@ import static java.util.Objects.requireNonNull;
 public class InvestigationReviewContext
 {
     private static final int MAX_DIFF_CHARS = 240_000;
-    private static final int MAX_FILE_CHARS = 120_000;
 
     private final PRService prs;
     private final PullRequestService pullRequests;
@@ -106,6 +110,26 @@ public class InvestigationReviewContext
         }
     }
 
+    /** Detached quick-review capture. This path never resolves a Task or
+     * watched-clone root, even if ownership changes while the remote request
+     * is in flight. */
+    public Snapshot loadRemoteOnly(PR pr)
+    {
+        requireNonNull(pr, "pr is null");
+        List<PRCommit> commits = prs.commits(pr.id());
+        String base = commits.isEmpty() ? "unknown-base" : commits.getFirst().sha();
+        String head = commits.isEmpty() ? "unknown-head" : commits.getLast().sha();
+        if (pr.repo() == null || pr.remotePrNumber() == null) {
+            throw new IllegalArgumentException(
+                    "remote-only review requires a remote pull request");
+        }
+        List<DiffFile> files = pullRequests.getPullRequestDiffFiles(
+                pr.repo(), pr.remotePrNumber());
+        return new Snapshot(
+                pr, base, head, render(files), files, null, null,
+                ReviewCapabilities.remoteOnly());
+    }
+
     public String headCommit(PR pr)
     {
         List<PRCommit> commits = prs.commits(pr.id());
@@ -152,82 +176,66 @@ public class InvestigationReviewContext
                 }));
     }
 
-    public String readFile(Snapshot snapshot, String path)
+    /** Freeze complete bodies for every non-deleted changed file while the
+     * dispatcher still owns the source lease. Later round work may only read
+     * this returned evidence and never consult Git, GitHub, or a checkout. */
+    public Snapshot freezeChangedFiles(Snapshot snapshot)
     {
-        if (path == null || path.isBlank()) {
-            throw new IllegalArgumentException("path is required");
+        requireNonNull(snapshot, "snapshot is null");
+        if (snapshot.repositoryRoot() == null) {
+            throw new IllegalStateException(
+                    "full review has no repository source to freeze");
         }
-        if (snapshot.localRoot() == null) {
-            if (snapshot.repositoryRoot() != null) {
-                try {
-                    return truncate(git.fileAtRef(
-                            snapshot.repositoryRoot(), snapshot.headCommit(), path));
-                }
-                catch (IOException e) {
-                    throw new IllegalStateException("could not read " + path + " at reviewed SHA: "
-                            + e.getMessage(), e);
-                }
-                catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException("interrupted reading " + path, e);
-                }
-            }
-            if (snapshot.pr().repo() == null) {
-                throw new IllegalStateException("PR has no repository");
-            }
-            return truncate(String.join("\n", pullRequests.getFileBlobLines(
-                    snapshot.pr().repo(), path, snapshot.headCommit())));
-        }
-        Path target = snapshot.localRoot().resolve(path).normalize();
-        if (!target.startsWith(snapshot.localRoot())) {
-            throw new IllegalArgumentException("path escapes checkout");
-        }
+        List<String> paths = snapshot.files().stream()
+                .filter(file -> !Set.of("deleted", "removed", "D").contains(
+                        file.status()))
+                .map(DiffFile::filename)
+                .toList();
         try {
-            return truncate(Files.readString(target));
+            return snapshot.withFrozenChangedFiles(captureChangedFiles(
+                    git, snapshot.repositoryRoot(), snapshot.headCommit(), paths));
         }
         catch (IOException e) {
-            throw new IllegalStateException("could not read " + path + ": " + e.getMessage(), e);
+            throw new IllegalStateException(
+                    "could not freeze changed files at reviewed SHA: "
+                            + e.getMessage(), e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "interrupted freezing changed files", e);
         }
     }
 
-    /** True line count for validation; unlike {@link #readFile}, this is not
-     * truncated to the investigator prompt limit. */
+    static Map<String, String> captureChangedFiles(
+            GitRunner git, Path repositoryRoot, String headCommit,
+            List<String> paths)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(git, "git is null");
+        requireNonNull(repositoryRoot, "repositoryRoot is null");
+        requireNonNull(headCommit, "headCommit is null");
+        LinkedHashMap<String, String> contents = new LinkedHashMap<>();
+        for (String rawPath : paths) {
+            String path = frozenPath(rawPath);
+            if (!contents.containsKey(path)) {
+                contents.put(path, git.fileAtRef(
+                        repositoryRoot, headCommit, path));
+            }
+        }
+        return Collections.unmodifiableMap(contents);
+    }
+
+    public String readFile(Snapshot snapshot, String path)
+    {
+        return requireNonNull(snapshot, "snapshot is null").readFile(path);
+    }
+
+    /** True line count from the complete frozen changed-file body. */
     public int fileLineCount(Snapshot snapshot, String path)
     {
-        if (path == null || path.isBlank()) {
-            throw new IllegalArgumentException("path is required");
-        }
-        if (snapshot.localRoot() == null) {
-            if (snapshot.repositoryRoot() != null) {
-                try {
-                    return toIntExact(git.fileAtRef(
-                            snapshot.repositoryRoot(), snapshot.headCommit(), path).lines().count());
-                }
-                catch (IOException e) {
-                    throw new IllegalStateException("could not count " + path + " at reviewed SHA: "
-                            + e.getMessage(), e);
-                }
-                catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException("interrupted reading " + path, e);
-                }
-            }
-            if (snapshot.pr().repo() == null) {
-                throw new IllegalStateException("PR has no repository");
-            }
-            return pullRequests.getFileBlobLines(
-                    snapshot.pr().repo(), path, snapshot.headCommit()).size();
-        }
-        Path target = snapshot.localRoot().resolve(path).normalize();
-        if (!target.startsWith(snapshot.localRoot())) {
-            throw new IllegalArgumentException("path escapes checkout");
-        }
-        try (Stream<String> lines = Files.lines(target)) {
-            return toIntExact(lines.count());
-        }
-        catch (IOException e) {
-            throw new IllegalStateException("could not read " + path + ": " + e.getMessage(), e);
-        }
+        return toIntExact(requireNonNull(snapshot, "snapshot is null")
+                .readFile(path).lines().count());
     }
 
     private static String render(List<DiffFile> files)
@@ -246,31 +254,27 @@ public class InvestigationReviewContext
         return out.toString();
     }
 
-    private static String truncate(String value)
-    {
-        return value.length() <= MAX_FILE_CHARS
-                ? value
-                : value.substring(0, MAX_FILE_CHARS) + "\n... (file truncated)\n";
-    }
-
-    /** Repository-wide literal references at the frozen reviewed SHA. Empty
-     * means the round is remote-only or the symbol has no matches. */
+    /** Literal references within complete frozen changed-file bodies. */
     public List<String> repositoryReferences(Snapshot snapshot, String symbol, int limit)
     {
-        if (snapshot.repositoryRoot() == null) {
+        if (symbol == null || symbol.isBlank() || limit <= 0) {
             return List.of();
         }
-        try {
-            return git.grepAtRef(
-                    snapshot.repositoryRoot(), snapshot.headCommit(), symbol, limit);
+        Pattern word = Pattern.compile(
+                "(?<![\\w$])" + Pattern.quote(symbol) + "(?![\\w$])");
+        List<String> matches = new ArrayList<>();
+        for (Map.Entry<String, String> file : snapshot.fileContents().entrySet()) {
+            List<String> lines = file.getValue().lines().toList();
+            for (int line = 0; line < lines.size() && matches.size() < limit; line++) {
+                if (word.matcher(lines.get(line)).find()) {
+                    matches.add(file.getKey() + ":" + (line + 1));
+                }
+            }
+            if (matches.size() >= limit) {
+                break;
+            }
         }
-        catch (IOException e) {
-            return List.of();
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return List.of();
-        }
+        return List.copyOf(matches);
     }
 
     private Path taskRootAt(PR pr, String head)
@@ -337,15 +341,62 @@ public class InvestigationReviewContext
     public record Snapshot(
             PR pr, String baseCommit, String headCommit, String diff,
             List<DiffFile> files, Path localRoot, Path repositoryRoot,
-            ReviewCapabilities capabilities)
+            ReviewCapabilities capabilities, Map<String, String> fileContents)
     {
+        public Snapshot
+        {
+            files = List.copyOf(requireNonNull(files, "files is null"));
+            fileContents = Collections.unmodifiableMap(new LinkedHashMap<>(
+                    requireNonNull(fileContents, "fileContents is null")));
+        }
+
+        public Snapshot(
+                PR pr, String baseCommit, String headCommit, String diff,
+                List<DiffFile> files, Path localRoot, Path repositoryRoot,
+                ReviewCapabilities capabilities)
+        {
+            this(pr, baseCommit, headCommit, diff, files, localRoot,
+                    repositoryRoot, capabilities, Map.of());
+        }
+
         public Snapshot(
                 PR pr, String baseCommit, String headCommit, String diff,
                 List<DiffFile> files, Path localRoot)
         {
             this(pr, baseCommit, headCommit, diff, files, localRoot, localRoot,
                     localRoot == null
-                            ? ReviewCapabilities.remoteOnly() : ReviewCapabilities.localSource());
+                            ? ReviewCapabilities.remoteOnly() : ReviewCapabilities.localSource(),
+                    Map.of());
         }
+
+        public Snapshot withFrozenChangedFiles(Map<String, String> contents)
+        {
+            return new Snapshot(
+                    pr, baseCommit, headCommit, diff, files, localRoot,
+                    repositoryRoot, ReviewCapabilities.frozenChangedFiles(), contents);
+        }
+
+        public String readFile(String path)
+        {
+            String normalized = frozenPath(path);
+            String content = fileContents.get(normalized);
+            if (content == null) {
+                throw new IllegalArgumentException(
+                        "path was not captured in frozen review snapshot: " + normalized);
+            }
+            return content;
+        }
+    }
+
+    private static String frozenPath(String value)
+    {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("path is required");
+        }
+        Path path = Path.of(value).normalize();
+        if (path.isAbsolute() || path.startsWith("..")) {
+            throw new IllegalArgumentException("path escapes frozen snapshot");
+        }
+        return path.toString().replace('\\', '/');
     }
 }

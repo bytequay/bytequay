@@ -29,13 +29,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -124,6 +121,7 @@ public class ValidationClaimService
      */
     public void claimAndRunDevRound(String taskId)
     {
+        rejectLegacyExecution();
         requireNonNull(taskId, "taskId is null");
         Task task = taskStore.findTaskById(taskId).orElse(null);
         if (!canAdmit(task, TaskPhase.VALIDATING)
@@ -165,9 +163,9 @@ public class ValidationClaimService
     /** Resume/recovery holds green evidence while stopped, then replays
      * the same claim (or safely reacquires an unfinished one) after the
      * barrier commits. */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onValidationRecheckRequested(ValidationRecheckRequestedEvent event)
     {
+        rejectLegacyExecution();
         TaskCommandExecutor.dispatchAfterCommit(() -> claimAndRunDevRound(event.taskId()));
     }
 
@@ -181,6 +179,7 @@ public class ValidationClaimService
      */
     public void claimAndRunLocalReview(String taskId, long throughSequence, String rootSetDigest)
     {
+        rejectLegacyExecution();
         requireNonNull(taskId, "taskId is null");
         requireNonNull(rootSetDigest, "rootSetDigest is null");
         Task task = taskStore.findTaskById(taskId).orElse(null);
@@ -223,6 +222,7 @@ public class ValidationClaimService
     /** Claim post-addressing validation for one exact coordinator turn. */
     public void claimAndRunReviewRound(String taskId, String roundId, String attemptId)
     {
+        rejectLegacyExecution();
         requireNonNull(taskId, "taskId is null");
         requireNonNull(roundId, "roundId is null");
         requireNonNull(attemptId, "attemptId is null");
@@ -266,6 +266,7 @@ public class ValidationClaimService
      * owns TRIAGING. */
     public boolean claimAndRunGateRevalidation(String roundId)
     {
+        rejectLegacyExecution();
         requireNonNull(roundId, "roundId is null");
         ReviewRound snapshot = roundStore.findById(roundId).orElse(null);
         if (snapshot == null) {
@@ -334,10 +335,9 @@ public class ValidationClaimService
      * terminal replay remains owned by TaskLifecycleDriver because it alone
      * has the current frozen root-set watermark.
      */
-    @EventListener(ApplicationReadyEvent.class)
-    @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
     public void reconcileClaims()
     {
+        rejectLegacyExecution();
         for (Task task : taskStore.listByPhases(
                 List.of(TaskPhase.VALIDATING), RECOVERY_SCAN_LIMIT)) {
             claimAndRunDevRound(task.id());
@@ -357,6 +357,13 @@ public class ValidationClaimService
                 claimAndRunGateRevalidation(claim.roundId());
             }
         }
+    }
+
+    private static void rejectLegacyExecution()
+    {
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "LEGACY validation claims are read-only; use a typed V2 Validation Operation");
     }
 
     private void resumeLocalReviewClaim(ValidationClaim claim)

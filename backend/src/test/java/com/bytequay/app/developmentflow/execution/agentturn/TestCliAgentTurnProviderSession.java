@@ -197,13 +197,14 @@ class TestCliAgentTurnProviderSession
                         "mcp__bytequay__approval_prompt");
         AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
                 CLI, "claude-code", null, "claude-opus-4-8", null,
-                WORKTREE, "system", "prompt", endpoint, READ_ONLY);
+                WORKTREE, "system", "prompt", List.of(), endpoint, READ_ONLY, 250L);
 
         List<String> argv = CliAgentTurnProviderSession.buildArgv(
                 request, CLAUDE_CODE, "claude", Path.of("/tmp/review-mcp.json"));
 
         assertThat(argv).containsSubsequence(
                 "--tools", "Read,Glob,Grep,WebFetch,WebSearch");
+        assertThat(argv).containsSubsequence("--max-budget-usd", "0.25");
         assertThat(argv).containsSubsequence(
                 "--allowedTools",
                 "mcp__bytequay__record_assignment,mcp__bytequay__record_hypothesis,"

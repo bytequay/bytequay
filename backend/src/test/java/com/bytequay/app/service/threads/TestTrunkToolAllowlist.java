@@ -20,14 +20,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestTrunkToolAllowlist
 {
     @Test
-    void trunkCanPlanAndQueueNotJustCutOneTask()
+    void trunkCanCutTasksButCannotUseTheRetiredQueueTools()
     {
-        // Regression: the queue-planning tools were once omitted from the
-        // trunk allowlist, so the trunk could create_task but never line
-        // one up, reorder, or drop. The trunk's whole job is planning the
-        // queue, so these must stay reachable.
         assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST)
-                .contains("create_task", "queue_task", "reorder_queue", "drop_queued_task");
+                .contains("create_task")
+                .doesNotContain("queue_task", "reorder_queue", "drop_queued_task");
     }
 
     @Test

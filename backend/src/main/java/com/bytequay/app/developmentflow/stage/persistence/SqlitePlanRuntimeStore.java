@@ -1211,6 +1211,91 @@ public class SqlitePlanRuntimeStore
         return count != null && count > 0;
     }
 
+    /**
+     * Current V2 Plan facts for one workspace automation family. Tasks that
+     * already advanced beyond Plan are deliberately absent; LEGACY rows can
+     * never enter this projection.
+     */
+    public List<AutomationPlan> listAutomationPlans(
+            String workspaceId, String taskOrigin, String taskType)
+    {
+        return jdbc.query("""
+                SELECT task.id AS task_id, task.thread_id AS trunk_id,
+                    trunk.workspace_id, task.origin AS task_origin,
+                    task.task_type, task.linked_issue_number,
+                    task.created_at_ms, task.epoch AS task_epoch,
+                    task.aggregate_version AS task_version,
+                    stage.id AS stage_id, stage.generation AS stage_generation,
+                    stage.version AS stage_version, stage.checkpoint,
+                    revision.id AS revision_id, revision.content,
+                    review.id AS self_review_id,
+                    CASE
+                      WHEN stage.kind = 'PLAN' AND EXISTS (
+                        SELECT 1 FROM task_blocker blocker
+                        WHERE blocker.task_id = task.id
+                          AND blocker.stage_id = stage.id
+                          AND blocker.owner_kind = 'STAGE'
+                          AND blocker.owner_id = stage.id
+                          AND blocker.status = 'OPEN') THEN 'FAILED'
+                      WHEN stage.kind = 'PLAN'
+                        AND stage.checkpoint = 'AWAITING_APPROVAL'
+                        AND stage.completed_at_ms IS NULL
+                        AND review.status = 'SUCCEEDED'
+                        AND review.verdict = 'APPROVED'
+                        AND review.reviewed_digest = revision.content_digest
+                        THEN 'REVIEWED'
+                      ELSE 'PENDING'
+                    END AS plan_state,
+                    (SELECT blocker.blocker_type
+                       FROM task_blocker blocker
+                      WHERE blocker.task_id = task.id
+                        AND blocker.stage_id = stage.id
+                        AND blocker.owner_kind = 'STAGE'
+                        AND blocker.owner_id = stage.id
+                        AND blocker.status = 'OPEN'
+                      ORDER BY blocker.opened_at_ms DESC, blocker.id DESC
+                      LIMIT 1) AS failure_reason
+                FROM tasks task
+                JOIN threads trunk ON trunk.id = task.thread_id
+                LEFT JOIN task_current_stage current
+                  ON current.task_id = task.id
+                LEFT JOIN stage
+                  ON stage.id = current.stage_id
+                 AND stage.generation = current.stage_generation
+                 AND stage.task_id = task.id
+                LEFT JOIN plan_revision revision
+                  ON stage.kind = 'PLAN'
+                 AND revision.plan_stage_id = stage.id
+                 AND NOT EXISTS (
+                    SELECT 1 FROM plan_revision newer
+                    WHERE newer.plan_stage_id = revision.plan_stage_id
+                      AND newer.revision > revision.revision)
+                LEFT JOIN plan_self_review review
+                  ON review.plan_revision_id = revision.id
+                WHERE trunk.workspace_id = ?
+                  AND task.origin = ? AND task.task_type = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state IN ('PROVISIONING', 'ACTIVE')
+                  AND (stage.id IS NULL OR stage.kind = 'PLAN')
+                ORDER BY task.created_at_ms, task.id
+                """, (rs, row) -> new AutomationPlan(
+                        rs.getString("task_id"), rs.getString("trunk_id"),
+                        rs.getString("workspace_id"), rs.getString("task_origin"),
+                        rs.getString("task_type"),
+                        nullableInt(rs, "linked_issue_number"),
+                        instant(rs, "created_at_ms"), rs.getLong("task_epoch"),
+                        rs.getLong("task_version"), rs.getString("stage_id"),
+                        nullableLong(rs, "stage_generation"),
+                        nullableLong(rs, "stage_version"),
+                        rs.getString("checkpoint"), rs.getString("revision_id"),
+                        rs.getString("content"), rs.getString("self_review_id"),
+                        rs.getString("plan_state"),
+                        rs.getString("failure_reason")),
+                required(workspaceId, "workspaceId"),
+                required(taskOrigin, "taskOrigin"),
+                required(taskType, "taskType"));
+    }
+
     public void insertApproval(
             String approvalId,
             ApprovalContext context,
@@ -1772,6 +1857,26 @@ public class SqlitePlanRuntimeStore
             String selfReviewId,
             String localStageId,
             long localStageGeneration) {}
+
+    public record AutomationPlan(
+            String taskId,
+            String trunkId,
+            String workspaceId,
+            String taskOrigin,
+            String taskType,
+            Integer linkedIssueNumber,
+            Instant taskCreatedAt,
+            long taskEpoch,
+            long taskVersion,
+            String stageId,
+            Long stageGeneration,
+            Long stageVersion,
+            String checkpoint,
+            String revisionId,
+            String content,
+            String selfReviewId,
+            String state,
+            String failureReason) {}
 
     public record PlanEditContext(
             String taskId,

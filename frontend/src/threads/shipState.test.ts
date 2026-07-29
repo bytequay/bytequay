@@ -11,34 +11,58 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { describe, it, expect } from 'vitest';
-import { isTaskShippable } from './shipState';
+import { describe, it, expect, vi } from 'vitest';
+import type { LocalPR } from '../types/localPr';
+import { approveAndShipTask, isTaskOwnedLocalOpenPr } from './shipState';
 
-describe('isTaskShippable', () => {
-  it('allows shipping an active task', () => {
-    expect(isTaskShippable({ status: 'RUNNING' })).toBe(true);
-    expect(isTaskShippable({ status: 'IDLE' })).toBe(true);
-    expect(isTaskShippable({ status: 'PENDING' })).toBe(true);
+describe('approveAndShipTask', () => {
+  it('enables Ship only for the exact Task-owned local-open PR', () => {
+    const ready = {
+      id: 'pr-1', taskId: 'task-1', origin: 'task', status: 'local-open',
+    } as LocalPR;
+
+    expect(isTaskOwnedLocalOpenPr(ready, 'task-1')).toBe(true);
+    expect(isTaskOwnedLocalOpenPr(ready, 'task-2')).toBe(false);
+    expect(isTaskOwnedLocalOpenPr({ ...ready, status: 'remote-drafted' }, 'task-1')).toBe(false);
+    expect(isTaskOwnedLocalOpenPr(null, 'task-1')).toBe(false);
   });
 
-  it('blocks a task that was already shipped (IN_REVIEW, PR open)', () => {
-    // The reported bug: a shipped task still offered "Ship — finalize & merge".
-    expect(isTaskShippable({ status: 'IN_REVIEW' })).toBe(false);
+  it('pushes only the exact Task-owned local PR', async () => {
+    const pr = {
+      id: 'pr-1', taskId: 'task-1', origin: 'task', status: 'local-open',
+    } as LocalPR;
+    const getPrForTask = vi.fn(async () => pr);
+    const pushLocalPr = vi.fn(async () => pr);
+
+    await approveAndShipTask({ getPrForTask, pushLocalPr }, 'task-1');
+
+    expect(getPrForTask).toHaveBeenCalledWith('task-1');
+    expect(pushLocalPr).toHaveBeenCalledWith('pr-1');
   });
 
-  it('blocks parked / merged / errored / canceled tasks', () => {
-    expect(isTaskShippable({ status: 'AWAITING_REVIEW' })).toBe(false);
-    expect(isTaskShippable({ status: 'COMPLETED' })).toBe(false);
-    expect(isTaskShippable({ status: 'ERRORED' })).toBe(false);
-    expect(isTaskShippable({ status: 'CANCELED' })).toBe(false);
+  it('fails closed when the PR projection has another Task owner', async () => {
+    const pr = {
+      id: 'pr-2', taskId: 'task-2', origin: 'task', status: 'local-open',
+    } as LocalPR;
+    const pushLocalPr = vi.fn(async () => pr);
+
+    await expect(approveAndShipTask({
+      getPrForTask: async () => pr,
+      pushLocalPr,
+    }, 'task-1')).rejects.toThrow('does not belong to Task task-1');
+    expect(pushLocalPr).not.toHaveBeenCalled();
   });
 
-  it('blocks when the merge phase completed even if runtime status lags', () => {
-    expect(isTaskShippable({ status: 'IDLE', phase: 'COMPLETED' })).toBe(false);
-  });
+  it('rejects an already-pushed Task PR', async () => {
+    const pr = {
+      id: 'pr-1', taskId: 'task-1', origin: 'task', status: 'remote-drafted',
+    } as LocalPR;
+    const pushLocalPr = vi.fn(async () => pr);
 
-  it('blocks a missing task', () => {
-    expect(isTaskShippable(null)).toBe(false);
-    expect(isTaskShippable(undefined)).toBe(false);
+    await expect(approveAndShipTask({
+      getPrForTask: async () => pr,
+      pushLocalPr,
+    }, 'task-1')).rejects.toThrow('no local PR ready to ship');
+    expect(pushLocalPr).not.toHaveBeenCalled();
   });
 });

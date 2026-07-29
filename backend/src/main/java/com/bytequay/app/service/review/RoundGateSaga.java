@@ -15,7 +15,7 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.config.AsyncConfig;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
-import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
+import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
@@ -45,13 +45,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -104,7 +99,7 @@ public class RoundGateSaga
     private final PullRequestService pullRequests;
     private final GitRunner git;
     private final CodeFingerprints fingerprints;
-    private final LegacySagaCapacity capacity;
+    private final RetiredSagaGate capacity;
     private final ObjectMapper mapper;
     private final Executor executor;
 
@@ -120,7 +115,7 @@ public class RoundGateSaga
             PullRequestService pullRequests,
             GitRunner git,
             CodeFingerprints fingerprints,
-            LegacySagaCapacity capacity,
+            RetiredSagaGate capacity,
             ObjectMapper mapper,
             @Qualifier(AsyncConfig.APPLICATION_EXECUTOR) Executor executor)
     {
@@ -142,6 +137,7 @@ public class RoundGateSaga
 
     public ReviewRound approve(String roundId)
     {
+        rejectLegacyExecution();
         ReviewRound round = requireRound(roundId);
         return TaskExternalEffectGate.withEffectGate(round.taskId(), () -> {
             authorize(roundId);
@@ -151,6 +147,7 @@ public class RoundGateSaga
 
     public void drive(String token)
     {
+        rejectLegacyExecution();
         RoundGateAuthorization authorization = gates.findAuthorization(token).orElse(null);
         if (authorization == null) {
             return;
@@ -171,6 +168,7 @@ public class RoundGateSaga
     public <T> T editPayload(
             String taskId, String roundId, Supplier<T> mutation)
     {
+        rejectLegacyExecution();
         requireNonNull(mutation, "mutation is null");
         return TaskExternalEffectGate.withEffectGate(taskId, () ->
                 commands.execute(taskId, () -> editPayloadInCommand(
@@ -190,6 +188,7 @@ public class RoundGateSaga
      * the same request kind but has no round id, so it is left to TaskPushSaga. */
     public Optional<RecoveryPlan> prepareRecovery(String taskId, int addedAllowance)
     {
+        rejectLegacyExecution();
         Task task = requireTask(taskId);
         if (task.phase() != TaskPhase.NEEDS_ATTENTION
                 || task.status() != TaskStatus.NEEDS_ATTENTION) {
@@ -231,6 +230,7 @@ public class RoundGateSaga
 
     public Optional<RecoveryPlan> verifyRecoveryRequest(String taskId)
     {
+        rejectLegacyExecution();
         return existingRecoveryPlan(taskId)
                 .map(plan -> verifyRecoveryPlan(taskId, plan));
     }
@@ -244,6 +244,7 @@ public class RoundGateSaga
      * that will restore the task's checkpointed phase. */
     public void resumeExternalSagaInCommand(RecoveryPlan plan)
     {
+        rejectLegacyExecution();
         TaskCommandExecutor.requireCurrent(plan.taskId());
         RecoveryPlan durable = existingRecoveryPlan(plan.taskId())
                 .orElseThrow(() -> conflict("task has no round-gate recovery request"));
@@ -260,10 +261,9 @@ public class RoundGateSaga
                 plan.taskId(), plan.roundId(), "round_gate_recovered");
     }
 
-    @TransactionalEventListener(
-            phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onAuthorized(RoundGateAuthorizedEvent event)
     {
+        rejectLegacyExecution();
         try {
             executor.execute(() -> {
                 try {
@@ -282,10 +282,9 @@ public class RoundGateSaga
         }
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
     public void reconcileActive()
     {
+        rejectLegacyExecution();
         for (RoundGateAuthorization authorization : gates.findRecoverable(
                 Instant.now(), RECOVERY_BATCH)) {
             try {
@@ -296,6 +295,12 @@ public class RoundGateSaga
                         authorization.token(), authorization.taskId(), e.getMessage());
             }
         }
+    }
+
+    private static void rejectLegacyExecution()
+    {
+        throw conflict(
+                "LEGACY review-round gates are read-only; use typed V2 remote actions");
     }
 
     private RoundGateAuthorization authorize(String roundId)
@@ -387,13 +392,13 @@ public class RoundGateSaga
             // The application executor only delivers the durable wake. Shared
             // admission starts here, before any effect claim or adapter I/O;
             // denial leaves this row for reconcileActive().
-            Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+            Optional<RetiredSagaGate.Attempt> admitted = capacity.tryAcquire(
                     authorization.taskId(), capacityOperationId(effect),
                     Set.of(CapacityManager.CapacityLane.GITHUB));
             if (admitted.isEmpty()) {
                 return;
             }
-            try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+            try (RetiredSagaGate.Attempt attempt = admitted.orElseThrow()) {
                 if ((effect.status() == RoundGateEffect.Status.IN_FLIGHT
                         && leaseExpired(effect))
                         || effect.status() == RoundGateEffect.Status.RETRYABLE_FAILED) {
@@ -466,7 +471,7 @@ public class RoundGateSaga
     private void finalizeUnderCapacity(
             RoundGateAuthorization authorization, GatePayload payload)
     {
-        Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+        Optional<RetiredSagaGate.Attempt> admitted = capacity.tryAcquire(
                 authorization.taskId(),
                 authorizationCapacityOperationId(authorization.token(), "finalize"),
                 Set.of(CapacityManager.CapacityLane.GITHUB));
@@ -474,7 +479,7 @@ public class RoundGateSaga
             return;
         }
         ObservedCode finalCode;
-        try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+        try (RetiredSagaGate.Attempt attempt = admitted.orElseThrow()) {
             try {
                 attempt.requireLive();
                 finalCode = observeCode(payload);

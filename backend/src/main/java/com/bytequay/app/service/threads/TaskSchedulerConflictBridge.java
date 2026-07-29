@@ -14,14 +14,10 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Actor;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.event.TransactionPhase;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import static java.util.Objects.requireNonNull;
 
 /** Converts a durable task-owned scheduler conflict into the normal recovery gate. */
-@Component
 public class TaskSchedulerConflictBridge
 {
     private static final String RECOVERY_REASON = "scheduler_turn_conflict";
@@ -33,8 +29,6 @@ public class TaskSchedulerConflictBridge
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
-    @TransactionalEventListener(
-            phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onConflict(TaskSchedulerConflictEvent event)
     {
         TaskCommandExecutor.dispatchAfterCommit(() -> tasks.parkOperational(

@@ -17,8 +17,6 @@ import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
 import com.bytequay.app.config.DevelopmentFlowExecutionConfig;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.runs.SessionControlService;
 import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -388,7 +386,6 @@ class TestSqliteCapacityLeaseStore
     {
         return new WorkspaceConfigurationService(
                 database.jdbc(), mapper, mock(WorkspaceService.class),
-                mock(AgentRunService.class), mock(SessionControlService.class),
                 manager);
     }
 

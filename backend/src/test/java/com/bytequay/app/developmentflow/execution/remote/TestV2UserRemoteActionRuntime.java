@@ -14,17 +14,20 @@
 package com.bytequay.app.developmentflow.execution.remote;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore.AuthorizationRequest;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.Action;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionKind;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionStatus;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.FrozenDraft;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -36,6 +39,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -147,6 +151,94 @@ class TestV2UserRemoteActionRuntime
         verify(store).markFinalized("action-1", ActionStatus.SUCCEEDED, NOW);
     }
 
+    @Test
+    void ciTriggerDeliveryAcceptsItsExactFrozenWorktreeFingerprint()
+            throws Exception
+    {
+        Action action = ciTriggerAction();
+        when(store.require("operation-1")).thenReturn(action);
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                1L, "stage-1", 1L, "operation-1", 1,
+                "fingerprint-1", "head-1", "base-1");
+        UserRemoteActionOperationHandler.EffectResult payload =
+                new UserRemoteActionOperationHandler.EffectResult(
+                        true, "ci-trigger-empty-commit:head-2",
+                        "exact empty-commit proof");
+        DispatchTicket.DispatchResult result = new DispatchTicket.DispatchResult(
+                fence, DispatchTicket.Outcome.SUCCEEDED,
+                new ObjectMapper().writeValueAsString(payload), "{}", null);
+
+        DispatchTicket.DeliveryReceipt receipt = runtime.deliver(
+                owner(), fence, result);
+
+        assertThat(receipt.acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+    }
+
+    @Test
+    void everyVisibleParityControlAuthorizesOneNamedDurableSemanticAction()
+    {
+        runtime.rerunFailedChecks("c-1", "task-1", "pr-1");
+        runtime.triggerCiViaEmptyCommit("c-21", "task-1", "pr-1");
+        runtime.setDraft("c-2", "task-1", "pr-1", true);
+        runtime.updateTitle("c-3", "task-1", "pr-1", " New title ");
+        runtime.updateBody("c-4", "task-1", "pr-1", "New body");
+        runtime.closePullRequest("c-5", "task-1", "pr-1");
+        runtime.commentAndClose("c-6", "task-1", "pr-1", "Closing");
+        runtime.replyToReviewThread("c-7", "task-1", "pr-1", 7, "Reply");
+        runtime.editIssueComment("c-8", "task-1", "pr-1", 8, "Edit");
+        runtime.editReviewComment("c-9", "task-1", "pr-1", 9, "Edit");
+        runtime.deleteIssueComment("c-10", "task-1", "pr-1", 10);
+        runtime.deleteReviewComment("c-11", "task-1", "pr-1", 11);
+        runtime.addReviewer("c-12", "task-1", "pr-1", "alice");
+        runtime.removeReviewer("c-13", "task-1", "pr-1", "bob");
+        runtime.setAssignee("c-14", "task-1", "pr-1", "alice", true);
+        runtime.setLabel("c-15", "task-1", "pr-1", "bug", false);
+        runtime.createInlineComment(
+                "c-16", "task-1", "pr-1", "Inline", "src/A.java", 12,
+                "RIGHT", null, null);
+        runtime.addPullRequestReaction(
+                "c-17", "task-1", "pr-1", "heart");
+        runtime.addReviewCommentReaction(
+                "c-18", "task-1", "pr-1", 18, "rocket");
+        runtime.addIssueCommentReaction(
+                "c-19", "task-1", "pr-1", 19, "+1");
+        runtime.setThreadResolved(
+                "c-20", "task-1", "pr-1", 20, true);
+
+        ArgumentCaptor<AuthorizationRequest> requests =
+                ArgumentCaptor.forClass(AuthorizationRequest.class);
+        verify(store, times(21)).authorize(requests.capture(), eq(NOW));
+        assertThat(requests.getAllValues())
+                .extracting(AuthorizationRequest::semanticAction)
+                .containsExactly(
+                        SemanticAction.RERUN_FAILED_CHECKS,
+                        SemanticAction.TRIGGER_CI_EMPTY_COMMIT,
+                        SemanticAction.SET_DRAFT_STATE,
+                        SemanticAction.UPDATE_TITLE,
+                        SemanticAction.UPDATE_BODY,
+                        SemanticAction.CLOSE_PULL_REQUEST,
+                        SemanticAction.COMMENT_AND_CLOSE,
+                        SemanticAction.REPLY_REVIEW_THREAD,
+                        SemanticAction.EDIT_ISSUE_COMMENT,
+                        SemanticAction.EDIT_REVIEW_COMMENT,
+                        SemanticAction.DELETE_ISSUE_COMMENT,
+                        SemanticAction.DELETE_REVIEW_COMMENT,
+                        SemanticAction.ADD_REVIEWER,
+                        SemanticAction.REMOVE_REVIEWER,
+                        SemanticAction.SET_ASSIGNEE,
+                        SemanticAction.SET_LABEL,
+                        SemanticAction.CREATE_INLINE_COMMENT,
+                        SemanticAction.REACT_PULL_REQUEST,
+                        SemanticAction.REACT_REVIEW_COMMENT,
+                        SemanticAction.REACT_ISSUE_COMMENT,
+                        SemanticAction.SET_THREAD_RESOLUTION);
+        assertThat(requests.getAllValues().get(3).payload().value())
+                .isEqualTo("New title");
+        assertThat(requests.getAllValues().get(6).payload().body())
+                .isEqualTo("Closing");
+    }
+
     private static Action action(
             ActionKind kind, ActionStatus status, ActionPayload payload)
     {
@@ -159,6 +251,21 @@ class TestV2UserRemoteActionRuntime
                 List.of(),
                 status == ActionStatus.SUCCEEDED ? "review:71" : null,
                 status == ActionStatus.SUCCEEDED ? "exact review proof" : null);
+    }
+
+    private static Action ciTriggerAction()
+    {
+        return new Action(
+                "action-1", "operation-1", ActionKind.DEQUEUE,
+                SemanticAction.TRIGGER_CI_EMPTY_COMMIT,
+                ActionStatus.SUCCEEDED, 1, 1, 3,
+                "task-1", "command-1", 1, "stage-1", 1,
+                "binding-1", "pr-1", "acme/widget", "acme/widget", 17,
+                "feature", "/tmp/worktree", "fingerprint-1",
+                "head-1", "base-1", "{}", "digest",
+                ActionPayload.empty(), null, NOW.minusSeconds(1), List.of(),
+                "ci-trigger-empty-commit:head-2",
+                "exact empty-commit proof");
     }
 
     private static FrozenDraft draft(String id, String body)

@@ -144,6 +144,16 @@ class TestSqliteThreadStore
     }
 
     @Test
+    void createsANewThreadDirectlyOnTheV2Route()
+    {
+        Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.RUNNING);
+
+        store.saveV2Thread(thread);
+
+        assertThat(store.findTurnVersion(thread.id())).contains("V2");
+    }
+
+    @Test
     void planningSnapshotPersistsAndOverwrites()
     {
         Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
@@ -163,8 +173,10 @@ class TestSqliteThreadStore
     void listActivePlanningRepoRootsFiltersByRecencyAndDedupes()
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
-        String activeRoot = "/tmp/planning-active-" + UUID.randomUUID();
-        String staleRoot = "/tmp/planning-stale-" + UUID.randomUUID();
+        String activeRoot = "/tmp/planning-active-%s".formatted(
+                UUID.randomUUID());
+        String staleRoot = "/tmp/planning-stale-%s".formatted(
+                UUID.randomUUID());
 
         Thread active = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
         store.saveThread(active);

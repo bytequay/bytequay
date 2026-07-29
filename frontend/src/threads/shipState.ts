@@ -11,37 +11,36 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/**
- * Ship-button gating for a task. Shipping is a one-time action: once a task
- * has been shipped (IN_REVIEW — pushed with a PR open, awaiting merge), parked
- * for approval (AWAITING_REVIEW), merged/completed, errored, or canceled, it
- * can't be shipped again, so the Ship button must be disabled. The button used
- * to disable only on COMPLETED/ERRORED, leaving a just-shipped IN_REVIEW task
- * offering "Ship — finalize & merge" again.
- */
-export type ShipTaskLike = {
-  status?: string | null;
-  phase?: string | null;
-};
+import type { Bridge } from '../types';
+import type { LocalPR } from '../types/localPr';
 
-export function isTaskShippable(task: ShipTaskLike | null | undefined): boolean {
-  if (!task) {
-    return false;
+type TaskPromotionBridge = Pick<
+  Bridge,
+  'getPrForTask' | 'pushLocalPr'
+>;
+
+/** Fail-closed readiness check shared by Ship affordances and execution. */
+export function isTaskOwnedLocalOpenPr(pr: LocalPR | null, taskId: string): boolean {
+  return pr !== null
+    && pr.taskId === taskId
+    && pr.origin === 'task'
+    && pr.status === 'local-open';
+}
+
+/** Route a visible Task Ship action through the V2 local-PR authority. */
+export async function approveAndShipTask(
+  bridge: TaskPromotionBridge,
+  taskId: string,
+): Promise<void> {
+  const pr = await bridge.getPrForTask(taskId);
+  if (pr === null) {
+    throw new Error(`Task ${taskId} has no local PR to ship`);
   }
-  // A merged PR advances the dev-lifecycle phase to COMPLETED even when the
-  // runtime status lags — treat either terminal signal as done.
-  if ((task.phase ?? '') === 'COMPLETED') {
-    return false;
+  if (pr.taskId !== taskId) {
+    throw new Error(`Local PR ${pr.id} does not belong to Task ${taskId}`);
   }
-  switch (task.status ?? '') {
-    case 'COMPLETED':
-    case 'ERRORED':
-    case 'CANCELED':
-    case 'ARCHIVED':
-    case 'IN_REVIEW':       // already shipped — PR open, awaiting merge
-    case 'AWAITING_REVIEW': // parked for human approval
-      return false;
-    default:
-      return true;
+  if (!isTaskOwnedLocalOpenPr(pr, taskId)) {
+    throw new Error(`Task ${taskId} has no local PR ready to ship`);
   }
+  await bridge.pushLocalPr(pr.id);
 }

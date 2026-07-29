@@ -193,7 +193,9 @@ export function InlineReviewThread({
                 setResolving(true);
                 setResolvedLocal(next);
                 try {
-                  await window.bridge.setReviewThreadResolved(repo, prId, thread.rootGithubId, next);
+                  await window.bridge.setReviewThreadResolved(
+                    repo, prNumber, prId, thread.rootGithubId, next,
+                  );
                   onReplied();
                 } catch (e) {
                   setResolvedLocal(!next);

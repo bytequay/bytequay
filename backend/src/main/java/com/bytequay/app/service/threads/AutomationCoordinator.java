@@ -35,8 +35,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -72,7 +70,6 @@ import static java.util.Objects.requireNonNull;
  *       stubbornly-red PR doesn't spam the user.</li>
  * </ul>
  */
-@Component
 public class AutomationCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(AutomationCoordinator.class);
@@ -133,7 +130,6 @@ public class AutomationCoordinator
      * same {@code bytequay.scheduling.enabled} gate as the other
      * scheduled jobs so tests don't get surprise reapings.
      */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     public void reapStaleLeases()
     {
         Instant now = Instant.now();
@@ -167,7 +163,6 @@ public class AutomationCoordinator
      * concurrent turn start — {@code removePlanningWorktree} holds the
      * same per-clone lock as the turn's sync.
      */
-    @Scheduled(fixedDelay = 6 * 60 * 60 * 1000, initialDelay = 300_000)
     public void reapIdlePlanningWorktrees()
     {
         Instant cutoff = Instant.now().minusMillis(IDLE_PLANNING_AGE_MS);
@@ -211,7 +206,6 @@ public class AutomationCoordinator
      * Idempotent across runs — an open UNREAD notification on the
      * same task is treated as "already told the user."
      */
-    @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
     public void scanForFailingCi()
     {
         List<Task> candidates = taskStore.listWithLinkedPr(CI_SCAN_LIMIT);
@@ -307,7 +301,7 @@ public class AutomationCoordinator
                     repoFullName, task.linkedPrNumber(), task.id());
             // Best-effort follow-up: when auto-fix is opt-in for this
             // repo AND the worktree is free, enqueue a headless turn
-            // through the agent scheduler. Off by default per
+            // through durable V2 execution. Off by default per
             // CLAUDE.md — the bell-lights-up path above happens
             // regardless of the flag.
             try {

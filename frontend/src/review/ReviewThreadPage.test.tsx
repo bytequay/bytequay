@@ -17,10 +17,12 @@ import ReviewThreadPage from './ReviewThreadPage';
 import type {
   Bridge,
   PullRequestCommitDto,
+  ReviewBuildCommentProposalDto,
   ReviewFindingDto,
   ReviewPanelMessageDto,
   ReviewParticipantDto,
   ReviewPassDetailDto,
+  ReviewPassPublicationDto,
   ReviewPassDto,
 } from '../types';
 
@@ -107,6 +109,8 @@ describe('ReviewThreadPage', () => {
     const detail = buildDetail({});
     window.bridge = {
       getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+      getReviewPassPublication: vi.fn(
+        async (): Promise<ReviewPassPublicationDto | null> => null),
     } as unknown as typeof window.bridge;
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
@@ -239,9 +243,19 @@ describe('ReviewThreadPage', () => {
       pass: { ...initial.pass, phase: 'PUBLISHED', verdict: 'REQUEST_CHANGES' },
       findings: initial.findings.map(f => ({ ...f, status: 'POSTED' })),
     };
-    const publishReviewPass = vi.fn(async () => published);
+    const publication = reviewPublication({
+      status: 'PUBLISHED', terminal: true,
+      reviewAction: 'REQUEST_CHANGES',
+      findingIds: ['f-keep', 'f-drop'],
+    });
+    const publishReviewPass = vi.fn(async () => publication);
+    const getReviewPassPublication = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(publication);
     installBridge({
       getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => initial),
+      getReviewPass: vi.fn(async () => published),
+      getReviewPassPublication,
       publishReviewPass,
     });
 
@@ -264,6 +278,68 @@ describe('ReviewThreadPage', () => {
     await waitFor(() => expect(screen.getByText(/Posted to the PR as a/i).textContent).toContain('REQUEST_CHANGES'));
     // The post button is gone — the control is locked once published.
     expect(screen.queryByText(/Post review to remote/)).toBeNull();
+  });
+
+  it('restores a queued publication after restart and keeps the post control locked', async () => {
+    const detail = buildDetail({
+      findings: [finding({ id: 'f1', body: 'Keep me.' })],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async () => detail),
+      getReviewPassPublication: vi.fn(async () => reviewPublication()),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('status').textContent)
+      .toContain('Queued for remote publication'));
+    expect(screen.getByRole('status').textContent)
+      .toContain('progress is stored durably');
+    expect(screen.queryByText(/Post review to remote/)).toBeNull();
+  });
+
+  it('restores an indeterminate publication and explains exact probing', async () => {
+    const detail = buildDetail({
+      findings: [finding({ id: 'f1', body: 'Keep me.' })],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async () => detail),
+      getReviewPassPublication: vi.fn(async () => reviewPublication({
+        status: 'INDETERMINATE',
+        evidence: 'connection dropped after request bytes were sent',
+      })),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('status').textContent)
+      .toContain('checking GitHub before any retry'));
+    expect(screen.queryByText(/Post review to remote/)).toBeNull();
+  });
+
+  it('restores a terminal publication failure without re-arming the pass', async () => {
+    const detail = buildDetail({
+      findings: [finding({ id: 'f1', body: 'Keep me.' })],
+    });
+    const publishReviewPass = vi.fn(async () => reviewPublication());
+    installBridge({
+      getReviewPassByThread: vi.fn(async () => detail),
+      getReviewPassPublication: vi.fn(async () => reviewPublication({
+        status: 'FAILED',
+        terminal: true,
+        lastError: 'observation budget exhausted',
+      })),
+      publishReviewPass,
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent)
+      .toContain('observation budget exhausted'));
+    expect(screen.getByRole('alert').textContent)
+      .toContain('Start a new review pass to retry');
+    expect(screen.queryByText(/Post review to remote/)).toBeNull();
+    expect(publishReviewPass).not.toHaveBeenCalled();
   });
 
   it('renders the arbitration ballot when phase=ARBITRATE and routes include/drop to the bridge', async () => {
@@ -349,7 +425,7 @@ describe('ReviewThreadPage', () => {
       pass: { ...initial.pass, phase: 'COMPLETED' },
     };
     const completeReview = vi.fn(async () => completed);
-    const publishReviewPass = vi.fn(async () => completed);
+    const publishReviewPass = vi.fn(async () => reviewPublication());
     installBridge({
       getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => initial),
       completeReview,
@@ -637,7 +713,7 @@ describe('ReviewThreadPage', () => {
 
   it('shows the spawned-build breadcrumb instead of the button once a build thread exists', async () => {
     const base = buildDetail({
-      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
+      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'ARBITRATED', body: 'Real bug.' })],
     });
     const spawned: ReviewPassDetailDto = {
       ...base,
@@ -653,6 +729,104 @@ describe('ReviewThreadPage', () => {
     // the spawned thread (id sliced to 8 chars: "build-th").
     expect(screen.queryByRole('button', { name: '→ Spawn build thread' })).toBeNull();
     expect(screen.getByText(/build-th/i)).toBeTruthy();
+    expect(screen.getByText(/1 included/i)).toBeTruthy();
+  });
+
+  it('reviews frozen comments and reuses approval identity after a failed request', async () => {
+    const base = buildDetail({
+      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
+    });
+    const spawned: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, spawnedBuildThreadId: 'build-thread-abcdef12' },
+    };
+    const pending = commentProposal('PENDING');
+    const approved = commentProposal('PUBLISHED');
+    const approveReviewBuildComments = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary local failure'))
+      .mockResolvedValueOnce(approved);
+    const publishReviewPass = vi.fn(async () => reviewPublication());
+    const getReviewPassByThread = vi.fn(
+      async (): Promise<ReviewPassDetailDto | null> => spawned);
+    installBridge({
+      getReviewPassByThread,
+      getReviewBuildCommentProposal: vi.fn(async () => pending),
+      approveReviewBuildComments,
+      publishReviewPass,
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: 'Approve comments' }));
+    expect(screen.getByText('Fix the exact race')).toBeTruthy();
+    expect(screen.queryByText(/bytequay-review-build/)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Approve comments' }));
+    });
+    await waitFor(() => expect(screen.getByRole('alert').textContent)
+      .toContain('temporary local failure'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Approve comments' }));
+    });
+
+    await waitFor(() => expect(screen.getByText('published')).toBeTruthy());
+    expect(approveReviewBuildComments).toHaveBeenCalledTimes(2);
+    const firstKey = approveReviewBuildComments.mock.calls[0][1];
+    expect(firstKey).toBeTruthy();
+    expect(approveReviewBuildComments.mock.calls[1]).toEqual(['pass-1', firstKey]);
+    await waitFor(() => expect(getReviewPassByThread.mock.calls.length).toBeGreaterThan(1));
+    expect(publishReviewPass).not.toHaveBeenCalled();
+  });
+
+  it('discards a frozen proposal without invoking the review publisher', async () => {
+    const base = buildDetail({
+      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
+    });
+    const spawned: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, spawnedBuildThreadId: 'build-thread-abcdef12' },
+    };
+    const discardReviewBuildComments = vi.fn(async () => commentProposal('DISCARDED'));
+    const publishReviewPass = vi.fn(async () => reviewPublication());
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => spawned),
+      getReviewBuildCommentProposal: vi.fn(async () => commentProposal('PENDING')),
+      discardReviewBuildComments,
+      publishReviewPass,
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: 'Discard' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    });
+
+    await waitFor(() => expect(screen.getByText('discarded')).toBeTruthy());
+    expect(discardReviewBuildComments).toHaveBeenCalledWith(
+      'pass-1', expect.any(String));
+    expect(publishReviewPass).not.toHaveBeenCalled();
+  });
+
+  it('explains that a failed frozen publication needs a new review selection', async () => {
+    const base = buildDetail({
+      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
+    });
+    const spawned: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, spawnedBuildThreadId: 'build-thread-abcdef12' },
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => spawned),
+      getReviewBuildCommentProposal: vi.fn(async () => commentProposal('FAILED')),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent)
+      .toContain('observation budget exhausted'));
+    expect(screen.getByRole('alert').textContent)
+      .toContain('Start a new review pass and selection');
+    expect(screen.queryByRole('button', { name: 'Approve comments' })).toBeNull();
   });
 
   it('SAFETY: no transcript/filter/finding affordance posts to GitHub — only the post-review control does', async () => {
@@ -670,7 +844,7 @@ describe('ReviewThreadPage', () => {
         message({ id: 'r', participantId: 'p-claude', phase: 'CONSENSUS', body: 'Confirmed.' }),
       ],
     };
-    const publishReviewPass = vi.fn(async () => detail);
+    const publishReviewPass = vi.fn(async () => reviewPublication());
     const spawnBuildFromReview = vi.fn(
         async (): Promise<{ threadId: string; taskId: string | null; mode: string }> =>
           ({ threadId: 't', taskId: null, mode: 'x' }));
@@ -1033,9 +1207,59 @@ function finding(overrides: Partial<ReviewFindingDto>): ReviewFindingDto {
   };
 }
 
+function commentProposal(
+    status: ReviewBuildCommentProposalDto['status'],
+): ReviewBuildCommentProposalDto {
+  return {
+    threadId: 'build-thread-abcdef12',
+    reviewPassId: 'pass-1',
+    repoFullName: 'acme/widget',
+    pullRequestNumber: 42,
+    expectedHeadSha: 'abc123',
+    selectionDigest: 'digest',
+    status,
+    decision: status === 'PENDING' ? null : status === 'DISCARDED' ? 'DISCARD' : 'APPROVE',
+    commandId: status === 'PENDING' ? null : 'command-1',
+    actionStatus: status === 'APPROVED' ? 'REQUESTED'
+      : status === 'FAILED' ? 'ABANDONED' : null,
+    externalEffectId: null,
+    evidence: null,
+    lastError: status === 'FAILED'
+      ? 'suggested-change review observation budget exhausted'
+      : null,
+    items: [{
+      position: 1,
+      findingId: 'm',
+      kind: 'INLINE',
+      path: 'src/Main.java',
+      line: 17,
+      body: 'Fix the exact race\n\n<!-- bytequay-review-build:m:digest -->',
+    }],
+  };
+}
+
+function reviewPublication(
+  overrides: Partial<ReviewPassPublicationDto> = {},
+): ReviewPassPublicationDto {
+  return {
+    reviewPassId: 'pass-1',
+    commandId: 'publish-command-1',
+    status: 'QUEUED',
+    terminal: false,
+    reviewAction: 'COMMENT',
+    findingIds: ['f1'],
+    externalEffectId: null,
+    evidence: null,
+    lastError: null,
+    ...overrides,
+  };
+}
+
 function installBridge(overrides: Partial<Bridge>) {
   (window as unknown as { bridge: Partial<Bridge> }).bridge = {
     getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => null),
+    getReviewPassPublication: vi.fn(
+      async (): Promise<ReviewPassPublicationDto | null> => null),
     ...overrides,
   } as Partial<Bridge>;
 }

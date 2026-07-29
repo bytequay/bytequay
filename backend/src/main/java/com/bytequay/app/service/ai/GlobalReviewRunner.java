@@ -28,7 +28,6 @@ import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workmodel.WorkModelCatalog;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -41,15 +40,14 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 /**
  * Runs the account-wide, diff-only PR reviewer selected in Settings → AI.
- * It owns no workspace or durable agent session, but still uses the shared
- * scheduler lanes so a quick review cannot bypass CLI/API resource caps.
+ * It owns no workspace or durable agent session and runs synchronously in its
+ * caller.
  */
 @Component
 public class GlobalReviewRunner
@@ -66,7 +64,6 @@ public class GlobalReviewRunner
     private final Ds4LifecycleService ds4;
     private final TurnRunner turnRunner;
     private final CliReviewRunner cliRunner;
-    private final AgentScheduler scheduler;
     private final ObjectMapper mapper;
 
     public GlobalReviewRunner(
@@ -75,7 +72,6 @@ public class GlobalReviewRunner
             Ds4LifecycleService ds4,
             TurnRunner turnRunner,
             CliReviewRunner cliRunner,
-            AgentScheduler scheduler,
             ObjectMapper mapper)
     {
         this.defaults = requireNonNull(defaults, "defaults is null");
@@ -83,7 +79,6 @@ public class GlobalReviewRunner
         this.ds4 = requireNonNull(ds4, "ds4 is null");
         this.turnRunner = requireNonNull(turnRunner, "turnRunner is null");
         this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -110,8 +105,8 @@ public class GlobalReviewRunner
                     "Unsupported global-review CLI: " + workModel.agentOrProvider());
         };
         String prompt = ReviewPrompt.systemPrompt(request) + "\n\n" + ReviewPrompt.userMessage(request);
-        CliReviewRunner.Result result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
-                provider, prompt, null, Path.of(System.getProperty("java.io.tmpdir")), null));
+        CliReviewRunner.Result result = cliRunner.run(
+                provider, prompt, null, Path.of(System.getProperty("java.io.tmpdir")), null);
         if (!"COMPLETED".equals(result.end())) {
             throw new IllegalStateException(requireNonNullElse(
                     result.errorMessage(), provider.displayName() + " quick review failed"));
@@ -129,13 +124,12 @@ public class GlobalReviewRunner
         }
         messages.add(message("user", ReviewPrompt.userMessage(request)));
         ToolExecutor noTools = call -> ToolExecutor.ToolCallResult.error("no tools are available in quick review");
-        Callable<TurnResult> turn = () -> turnRunner.runTurn(
+        TurnResult result = turnRunner.runTurn(
                 new TurnSpec(
                         endpoint.transport(), endpoint.url(), endpoint.token(), model,
                         endpoint.transport() == TurnSpec.Transport.ANTHROPIC ? system : null,
                         messages, mapper.createArrayNode(), MAX_OUTPUT_TOKENS, 1),
                 noTools, TurnHooks.NONE);
-        TurnResult result = scheduler.invokeAll(List.of(turn)).getFirst();
         if (result.end() == TurnResult.End.INTERRUPTED || result.end() == TurnResult.End.ABORTED) {
             throw new IllegalStateException("Global PR review did not complete: " + result.end().name().toLowerCase(Locale.ROOT));
         }

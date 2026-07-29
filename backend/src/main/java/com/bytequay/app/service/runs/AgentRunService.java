@@ -21,14 +21,15 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Owns the {@link AgentRun} status machine — the containment-without-
- * lifecycle-position entity (plan-rail-runs.md R6). Lifecycle runs opened
- * through {@link #open} get a backing {@code task_stage}; artifact runs such
- * as AgentReview rounds deliberately do not occupy the task's stage spine.
+ * Read boundary for historical {@link AgentRun} rows. Execution and lifecycle
+ * mutations are retired; typed V2 Turns and Operations own new work.
  */
 public interface AgentRunService
 {
     Optional<AgentRun> findById(String runId);
+
+    /** Internal lookup for the inert investigation-review foreign-key row. */
+    Optional<AgentRun> findReviewCompatibilityHeaderById(String runId);
 
     List<AgentRun> findByWorkspace(String workspaceId);
 
@@ -43,6 +44,16 @@ public interface AgentRunService
     /** The task's live runs ({@code running} / {@code awaiting_gate}) —
      *  what a rail endpoint renders sub-rows from. */
     List<AgentRun> liveRunsByTask(String taskId);
+
+    /**
+     * Writes the one inert compatibility header still required by the
+     * historical {@code review_round.agent_run_id} and verifier foreign keys.
+     * The row is born terminal and fully detached, and is never exposed as a
+     * Session or used to drive execution.
+     */
+    AgentRun createReviewCompatibilityHeader(
+            String reviewRoundId,
+            Integer budget);
 
     /**
      * Idempotent open: returns the task's existing live run of {@code

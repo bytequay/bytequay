@@ -16,17 +16,15 @@ package com.bytequay.app.service.workspaces;
 import com.bytequay.app.beans.workspace.WorkspaceOnboardingDto;
 import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
-import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.runs.SessionControlService;
-import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -45,23 +43,17 @@ public class WorkspaceConfigurationService
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final WorkspaceService workspaces;
-    private final AgentRunService runs;
-    private final SessionControlService controls;
     private final CapacityManager capacity;
 
     public WorkspaceConfigurationService(
             JdbcTemplate jdbc,
             ObjectMapper mapper,
             WorkspaceService workspaces,
-            AgentRunService runs,
-            SessionControlService controls,
             CapacityManager capacity)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.runs = requireNonNull(runs, "runs is null");
-        this.controls = requireNonNull(controls, "controls is null");
         this.capacity = requireNonNull(capacity, "capacity is null");
     }
 
@@ -206,30 +198,54 @@ public class WorkspaceConfigurationService
         return onboarding(workspaceId);
     }
 
-    public int pauseAllSessions(String workspaceId)
-    {
-        workspaces.require(workspaceId);
-        int paused = 0;
-        for (AgentRun run : runs.findByWorkspace(workspaceId)) {
-            if (run.isLive() && !AgentRun.STATUS_PAUSED.equals(run.status())) {
-                controls.pause(run.id());
-                paused++;
-            }
-        }
-        return paused;
-    }
-
     @Transactional
     public void detach(String workspaceId)
     {
         workspaces.require(workspaceId);
-        pauseAllSessions(workspaceId);
+        requireRepositoryQuiescent(workspaceId);
         jdbc.update("""
                 UPDATE workspaces SET detached_at_ms = ?, updated_at_ms = ?
                 WHERE id = ?
                 """,
                 Instant.now().toEpochMilli(), Instant.now().toEpochMilli(),
                 workspaceId);
+    }
+
+    /**
+     * A clone replacement or detach must never race work that still owns the
+     * repository. There is no generic V2 "pause every session" operation:
+     * each Task remains its own lifecycle owner, so the destructive
+     * Workspace command fails closed until those owners are terminal and no
+     * durable dispatch is still able to touch the Workspace.
+     */
+    public void requireRepositoryQuiescent(String workspaceId)
+    {
+        workspaces.require(workspaceId);
+        int tasks = count("""
+                SELECT count(*)
+                FROM tasks task
+                JOIN threads trunk ON trunk.id = task.thread_id
+                WHERE trunk.workspace_id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state NOT IN (
+                      'COMPLETED', 'CANCELED', 'REMOTE_CLOSED')
+                """, workspaceId);
+        if (tasks > 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "complete or cancel active Tasks before changing the Workspace repository");
+        }
+        int tickets = count("""
+                SELECT count(*)
+                FROM dispatch_ticket
+                WHERE workspace_id = ?
+                  AND status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELED')
+                """, workspaceId);
+        if (tickets > 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "wait for active Workspace operations before changing its repository");
+        }
     }
 
     @Transactional
@@ -298,8 +314,7 @@ public class WorkspaceConfigurationService
                     @Override
                     public void afterCommit()
                     {
-                        TaskCommandExecutor.dispatchAfterCommit(
-                                capacity::policyChanged);
+                        capacity.policyChanged();
                     }
                 });
     }

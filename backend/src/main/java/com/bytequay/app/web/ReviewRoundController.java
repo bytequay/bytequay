@@ -79,6 +79,12 @@ public class ReviewRoundController
             }
             return v2Rounds.approve(roundId);
         }
-        return rounds.approve(roundId);
+        ReviewRound legacy = rounds.findById(roundId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "no review round " + roundId));
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Historical LEGACY review round " + legacy.id()
+                        + " is read-only; use the typed V2 remote feedback owner");
     }
 }

@@ -15,6 +15,7 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoIssueIntakePage;
+import com.bytequay.app.domain.RepoIssuePage;
 import com.bytequay.app.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -27,6 +28,38 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubClientIssueIntake
 {
+    @Test
+    void recoveryPageIncludesClosedIssuesAndExcludesPullRequests()
+    {
+        RestClient.Builder restBuilder = RestClient.builder()
+                .baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer
+                .bindTo(restBuilder).build();
+        GitHubClient client = new GitHubClient(
+                restBuilder.build(),
+                RestClient.builder().baseUrl("https://graphql.test").build());
+        server.expect(requestTo("https://api.github.test/repos/acme/widget/issues"
+                        + "?state=all&sort=created&direction=desc&page=2&per_page=100"))
+                .andRespond(withSuccess("""
+                        [
+                          {"id": 13, "number": 13, "title": "PR", "state": "open",
+                           "comments": 0, "pull_request": {}, "labels": []},
+                          {"id": 12, "number": 12, "title": "Open", "state": "open",
+                           "comments": 0, "labels": []},
+                          {"id": 11, "number": 11, "title": "Retitled", "state": "closed",
+                           "comments": 0, "labels": []}
+                        ]
+                        """, MediaType.APPLICATION_JSON));
+
+        RepoIssuePage page = client.fetchRepoIssuePage(
+                "pat", RepoRef.of("acme", "widget"), 2, 100);
+
+        assertThat(page.hasMore()).isFalse();
+        assertThat(page.issues()).extracting(RepoIssue::number)
+                .containsExactly(12, 11);
+        server.verify();
+    }
+
     @Test
     void creationPageKeepsSharedBoundaryButReturnsOnlyOpenIssues()
     {

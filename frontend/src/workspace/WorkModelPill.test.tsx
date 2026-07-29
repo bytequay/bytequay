@@ -39,27 +39,6 @@ const INHERITED: ResolvedWorkModelDto = {
   agentLocked: false,
 };
 
-const PINNED: ResolvedWorkModelDto = {
-  override: {
-    kind: 'API',
-    agentOrProvider: 'anthropic',
-    model: 'claude-opus-4-7',
-    account: 'team',
-  },
-  effective: {
-    kind: 'API',
-    agentOrProvider: 'anthropic',
-    model: 'claude-opus-4-7',
-    account: 'team',
-  },
-  provenance: {
-    source: 'THREAD',
-    scopeId: 'thread-1',
-    scopeLabel: 'thread thread-1',
-  },
-  agentLocked: false,
-};
-
 const CODEX: ResolvedWorkModelDto = {
   override: {
     kind: 'CLI',
@@ -165,12 +144,8 @@ describe('WorkModelPill', () => {
     });
   });
 
-  it('offers no model rows — the engine is the workspace\'s call', async () => {
-    const setThreadWorkModel = vi.fn(async () => INHERITED);
-    installBridge({
-      getThreadWorkModel: vi.fn(async () => INHERITED),
-      setThreadWorkModel,
-    });
+  it('shows the frozen engine and effort without exposing mutation controls', async () => {
+    installBridge({ getThreadWorkModel: vi.fn(async () => INHERITED) });
 
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
     await waitForLoadedPill();
@@ -178,15 +153,15 @@ describe('WorkModelPill', () => {
 
     const dialog = await waitFor(() => screen.getByRole('dialog'));
     expect(dialog.textContent).toContain('Workspace settings');
-    expect(screen.queryByRole('option', { name: /Auto/i })).toBeNull();
-    expect(screen.queryByRole('option', { name: /Claude Opus 4\.7/i })).toBeNull();
-    expect(setThreadWorkModel).not.toHaveBeenCalled();
+    expect(dialog.textContent).toContain('Reasoning effort');
+    expect(dialog.textContent).toContain('fixed when this thread was created');
+    expect(dialog.querySelector('button')).toBeNull();
+    expect('setThreadWorkModel' in window.bridge).toBe(false);
   });
 
-  it('reads the resolved model for a task and writes effort through the task bridge', async () => {
+  it('reads a frozen Task snapshot', async () => {
     const getTaskWorkModel = vi.fn(async () => CODEX);
-    const setTaskWorkModel = vi.fn(async () => CODEX);
-    installBridge({ getTaskWorkModel, setTaskWorkModel });
+    installBridge({ getTaskWorkModel });
 
     render(<WorkModelPill scope={{ kind: 'task', threadId: 'thread-1', taskId: 'task-1' }} />);
 
@@ -196,19 +171,14 @@ describe('WorkModelPill', () => {
     expect(getTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1');
 
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    const max = await waitFor(() => screen.getByRole('button', { name: /Max/ }));
-    await act(async () => { fireEvent.click(max); });
-
-    expect(setTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1', {
-      ...CODEX.effective,
-      reasoningEffort: 'max',
-    });
+    const dialog = await waitFor(() => screen.getByRole('dialog'));
+    expect(dialog.textContent).toContain('Reasoning effort');
+    expect(dialog.textContent).toContain('Low');
   });
 
-  it('reads the resolved model for a stage, writes through the stage bridge, and shows the mid-stage hint', async () => {
+  it('reads a frozen Stage snapshot', async () => {
     const getStageWorkModel = vi.fn(async () => CODEX);
-    const setStageWorkModel = vi.fn(async () => CODEX);
-    installBridge({ getStageWorkModel, setStageWorkModel });
+    installBridge({ getStageWorkModel });
 
     render(<WorkModelPill scope={{ kind: 'stage', stageId: 'stage-1' }} />);
 
@@ -220,19 +190,10 @@ describe('WorkModelPill', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
     const dialog = await waitFor(() => screen.getByRole('dialog'));
 
-    // A stage's session runs for the stage's whole lifetime, so the
-    // popover must warn that a change doesn't retroactively affect it.
-    expect(dialog.textContent).toContain('applies next time this stage starts a new one');
-
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Max/ })); });
-
-    expect(setStageWorkModel).toHaveBeenCalledWith('stage-1', {
-      ...CODEX.effective,
-      reasoningEffort: 'max',
-    });
+    expect(dialog.textContent).toContain('fixed when this stage was created');
   });
 
-  it('marks the effort the session currently runs at', async () => {
+  it('shows the effort the scope currently runs at', async () => {
     installBridge({
       getThreadWorkModel: vi.fn(async () => ({
         ...CODEX,
@@ -244,10 +205,9 @@ describe('WorkModelPill', () => {
     await waitForLoadedPill();
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
 
-    // ● marks the active row, ○ the rest.
-    const max = await waitFor(() => screen.getByRole('button', { name: /Max/ }));
-    expect(max.textContent).toContain('●');
-    expect(screen.getByRole('button', { name: /Low/ }).textContent).toContain('○');
+    const dialog = await waitFor(() => screen.getByRole('dialog'));
+    expect(dialog.textContent).toContain('Max');
+    expect(dialog.querySelector('button')).toBeNull();
   });
 });
 
@@ -267,11 +227,8 @@ async function waitForLoadedPill() {
 function installBridge(overrides: Partial<Bridge>) {
   (window as unknown as { bridge: Partial<Bridge> }).bridge = {
     getThreadWorkModel: vi.fn(async () => INHERITED),
-    setThreadWorkModel: vi.fn(async () => INHERITED),
     getTaskWorkModel: vi.fn(async () => INHERITED),
-    setTaskWorkModel: vi.fn(async () => INHERITED),
     getStageWorkModel: vi.fn(async () => INHERITED),
-    setStageWorkModel: vi.fn(async () => INHERITED),
     // The pill reads options on mount for the label and the picker list.
     getWorkModelOptions: vi.fn(async () => OPTIONS),
     refreshWorkModelOptions: vi.fn(async () => OPTIONS),

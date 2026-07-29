@@ -109,6 +109,18 @@ class SqliteThreadStore
     @Transactional
     public void saveThread(Thread thread)
     {
+        saveThread(thread, false);
+    }
+
+    @Override
+    @Transactional
+    public void saveV2Thread(Thread thread)
+    {
+        saveThread(thread, true);
+    }
+
+    private void saveThread(Thread thread, boolean createOnV2Route)
+    {
         Optional<ThreadEntity> existing = threads.findById(thread.id());
         ThreadEntity entity = existing.orElseGet(ThreadEntity::new);
         entity.setId(thread.id());
@@ -139,6 +151,10 @@ class SqliteThreadStore
                 throw new IllegalArgumentException("workspaceId is required for new thread " + thread.id());
             }
             entity.setWorkspaceId(desired);
+            if (createOnV2Route) {
+                entity.setTurnVersion("V2");
+                entity.setLifecycleState("ACTIVE");
+            }
         }
         // Flow is set-once: write it on INSERT, refuse to silently
         // flip it on UPDATE. The build vs review discriminator is a
@@ -242,6 +258,7 @@ class SqliteThreadStore
         messages.deleteByThreadId(id);
         // FK cascade drops the tasks rows and task_files for this thread.
         threads.deleteById(id);
+        threads.flush();
     }
 
     @Override

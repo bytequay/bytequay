@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.persistence;
 
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 
 import javax.sql.DataSource;
 
@@ -39,11 +40,15 @@ final class SqliteTransactions
         if (current != null) {
             return run(work, current);
         }
-        try (Connection connection = dataSource.getConnection()) {
+        // Join an enclosing Spring transaction when one exists. Opening a
+        // second SQLite writer here can deadlock a read-then-control flow such
+        // as Workspace purge cancellation against its own transaction.
+        Connection connection = DataSourceUtils.getConnection(dataSource);
+        try {
             return run(work, connection);
         }
-        catch (SQLException e) {
-            throw failure("SQLite connection failed", e);
+        finally {
+            DataSourceUtils.releaseConnection(connection, dataSource);
         }
     }
 

@@ -645,7 +645,8 @@ public final class ExecutionDispatcher
                     .filter(value -> value.capacityLeaseId().equals(claim.capacityLeaseId()));
             if (stillRunning.isEmpty()) {
                 finishEvidence(
-                        executionId, null, "execution claim was lost before adapter launch");
+                        claim.ticketId(), executionId, null,
+                        "execution claim was lost before adapter launch");
                 return;
             }
             try {
@@ -686,6 +687,7 @@ public final class ExecutionDispatcher
             if (closed.get()) {
                 abandonForShutdown(claim.ticketId(), activeExecution);
                 finishEvidence(
+                        claim.ticketId(),
                         executionId,
                         indeterminateResult(
                                 ticket,
@@ -766,7 +768,9 @@ public final class ExecutionDispatcher
                 .filter(ticket -> ownsClaim(ticket, claim))
                 .filter(ticket -> ticket.state() == DispatchTicket.State.RUNNING);
         if (current.isEmpty()) {
-            finishEvidence(executionId, result, "result arrived after claim ownership changed");
+            finishEvidence(
+                    claim.ticketId(), executionId, result,
+                    "result arrived after claim ownership changed");
             return;
         }
         if (claim.capacityLeaseId() != null) {
@@ -778,7 +782,7 @@ public final class ExecutionDispatcher
                         claim.owner());
             }
             catch (RuntimeException e) {
-                finishEvidence(executionId, result, message(e));
+                finishEvidence(claim.ticketId(), executionId, result, message(e));
                 return;
             }
         }
@@ -787,7 +791,7 @@ public final class ExecutionDispatcher
                 ticket -> ownsClaim(ticket, claim)
                         && ticket.state() == DispatchTicket.State.RUNNING,
                 ticket -> ticket.resultPending(result, clock.instant()));
-        finishEvidence(executionId, result, null);
+        finishEvidence(claim.ticketId(), executionId, result, null);
         // If the claim expired, raw evidence remains durable and a reconciler
         // decides whether it is safe to accept or probe the late result.
     }
@@ -800,7 +804,7 @@ public final class ExecutionDispatcher
         Optional<DispatchTicket> current = tickets.findById(claim.ticketId())
                 .filter(ticket -> ownsClaim(ticket, claim));
         if (current.isEmpty()) {
-            finishEvidence(executionId, null, message(failure));
+            finishEvidence(claim.ticketId(), executionId, null, message(failure));
             return;
         }
         DispatchTicket ticket = current.get();
@@ -822,6 +826,7 @@ public final class ExecutionDispatcher
                         : candidate.retryWait(
                                 message(failure), clock.instant().plus(config.retryDelay())));
         finishEvidence(
+                claim.ticketId(),
                 executionId,
                 claim.purpose() == DispatchTicket.ClaimPurpose.RECONCILE
                         ? indeterminateResult(ticket, message(failure))
@@ -836,7 +841,7 @@ public final class ExecutionDispatcher
     {
         Optional<DispatchTicket> current = tickets.findById(claim.ticketId());
         if (current.isEmpty()) {
-            finishEvidence(executionId, null, message(failure));
+            finishEvidence(claim.ticketId(), executionId, null, message(failure));
             return;
         }
         DispatchTicket ticket = current.get();
@@ -854,6 +859,7 @@ public final class ExecutionDispatcher
                 candidate -> candidate.reconcileWait(
                         message(failure), clock.instant().plus(config.retryDelay())));
         finishEvidence(
+                claim.ticketId(),
                 executionId,
                 indeterminateResult(ticket, message(failure)),
                 message(failure));
@@ -868,7 +874,7 @@ public final class ExecutionDispatcher
                 .filter(ticket -> ownsClaim(ticket, claim))
                 .filter(ticket -> ticket.state() == DispatchTicket.State.RUNNING);
         if (current.isEmpty()) {
-            finishEvidence(executionId, null, message(deferred));
+            finishEvidence(claim.ticketId(), executionId, null, message(deferred));
             return;
         }
         transform(
@@ -878,7 +884,7 @@ public final class ExecutionDispatcher
                 ticket -> deferred.retryAt() == null
                         ? ticket.manualReconciliation(message(deferred))
                         : ticket.reconcileWait(message(deferred), deferred.retryAt()));
-        finishEvidence(executionId, null, message(deferred));
+        finishEvidence(claim.ticketId(), executionId, null, message(deferred));
     }
 
     private void parkManualReconciliation(
@@ -893,6 +899,7 @@ public final class ExecutionDispatcher
                         && candidate.state() == DispatchTicket.State.RUNNING,
                 candidate -> candidate.manualReconciliation(message(failure)));
         finishEvidence(
+                claim.ticketId(),
                 executionId,
                 indeterminateResult(ticket, message(failure)),
                 message(failure));
@@ -1171,12 +1178,27 @@ public final class ExecutionDispatcher
     }
 
     private void finishEvidence(
+            String ticketId,
             String executionId,
             DispatchTicket.DispatchResult result,
             String failure)
     {
-        if (executionId != null) {
+        if (executionId == null) {
+            return;
+        }
+        try {
             evidence.finish(executionId, result, failure, clock.instant());
+        }
+        catch (RuntimeException evidenceFailure) {
+            // A destructive owner purge cancels the live handler and removes
+            // its ticket/evidence graph atomically. A provider can still
+            // return after that signal; with no ticket there is no durable
+            // result to deliver or owner state to mutate. Preserve evidence
+            // failures for every live ticket, but make this exact late return
+            // an intentional no-op.
+            if (tickets.findById(ticketId).isPresent()) {
+                throw evidenceFailure;
+            }
         }
     }
 

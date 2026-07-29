@@ -25,6 +25,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -115,6 +116,11 @@ public final class CliAgentTurnProviderSession
                     .add("--model", request.model());
             if (request.reasoningEffort() != null) {
                 argv.add("--effort", request.reasoningEffort());
+            }
+            if (request.maxCostUsdMilli() != null) {
+                argv.add("--max-budget-usd", BigDecimal.valueOf(
+                                request.maxCostUsdMilli(), 3)
+                        .stripTrailingZeros().toPlainString());
             }
             if (request.access() == READ_ONLY) {
                 argv.add("--tools", CLAUDE_READ_ONLY_TOOLS);
@@ -367,6 +373,11 @@ public final class CliAgentTurnProviderSession
                 }
                 if (!turnDone && error == null) {
                     error = "provider exited without terminal Turn evidence";
+                }
+                if (error == null
+                        && request.maxCostUsdMilli() != null
+                        && costUsdMilli >= request.maxCostUsdMilli()) {
+                    error = "provider turn budget was exhausted";
                 }
                 return completedResult(
                         sessionId, finalText, inputTokens, outputTokens,

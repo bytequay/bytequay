@@ -13,8 +13,14 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
+import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -31,12 +37,23 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.app.domain.PullRequest.Origin.AUTHORED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,6 +80,15 @@ class TestPullRequestController
 
     @MockitoBean
     private PublishService publishService;
+
+    @MockitoBean
+    private PRPublishService prPublishService;
+
+    @MockitoBean
+    private V2TaskControlService v2TaskControls;
+
+    @MockitoBean
+    private V2UserRemoteActionRuntime v2UserRemoteActions;
 
     @Test
     void testListReturns200()
@@ -139,6 +165,302 @@ class TestPullRequestController
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void v2TitleMutationUsesDurableRemoteAction()
+            throws Exception
+    {
+        when(prPublishService.findV2TaskPullRequest("owner/repo", 42))
+                .thenReturn(Optional.of(v2Pr()));
+
+        mvc.perform(patch("/prs/title")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .header("Idempotency-Key", "title-command")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"title\":\"new title\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("new title"));
+
+        verify(v2UserRemoteActions).updateTitle(
+                "title-command", "task-42", "local-pr-42", "new title");
+        verify(pullRequestService, never())
+                .updatePullRequestTitle(any(), anyInt(), any());
+    }
+
+    @Test
+    void v2CommentUsesTypedRemoteActionAndRequiresCommandIdentity()
+            throws Exception
+    {
+        when(prPublishService.findV2TaskPullRequest("owner/repo", 42))
+                .thenReturn(Optional.of(v2Pr()));
+
+        mvc.perform(post("/prs/comment")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99")
+                        .header("Idempotency-Key", "comment-command")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"ship it\",\"close\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("commented"));
+
+        verify(prPublishService).postComment("comment-command", "local-pr-42", "ship it");
+        verify(pullRequestService, never())
+                .commentOnPullRequest(any(), anyInt(), anyLong(), any(), anyBoolean());
+
+        mvc.perform(post("/prs/comment")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99")
+                        .header("Idempotency-Key", "close-command")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"closing\",\"close\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("closed"));
+        verify(v2UserRemoteActions).commentAndClose(
+                "close-command", "task-42", "local-pr-42", "closing");
+
+        mvc.perform(post("/prs/comment")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"again\",\"close\":false}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void v2ApprovalMergeDequeueAndAutoMergeUseTaskProtocols()
+            throws Exception
+    {
+        PR pr = v2Pr();
+        when(prPublishService.findV2TaskPullRequest("owner/repo", 42))
+                .thenReturn(Optional.of(pr));
+
+        mvc.perform(post("/prs/approve")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99")
+                        .header("Idempotency-Key", "approve-command"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/merge")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99")
+                        .param("strategy", "squash")
+                        .header("Idempotency-Key", "merge-command"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.merged").value(false));
+        mvc.perform(delete("/prs/merge-queue")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99")
+                        .header("Idempotency-Key", "dequeue-command"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/auto-merge")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99"))
+                .andExpect(status().isOk());
+
+        verify(prPublishService).publishReview(
+                "approve-command", "local-pr-42", "APPROVE", List.of(), List.of(), "");
+        verify(prPublishService).merge("merge-command", "local-pr-42", "squash");
+        verify(prPublishService).dequeue("dequeue-command", "local-pr-42");
+        verify(v2TaskControls).setAutoMerge("task-42", true);
+        verify(pullRequestService, never()).approvePullRequest(any(), anyInt(), anyLong());
+        verify(pullRequestService, never()).mergePullRequest(any(), anyInt(), anyLong(), any());
+        verify(pullRequestService, never()).dequeuePullRequest(any(), anyInt(), anyLong());
+        verify(pullRequestService, never()).enableAutoMerge(any(), anyInt(), anyLong(), any());
+    }
+
+    @Test
+    void visibleV2PrControlsUseTheDurableExactOwner()
+            throws Exception
+    {
+        when(prPublishService.findV2TaskPullRequest("owner/repo", 42))
+                .thenReturn(Optional.of(v2Pr()));
+
+        mvc.perform(post("/prs/rerun-checks")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "rerun"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/trigger-ci")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "trigger"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/draft")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "draft")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"draft\":true}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/body")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "body")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"description\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/review-threads/101/reply")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "reply")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"fixed\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/issue-comments/102/body")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "edit-issue")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"edited\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/review-comments/103/body")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "edit-review")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"edited\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/prs/review-comments/104")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "delete-review"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/reviewers")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .param("reviewer", "alice")
+                        .header("Idempotency-Key", "add-reviewer"))
+                .andExpect(status().isOk());
+        mvc.perform(delete("/prs/reviewers")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .param("reviewer", "alice")
+                        .header("Idempotency-Key", "remove-reviewer"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/assignees")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "assignee")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"value\":\"bob\",\"selected\":true}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/labels")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "label")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"value\":\"bug\",\"selected\":false}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/review-comments")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "inline")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"nit\",\"path\":\"A.java\","
+                                + "\"line\":7,\"side\":\"RIGHT\","
+                                + "\"commitId\":\"ignored\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/42/reactions")
+                        .param("repo", "owner/repo")
+                        .header("Idempotency-Key", "react-pr")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"content\":\"heart\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/review-comments/105/reactions")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "react-review")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"content\":\"+1\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/issue-comments/106/reactions")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .header("Idempotency-Key", "react-issue")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"content\":\"rocket\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/prs/review-threads/107/resolved")
+                        .param("repo", "owner/repo").param("number", "42")
+                        .param("prId", "99")
+                        .header("Idempotency-Key", "resolve")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"resolved\":true}"))
+                .andExpect(status().isOk());
+
+        verify(v2UserRemoteActions).rerunFailedChecks(
+                "rerun", "task-42", "local-pr-42");
+        verify(v2UserRemoteActions).triggerCiViaEmptyCommit(
+                "trigger", "task-42", "local-pr-42");
+        verify(v2UserRemoteActions).setDraft(
+                "draft", "task-42", "local-pr-42", true);
+        verify(v2UserRemoteActions).updateBody(
+                "body", "task-42", "local-pr-42", "description");
+        verify(v2UserRemoteActions).replyToReviewThread(
+                "reply", "task-42", "local-pr-42", 101L, "fixed");
+        verify(v2UserRemoteActions).editIssueComment(
+                "edit-issue", "task-42", "local-pr-42", 102L, "edited");
+        verify(v2UserRemoteActions).editReviewComment(
+                "edit-review", "task-42", "local-pr-42", 103L, "edited");
+        verify(v2UserRemoteActions).deleteReviewComment(
+                "delete-review", "task-42", "local-pr-42", 104L);
+        verify(v2UserRemoteActions).addReviewer(
+                "add-reviewer", "task-42", "local-pr-42", "alice");
+        verify(v2UserRemoteActions).removeReviewer(
+                "remove-reviewer", "task-42", "local-pr-42", "alice");
+        verify(v2UserRemoteActions).setAssignee(
+                "assignee", "task-42", "local-pr-42", "bob", true);
+        verify(v2UserRemoteActions).setLabel(
+                "label", "task-42", "local-pr-42", "bug", false);
+        verify(v2UserRemoteActions).createInlineComment(
+                "inline", "task-42", "local-pr-42", "nit", "A.java", 7,
+                "RIGHT", null, null);
+        verify(v2UserRemoteActions).addPullRequestReaction(
+                "react-pr", "task-42", "local-pr-42", "heart");
+        verify(v2UserRemoteActions).addReviewCommentReaction(
+                "react-review", "task-42", "local-pr-42", 105L, "+1");
+        verify(v2UserRemoteActions).addIssueCommentReaction(
+                "react-issue", "task-42", "local-pr-42", 106L, "rocket");
+        verify(v2UserRemoteActions).setThreadResolved(
+                "resolve", "task-42", "local-pr-42", 107L, true);
+    }
+
+    @Test
+    void tasklessPrUsesDurableReviewTrunkMutation()
+            throws Exception
+    {
+        when(prPublishService.findV2TaskPullRequest("owner/repo", 42))
+                .thenReturn(Optional.empty());
+        when(prPublishService.findExternalPullRequest("owner/repo", 42))
+                .thenReturn(Optional.of(externalPr()));
+
+        mvc.perform(patch("/prs/title")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .header("Idempotency-Key", "external-title")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"title\":\"new title\"}"))
+                .andExpect(status().isOk());
+
+        verify(v2UserRemoteActions).authorizeExternal(
+                "external-title", "external-pr-42", SemanticAction.UPDATE_TITLE,
+                ActionPayload.value("new title"));
+        verify(pullRequestService, never())
+                .updatePullRequestTitle(any(), anyInt(), any());
+    }
+
+    @Test
+    void idOnlyMutationRequiresNumberAndUsesExactV2Owner()
+            throws Exception
+    {
+        mvc.perform(delete("/prs/issue-comments/123")
+                        .param("repo", "owner/repo"))
+                .andExpect(status().isBadRequest());
+
+        when(prPublishService.findV2TaskPullRequest("owner/repo", 42))
+                .thenReturn(Optional.of(v2Pr()));
+        mvc.perform(delete("/prs/issue-comments/123")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .header("Idempotency-Key", "delete-command"))
+                .andExpect(status().isOk());
+
+        verify(v2UserRemoteActions).deleteIssueComment(
+                "delete-command", "task-42", "local-pr-42", 123L);
+        verify(pullRequestService, never()).deleteIssueComment(any(), anyLong());
+    }
+
     private static PullRequestDetail stubDetail()
     {
         return new PullRequestDetail("owner/repo", 7, null, ImmutableList.of(), false,
@@ -146,5 +468,26 @@ class TestPullRequestController
                 PullRequestDetail.CiStatus.PASSING, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(), false,
                 null, null, null, null, null, "open", false, false);
+    }
+
+    private static PR v2Pr()
+    {
+        return PR.create(
+                        "local-pr-42", "task-42", "feature/task-42", "main",
+                        "Task PR", "", Instant.parse("2026-07-01T00:00:00Z"))
+                .withRemote(
+                        "owner/repo", 42, "https://github.com/owner/repo/pull/42",
+                        Instant.parse("2026-07-01T00:01:00Z"))
+                .withStatus(PR.STATUS_REMOTE_OPEN, Instant.parse("2026-07-01T00:02:00Z"));
+    }
+
+    private static PR externalPr()
+    {
+        return PR.createExternal(
+                "external-pr-42", "owner/repo", 42,
+                "https://github.com/owner/repo/pull/42", "@octocat",
+                "feature/external", "main", "External PR", "",
+                PR.STATUS_REMOTE_OPEN, Instant.parse("2026-07-01T00:00:00Z"),
+                null, null);
     }
 }

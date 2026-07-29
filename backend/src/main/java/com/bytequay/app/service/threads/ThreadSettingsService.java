@@ -129,8 +129,7 @@ public class ThreadSettingsService
                     @Override
                     public void afterCommit()
                     {
-                        TaskCommandExecutor.dispatchAfterCommit(
-                                capacity::policyChanged);
+                        capacity.policyChanged();
                     }
                 });
     }

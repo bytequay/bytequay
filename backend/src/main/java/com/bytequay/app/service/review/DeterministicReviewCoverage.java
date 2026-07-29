@@ -13,9 +13,6 @@
  */
 package com.bytequay.app.service.review;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -26,7 +23,6 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /** Deterministic, zero-model coverage floor for every investigation round. */
 final class DeterministicReviewCoverage
@@ -49,21 +45,14 @@ final class DeterministicReviewCoverage
 
     static CoverageReport analyze(String diff)
     {
-        return analyze(diff, (Path) null);
-    }
-
-    static CoverageReport analyze(String diff, Path localRoot)
-    {
-        Function<String, List<String>> references = localRoot == null
-                ? null : symbol -> repositoryReferences(localRoot, symbol, 21);
-        return analyze(diff, references);
+        return analyze(diff, (Function<String, List<String>>) null);
     }
 
     static CoverageReport analyze(
             String diff, InvestigationReviewContext context,
             InvestigationReviewContext.Snapshot snapshot)
     {
-        Function<String, List<String>> references = snapshot.repositoryRoot() == null
+        Function<String, List<String>> references = snapshot.fileContents().isEmpty()
                 ? null : symbol -> context.repositoryReferences(snapshot, symbol, 21);
         return analyze(diff, references);
     }
@@ -137,8 +126,8 @@ final class DeterministicReviewCoverage
         boolean covered = repositoryReferences != null || symbols.isEmpty();
         return new SweepResult("cross-file-trace", !symbols.isEmpty(), covered, symbols.size(), candidates,
                 repositoryReferences == null && !symbols.isEmpty()
-                        ? "Repository-wide source is unavailable for this remote snapshot; patch references were recorded and the gap remains explicit."
-                        : "Enumerated modified function symbols and bounded repository references at 20 per symbol.");
+                        ? "Frozen changed-file bodies are unavailable; patch references were recorded and the gap remains explicit."
+                        : "Enumerated modified function symbols and bounded references within frozen changed-file bodies at 20 per symbol.");
     }
 
     private static SweepResult languagePitfalls(Patch patch)
@@ -290,50 +279,6 @@ final class DeterministicReviewCoverage
         if (candidates.size() < MAX_SWEEP_CANDIDATES && !candidates.contains(candidate)) {
             candidates.add(candidate);
         }
-    }
-
-    private static List<String> repositoryReferences(Path root, String symbol, int limit)
-    {
-        List<String> matches = new ArrayList<>();
-        Pattern word = Pattern.compile("(?<![\\w$])" + Pattern.quote(symbol) + "(?![\\w$])");
-        try (Stream<Path> files = Files.walk(root)) {
-            var iterator = files.filter(Files::isRegularFile)
-                    .filter(DeterministicReviewCoverage::isSourceFile)
-                    .filter(path -> !excluded(root, path))
-                    .limit(20_000)
-                    .iterator();
-            while (iterator.hasNext() && matches.size() < limit) {
-                Path file = iterator.next();
-                if (Files.size(file) > 2_000_000) {
-                    continue;
-                }
-                List<String> lines = Files.readAllLines(file);
-                for (int i = 0; i < lines.size() && matches.size() < limit; i++) {
-                    if (word.matcher(lines.get(i)).find()) {
-                        matches.add(root.relativize(file).toString() + ":" + (i + 1));
-                    }
-                }
-            }
-        }
-        catch (IOException ignored) {
-            // The sweep result remains bounded and its caller reports the
-            // resulting short list; unavailable files are never claimed read.
-        }
-        return List.copyOf(matches);
-    }
-
-    private static boolean isSourceFile(Path path)
-    {
-        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-        return Stream.of(".java", ".kt", ".kts", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs")
-                .anyMatch(name::endsWith);
-    }
-
-    private static boolean excluded(Path root, Path path)
-    {
-        String relative = root.relativize(path).toString().replace('\\', '/');
-        return Stream.of(".git/", "node_modules/", "target/", "build/", "dist/", "vendor/")
-                .anyMatch(relative::contains);
     }
 
     private static boolean containsAny(String text, String... needles)

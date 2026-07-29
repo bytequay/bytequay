@@ -21,6 +21,9 @@ import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOper
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisionSourceEvidence;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisionSourceProof;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisioningGit;
+import com.bytequay.app.domain.PrRawDetail;
+import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,11 +47,15 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.GITHUB;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestProvisionTaskOperationHandler
 {
@@ -65,6 +72,8 @@ class TestProvisionTaskOperationHandler
     private InMemoryExecutionSupport.MutableClock clock;
     private CapacityManager capacity;
     private WorktreeWriterLeaseManager writers;
+    private PullRequestRepository pullRequests;
+    private PatResolver pats;
 
     @BeforeEach
     void setUp()
@@ -74,11 +83,18 @@ class TestProvisionTaskOperationHandler
         capacity = new CapacityManager(
                 new InMemoryExecutionSupport.CapacityStore(),
                 () -> CapacityManager.CapacityPolicy.initial(
-                        4, 4, Map.of(LOCAL_GIT, 4)),
+                        4, 4, Map.of(LOCAL_GIT, 4, GITHUB, 4)),
                 clock,
                 Duration.ofMinutes(1));
         writers = new WorktreeWriterLeaseManager(
                 new InMemoryExecutionSupport.WorktreeStore(), clock);
+        pullRequests = mock(PullRequestRepository.class);
+        pats = mock(PatResolver.class);
+        when(pats.resolve("upstream/widget")).thenReturn("pat");
+        when(pullRequests.fetchPrDetail(any(), any())).thenReturn(new PrRawDetail(
+                "body", List.of(), false, true, "clean", 1, 1, 1, 0,
+                List.of(), HEAD_SHA, "topic", "acme/widget", "main",
+                "upstream/widget", "open", false, BASE_SHA, null));
     }
 
     @Test
@@ -155,6 +171,12 @@ class TestProvisionTaskOperationHandler
                     .containsExactly("upstream:main", "origin:topic");
             assertThat(git.createdHeads).containsExactly(HEAD_SHA);
             assertThat(git.mutationTokens).containsExactly(1L, 1L, 1L);
+            JsonNode subject = json.readTree(result.evidenceJson()).get("pullRequest");
+            assertThat(subject.get("number").asInt()).isEqualTo(42);
+            assertThat(subject.get("baseRepositoryId").asText())
+                    .isEqualTo("upstream/widget");
+            assertThat(subject.get("headRepositoryId").asText())
+                    .isEqualTo("acme/widget");
         }
     }
 
@@ -395,7 +417,7 @@ class TestProvisionTaskOperationHandler
             }
         };
         return new ProvisionTaskOperationHandler(
-                store, git, writers, json);
+                store, git, writers, pullRequests, pats, json);
     }
 
     private ProvisionSourceProof sourceProof(
@@ -412,14 +434,19 @@ class TestProvisionTaskOperationHandler
                 request.taskId(),
                 request.taskEpoch(),
                 request.baseSource(),
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        ? request.pullRequestNumber()
+                        : null,
                 request.repositoryId(),
                 request.baseRepositoryId(),
-                request.baseRef(),
                 request.baseSource() == BaseSource.EXISTING_PR_HEAD
-                        ? request.assignmentHeadRepositoryId()
+                        ? "main"
+                        : request.baseRef(),
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        ? "acme/widget"
                         : null,
                 request.baseSource() == BaseSource.EXISTING_PR_HEAD
-                        ? request.headRef()
+                        ? "topic"
                         : null,
                 request.branchName(),
                 request.worktreePath(),
@@ -439,7 +466,10 @@ class TestProvisionTaskOperationHandler
                 new CapacityManager.CapacityRequest(
                         request.operationId(),
                         V2,
-                        Set.of(LOCAL_GIT),
+                        request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                                && request.expectedHeadSha() == null
+                                ? Set.of(LOCAL_GIT, GITHUB)
+                                : Set.of(LOCAL_GIT),
                         new CapacityManager.CapacityScope(
                                 request.workspaceId(), request.trunkId(),
                                 request.taskId(), request.taskEpoch()),
@@ -492,8 +522,8 @@ class TestProvisionTaskOperationHandler
         boolean existing = source == BaseSource.EXISTING_PR_HEAD;
         boolean planning = source == BaseSource.PLANNING_SNAPSHOT;
         String baseRepository = existing ? "upstream/widget" : "acme/widget";
-        String expectedBase = planning || existing ? BASE_SHA : null;
-        String expectedHead = existing ? HEAD_SHA : null;
+        String expectedBase = planning ? BASE_SHA : null;
+        String expectedHead = null;
         return new ProvisionRequest(
                 "provision-1",
                 TASK_ID,
@@ -509,7 +539,7 @@ class TestProvisionTaskOperationHandler
                 "acme/widget",
                 source,
                 baseRepository,
-                "main",
+                existing ? null : "main",
                 expectedBase,
                 expectedHead,
                 branch,
@@ -521,10 +551,10 @@ class TestProvisionTaskOperationHandler
                 "acme/widget",
                 source,
                 baseRepository,
-                "main",
+                existing ? null : "main",
                 planning ? BASE_SHA : null,
-                existing ? BASE_SHA : null,
-                existing ? HEAD_SHA : null,
+                null,
+                null,
                 "acme/widget",
                 "acme/widget",
                 branch,
@@ -535,11 +565,13 @@ class TestProvisionTaskOperationHandler
                 planning ? BASE_SHA : null,
                 existing ? "upstream/widget" : null,
                 existing ? "acme/widget" : null,
-                existing ? "main" : null,
-                existing ? "topic" : null,
-                existing ? BASE_SHA : null,
-                existing ? HEAD_SHA : null,
-                root.toString());
+                null,
+                null,
+                null,
+                null,
+                root.toString(),
+                existing ? 42 : 0,
+                null);
     }
 
     private void assertResult(

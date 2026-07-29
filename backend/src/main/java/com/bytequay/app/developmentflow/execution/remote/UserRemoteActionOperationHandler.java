@@ -20,6 +20,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -33,6 +34,14 @@ public final class UserRemoteActionOperationHandler
 {
     public static final String OPERATION_KIND = "APPLY_V2_USER_REMOTE_ACTION";
     public static final String CALLBACK_ROUTE = "V2_USER_REMOTE_ACTION_RESULT";
+    public static final String EXTERNAL_OPERATION_KIND =
+            "APPLY_V2_EXTERNAL_PR_ACTION";
+    public static final String EXTERNAL_CALLBACK_ROUTE =
+            "V2_EXTERNAL_PR_ACTION_RESULT";
+    public static final String CI_TRIGGER_EFFECT_PREFIX =
+            "ci-trigger-empty-commit:";
+    private static final Duration REMOTE_HEAD_PROPAGATION_POLL =
+            Duration.ofSeconds(5);
 
     private final OperationStore store;
     private final Gateway gateway;
@@ -128,9 +137,22 @@ public final class UserRemoteActionOperationHandler
         }
         try {
             EffectResult result = mode == ClaimMode.EXECUTE || firstBaseline
+                    || claimed.semanticAction() == SemanticAction.COMMENT_AND_CLOSE
+                    || claimed.semanticAction()
+                        == SemanticAction.TRIGGER_CI_EMPTY_COMMIT
                     ? gateway.execute(claimed, context)
                     : gateway.probe(claimed, context);
             if (!result.proven()) {
+                if (claimed.semanticAction()
+                        == SemanticAction.TRIGGER_CI_EMPTY_COMMIT) {
+                    Instant retryAt = clock.instant().plus(
+                            REMOTE_HEAD_PROPAGATION_POLL);
+                    store.deferProbe(
+                            claimed.id(), claimed.attemptCount(), retryAt,
+                            result.evidence());
+                    throw new ExecutionPorts.OperationDeferredException(
+                            result.evidence(), retryAt);
+                }
                 throw new ExecutionPorts.IndeterminateExecutionException(
                         "V2 user remote action outcome is not proven: "
                                 + result.evidence());
@@ -139,6 +161,13 @@ public final class UserRemoteActionOperationHandler
                     claimed.id(), claimed.attemptCount(),
                     result.externalEffectId(), result.evidence(), clock.instant());
             return succeeded(fence, result.externalEffectId(), result.evidence());
+        }
+        catch (ExecutionPorts.OperationDeferredException deferred) {
+            // A pushed empty commit may take time to become the PR head.
+            // The durable action stays on the same claimed semantic attempt;
+            // dispatcher reconciliation probes again without authorizing a
+            // second mutation or spending the action's retry budget.
+            throw deferred;
         }
         catch (ExecutionPorts.IndeterminateExecutionException failure) {
             store.finishIndeterminate(
@@ -185,15 +214,29 @@ public final class UserRemoteActionOperationHandler
     {
         DispatchTicket.DispatchEnvelope envelope = context.envelope();
         DispatchTicket.OperationFence fence = envelope.fence();
-        if (!OPERATION_KIND.equals(envelope.operationKind())
-                || envelope.owner().kind() != DispatchTicket.OwnerKind.TASK
-                || !CALLBACK_ROUTE.equals(envelope.owner().callbackRoute())
-                || !action.taskId().equals(envelope.owner().id())
-                || !Objects.equals(action.taskEpoch(), fence.taskEpoch())
-                || !action.stageId().equals(fence.stageId())
-                || !Objects.equals(action.stageGeneration(), fence.stageGeneration())
+        boolean external = action.taskId() == null;
+        boolean ownerMatches = external
+                ? EXTERNAL_OPERATION_KIND.equals(envelope.operationKind())
+                    && envelope.owner().kind() == DispatchTicket.OwnerKind.TRUNK
+                    && EXTERNAL_CALLBACK_ROUTE.equals(
+                            envelope.owner().callbackRoute())
+                    && action.remotePrBindingId().equals(envelope.owner().id())
+                    && fence.taskEpoch() == null
+                    && fence.stageId() == null
+                    && fence.stageGeneration() == null
+                : OPERATION_KIND.equals(envelope.operationKind())
+                    && envelope.owner().kind() == DispatchTicket.OwnerKind.TASK
+                    && CALLBACK_ROUTE.equals(envelope.owner().callbackRoute())
+                    && action.taskId().equals(envelope.owner().id())
+                    && Objects.equals(action.taskEpoch(), fence.taskEpoch())
+                    && action.stageId().equals(fence.stageId())
+                    && Objects.equals(
+                            action.stageGeneration(), fence.stageGeneration());
+        if (!ownerMatches
                 || action.semanticAttempt() != fence.attempt()
-                || fence.expectedCodeFingerprint() != null
+                || !Objects.equals(
+                        action.expectedCodeFingerprint(),
+                        fence.expectedCodeFingerprint())
                 || !action.headSha().equals(fence.expectedHeadSha())
                 || !action.baseSha().equals(fence.expectedBaseSha())
                 || !action.operationId().equals(fence.operationId())
@@ -261,6 +304,10 @@ public final class UserRemoteActionOperationHandler
 
         void recordRecoveryBaseline(
                 String actionId, int attempt, List<String> remoteEffectIds);
+
+        void deferProbe(
+                String actionId, int attempt, Instant retryAt,
+                String evidence);
     }
 
     public interface Gateway
@@ -281,6 +328,60 @@ public final class UserRemoteActionOperationHandler
         DELETE_REMOTE_BRANCH,
         POST_TOP_LEVEL_COMMENT,
         SUBMIT_REVIEW
+    }
+
+    /**
+     * Stable product-level identity of a human command. {@link ActionKind} is
+     * the original V270 wire family and remains only so old ledger rows stay
+     * readable; new actions use its {@code DEQUEUE} carrier while this value
+     * defines their actual semantics.
+     */
+    public enum SemanticAction
+    {
+        DEQUEUE,
+        DELETE_REMOTE_BRANCH,
+        POST_TOP_LEVEL_COMMENT,
+        SUBMIT_REVIEW,
+        RERUN_FAILED_CHECKS,
+        SET_DRAFT_STATE,
+        UPDATE_TITLE,
+        UPDATE_BODY,
+        CLOSE_PULL_REQUEST,
+        COMMENT_AND_CLOSE,
+        REPLY_REVIEW_THREAD,
+        EDIT_ISSUE_COMMENT,
+        EDIT_REVIEW_COMMENT,
+        DELETE_ISSUE_COMMENT,
+        DELETE_REVIEW_COMMENT,
+        ADD_REVIEWER,
+        REMOVE_REVIEWER,
+        SET_ASSIGNEE,
+        SET_LABEL,
+        CREATE_INLINE_COMMENT,
+        REACT_PULL_REQUEST,
+        REACT_REVIEW_COMMENT,
+        REACT_ISSUE_COMMENT,
+        SET_THREAD_RESOLUTION,
+        MERGE,
+        ENABLE_AUTO_MERGE,
+        DISABLE_AUTO_MERGE,
+        TRIGGER_CI_EMPTY_COMMIT;
+
+        public static SemanticAction legacy(ActionKind kind)
+        {
+            return valueOf(requireNonNull(kind, "kind is null").name());
+        }
+
+        public ActionKind wireKind()
+        {
+            return switch (this) {
+                case DEQUEUE -> ActionKind.DEQUEUE;
+                case DELETE_REMOTE_BRANCH -> ActionKind.DELETE_REMOTE_BRANCH;
+                case POST_TOP_LEVEL_COMMENT -> ActionKind.POST_TOP_LEVEL_COMMENT;
+                case SUBMIT_REVIEW -> ActionKind.SUBMIT_REVIEW;
+                default -> ActionKind.DEQUEUE;
+            };
+        }
     }
 
     public enum ActionStatus
@@ -320,15 +421,119 @@ public final class UserRemoteActionOperationHandler
             String body,
             String reviewAction,
             String branchName,
-            List<FrozenDraft> drafts)
+            List<FrozenDraft> drafts,
+            String targetId,
+            String value,
+            Boolean selected,
+            String filePath,
+            Integer lineNumber,
+            String side,
+            Integer startLine,
+            String startSide)
     {
         public ActionPayload
         {
-            if (version != 1) {
+            if (version != 1 && version != 2) {
                 throw new IllegalArgumentException(
                         "unsupported V2 user remote action payload version");
             }
             drafts = List.copyOf(drafts == null ? List.of() : drafts);
+        }
+
+        /** Reads and creates the immutable V270 payload shape unchanged. */
+        public ActionPayload(
+                int version,
+                String body,
+                String reviewAction,
+                String branchName,
+                List<FrozenDraft> drafts)
+        {
+            this(version, body, reviewAction, branchName, drafts,
+                    null, null, null, null, null, null, null, null);
+        }
+
+        public static ActionPayload empty()
+        {
+            return v2(null, null, null, null, null, null, null, null);
+        }
+
+        public static ActionPayload body(String body)
+        {
+            return v2(body, null, null, null, null, null, null, null);
+        }
+
+        public static ActionPayload value(String value)
+        {
+            return v2(null, null, value, null, null, null, null, null);
+        }
+
+        public static ActionPayload selected(String value, boolean selected)
+        {
+            return v2(null, null, value, selected, null, null, null, null);
+        }
+
+        public static ActionPayload target(String targetId)
+        {
+            return v2(null, targetId, null, null, null, null, null, null);
+        }
+
+        public static ActionPayload targetBody(String targetId, String body)
+        {
+            return v2(body, targetId, null, null, null, null, null, null);
+        }
+
+        public static ActionPayload targetValue(String targetId, String value)
+        {
+            return v2(null, targetId, value, null, null, null, null, null);
+        }
+
+        public static ActionPayload targetSelected(
+                String targetId, boolean selected)
+        {
+            return v2(null, targetId, null, selected,
+                    null, null, null, null);
+        }
+
+        public static ActionPayload inlineComment(
+                String body,
+                String filePath,
+                int lineNumber,
+                String side,
+                Integer startLine,
+                String startSide)
+        {
+            return v2(body, null, null, null, filePath, lineNumber, side,
+                    startLine, startSide);
+        }
+
+        private static ActionPayload v2(
+                String body,
+                String targetId,
+                String value,
+                Boolean selected,
+                String filePath,
+                Integer lineNumber,
+                String side,
+                Integer startLine)
+        {
+            return v2(body, targetId, value, selected, filePath, lineNumber,
+                    side, startLine, null);
+        }
+
+        private static ActionPayload v2(
+                String body,
+                String targetId,
+                String value,
+                Boolean selected,
+                String filePath,
+                Integer lineNumber,
+                String side,
+                Integer startLine,
+                String startSide)
+        {
+            return new ActionPayload(2, body, null, null, List.of(), targetId,
+                    value, selected, filePath, lineNumber, side, startLine,
+                    startSide);
         }
     }
 
@@ -336,6 +541,7 @@ public final class UserRemoteActionOperationHandler
             String id,
             String operationId,
             ActionKind kind,
+            SemanticAction semanticAction,
             ActionStatus status,
             int semanticAttempt,
             int attemptCount,
@@ -351,6 +557,8 @@ public final class UserRemoteActionOperationHandler
             String headRepositoryId,
             int pullRequestNumber,
             String branchName,
+            String worktreePath,
+            String expectedCodeFingerprint,
             String headSha,
             String baseSha,
             String payloadJson,
@@ -367,15 +575,39 @@ public final class UserRemoteActionOperationHandler
             requireText(id, "id");
             requireText(operationId, "operationId");
             requireNonNull(kind, "kind is null");
+            requireNonNull(semanticAction, "semanticAction is null");
+            if (kind != semanticAction.wireKind()) {
+                throw new IllegalArgumentException(
+                        "semantic action differs from its V270 wire family");
+            }
             requireNonNull(status, "status is null");
-            requireText(taskId, "taskId");
             requireText(commandId, "commandId");
-            requireText(stageId, "stageId");
             requireText(remotePrBindingId, "remotePrBindingId");
             requireText(prId, "prId");
             requireText(remoteRepositoryId, "remoteRepositoryId");
             requireText(headRepositoryId, "headRepositoryId");
             requireText(branchName, "branchName");
+            if (taskId == null) {
+                if (stageId != null || taskEpoch != 0 || stageGeneration != 0
+                        || semanticAction
+                            == SemanticAction.TRIGGER_CI_EMPTY_COMMIT) {
+                    throw new IllegalArgumentException(
+                            "external PR action cannot own a Task, Stage, or worktree");
+                }
+            }
+            else {
+                requireText(taskId, "taskId");
+                requireText(stageId, "stageId");
+            }
+            if (semanticAction == SemanticAction.TRIGGER_CI_EMPTY_COMMIT) {
+                requireText(worktreePath, "worktreePath");
+                requireText(expectedCodeFingerprint,
+                        "expectedCodeFingerprint");
+            }
+            else if (worktreePath != null || expectedCodeFingerprint != null) {
+                throw new IllegalArgumentException(
+                        "only an empty-commit CI trigger owns a worktree fence");
+            }
             requireText(headSha, "headSha");
             requireText(baseSha, "baseSha");
             requireText(payloadJson, "payloadJson");
@@ -385,11 +617,95 @@ public final class UserRemoteActionOperationHandler
             recoveryBaseline = recoveryBaseline == null
                     ? null : List.copyOf(recoveryBaseline);
             if (semanticAttempt != 1 || attemptCount < 0 || attemptLimit < 1
-                    || taskEpoch < 1 || stageGeneration < 1
+                    || taskId != null
+                        && (taskEpoch < 1 || stageGeneration < 1)
                     || pullRequestNumber < 1) {
                 throw new IllegalArgumentException(
                         "V2 user remote action fence is invalid");
             }
+        }
+
+        /** Backward-compatible constructor for existing V270 tests/fixtures. */
+        public Action(
+                String id,
+                String operationId,
+                ActionKind kind,
+                ActionStatus status,
+                int semanticAttempt,
+                int attemptCount,
+                int attemptLimit,
+                String taskId,
+                String commandId,
+                long taskEpoch,
+                String stageId,
+                long stageGeneration,
+                String remotePrBindingId,
+                String prId,
+                String remoteRepositoryId,
+                String headRepositoryId,
+                int pullRequestNumber,
+                String branchName,
+                String headSha,
+                String baseSha,
+                String payloadJson,
+                String payloadDigest,
+                ActionPayload payload,
+                String handledAction,
+                Instant authorizedAt,
+                List<String> recoveryBaseline,
+                String externalEffectId,
+                String evidence)
+        {
+            this(id, operationId, kind, SemanticAction.legacy(kind), status,
+                    semanticAttempt, attemptCount, attemptLimit, taskId,
+                    commandId, taskEpoch, stageId, stageGeneration,
+                    remotePrBindingId, prId, remoteRepositoryId,
+                    headRepositoryId, pullRequestNumber, branchName, null, null,
+                    headSha, baseSha, payloadJson, payloadDigest, payload,
+                    handledAction, authorizedAt, recoveryBaseline,
+                    externalEffectId, evidence);
+        }
+
+        /** Backward-compatible constructor for semantic-action tests/fixtures. */
+        public Action(
+                String id,
+                String operationId,
+                ActionKind kind,
+                SemanticAction semanticAction,
+                ActionStatus status,
+                int semanticAttempt,
+                int attemptCount,
+                int attemptLimit,
+                String taskId,
+                String commandId,
+                long taskEpoch,
+                String stageId,
+                long stageGeneration,
+                String remotePrBindingId,
+                String prId,
+                String remoteRepositoryId,
+                String headRepositoryId,
+                int pullRequestNumber,
+                String branchName,
+                String headSha,
+                String baseSha,
+                String payloadJson,
+                String payloadDigest,
+                ActionPayload payload,
+                String handledAction,
+                Instant authorizedAt,
+                List<String> recoveryBaseline,
+                String externalEffectId,
+                String evidence)
+        {
+            this(id, operationId, kind, semanticAction, status,
+                    semanticAttempt, attemptCount, attemptLimit, taskId,
+                    commandId, taskEpoch, stageId, stageGeneration,
+                    remotePrBindingId, prId, remoteRepositoryId,
+                    headRepositoryId, pullRequestNumber, branchName, null, null,
+                    headSha, baseSha, payloadJson, payloadDigest, payload,
+                    handledAction, authorizedAt, recoveryBaseline,
+                    externalEffectId, evidence);
         }
     }
 

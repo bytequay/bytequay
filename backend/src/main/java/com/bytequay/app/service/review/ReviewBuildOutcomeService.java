@@ -141,7 +141,7 @@ public final class ReviewBuildOutcomeService
                     UPDATE review_findings
                     SET status = 'resolved', resolution = ?
                     WHERE id = ? AND review_pass_id = ? AND revision = ?
-                      AND status = 'agreed'
+                      AND status IN ('agreed', 'arbitrated')
                     """,
                     "task_outcome:" + outcome.outcomeId(),
                     finding.findingId(), finding.reviewPassId(),

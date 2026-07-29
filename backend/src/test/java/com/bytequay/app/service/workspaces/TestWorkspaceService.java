@@ -28,7 +28,9 @@ import com.bytequay.app.repository.WorkspaceStore.WorkspaceStats;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
 import com.bytequay.app.service.review.InvestigationReviewService;
+import com.bytequay.app.service.review.ReviewSessionPurge;
 import com.bytequay.app.service.threads.ThreadService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -42,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -57,6 +60,7 @@ class TestWorkspaceService
     private final ThreadService threadService = mock(ThreadService.class);
     private final InvestigationReviewService investigationReviews =
             mock(InvestigationReviewService.class);
+    private final ReviewSessionPurge reviewSessionPurge = mock(ReviewSessionPurge.class);
     private final WorkspaceDataPurger dataPurger = mock(WorkspaceDataPurger.class);
     private final WorkspaceService service = new WorkspaceService(
             store,
@@ -66,7 +70,17 @@ class TestWorkspaceService
             watchedRepos,
             threadService,
             investigationReviews,
+            reviewSessionPurge,
             dataPurger);
+
+    @BeforeEach
+    void runReviewPurgeCallback()
+    {
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(1).run();
+            return null;
+        }).when(reviewSessionPurge).purgeWorkspace(any(), any());
+    }
 
     @Test
     void summariseMemoryCountsDecisionAndBlockerBullets()
@@ -352,9 +366,12 @@ class TestWorkspaceService
         // Each thread is purged (its agents stopped, worktrees reaped, row +
         // DB cascade) BEFORE the workspace row is dropped — required for
         // correctness, since threads.workspace_id has no ON DELETE CASCADE.
-        InOrder order = inOrder(threadService, investigationReviews, dataPurger, store);
+        InOrder order = inOrder(
+                threadService, reviewSessionPurge,
+                investigationReviews, dataPurger, store);
         order.verify(threadService).purge("th-1");
         order.verify(threadService).purge("th-2");
+        order.verify(reviewSessionPurge).purgeWorkspace(eq("ws-bytequay"), any());
         order.verify(investigationReviews).purgeByWorkspace("ws-bytequay");
         order.verify(dataPurger).purgeWorkspaceScoped("ws-bytequay");
         order.verify(store).deleteWorkspace("ws-bytequay");
@@ -374,6 +391,7 @@ class TestWorkspaceService
                 .hasMessageContaining("wedged git worktree");
 
         verify(threadService, never()).purge("th-2");
+        verify(reviewSessionPurge, never()).purgeWorkspace(any(), any());
         verify(investigationReviews, never()).purgeByWorkspace(any());
         verify(store, never()).deleteWorkspace(any());
     }
@@ -388,6 +406,7 @@ class TestWorkspaceService
         service.delete("ws-empty");
 
         verify(threadService, never()).purge(any());
+        verify(reviewSessionPurge).purgeWorkspace(eq("ws-empty"), any());
         verify(investigationReviews).purgeByWorkspace("ws-empty");
         verify(store).deleteWorkspace("ws-empty");
     }

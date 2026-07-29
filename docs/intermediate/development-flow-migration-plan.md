@@ -1,28 +1,32 @@
 # Development flow migration plan
 
-Status: **V2 CUTOVER IMPLEMENTED; LEGACY DRAIN IN PROGRESS**
+Status: **MIGRATION COMPLETE; LEGACY EXECUTION RETIRED**
 
 Created: **2026-07-28**
+
+Completed: **2026-07-30**
 
 Normative contract:
 [development-flow-design.md](./development-flow-design.md)
 
-This document describes how to implement the locked design safely. It may
-change as code is discovered. It cannot change a locked contract; any semantic
+This document records how the locked design was implemented and the permanent
+cutover/maintenance rules. It cannot change a locked contract; any semantic
 change must first be recorded in the normative design.
 
 ## Outcome
 
-Replace the current multi-writer development flow with typed Turns,
+The multi-writer development flow has been replaced with typed Turns,
 domain-owned state transitions, exact result fencing, a delivery-only
 ExecutionDispatcher, exact-head remote workflows, and durable Cleanup without
 breaking active Tasks or existing UI/API behavior.
 
 ## Migration strategy
 
-Use a versioned strangler migration.
+The implementation used a versioned strangler migration. The rollout is now
+complete; the rules below describe the permanent storage and routing boundary,
+not an active coexistence period.
 
-Add immutable routing fields:
+The migration added immutable routing fields:
 
 ~~~text
 task.workflow_version = LEGACY | V2
@@ -31,63 +35,64 @@ trunk.turn_version = LEGACY | V2
 
 Rules:
 
-1. Existing rows default to LEGACY.
+1. Historical rows retain their immutable LEGACY value.
 2. A Task never changes workflow version after creation.
 3. A Trunk changes turn version only when it has no queued/running Trunk turn.
-4. Existing LEGACY Tasks, turns, validation claims, push effects, review
-   effects, and cleanup behavior finish through the legacy path.
-5. New Tasks enter V2 only for allow-listed Workspaces/Trunks.
-6. A Trunk may contain LEGACY and V2 sibling Tasks because exact Task ids route
-   every command and observation.
+4. Existing LEGACY Tasks, Turns, validation claims, push effects, review
+   effects, and pseudo-Stages are read-only history. No runtime claims them.
+5. Every new Task enters V2 through TaskCreationHandoff. Migration V277 also
+   rejects any non-V2 Task insert at the database boundary.
+6. A Trunk may contain historical LEGACY rows beside V2 Tasks because exact
+   owner ids keep compatibility reads isolated.
 7. Do not dual-write Task or Stage control state.
-8. Do not copy, cancel, or requeue active legacy Turns during deployment.
+8. Do not copy, cancel, requeue, or resume historical legacy Turns.
 9. Historical legacy data remains readable through compatibility projections.
    It does not need aesthetic backfill into the new tables.
-10. If a small number of long-lived LEGACY Tasks later block retirement,
-    evaluate a separate quiescent converter then. Do not build it speculatively.
+10. Reintroducing legacy creation or execution requires a new locked design
+    decision and schema migration; an application flag cannot enable it.
 
 The rollback unit is one whole Task. A V2 Task is never interpreted by legacy
 workflow code.
 
-### In-flight compatibility
+### Retired legacy compatibility
 
-- Legacy scheduler workers alone drain legacy queued/running Turns and effects.
 - V2 workers claim only typed V2 records and DispatchTickets.
+- No legacy scheduler worker, admission bridge, executor, or recovery loop
+  claims historical Turns or effects.
 - If an existing durable effect table is reused, every claim includes
-  workflow_version and cannot be claimed by both workers.
+  workflow_version and rejects LEGACY ownership.
 - Query services union typed V2 history with legacy history for UI and audit.
 - Existing validation, push, review-gate, local-review and cleanup records stay
-  attached to LEGACY Tasks.
-- Remote observations route through the linked Task's immutable workflow
-  version.
-- Mixed LEGACY/V2 sibling Tasks under one Trunk are a required isolation case.
+  attached to historical LEGACY Tasks and remain immutable.
+- Remote observations can advance only an exact V2 owner.
+- Historical LEGACY/V2 sibling reads under one Trunk remain an isolation case;
+  they are not a mixed execution case.
 - Ambiguous legacy ownership is sealed for manual reconciliation; it is never
   repaired using latest/active Task inference.
-- Before V2 Task creation is enabled, deploy the legacy admission bridge.
-  Reconcile already-running LEGACY work into CapacityLeases, or keep V2
-  dispatch paused until that work drains. New LEGACY and V2 launches always
-  use the same combined ceilings.
+- Retired compatibility mutation ports fail closed. Historical reads never
+  write a lifecycle field or wake execution.
 
 ## Operational controls
 
-Use only two migration controls:
-
-1. Workspace allow-list: V2 new Tasks enabled.
-2. Global V2 dispatch pause.
+No development-flow canary or routing control remains. The former Workspace
+allow-list and V2-dispatch properties are removed, as are their
+ConditionalOnProperty bean gates. ExecutionDispatcher and the V2 runtime/MCP
+beans are unconditional.
 
 Behavior:
 
-- Disabling V2 creation stops expansion but does not downgrade existing V2
-  Tasks.
-- Pausing V2 dispatch leaves durable requests queued and lets operators inspect
-  state.
-- Once a V2 Task exists, workflow failures are fixed forward.
-- All schema changes before cutover are additive.
-- Auto-merge remains disabled during initial canary rollout.
+- Every new Task is V2 and workflow failures are fixed forward.
+- `GET /api/development-flow/route` is a diagnostic that returns
+  `v2Only=true`; it is not a toggle.
+- Use typed Task/Stage pause, retry, takeover, cancellation, and Cleanup
+  commands for workflow control. No property can restore LEGACY routing or
+  conditionally omit V2 runtime beans.
+- Auto-merge remains governed by Task policy and exact-head authorization; it
+  is unrelated to legacy retirement.
 
-### Current executor baseline
+### Pre-migration executor baseline (historical)
 
-The current application creates eleven long-lived executors:
+Before this migration, the application created eleven long-lived executors:
 
 1. general application orchestration
 2. GitHub I/O virtual threads
@@ -101,34 +106,35 @@ The current application creates eleven long-lived executors:
 10. Task runtime projection
 11. ds4 supervision
 
-Spring scheduling is a twelfth execution facility and currently services all
-scheduled methods with its default scheduler. Servlet, HTTP-client,
+Spring scheduling was a twelfth execution facility and serviced all scheduled
+methods with its default scheduler. Servlet, HTTP-client,
 ForkJoin/common-pool, virtual-thread carrier, and process-drain threads are
 framework mechanics and are not included in the eleven.
 
 The target's “two executors” means exactly two ExecutionDispatcher-owned V2
-facilities, not two executors in the whole application. Slice 3 absorbs V2
-agent and validation execution. Slices 4 through 8 move V2 planning, publish,
-CI, GitHub and review work behind the dispatcher. Slices 10 and 11 remove the
+facilities, not two executors in the whole application. Slice 3 absorbed V2
+agent and validation execution. Slices 4 through 8 moved V2 planning, publish,
+CI, GitHub and review work behind the dispatcher. Slices 10 and 11 removed the
 domain-writing runtime projector and legacy workflow pools. CodeGraph,
-checkpoint, ds4 and unrelated application/I/O work remain independent.
+checkpoint, ds4, planning-base refresh, and unrelated application/I/O work may
+remain independent when they own no development-flow transition.
 
-The baseline count alone is not an admission guarantee. The current ownership
-and bypasses are:
+This historical count established why pool count alone was not an admission
+guarantee. The pre-migration ownership and bypasses were:
 
-| Facility | Current bound | Current authority and migration disposition |
+| Facility | Former bound | Historical authority and migration disposition |
 | --- | --- | --- |
 | General application executor (`AsyncConfig`) | 4 core, 16 max, queue 100 | No workflow admission. Publish, round-gate, AI review and Task-producing work are Slice 3–8 bridge targets; read-only observation may remain application work. |
 | GitHub I/O executor | virtual thread per submission | No workflow admission. It may remain only for read-only repository fan-out; accepted observations enter a synchronous owner command. |
-| Legacy review executor | 2 running, queue 50 | Independent from Task capacity. Drain under the legacy bridge, then retire. |
-| Shared agent runner | unbounded cached pool | `AgentScheduler` limits ordinary calls to CLI 4 and API 6, but has no durable lease. Bridge both lanes to CapacityManager before V2 creation. |
-| Validation runner and renewer | unbounded cached pool plus one timer | One claim-key guard is not a Workspace/Trunk/Task ceiling. Move V2 validation to DispatchTicket; drain the legacy pair. |
+| Legacy review executor | 2 running, queue 50 | Was independent from Task capacity. Legacy admission was removed; the bounded ReviewPass owner remains only for typed standalone review. |
+| Shared agent runner | unbounded cached pool | `AgentScheduler` limited ordinary calls to CLI 4 and API 6 without a durable lease. The runner and scheduler are removed. |
+| Validation runner and renewer | unbounded cached pool plus one timer | One claim-key guard was not a Workspace/Trunk/Task ceiling. V2 validation moved to DispatchTicket and the legacy pair was removed. |
 | Planning-base refresher | 1 | Performs planning Git work outside common admission. Route V2 refresh through a typed operation. |
-| Task runtime projector | 1 plus scheduled sweep | Writes lifecycle state and wakes the scheduler. Stop its V2 writes, then retire it when legacy Tasks drain. |
+| Task runtime projector | 1 plus scheduled sweep | Wrote lifecycle state and woke the scheduler. It and its executor are removed. |
 | CodeGraph, checkpoint and ds4 | 2, 2 and 1 | Separate subsystem or hardware work; not V2 workflow executors. |
 
-Additional admission paths must be migrated explicitly; replacing only
-`AgentScheduler` would leave them live:
+Additional admission paths had to be migrated explicitly; replacing only
+`AgentScheduler` would have left them live:
 
 - `CliReviewRunner` owns a separate three-process semaphore. Ordinary legacy
   reviewer seats can therefore run outside the scheduler's CLI=4 count.
@@ -151,7 +157,9 @@ project-learning, workspace maintenance and ds4 threads are not independent
 Task admissions. The SQLite Hikari pool of one serializes database writes but
 is likewise not a fairness or workflow-capacity authority.
 
-## Slice map
+## Slice map (completed)
+
+The slices below are the implementation record, not unfinished rollout gates.
 
 ~~~mermaid
 flowchart LR
@@ -168,10 +176,12 @@ flowchart LR
     S5 --> S9
     S8 --> S9
     S9 --> S10["10. Compatibility + canary"]
-    S10 --> S11["11. Legacy drain"]
+    S10 --> S11["11. Legacy retirement"]
 ~~~
 
-Every slice is independently deployable with V2 Task creation disabled.
+During rollout, every slice was independently deployable with V2 Task creation
+disabled. That rollback property is historical; migration V277 now prevents
+new LEGACY Task creation.
 
 ## Slice 0 — executable baseline
 
@@ -364,10 +374,10 @@ Deliver:
 - writer fencing token required by every Git-mutating adapter
 - reserved Trunk control lane
 - fair admission across Workspace/Trunk scopes
-- shared initial hard ceilings of CLI=4 and API=6 across LEGACY and V2, with
-  one permit in each reserved for Trunk control
-- a thin legacy admission bridge so AgentScheduler uses the same
-  CapacityManager during mixed-version operation
+- temporary shared hard ceilings of CLI=4 and API=6 across LEGACY and V2, with
+  one permit in each reserved for Trunk control during coexistence
+- a temporary thin legacy admission bridge so AgentScheduler used the same
+  CapacityManager during mixed-version rollout
 - provider session, log streaming and accounting adapters extracted from the
   current scheduler
 - dispatcher restart reconciliation
@@ -378,9 +388,10 @@ ExecutionDispatcher may know operation kind, delivery lane, exact owner
 reference and callback route. It may not know Task phase, Stage transition,
 review verdict meaning, CI budget meaning, or prompt source-string meaning.
 
-LEGACY AgentScheduler keeps its workflow/domain behavior for LEGACY Tasks
-during this slice. Its admission boundary alone is bridged to CapacityManager;
-maintaining separate LEGACY and V2 resource ceilings is forbidden.
+During this historical slice, LEGACY AgentScheduler kept its workflow/domain
+behavior for LEGACY Tasks and only its admission boundary was bridged to
+CapacityManager. Slice 11 removed both AgentScheduler and the bridge; this
+paragraph is not current runtime guidance.
 
 Acceptance gate:
 
@@ -410,24 +421,23 @@ Acceptance gate:
 - no class except CapacityManager writes CapacityLease
 - exactly two ExecutionDispatcher-owned V2 executor facilities exist
 
-### Executor migration during coexistence
+### Historical executor coexistence (retired)
 
-- Keep the LEGACY shared agent runner behind AgentScheduler until drain, but
-  route its admission through the legacy CapacityManager bridge.
-- All V2 agent, validation, Git, GitHub, merge and cleanup work enters through
-  DispatchTicket and the V2 workflow executor.
-- Keep the legacy validation runner/lease renewer and review executor only for
-  LEGACY ownership; retire each when its final live claimant drains.
-- Move publish and round-gate work off the general application executor as
-  their V2 slices land. The general application and GitHub I/O executors remain
-  available for non-workflow orchestration and read-only fan-out.
-- Leave CodeGraph, checkpoint, and ds4 executors independent; they are
-  subsystem or hardware lifecycle pools, not workflow admission.
-- Do not enlarge Spring's scheduling pool to create workflow concurrency.
-  Scheduled methods discover, reconcile, or wake durable work and return
-  quickly.
-- Retire the Task runtime projector executor when projections stop writing
-  Task state.
+- The temporary LEGACY shared agent runner sat behind AgentScheduler and the
+  legacy CapacityManager bridge; both are now removed.
+- V2 agent, validation, Git, GitHub, merge, and Cleanup work entered through
+  DispatchTicket and the V2 workflow executor and remains there.
+- The legacy validation runner and lease renewer are removed. The bounded
+  ReviewPass executor may remain for its typed standalone review owner; it is
+  not legacy workflow admission.
+- Publish and round-gate compatibility mutation paths now fail closed. General
+  application and GitHub I/O executors may serve non-workflow orchestration and
+  read-only fan-out.
+- CodeGraph, checkpoint, planning-base refresh, and ds4 executors remain
+  independent subsystem or hardware lifecycle pools, not workflow admission.
+- Spring scheduling is not workflow concurrency. Scheduled methods may
+  discover, reconcile, or wake durable V2 work and must return quickly.
+- The domain-writing Task runtime projector and its executor are removed.
 
 ## Slice 4 — Task provisioning and Plan
 
@@ -657,11 +667,11 @@ Deliver:
 - union history queries for typed and legacy Turns
 - Stage rail and Task status projections
 - timeline, trace, notification, activity and cost/token projections
-- Workspace allow-list
+- temporary Workspace allow-list (removed at permanent cutover)
 - invariant auditor and operator diagnostics
 - canary runbook
 
-Canary order:
+Historical canary order (completed):
 
 1. one internal Workspace
 2. manual approval only
@@ -681,51 +691,178 @@ Acceptance gate:
 - no manual database/status repair during the agreed canary batch
 - invariant auditor reports zero multi-owner or stale-result transitions
 
-## Slice 11 — legacy drain and retirement
+## Slice 11 — legacy retirement (complete)
 
-Goal: remove legacy coordination only after it has no live responsibility.
+Goal: remove legacy execution authority while retaining readable history.
 
-Preconditions:
+### Locked retirement decision
 
-- V2 creation enabled for all intended Workspaces
-- zero nonterminal LEGACY Tasks
-- zero queued/running LEGACY Turns
-- zero queued/running/paused/awaiting-gate legacy AgentRuns, including
-  standalone detached review runs; detached artifacts whose exact review
-  session owns a V2 Task are V2 work and do not block legacy retirement
-- zero unfinished, unsuperseded LEGACY validation claims; a cancellation
-  request remains open until stop is proven
-- zero unconsumed LEGACY push and round-gate effects
-- retention window completed
-- historical read compatibility proven
+On 2026-07-29 the product owner confirmed that the application has no users
+and no production legacy data. The product owner therefore explicitly waived
+the rollout's drain-observation and retention-window preconditions and
+authorized immediate retirement. There is no undefined retention window left
+to complete: no clock, user count, or drain counter delays runtime removal.
+Keeping any rows that happen to exist readable and immutable is a data-safety
+rule, not a retention period or a legacy worker. This is a one-time cutover
+decision, not a reusable rule for a future migration and not permission to
+delete historical rows.
 
-Remove:
+Completed runtime retirement:
 
-- AgentScheduler domain callbacks and source-string switches
-- TaskPhase workflow coordination
-- TaskLifecycleDriver transition writes
-- AutomationCoordinator transition writes
-- pseudo-Stage creation
-- generic AgentRun workflow authority
-- projection writes
-- latest/active Task inference
-- stale queue_task/reorder_queue/drop_queued_task exposure
-- legacy CapacityManager bridge and task-flow-specific validation/review
-  executors after their final claimants drain
+- every new Task is V2 through typed TaskCreationHandoff
+- migration V277 rejects non-V2 Task inserts in the database
+- development-flow canary properties and ConditionalOnProperty gates are
+  removed; dispatcher and V2 MCP/runtime beans are unconditional
+- the route diagnostic exposes only `v2Only=true`
+- AgentScheduler and its shared runner are removed
+- LegacyCapacityBridge, LegacyCapacityLeaseMaintainer, and LegacySagaCapacity
+  are removed
+- LegacyReviewAdmission is removed
+- TaskRuntimeProjector and its executor are removed
+- legacy validation execution and lease-renewal pools are removed
+- retired Turn, saga, and validation mutation ports fail closed and own no
+  queue, worker, callback, lease, recovery loop, or state transition
+- GlobalReviewRunner, HarnessDiagnosisService, LessonExtractor,
+  InvestigationReviewRunner, and CliReviewRunner invoke providers
+  synchronously in their caller-owned execution context
+- standalone review assignments remain typed; older ReviewPass calls carry an
+  exact ReviewCallContext and run synchronously in their bounded review owner
+- a Workspace cherry-pick conflict remains manual and returns its retained
+  worktree and conflict paths without creating legacy execution
+- migration V278 freezes and atomically enforces ReviewAssignmentTurn cost
+  reservations across concurrent review seats and follow-ups
+- migration V279 routes manual Run tests through one exact, durable Validation
+  Operation and projects an accepted result at most once
+- migration V280 stores publish preflight requirements rather than claiming
+  synchronous proof; Approve & ship is database-only and the dispatcher proves
+  requirements before remote effects
+- migration V281 gives scheduled issue/quality initiators a truthful typed
+  `AUTOMATION` Plan approval command; they no longer infer legacy Task phase or
+  create legacy execution
+- migration V282 records the semantic identity of every visible Task-owned PR
+  mutation in the durable exact-head user-remote-action ledger while preserving
+  existing V270 authorizations
+- migration V283 preserves the push-driven CI trigger as its own typed user
+  action. Its DispatchTicket combines Local Git and GitHub lanes, requires the
+  Task writer lease, freezes the worktree and code fingerprint, and advances
+  the revisioned worktree subject only after proving one exact empty marker
+  commit at the local, remote-branch, and PR heads
+- migration V284 makes existing-PR Task creation database-only. The immutable
+  assignment freezes repository route, PR number, and review selection while
+  dispatcher-owned provisioning discovers and proves the exact remote subject
+  under combined GitHub and Local Git admission
+- migration V285 removes V2 quality-scan `CreateIssue` approval from legacy
+  synchronous publishing. The approval transaction claims the exact
+  notification and freezes one marker-bearing operation plus Task-owned
+  GITHUB_EFFECT ticket. Dispatcher recovery probes that marker without
+  repeating creation; typed database-only delivery freezes the first exact
+  terminal result, records provenance once, and resolves the notification
+  without TaskPhaseMachine. Identical delivery replay is accepted and a
+  changed replay is rejected
+- migration V286 makes V2 Task review startup database-only. One exact Task
+  snapshot Operation captures the diff under exclusive `LOCAL_GIT` writer
+  admission; accepted delivery re-enters TaskCommandExecutor before its fresh
+  transaction creates ReviewAssignmentTurns
+- migration V287 gives foreign-PR suggested-change review builds a zero-Task
+  comment-only owner. Approval/discard are database-only, the approved action
+  runs through one Trunk-owned exact-head GitHub ticket, and exact finding
+  revisions resolve only after accepted, restart-safe delivery. Probe-only
+  propagation waits retain the same semantic attempt but have a separate
+  durable observation bound, and finalized records purge in explicit
+  child-before-parent order. Terminal failure is visible and requires a new
+  review pass/selection rather than mutating the frozen one-shot action
+- migration V288 makes standalone ReviewPass publication a one-shot zero-Task
+  review-Trunk effect. New review threads are born V2; historical LEGACY and
+  TASK_PHASE passes reject before any write. Authorization freezes exact
+  remote coordinates, reviewed head, verdict, ordered finding revisions and
+  marker payload in one stable-command Trunk-owned GitHub ticket. Durable
+  queued/running/failed/indeterminate/published state survives UI restart,
+  accepted delivery alone finalizes findings and pass, and unfinished work
+  blocks purge until explicit child-before-parent deletion is safe
+- migration V289 closes the remaining taskless PR-write boundary. It adds one
+  deterministic born-V2 REVIEW Trunk and immutable Trunk-owned external action
+  for each exact Workspace/repository/PR command, freezes the complete cached
+  base/head subject without remote I/O, and dispatches every supported write
+  through the shared GitHub-effect handler. The durable projection is the only
+  source of terminal UI success across restart. Taskless empty-commit CI
+  triggering and historical direct AI-review/random-command publication fail
+  closed instead of bypassing Task writer ownership
+- migration V290 makes every historical AgentRun row immutable and rejects
+  every former run-creation shape. Investigation review may insert only one
+  already-terminal, hidden compatibility header required by the retained
+  `review_round` foreign keys; the header has no Workspace/Trunk/Task/Stage,
+  worker, claim, status transition, accounting update, Session control, or
+  lifecycle role.
+  ReviewAssignmentTurn and its typed Operation remain the sole execution truth
+- migration V291 stores one immutable source snapshot for every typed
+  ReviewRound before seat admission. It freezes the PR route, title and
+  description, exact base/head and diff, changed-file manifest, and complete
+  non-deleted changed-file bodies. Result delivery, guidance, deterministic
+  coverage, restart, verification, and finalization load that snapshot from
+  SQLite and cannot re-fetch GitHub, run Git, inspect mutable filesystem state,
+  or give a typed CLI the checkout as its working directory
+- migration V292 performs a forward-only canonical SQLite rebuild of
+  `dispatch_ticket` to add `REVIEW_SESSION` ownership. It preserves all rows,
+  explicit indexes, triggers, foreign keys, and integrity invariants rather
+  than editing SQLite schema text in place
+- migration V293 makes every remaining seat-admitting review command durable
+  before source capture. Task-attached Continue, Re-review, answer, and
+  scheduled/delta requests add a per-command TaskReviewSnapshot under exact
+  Task writer admission. Standalone requests add a ReviewSession-owned
+  ReviewSessionSnapshot: quick is unscoped, diff-only `REMOTE_OBSERVATION`
+  lane 64; full is Workspace-only `LOCAL_GIT` + `GITHUB` lane 48 and excludes
+  every same-Workspace Local Git lease without counting as a Task. Both freeze
+  repository, remote PR number, base branch, PR prompt metadata, exact
+  base/head, diff, capabilities, and applicable local coordinates before seat
+  admission; full capture also returns complete non-deleted changed-file
+  bodies for V291 persistence.
+  Subject/link drift supersedes delivery, and exact ticket-shape plus
+  live-ticket/terminal-cleanup guards prevent orphaned execution records.
+  The same migration makes Workspace repository detach and re-clone require
+  terminal V2 Tasks plus terminal Workspace DispatchTickets, and reciprocally
+  rejects new Workspace tickets while the repository is detached or an active
+  re-clone is queued, forking, cloning, or syncing. The service preflight gives
+  an actionable conflict; database triggers decide admission races
+- code-writing AgentTurns capture their immutable output head, fingerprint,
+  cleanliness, frozen base, and merge base before their CapacityLease and
+  writer fence end; Local and Remote result delivery consumes that evidence
+  without running Git or inspecting a worktree
+- idle archival and standing-consent local auto-publish discovery run as
+  dispatcher-owned MaintenanceWork, not independent schedulers
 
-Legacy CI_FIXING, REVIEW_ROUND, BRANCH_GUARD and REVIEW pseudo-Stage rows remain
-immutable historical records. Ambiguous legacy nullable-scope Turns are sealed
-for manual reconciliation and never reassigned by latest/active inference.
+Historical compatibility:
 
-AgentScheduler may be deleted only after its useful provider launch, log,
-heartbeat, lane, and accounting code has moved behind ExecutionDispatcher.
+- legacy CI_FIXING, REVIEW_ROUND, BRANCH_GUARD, REVIEW, Task, Turn, AgentRun,
+  validation, and effect rows remain immutable readable records
+- ambiguous nullable-scope legacy Turns remain sealed and are never reassigned
+  through latest/active inference
+- compatibility queries may project historical rows but cannot claim them or
+  write lifecycle state
+- legacy source classes may remain for read models, DTO/API compatibility, or
+  fail-closed adapters; source presence is not execution authority
+
+The source tree still contains compatibility-era classes such as
+TaskPhaseMachine, TaskLifecycleDriver, AutomationCoordinator,
+TaskPrePushDriver, TaskRuntimeStopReconciler, TaskSchedulerConflictBridge,
+CiFixRunExecutor, LocalCiFixExecutor, StageLifecycle, PlanStageService, and
+ReviewPassService. They have not all been physically deleted, so this plan does
+not claim otherwise. They must not create, claim, schedule, or transition new
+legacy work. TaskIdleArchiver is active V2 MaintenanceWork and
+InvestigationReviewService coordinates typed ReviewAssignmentTurns; neither is
+legacy runtime authority. Later physical deletion is ordinary cleanup and is
+not a migration-completion gate.
 
 Acceptance gate:
 
-- scheduler-removal architecture tests pass
-- all canonical and fault-injection scenarios run solely through V2
-- historical LEGACY Tasks remain readable
-- no database query or code path claims legacy work
+- [x] scheduler-removal architecture tests pass
+- [x] all new development-flow work routes solely through V2
+- [x] canary properties and conditional V2 bean gates are removed
+- [x] historical LEGACY Tasks remain readable
+- [x] no worker or recovery path claims legacy work
+- [x] retired compatibility mutation paths fail closed
+- [x] database creation of a new LEGACY Task is rejected
+- [x] repository detach/re-clone rejects non-quiescent V2 Tasks and tickets,
+  and reciprocal database admission guards close the race without pause-all
 
 ## Pull request boundaries
 
@@ -749,7 +886,10 @@ Every implementation PR must name:
 - feature flag or routing boundary
 - rollback behavior
 
-## Parallel implementation
+## Parallel implementation (historical)
+
+This section records the migration's coordination model. The migration is
+complete; do not start new slice work from this sequence.
 
 Use one integration owner and no more than three simultaneous implementation
 agents. During the baseline wave, that means one shared-foundation agent and
@@ -801,7 +941,7 @@ At minimum, every multi-effect saga is tested with failure:
 - during cancellation
 - after restart
 
-## First implementation step
+## First implementation step (historical, complete)
 
 Start with Slice 0 plus only the inert routing columns from Slice 1.
 
@@ -826,29 +966,29 @@ and compare the source hash afterward:
 ~~~bash
 sqlite3 "/absolute/path/to/bytequay.db" \
   ".timeout 30000" \
-  ".backup '/private/tmp/bytequay-pre-v276.db'"
-cp -p /private/tmp/bytequay-pre-v276.db /private/tmp/bytequay-v276.db
-chmod 0444 /private/tmp/bytequay-pre-v276.db
-shasum -a 256 /private/tmp/bytequay-pre-v276.db
+  ".backup '/private/tmp/bytequay-pre-v277.db'"
+cp -p /private/tmp/bytequay-pre-v277.db /private/tmp/bytequay-v293.db
+chmod 0444 /private/tmp/bytequay-pre-v277.db
+shasum -a 256 /private/tmp/bytequay-pre-v277.db
 cd backend
 mvn -q -Dtest=TestDevelopmentFlowBackupAudit \
-  -Dbytequay.audit.db=/private/tmp/bytequay-v276.db test
-shasum -a 256 /private/tmp/bytequay-pre-v276.db
+  -Dbytequay.audit.db=/private/tmp/bytequay-v293.db test
+shasum -a 256 /private/tmp/bytequay-pre-v277.db
 ~~~
 
 The audit runner refuses the standard live-database path, targets exactly
-V276, checks SQLite integrity and foreign keys before and after migration, and
-requires the development-flow invariant audit to be healthy. A non-zero legacy
-drain is reported separately: it blocks legacy-code retirement but does not
-make the schema upgrade invalid.
+V293, checks SQLite integrity and foreign keys before and after migration, and
+requires the development-flow invariant audit to be healthy. Legacy counters
+are still printed as historical diagnostics. Under the explicit no-user/no-
+production-data waiver they do not gate retirement, and no counter value can
+cause legacy execution to resume.
 
-The V2 creation cutover is complete. The shipped defaults route every new
-Workspace Task to V2 and enable V2 dispatch:
-
-~~~properties
-bytequay.development-flow.v2-workspace-allow-list=*
-bytequay.development-flow.v2-dispatch-enabled=true
-~~~
+The V2 creation cutover and legacy retirement are complete. Every nonblank
+Workspace id routes new Task creation to V2, and migration V277 enforces the
+same boundary in storage. The former Workspace allow-list and V2-dispatch
+properties have been removed. ExecutionDispatcher and V2 MCP/runtime beans are
+wired unconditionally; `GET /api/development-flow/route` returns only
+`v2Only=true`.
 
 The implementation now has separate typed Trunk, Task, Stage, review, and
 user-wait Turns; owner-only aggregate transitions; durable dispatch and exact
@@ -856,8 +996,100 @@ result fences; Workspace/Trunk/Task capacity admission; restart-safe local,
 Brain, validation, publish, CI, remote review, merge, and Cleanup operations;
 exact-head policy freshness; explicit human-authorized GitHub effects;
 readiness notification/assistance; and LEGACY/V2 compatibility projections.
-Existing LEGACY Tasks keep their immutable route and continue to drain through
-their original runtime.
+Existing LEGACY rows keep their immutable route only for reads. They cannot be
+claimed, resumed, or mutated by an execution path.
+
+Existing-PR Task creation is also database-only. It freezes repository route,
+PR number, and any immutable review selection, then lets the dispatched
+ProvisionTaskOperation discover and prove the exact remote refs and SHAs under
+combined GitHub and Local Git admission. Migration V284 preserves historical
+exact assignments and results while requiring exact remote-subject evidence
+before a newly deferred Task can leave PROVISIONING.
+
+Reviewed quality-scan issue proposals use the V285 durable GitHub protocol.
+The source Task is already CANCELING/CLEANING/CANCELED before approval; neither
+approval nor discard can transition it. A new V2 proposal fails closed unless
+it owns an exact notification, Task epoch, immutable payload/marker, and
+dispatcher ticket. The legacy CreateIssue branch remains reachable only for an
+explicitly historical LEGACY row.
+
+V2 Task review requests use the V286 initial snapshot protocol and V293's
+per-command extension. The initial request transaction creates the placeholder
+ReviewSession; initial start, Continue, Re-review, answer, and scheduled/delta
+commands each freeze the exact Task code subject and persist their own
+`LOCAL_GIT` DispatchTicket without reading Git or launching a provider.
+Dispatcher capture holds exclusive Task writer admission; accepted delivery
+re-enters TaskCommandExecutor before a fresh database transaction creates
+ReviewAssignmentTurns. A stale/canceled Task, changed code subject, or changed
+Task attachment supersedes the capture and admits no review seat.
+
+Suggested-change review builds for somebody else's PR use the V287 zero-Task
+comment protocol. Their immutable selection becomes a locally reviewable
+proposal; Task/worktree creation fails closed. Approve and discard perform
+database work only. Approval creates one Trunk-owned exact-head GitHub action,
+while discard has no remote effect. Recovery uses the frozen baseline and
+markers to prove one COMMENT review, exact finding revisions resolve only after
+accepted success, and unfinished delivery/finalization blocks physical purge.
+
+Standalone ReviewPass publication uses the V288 zero-Task review-Trunk
+protocol. New review threads enter V2 at creation; publication never promotes
+or transitions a historical route. A database-only command freezes the exact
+PR sides/ref/head, verdict, finding revisions and marker-bearing payload before
+one Trunk-owned GitHub ticket is dispatched. Its durable read projection lets
+the UI recover queued, retryable-failure, indeterminate, published, and
+terminal-failure state after restart. Only accepted delivery posts the frozen
+findings and publishes the pass; terminal failure stays one-shot and directs a
+new review pass, and unfinished finalization prevents physical purge.
+
+Taskless PR writes use the V289 external-action protocol. Authorization maps
+the repository to exactly one Workspace, creates or reuses the deterministic
+born-V2 REVIEW Trunk, and freezes the locally cached PR base/head subject plus
+semantic payload and stable command before one Trunk-owned GitHub ticket is
+woken. Controllers perform no remote fallback. The UI recovers the durable
+projection by PR identity. It may call an accepted authorization "queued" and
+close its transport-retry key, but calls the effect published only from
+terminal finalization. A missing or ambiguous Workspace repository mapping,
+incomplete subject cache, taskless empty-commit CI request, and retired direct
+AI-review publication all fail before GitHub I/O.
+
+Migration V290 seals AgentRun as immutable compatibility storage. The sole new
+shape is an already-terminal, hidden, ownerless review header needed by the
+retained ReviewRound foreign key; it has no Session, worker, lifecycle, or
+accounting authority and cannot be updated or reparented. Migration V291 then
+freezes each typed ReviewRound's exact source snapshot before admitting a
+seat, including frozen PR prompt metadata and complete bodies for non-deleted
+changed files. Full review tools and deterministic coverage consume only those
+persisted bodies and reject uncaptured paths; quick review is a one-seat typed
+preset with diff-only tools. Typed CLI work starts in a neutral non-checkout
+directory. The old application-executor/in-memory quick-review endpoints and
+direct AI-review publication are gone. Historical Stage streams cannot create
+a registry session, and ThreadRegistry's production compatibility dependency
+owns no runner thread or queue.
+
+Migration V292 rebuilds `dispatch_ticket` forward-only to add the exact
+`REVIEW_SESSION` owner shape while preserving populated rows, explicit indexes,
+triggers, foreign keys, and SQLite integrity. V293 adds the durable pre-seat
+operation for standalone ReviewSessions and the per-command Task review
+extension. Every initial start, Continue, Re-review, answer, and scheduled or
+delta request now commits snapshot intent without source or provider I/O.
+Quick standalone capture is unscoped `REMOTE_OBSERVATION` lane 64. Full
+standalone capture is Workspace-only combined `LOCAL_GIT` + `GITHUB` lane 48,
+is serialized against all same-Workspace Local Git leases, and does not count
+as an executing Task. While holding that lease it captures complete bodies for
+the non-deleted changed files that V291 makes the full review's only readable
+source. The preparation projection exposes terminal status;
+subject or owner-link drift supersedes capture, live work blocks purge, and
+terminal owner cleanup removes its terminal ticket.
+
+Workspace deletion is the explicit force-delete boundary for standalone full
+reviews. It records cancellation and signals exact running snapshot/seat
+handlers before a transaction-local ReviewSession purge authorization removes
+the owner aggregate. The same transaction deletes the exact ticket outbox,
+delivery claim, execution evidence, CapacityLease, and DispatchTicket graph
+before the Workspace parent. Unknown ticket shapes and uncanceled live work
+fail closed. A handler returning after purge cannot deliver or recreate
+evidence because both its exact ticket and typed owner are absent; ordinary
+evidence failures still surface whenever the ticket remains live.
 
 The compatibility edge now also repairs incomplete four-audience engine
 snapshots before dispatcher recovery; serializes concurrent Task authorization
@@ -883,52 +1115,94 @@ under the same key is rejected. Comment/review execution also freezes a
 pre-effect remote-id baseline so recovery cannot adopt an older same-body
 GitHub item merely because GitHub timestamps have one-second precision.
 
-The two properties are startup controls, so change them and restart the local
-sidecar when an operator action is required:
+The push-driven CI control likewise retains its stable command key, but is not
+implemented as `RERUN_FAILED_CHECKS`: it must work when there is no failed run.
+If execution restarts after creating or pushing its exact marker empty commit,
+the dispatcher resumes proof and push of that commit rather than committing
+again. Git and GitHub I/O occur only after combined capacity admission and
+inside the Task writer fence.
 
-1. Inspect `GET /api/development-flow/route`; the normal cutover state is
-   dispatch enabled with `*` in the Workspace allow-list.
-2. Inspect `GET /api/development-flow/diagnostics`; do not expand or declare a
-   canary healthy unless `healthy` is true and `findings` is empty.
-3. Inspect `GET /api/development-flow/legacy-drain`; legacy retirement requires
-   `drained=true` and all five counters to be zero. `liveValidationClaims`
-   includes cancellation-requested claims until completion or supersession.
-4. To stop creating additional V2 Tasks, clear
-   `bytequay.development-flow.v2-workspace-allow-list` and restart. Existing V2
-   Tasks remain V2 and must be fixed forward; they are never downgraded.
-5. To pause new V2 operation claims, set
-   `bytequay.development-flow.v2-dispatch-enabled=false` and restart. Durable
-   requests and committed evidence remain in storage. Restore the property and
-   restart to resume recovery and dispatch.
-6. Do not delete an active Task, truncate operation tables, or change a Task's
+Manual Run tests use the same stable-command rule. The UI retains the key while
+the durable Validation Operation is nonterminal, including an HTTP 202 wait
+timeout, and releases it only after a terminal response. Approve & ship records
+its authorization and promotion requirements without synchronous local or
+remote I/O; dispatcher execution proves those requirements. Review turns
+reserve their frozen share of the round cost cap before launch.
+
+There is no post-cutover canary switch:
+
+1. Inspect `GET /api/development-flow/route`; the permanent result is
+   `v2Only=true`.
+2. Inspect `GET /api/development-flow/diagnostics`; do not declare the runtime
+   healthy unless `healthy` is true and `findings` is empty.
+3. `GET /api/development-flow/legacy-drain` remains informational for database
+   inspection. Its counters identify historical shapes or unexpected data;
+   they are not a worker queue and no longer gate retirement.
+4. Use typed Task/Stage pause, retry, takeover, cancellation, and Cleanup
+   commands. There is no property-level path to pause V2 and no property-level
+   path to restore LEGACY.
+5. Do not delete an active Task, truncate operation tables, or change a Task's
    `workflow_version` as rollback. Use the typed pause, resume, retry, stop,
    budget-extension, takeover, or Cleanup controls.
-7. Retire `AgentScheduler`, the legacy lifecycle writers, and their dedicated
-   workflow pools only after the drain endpoint is zero, the retention window
-   is complete, historical reads are proven, and the scheduler-removal suite
-   passes. Until then they are drain-only compatibility code.
-8. The contract intentionally defines no implicit retention duration or start
-   anchor. Before legacy deletion, record an explicit duration and anchor or an
-   explicit locked-design waiver; zero drain counters alone never waive this
-   precondition.
+6. Treat every historical LEGACY row as immutable. Do not manually requeue or
+   relabel it; compatibility services expose reads only and mutation seams fail
+   closed.
+7. Do not re-register a retained compatibility class as a scheduler, state
+   writer, worker, or recovery owner. Reintroducing legacy execution requires a
+   new locked design and schema migration.
+8. A cherry-pick conflict remains a manual retained-worktree handoff and
+   standalone review assignments remain typed; neither is a reason to create a
+   legacy Task or scheduler job.
 
 Physical V2 Trunk deletion is transactionally authorized and is rejected while
 any typed child operation can still execute or still has an undelivered
 terminal result. This purge is a product deletion primitive, not an operational
-shortcut for completing the legacy drain.
+shortcut for mutating or deleting historical legacy data.
+
+Workspace repository detach and re-clone likewise require repository
+quiescence rather than a best-effort Session pause. The command preflight and
+V293 database guards reject nonterminal V2 Tasks or DispatchTickets, and the
+reciprocal ticket guard prevents new work from entering after repository
+replacement wins the serialized race.
 
 ## Definition of migration complete
 
-The redesign is complete when:
+The redesign is complete:
 
-- all new Tasks use V2
-- every aggregate has one state writer
-- every asynchronous completion is exact and fenced
-- no dispatcher/observer/projector writes domain state
-- multiple sibling Tasks run without shared runtime state
-- all local, Brain, remote review and automation policies retain parity
-- merge and cleanup survive ambiguous effects and restart
-- no terminal Task requires manual state repair
-- CapacityManager is the only workflow admission authority and no executor,
-  semaphore, raw thread, or mixed-version path bypasses it
-- legacy workflow code has no live claims and is removed
+- [x] all new Tasks use V2, enforced by application routing and migration V277
+- [x] ExecutionDispatcher and V2 MCP/runtime beans are unconditional; route
+  diagnostics report only `v2Only=true`
+- [x] every aggregate has one state writer
+- [x] every asynchronous completion is exact and fenced
+- [x] no dispatcher, observer, or projector writes domain state
+- [x] multiple sibling Tasks run without shared runtime state
+- [x] local, Brain, remote review, and automation policies retain parity
+- [x] merge and Cleanup survive ambiguous effects and restart
+- [x] no terminal Task requires manual state repair
+- [x] review start, Continue, Re-review, answer, and scheduled/delta commands
+  are database-only and admit seats only from accepted immutable snapshots
+- [x] post-capture review tools, deterministic coverage, guidance, restart,
+  verification, and typed CLI work consume only frozen DB evidence; full
+  review reads complete changed-file bodies and quick review remains diff-only
+- [x] Task review snapshots use exact Task writer admission; standalone quick
+  and full snapshots use their locked unscoped/Workspace capacity shapes and
+  never count as Tasks
+- [x] migrations V292 and V293 preserve DispatchTicket integrity, fence exact
+  ReviewSession ownership, expose durable preparation state, and prevent live
+  or orphaned snapshot cleanup
+- [x] Workspace force-delete cancels and signals exact standalone review work,
+  removes its complete ticket/evidence/lease graph before the Workspace, and
+  fences a non-cooperative late handler return without state resurrection
+- [x] Workspace repository detach/re-clone and new durable admission are
+  mutually fenced at the database boundary; no Workspace-wide pause control is
+  used to fake quiescence
+- [x] CapacityManager is the only development-flow admission authority and no
+  executor, semaphore, raw thread, or mixed-version path bypasses it
+- [x] AgentScheduler, legacy capacity bridges, the domain-writing runtime
+  projector, and legacy workflow pools have no live claims and are removed
+- [x] retained compatibility mutation ports fail closed
+- [x] historical LEGACY rows remain readable without execution authority
+
+The presence of legacy-named read-model or compatibility source does not make
+this checklist incomplete. Only reintroduced creation, claiming, scheduling,
+transition, or recovery authority would reopen the migration.

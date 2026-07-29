@@ -29,8 +29,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -112,12 +110,6 @@ public class WorkspaceConfigurationController
             @PathVariable String workspaceId)
     {
         return configuration.dismissOnboarding(workspaceId);
-    }
-
-    @PostMapping("/sessions/pause-all")
-    public Map<String, Integer> pauseAll(@PathVariable String workspaceId)
-    {
-        return Map.of("paused", configuration.pauseAllSessions(workspaceId));
     }
 
     @PostMapping("/detach")

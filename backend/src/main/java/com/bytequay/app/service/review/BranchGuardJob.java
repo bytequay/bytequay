@@ -50,9 +50,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -65,12 +62,9 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /** Keeps enabled task branches caught up with their base branch. */
-@Component
 public class BranchGuardJob
 {
     private static final Logger log = LoggerFactory.getLogger(BranchGuardJob.class);
-
-    private static final long NIGHTLY_MS = 24L * 60 * 60 * 1000;
 
     private final BranchGuardStore guards;
     private final TaskStore taskStore;
@@ -140,7 +134,6 @@ public class BranchGuardJob
                 CodeGraphUpdateCoordinator.disabled(), phaseMachine);
     }
 
-    @Scheduled(fixedDelay = NIGHTLY_MS, initialDelay = NIGHTLY_MS)
     public void tick()
     {
         for (BranchGuard guard : guards.findEnabled()) {
@@ -156,7 +149,6 @@ public class BranchGuardJob
     /** Reactive twin of {@link #tick()}: fires the moment the lifecycle
      *  sweep observes this task's own PR reported dirty by GitHub, instead
      *  of waiting for the next scheduled tick. */
-    @EventListener
     public void onPullRequestDirtyDetected(PullRequestDirtyDetectedEvent event)
     {
         guards.findByTask(event.taskId()).ifPresent(this::checkOne);
@@ -335,7 +327,6 @@ public class BranchGuardJob
     }
 
     /** Verifies the fix turn, then either pushes or parks for a human. */
-    @EventListener
     public void onFixTurnFinished(TaskTurnFinishedEvent event)
     {
         TaskPhaseMachine.withTaskLock(event.taskId(), () -> {

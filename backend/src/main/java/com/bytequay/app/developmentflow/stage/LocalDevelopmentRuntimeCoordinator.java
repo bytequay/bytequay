@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.stage;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.OutputCodeSubject;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.BrainFixTurn;
@@ -41,8 +42,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringSto
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -51,8 +51,6 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -76,8 +74,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final LocalDevelopmentStageManager local;
     private final TaskManager tasks;
     private final SqliteLocalDevelopmentRuntimeStore store;
-    private final CodeFingerprints fingerprints;
-    private final GitRunner git;
+    private final PRService prs;
     private final ObjectMapper json;
     private final ObjectReader workModelReader;
     private final ObjectReader developmentResultReader;
@@ -93,8 +90,7 @@ public final class LocalDevelopmentRuntimeCoordinator
             TaskManager tasks,
             LocalDevelopmentStageManager local,
             SqliteLocalDevelopmentRuntimeStore store,
-            CodeFingerprints fingerprints,
-            GitRunner git,
+            PRService prs,
             ObjectMapper json,
             Clock clock,
             int serverPort)
@@ -103,8 +99,7 @@ public final class LocalDevelopmentRuntimeCoordinator
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.local = requireNonNull(local, "local is null");
         this.store = requireNonNull(store, "store is null");
-        this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
-        this.git = requireNonNull(git, "git is null");
+        this.prs = requireNonNull(prs, "prs is null");
         this.json = requireNonNull(json, "json is null");
         this.workModelReader = json.readerFor(WorkModel.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -413,7 +408,22 @@ public final class LocalDevelopmentRuntimeCoordinator
             return receipt(SUPERSEDED, deliveryResult(recorded));
         }
 
-        CodeSubject output = observe(Path.of(context.worktreePath()), context.baseSha());
+        OutputCodeSubject exactOutput = result.requireOutputCodeSubject(
+                context.baseSha());
+        if (!exactOutput.clean()) {
+            throw new IllegalArgumentException(
+                    "Local Development result left uncommitted worktree changes");
+        }
+        if (exactOutput.headSha().equals(exactOutput.baseSha())) {
+            throw new IllegalArgumentException(
+                    "Local Development result has no commit ahead of its base");
+        }
+        CodeSubject output = new CodeSubject(
+                exactOutput.codeFingerprint(), exactOutput.headSha(),
+                exactOutput.baseSha());
+        prs.createForTaskInCommand(
+                context.taskId(), context.branchName(), context.baseBranch(),
+                context.taskName(), "");
         store.finishStageTurn(context, "SUCCEEDED", null, now);
         if (localReview != null && context.localFeedbackBatchId() != null) {
             localReview.acceptFeedbackResultInCommand(
@@ -1010,21 +1020,6 @@ public final class LocalDevelopmentRuntimeCoordinator
         }
         catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Frozen work model is invalid", e);
-        }
-    }
-
-    private CodeSubject observe(Path worktree, String baseSha)
-    {
-        try {
-            return new CodeSubject(
-                    fingerprints.fingerprint(worktree), git.headSha(worktree), baseSha);
-        }
-        catch (IOException e) {
-            throw new IllegalStateException("Could not read Local worktree", e);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Local worktree inspection was interrupted", e);
         }
     }
 

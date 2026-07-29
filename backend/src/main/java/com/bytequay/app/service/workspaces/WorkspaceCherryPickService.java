@@ -13,36 +13,17 @@
  */
 package com.bytequay.app.service.workspaces;
 
-import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageType;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.domain.Thread;
-import com.bytequay.app.domain.ThreadFlow;
-import com.bytequay.app.domain.ThreadKind;
-import com.bytequay.app.domain.TurnInitiator;
-import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.stage.StageStateMachine;
-import com.bytequay.app.service.threads.ThreadService;
-import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -58,36 +39,15 @@ public class WorkspaceCherryPickService
     private final WorkspaceRepositoryResolver resolver;
     private final WatchedRepoStore watchedRepos;
     private final GitRunner git;
-    private final TaskStore tasks;
-    private final ThreadStore trunks;
-    private final ThreadService threadService;
-    private final StageStateMachine stages;
-    private final ThreadTurnScheduler scheduler;
-    private final AgentRunService runs;
-    private final IdGenerator ids;
 
     public WorkspaceCherryPickService(
             WorkspaceRepositoryResolver resolver,
             WatchedRepoStore watchedRepos,
-            GitRunner git,
-            TaskStore tasks,
-            ThreadStore trunks,
-            ThreadService threadService,
-            StageStateMachine stages,
-            ThreadTurnScheduler scheduler,
-            AgentRunService runs,
-            IdGenerator ids)
+            GitRunner git)
     {
         this.resolver = requireNonNull(resolver, "resolver is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.git = requireNonNull(git, "git is null");
-        this.tasks = requireNonNull(tasks, "tasks is null");
-        this.trunks = requireNonNull(trunks, "trunks is null");
-        this.threadService = requireNonNull(threadService, "threadService is null");
-        this.stages = requireNonNull(stages, "stages is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
-        this.runs = requireNonNull(runs, "runs is null");
-        this.ids = requireNonNull(ids, "ids is null");
     }
 
     public CherryPickResult cherryPick(
@@ -159,13 +119,8 @@ public class WorkspaceCherryPickService
                     note);
         }
 
-        ConflictSession conflict = createConflictSession(
-                workspaceId,
-                sourceBranch,
-                targetRef,
-                resultBranch,
-                main,
-                worktree);
+        String message = "Cherry-pick has conflicts. Resolve or abort it "
+                + "manually in the retained worktree: " + worktree;
         return new CherryPickResult(
                 operationId,
                 "conflicted",
@@ -175,10 +130,10 @@ public class WorkspaceCherryPickService
                 outcome.appliedCount(),
                 outcome.conflictPaths(),
                 worktree.toString(),
-                conflict.trunkId(),
-                conflict.taskId(),
-                conflict.sessionId(),
-                outcome.message());
+                null,
+                null,
+                null,
+                message);
     }
 
     private List<String> contiguousOldestFirst(
@@ -274,109 +229,12 @@ public class WorkspaceCherryPickService
         return candidate;
     }
 
-    private synchronized ConflictSession createConflictSession(
-            String workspaceId,
-            String sourceBranch,
-            String targetRef,
-            String resultBranch,
-            Path main,
-            Path worktree)
-    {
-        Thread trunk = owningTrunk(workspaceId, sourceBranch)
-                .orElseGet(() -> threadService.create(
-                        new ThreadService.NewTaskRequest(
-                                ThreadKind.CLI_AGENT,
-                                "claude-code",
-                                null,
-                                "Resolve cherry-pick conflict",
-                                null,
-                                null,
-                                null,
-                                List.of(),
-                                "CI_FIX",
-                                null,
-                                null,
-                                ThreadFlow.BUILD,
-                                workspaceId,
-                                null)));
-        long seq = tasks.maxSeqForThread(trunk.id()).orElse(0L) + 1L;
-        String taskId = ids.newTaskId(trunk.id(), seq);
-        String title = "Resolve cherry-pick conflict on " + targetRef;
-        Task task = new Task(
-                taskId,
-                trunk.id(),
-                seq,
-                TaskStatus.PENDING,
-                resultBranch,
-                worktree.toString(),
-                targetRef,
-                main.toString(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                "CI_FIX",
-                null,
-                null,
-                0L,
-                0L,
-                0L,
-                null,
-                Instant.now(),
-                null,
-                null,
-                title,
-                null,
-                null,
-                Task.ORIGIN_AUTOMATION);
-        tasks.saveTask(task);
-        StageInstance stage = stages.ensureRunOpen(
-                task.id(), AgentRun.KIND_CI_FIX,
-                StageType.CI_FIXING_STAGE, null);
-        String prompt = "Resolve the in-progress cherry-pick in this task "
-                + "worktree. Preserve the selected commits, finish the "
-                + "cherry-pick cleanly, run relevant checks, and do not push.";
-        AgentRun run = runs.openSchedulerSession(
-                trunk,
-                task.id(),
-                stage.id().toString(),
-                AgentRun.KIND_CI_FIX,
-                prompt);
-        scheduler.enqueueStageTurn(
-                trunk,
-                prompt,
-                task.id(),
-                stage.id().toString(),
-                TurnInitiator.unattended("cherry-pick-conflict"),
-                run.id(),
-                TurnLiveness.CODE);
-        return new ConflictSession(trunk.id(), task.id(), run.id());
-    }
-
-    private Optional<Thread> owningTrunk(
-            String workspaceId,
-            String sourceBranch)
-    {
-        String localBranch = sourceBranch.startsWith("origin/")
-                ? sourceBranch.substring("origin/".length())
-                : sourceBranch;
-        return tasks.findTaskByBranch(localBranch)
-                .flatMap(task -> trunks.findThreadById(task.threadId()))
-                .filter(thread -> workspaceId.equals(thread.workspaceId()));
-    }
-
     private static void requireText(String value, String field)
     {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " is required");
         }
     }
-
-    private record ConflictSession(
-            String trunkId,
-            String taskId,
-            String sessionId) {}
 
     public record CherryPickResult(
             String operationId,

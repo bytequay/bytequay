@@ -14,7 +14,7 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.developmentflow.execution.CapacityManager;
-import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
+import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
@@ -48,10 +48,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -110,7 +107,7 @@ public class TaskPushSaga
     private final TaskPhaseMachine taskMachine;
     private final NotificationService notifications;
     private final LocalReviewSubmissionStore submissions;
-    private final LegacySagaCapacity capacity;
+    private final RetiredSagaGate capacity;
     private final ObjectMapper mapper;
 
     public TaskPushSaga(
@@ -127,7 +124,7 @@ public class TaskPushSaga
             TaskPhaseMachine taskMachine,
             NotificationService notifications,
             LocalReviewSubmissionStore submissions,
-            LegacySagaCapacity capacity,
+            RetiredSagaGate capacity,
             ObjectMapper mapper)
     {
         this.prs = requireNonNull(prs, "prs is null");
@@ -150,6 +147,7 @@ public class TaskPushSaga
     /** Authorize, drive, and return the now-remote PR. */
     public PR push(String prId, boolean humanOverride)
     {
+        rejectLegacyRuntime();
         PR pr = requirePr(prId);
         if (pr.taskId() == null || pr.taskId().isBlank()) {
             throw conflict("local PR " + prId + " has no task");
@@ -173,6 +171,7 @@ public class TaskPushSaga
     /** Wake-up and sweep share this exact driver. */
     public void drive(String token)
     {
+        rejectLegacyRuntime();
         TaskPushAuthorization authorization = pushes.findAuthorization(token).orElse(null);
         if (authorization == null) {
             return;
@@ -203,6 +202,7 @@ public class TaskPushSaga
     public boolean adoptRemotePullRequest(
             String taskId, String repo, int number, String url)
     {
+        rejectLegacyRuntime();
         if (tasks.isV2Task(taskId)) {
             return false;
         }
@@ -219,7 +219,7 @@ public class TaskPushSaga
                     .equalsIgnoreCase(repo)) {
                 throw conflict("remote-open event does not match the authorized repository");
             }
-            Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+            Optional<RetiredSagaGate.Attempt> admitted = capacity.tryAcquire(
                     taskId,
                     authorizationCapacityOperationId(authorization.token(), "adopt"),
                     Set.of(CapacityManager.CapacityLane.GITHUB));
@@ -228,7 +228,7 @@ public class TaskPushSaga
             }
             ObservedCode observed;
             RemoteEvidence remote;
-            try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+            try (RetiredSagaGate.Attempt attempt = admitted.orElseThrow()) {
                 try {
                     Path worktree = Path.of(payload.worktreePath());
                     attempt.requireLive();
@@ -302,6 +302,7 @@ public class TaskPushSaga
      * the later task command. */
     public Optional<RecoveryPlan> prepareRecovery(String taskId, int addedAllowance)
     {
+        rejectLegacyRuntime();
         Task task = requireTask(taskId);
         if (task.phase() != TaskPhase.NEEDS_ATTENTION
                 || task.status() != TaskStatus.NEEDS_ATTENTION) {
@@ -344,6 +345,7 @@ public class TaskPushSaga
      * barrier command consumes it. */
     public Optional<RecoveryPlan> verifyRecoveryRequest(String taskId)
     {
+        rejectLegacyRuntime();
         if (pushes.findActiveByTask(taskId).isEmpty()) {
             return Optional.empty();
         }
@@ -363,6 +365,7 @@ public class TaskPushSaga
      * runnable task with its durable cursor still permanently failed. */
     public void resumeExternalSagaInCommand(RecoveryPlan plan)
     {
+        rejectLegacyRuntime();
         TaskPushAuthorization authorization = pushes.findAuthorization(plan.token())
                 .filter(TaskPushAuthorization::active)
                 .orElseThrow(() -> conflict("push recovery authorization is no longer active"));
@@ -474,10 +477,9 @@ public class TaskPushSaga
         return new ObservedCode(headSha(worktree), fingerprints.fingerprint(worktree));
     }
 
-    @EventListener(ApplicationReadyEvent.class)
-    @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
     public void reconcileActive()
     {
+        rejectLegacyRuntime();
         for (TaskPushAuthorization authorization : pushes.findRecoverable(
                 Instant.now(), RECOVERY_BATCH)) {
             if (tasks.isV2Task(authorization.taskId())) {
@@ -562,14 +564,14 @@ public class TaskPushSaga
                 || pushes.findActiveByTask(taskId).isPresent()) {
             return;
         }
-        Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+        Optional<RetiredSagaGate.Attempt> admitted = capacity.tryAcquire(
                 taskId,
                 "legacy-task-push-pr:" + pr.id() + ":orphan-adoption",
                 Set.of(CapacityManager.CapacityLane.GITHUB));
         if (admitted.isEmpty()) {
             return;
         }
-        try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+        try (RetiredSagaGate.Attempt attempt = admitted.orElseThrow()) {
             try {
                 Path worktree = worktree(task);
                 attempt.requireLive();
@@ -701,6 +703,7 @@ public class TaskPushSaga
     /** Replan/submission may revoke only before the first effect claim. */
     public boolean revokeUnclaimedInCommand(String taskId, String reason)
     {
+        rejectLegacyRuntime();
         TaskCommandExecutor.requireCurrent(taskId);
         return pushes.findActiveByTask(taskId)
                 .map(authorization -> pushes.revokeIfUnclaimed(
@@ -853,13 +856,13 @@ public class TaskPushSaga
 
             // Delivery may be synchronous or a recovery wake; either way the
             // durable step is still pending until shared admission succeeds.
-            Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+            Optional<RetiredSagaGate.Attempt> admitted = capacity.tryAcquire(
                     task.id(), capacityOperationId(effect),
                     Set.of(CapacityManager.CapacityLane.GITHUB));
             if (admitted.isEmpty()) {
                 return;
             }
-            try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+            try (RetiredSagaGate.Attempt attempt = admitted.orElseThrow()) {
                 if (effect.status() == TaskPushEffect.Status.IN_FLIGHT) {
                     if (recoverExpiredClaim(authorization, effect, attempt)) {
                         continue;
@@ -905,7 +908,7 @@ public class TaskPushSaga
     private void finalizeUnderCapacity(
             TaskPushAuthorization authorization, String taskId, Path worktree)
     {
-        Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+        Optional<RetiredSagaGate.Attempt> admitted = capacity.tryAcquire(
                 taskId,
                 authorizationCapacityOperationId(authorization.token(), "finalize"),
                 Set.of(CapacityManager.CapacityLane.GITHUB));
@@ -914,7 +917,7 @@ public class TaskPushSaga
         }
         ObservedCode finalCode;
         RemoteEvidence remote;
-        try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+        try (RetiredSagaGate.Attempt attempt = admitted.orElseThrow()) {
             try {
                 attempt.requireLive();
                 finalCode = observeAuthorizedCode(authorization, worktree);
@@ -953,7 +956,7 @@ public class TaskPushSaga
     private boolean recoverExpiredClaim(
             TaskPushAuthorization authorization,
             TaskPushEffect effect,
-            LegacySagaCapacity.Attempt attempt)
+            RetiredSagaGate.Attempt attempt)
     {
         String evidence;
         try {
@@ -1446,6 +1449,11 @@ public class TaskPushSaga
     private static ResponseStatusException conflict(String message)
     {
         return new ResponseStatusException(HttpStatus.CONFLICT, message);
+    }
+
+    private static void rejectLegacyRuntime()
+    {
+        throw conflict("TaskPushSaga is retired; V2 publish is owned by the typed remote runtime");
     }
 
     private record PublishTarget(RepoRef repo, String apiHead, String headFilter, String base) {}

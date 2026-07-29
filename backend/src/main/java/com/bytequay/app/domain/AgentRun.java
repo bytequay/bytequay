@@ -64,10 +64,19 @@ public record AgentRun(
     public static final String KIND_REVIEW_ROUND = "review_round";
     public static final String KIND_BRANCH_GUARD = "branch_guard";
     public static final String KIND_PANEL_REVIEW = "panel_review";
+    /**
+     * Inert row retained only because the historical investigation-review
+     * schema has non-null foreign keys to {@code agent_run}.  It is not a
+     * Session, lifecycle owner, or execution record.
+     */
+    public static final String KIND_REVIEW_COMPATIBILITY_HEADER =
+            "review_compatibility_header";
 
     public static final String SOURCE_LOCAL = "local";
     public static final String SOURCE_REMOTE = "remote";
     public static final String SOURCE_SCHEDULED = "scheduled";
+    public static final String SOURCE_V2_REVIEW_FOREIGN_KEY =
+            "v2_review_assignment_turn_fk";
 
     public static final String STATUS_QUEUED = "queued";
     public static final String STATUS_RUNNING = "running";
@@ -108,6 +117,12 @@ public record AgentRun(
                 || STATUS_RUNNING.equals(status)
                 || STATUS_PAUSED.equals(status)
                 || STATUS_AWAITING_GATE.equals(status);
+    }
+
+    public boolean isReviewCompatibilityHeader()
+    {
+        return KIND_REVIEW_COMPATIBILITY_HEADER.equals(kind)
+                && SOURCE_V2_REVIEW_FOREIGN_KEY.equals(source);
     }
 
     /** Copy with the iteration count bumped and an optional new headline. */

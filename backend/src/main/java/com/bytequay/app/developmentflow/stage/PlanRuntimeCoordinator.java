@@ -846,7 +846,7 @@ public final class PlanRuntimeCoordinator
             AcceptedApproval duplicate = store.findAcceptedApproval(approvalId)
                     .orElse(null);
             if (duplicate != null) {
-                requireSameApproval(command, approvalId, duplicate);
+                requireSameApproval(command, approvalId, "HUMAN", duplicate);
                 return duplicate;
             }
             ApprovalContext context = store.requireApprovalContext(
@@ -855,6 +855,33 @@ public final class PlanRuntimeCoordinator
             requireApprovalFence(command, context);
             return acceptApprovalInCommand(
                     approvalId, "HUMAN", command.actor(), context);
+        });
+    }
+
+    /** Accepts an exact reviewed Plan on behalf of an attributed local automation. */
+    public AcceptedApproval approvePlanByAutomation(
+            AutomationPlanApprovalCommand automation)
+    {
+        requireNonNull(automation, "automation is null");
+        PlanApprovalCommand command = automation.approval();
+        requireLocalHandoff();
+        return commands.execute(command.taskId(), () -> {
+            TaskCommandExecutor.requireCurrent(command.taskId());
+            String approvalId = id(
+                    "plan-automation-approval",
+                    automation.automationKind() + ":" + command.requestId());
+            AcceptedApproval duplicate = store.findAcceptedApproval(approvalId)
+                    .orElse(null);
+            if (duplicate != null) {
+                requireSameApproval(command, approvalId, "AUTOMATION", duplicate);
+                return duplicate;
+            }
+            ApprovalContext context = store.requireApprovalContext(
+                    command.taskId(), command.stageId(), command.stageGeneration(),
+                    command.revisionId(), command.selfReviewId());
+            requireApprovalFence(command, context);
+            return acceptApprovalInCommand(
+                    approvalId, "AUTOMATION", command.actor(), context);
         });
     }
 
@@ -958,10 +985,11 @@ public final class PlanRuntimeCoordinator
     private static void requireSameApproval(
             PlanApprovalCommand command,
             String approvalId,
+            String expectedKind,
             AcceptedApproval receipt)
     {
         String expectedLocalStage = id("local-stage", approvalId);
-        if (!"HUMAN".equals(receipt.kind())
+        if (!expectedKind.equals(receipt.kind())
                 || !command.actor().equals(receipt.actor())
                 || !command.taskId().equals(receipt.taskId())
                 || command.taskEpoch() != receipt.taskEpoch()
@@ -1435,7 +1463,10 @@ public final class PlanRuntimeCoordinator
             ProvisionTaskOperationHandler.ProvisionEvidence evidence)
     {
         Path worktree = Path.of(required(evidence.worktreePath(), "worktreePath"));
-        if (!"PROVISION_TASK_V1".equals(evidence.schema())
+        boolean legacy = "PROVISION_TASK_V1".equals(evidence.schema());
+        ProvisionTaskOperationHandler.RemotePullRequestSubject pullRequest =
+                evidence.pullRequest();
+        if (!(legacy || "PROVISION_TASK_V2".equals(evidence.schema()))
                 || !owner.id().equals(evidence.taskId())
                 || !expected.operationId().equals(evidence.operationId())
                 || !Objects.equals(expected.taskEpoch(), evidence.taskEpoch())
@@ -1445,6 +1476,17 @@ public final class PlanRuntimeCoordinator
                 || required(evidence.baseSha(), "baseSha").isBlank()
                 || required(evidence.headSha(), "headSha").isBlank()
                 || required(evidence.codeFingerprint(), "codeFingerprint").isBlank()
+                || (evidence.baseSource()
+                        == ProvisionTaskOperationHandler.BaseSource.EXISTING_PR_HEAD
+                    && (!legacy && (pullRequest == null
+                        || pullRequest.number() < 1
+                        || !evidence.repositoryId().equalsIgnoreCase(
+                                pullRequest.headRepositoryId())
+                        || !evidence.baseSha().equals(pullRequest.baseSha())
+                        || !evidence.headSha().equals(pullRequest.headSha()))))
+                || (evidence.baseSource()
+                        != ProvisionTaskOperationHandler.BaseSource.EXISTING_PR_HEAD
+                    && pullRequest != null)
                 || !worktree.isAbsolute()
                 || !worktree.normalize().equals(worktree)) {
             throw new IllegalArgumentException(
@@ -1607,6 +1649,21 @@ public final class PlanRuntimeCoordinator
                     || expectedTaskVersion < 0 || expectedStageVersion < 0) {
                 throw new IllegalArgumentException(
                         "Plan approval fence is invalid");
+            }
+        }
+    }
+
+    public record AutomationPlanApprovalCommand(
+            String automationKind,
+            PlanApprovalCommand approval)
+    {
+        public AutomationPlanApprovalCommand
+        {
+            required(automationKind, "automationKind");
+            requireNonNull(approval, "approval is null");
+            if (!approval.actor().equals("automation/" + automationKind)) {
+                throw new IllegalArgumentException(
+                        "Automation Plan approval actor does not match its kind");
             }
         }
     }

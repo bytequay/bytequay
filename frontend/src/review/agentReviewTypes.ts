@@ -242,6 +242,13 @@ export type PanelReviewRunRow = Omit<AgentRunDto, 'taskId' | 'stageId' | 'review
 
 export type AgentReviewData = {
   review: AgentReviewRow;
+  /** Durable pre-seat source capture. A REQUESTED preparation is active even
+   *  when the ReviewSession does not have a ReviewRound yet. */
+  snapshot_preparation?: {
+    status: 'REQUESTED' | 'COMPLETED' | 'FAILED' | 'CANCELED' | 'SUPERSEDED';
+    error: string | null;
+    scope: 'quick' | 'full';
+  } | null;
   rounds: ReviewRoundRow[];
   runs: PanelReviewRunRow[];
   criteria: CriterionRow[];

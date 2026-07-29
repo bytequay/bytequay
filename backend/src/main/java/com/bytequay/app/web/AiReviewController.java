@@ -19,73 +19,37 @@ import com.bytequay.app.service.ai.AiReviewService;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.google.common.collect.ImmutableMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @RestController
 public class AiReviewController
 {
-    private static final Logger log = LoggerFactory.getLogger(AiReviewController.class);
-    // Streaming runs are bounded by the Anthropic-side STREAM_TIMEOUT in
-    // ClaudeReviewer (5 min); give the SseEmitter a slightly longer ceiling
-    // so the upstream timeout fires first and we surface a clean error.
-    private static final long STREAM_TIMEOUT_MS = 6 * 60 * 1000L;
-
     private final AiReviewService aiReviewService;
     private final LlmReviewerRegistry registry;
     private final AppSettingsStore appSettings;
-    private final Executor executor;
-
-    /**
-     * Tracks the in-flight async run for each (repo, number) pair so the
-     * frontend's status poller has something to look at while the LLM is
-     * working. Lives in memory only — drafts themselves are persisted by
-     * AiReviewService, so a backend restart simply drops the "running" flag
-     * and the user re-clicks. Keyed by "repo#number" since prId isn't known
-     * until after the local PR-store lookup.
-     */
-    private final ConcurrentHashMap<String, RunState> running = new ConcurrentHashMap<>();
 
     public AiReviewController(
             AiReviewService aiReviewService,
             LlmReviewerRegistry registry,
-            AppSettingsStore appSettings,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
+            AppSettingsStore appSettings)
     {
         this.aiReviewService = requireNonNull(aiReviewService, "aiReviewService is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
-        this.executor = requireNonNull(executor, "executor is null");
     }
-
-    public record RunState(String state, String error) {}
-
-    public record StatusResponse(String state, String error) {}
 
     public record ProviderInfo(String providerId, String displayName, boolean configured, boolean active) {}
 
@@ -164,316 +128,6 @@ public class AiReviewController
         }
     }
 
-    /**
-     * POST /ai/review/start?repo=&number= — kicks off the AI review on the
-     * application executor and returns immediately. The frontend polls
-     * /ai/review/status until the run finishes, then GETs the persisted
-     * draft via /ai/review/latest. Idempotent for the (repo, number) pair:
-     * a second call while one is already running is a no-op.
-     */
-    @PostMapping("/ai/review/start")
-    public Map<String, String> start(
-            @RequestParam("prId") long prId,
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
-    {
-        String key = repo + "#" + number;
-        RunState existing = running.get(key);
-        if (existing != null && "RUNNING".equals(existing.state())) {
-            return ImmutableMap.of("state", "RUNNING");
-        }
-        running.put(key, new RunState("RUNNING", null));
-        executor.execute(() -> {
-            try {
-                aiReviewService.runReview(prId, repo, number);
-                running.put(key, new RunState("DONE", null));
-            }
-            catch (Exception e) {
-                log.warn("AI review run failed for {}: {}", key, e.getMessage());
-                running.put(key, new RunState("FAILED", e.getMessage()));
-            }
-        });
-        return ImmutableMap.of("state", "RUNNING");
-    }
-
-    /**
-     * GET /ai/review/status?repo=&number= — current state of the most recent
-     * start() for this PR. Returns IDLE when nothing has been kicked off
-     * since backend startup; the frontend treats IDLE the same as DONE for
-     * fetch purposes.
-     */
-    @GetMapping("/ai/review/status")
-    public StatusResponse status(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
-    {
-        RunState state = running.get(repo + "#" + number);
-        if (state == null) {
-            return new StatusResponse("IDLE", null);
-        }
-        return new StatusResponse(state.state(), state.error());
-    }
-
-    /**
-     * Starts the no-tools, supplied-diff-only review for an external unified
-     * PR. Unlike AgentReview this creates no thread, session, run, or round.
-     */
-    @PostMapping("/api/prs/{prId}/quick-review/start")
-    public Map<String, String> startQuickReview(@PathVariable String prId)
-    {
-        String key = quickReviewKey(prId);
-        AtomicBoolean reserved = new AtomicBoolean();
-        RunState reservation = new RunState("RUNNING", null);
-        running.compute(key, (ignored, existing) -> {
-            if (existing == null || !"RUNNING".equals(existing.state())) {
-                reserved.set(true);
-                return reservation;
-            }
-            return existing;
-        });
-        if (!reserved.get()) {
-            return ImmutableMap.of("state", "RUNNING");
-        }
-        try {
-            executor.execute(() -> {
-                try {
-                    aiReviewService.runQuickReview(prId);
-                    running.put(key, new RunState("DONE", null));
-                }
-                catch (Exception e) {
-                    String message = errorMessage(e);
-                    log.warn("Quick review run failed for PR {}: {}", prId, message);
-                    running.put(key, new RunState("FAILED", message));
-                }
-            });
-        }
-        catch (RuntimeException e) {
-            running.replace(key, reservation, new RunState("FAILED", errorMessage(e)));
-            throw e;
-        }
-        return ImmutableMap.of("state", "RUNNING");
-    }
-
-    @GetMapping("/api/prs/{prId}/quick-review/status")
-    public StatusResponse quickReviewStatus(@PathVariable String prId)
-    {
-        RunState state = running.get(quickReviewKey(prId));
-        return state == null
-                ? new StatusResponse("IDLE", null)
-                : new StatusResponse(state.state(), state.error());
-    }
-
-    @GetMapping("/api/prs/{prId}/quick-review/latest")
-    public AiReviewDraft latestQuickReview(@PathVariable String prId)
-    {
-        return aiReviewService.latestQuickReview(prId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "No quick review for this PR"));
-    }
-
-    private static String quickReviewKey(String prId)
-    {
-        return "quick:" + prId;
-    }
-
-    private static String errorMessage(Exception error)
-    {
-        return error instanceof ResponseStatusException status && status.getReason() != null
-                ? status.getReason()
-                : error.getMessage();
-    }
-
-    /** POST /ai/review?prId=&repo=&number= — runs a single review against the active LLM. */
-    @PostMapping("/ai/review")
-    public AiReviewDraft run(
-            @RequestParam("prId") long prId,
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
-    {
-        return aiReviewService.runReview(prId, repo, number);
-    }
-
-    /**
-     * GET /ai/review/stream?repo=&number= — same review, streamed back as SSE.
-     *
-     * <p>Event types:
-     * <ul>
-     *   <li>{@code delta} — raw text chunks from the model as they arrive</li>
-     *   <li>{@code complete} — the persisted {@link AiReviewDraft} after parsing</li>
-     *   <li>{@code error} — terminal failure, includes a user-readable message</li>
-     * </ul>
-     * The work runs on the application executor so we don't pin a Tomcat
-     * worker for the duration of the upstream LLM call.
-     */
-    @GetMapping(value = "/ai/review/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(
-            @RequestParam("prId") long prId,
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
-    {
-        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
-        executor.execute(() -> runStream(emitter, prId, repo, number));
-        return emitter;
-    }
-
-    private void runStream(SseEmitter emitter, long prId, String repo, int number)
-    {
-        try {
-            AiReviewDraft draft = aiReviewService.streamReview(prId, repo, number, chunk -> sendDelta(emitter, chunk));
-            emitter.send(SseEmitter.event().name("complete").data(draft));
-            emitter.complete();
-        }
-        catch (ResponseStatusException e) {
-            sendError(emitter, e.getReason() != null ? e.getReason() : e.getMessage());
-        }
-        catch (Exception e) {
-            log.warn("AI review stream failed for {}#{}: {}", repo, number, e.getMessage());
-            sendError(emitter, e.getMessage());
-        }
-    }
-
-    private static void sendDelta(SseEmitter emitter, String chunk)
-    {
-        try {
-            emitter.send(SseEmitter.event().name("delta").data(ImmutableMap.of("text", chunk)));
-        }
-        catch (IOException e) {
-            // Client closed the stream — surface as a runtime exception so the
-            // outer try/catch in runStream stops the upstream call promptly.
-            throw new RuntimeException("SSE channel closed", e);
-        }
-    }
-
-    private void sendError(SseEmitter emitter, String message)
-    {
-        try {
-            emitter.send(SseEmitter.event().name("error").data(ImmutableMap.of("message", message == null ? "unknown error" : message)));
-            emitter.complete();
-        }
-        catch (IOException ignored) {
-            emitter.completeWithError(ignored);
-        }
-    }
-
-    public record EditCommentRequest(String editedBody) {}
-
-    /**
-     * PUT /ai/review/{draftId}/comments/{commentId} — edit a single AI
-     * comment's body. Pass {@code editedBody=""} (or null) to clear the
-     * edit and revert to the AI's original. Returns the parent draft so
-     * the frontend re-renders without a separate fetch.
-     */
-    @PutMapping("/ai/review/{draftId}/comments/{commentId}")
-    public AiReviewDraft updateComment(
-            @PathVariable long draftId,
-            @PathVariable long commentId,
-            @RequestBody EditCommentRequest req)
-    {
-        return aiReviewService.updateCommentBody(draftId, commentId, req.editedBody());
-    }
-
-    /** DELETE /ai/review/{draftId}/comments/{commentId} — drop one finding. */
-    @DeleteMapping("/ai/review/{draftId}/comments/{commentId}")
-    public AiReviewDraft deleteComment(@PathVariable long draftId, @PathVariable long commentId)
-    {
-        return aiReviewService.deleteComment(draftId, commentId);
-    }
-
-    public record StageCommentRequest(
-            long prId,
-            String repo,
-            int number,
-            String headSha,
-            String filePath,
-            int line,
-            String side,
-            Integer startLine,
-            String startSide,
-            String body)
-    {}
-
-    /**
-     * POST /ai/review/stage — appends a human-authored inline comment to
-     * the active review draft for a PR (creating a draft if none exists).
-     * The comment stays local until the user calls /publish; the response
-     * is the refreshed draft so the frontend can re-render the tray.
-     */
-    @PostMapping("/ai/review/stage")
-    public AiReviewDraft stageComment(@RequestBody StageCommentRequest req)
-    {
-        return aiReviewService.stageHumanComment(
-                req.prId(),
-                req.repo(),
-                req.number(),
-                req.headSha(),
-                req.filePath(),
-                req.line(),
-                req.side(),
-                req.startLine(),
-                req.startSide(),
-                req.body());
-    }
-
-    public record DismissCommentRequest(boolean dismissed) {}
-
-    /**
-     * PUT /ai/review/{draftId}/comments/{commentId}/dismissed — soft-toggle
-     * for dismiss/restore. Body: {"dismissed": true|false}. Dismissed
-     * comments are kept on the row but excluded from the publish payload.
-     */
-    @PutMapping("/ai/review/{draftId}/comments/{commentId}/dismissed")
-    public AiReviewDraft setCommentDismissed(
-            @PathVariable long draftId,
-            @PathVariable long commentId,
-            @RequestBody DismissCommentRequest req)
-    {
-        return aiReviewService.setCommentDismissed(draftId, commentId, req.dismissed());
-    }
-
-    /**
-     * POST /ai/review/{draftId}/publish?event=COMMENT|APPROVE|REQUEST_CHANGES
-     * — turns a stored draft into a real GitHub review. The service resolves
-     * the appropriate PAT (per-repo override falling back to account) from
-     * the draft's repo internally.
-     */
-    public record PublishRequest(String body) {}
-
-    @PostMapping("/ai/review/{draftId}/publish")
-    public AiReviewDraft publish(
-            @PathVariable long draftId,
-            @RequestParam(value = "event", required = false, defaultValue = "COMMENT") String event,
-            @RequestBody(required = false) PublishRequest req)
-    {
-        String body = req != null ? req.body() : null;
-        return aiReviewService.publish(draftId, event, body);
-    }
-
-    public record PublishForPrRequest(
-            long prId,
-            String repo,
-            int number,
-            String headSha,
-            String event,
-            String body)
-    {}
-
-    /**
-     * POST /ai/review/publish-for-pr — verdict-first publish path. The
-     * backend finds-or-creates the active draft for the PR and submits
-     * it, so an Approve / Comment with no inline comments still works.
-     */
-    @PostMapping("/ai/review/publish-for-pr")
-    public AiReviewDraft publishForPr(@RequestBody PublishForPrRequest req)
-    {
-        return aiReviewService.publishForPr(
-                req.prId(),
-                req.repo(),
-                req.number(),
-                req.headSha(),
-                req.event(),
-                req.body());
-    }
-
     /** GET /ai/review/latest?prId= — returns the most recent draft for a PR. */
     @GetMapping("/ai/review/latest")
     public AiReviewDraft latest(@RequestParam("prId") long prId)
@@ -487,14 +141,6 @@ public class AiReviewController
     public List<AiReviewDraft> history(@RequestParam("prId") long prId)
     {
         return aiReviewService.history(prId);
-    }
-
-    /** DELETE /ai/review/{draftId} — removes a draft + its comments. */
-    @DeleteMapping("/ai/review/{draftId}")
-    public Map<String, String> delete(@PathVariable long draftId)
-    {
-        aiReviewService.delete(draftId);
-        return ImmutableMap.of("result", "deleted");
     }
 
     /** GET /ai/settings — the active provider + configured model. */

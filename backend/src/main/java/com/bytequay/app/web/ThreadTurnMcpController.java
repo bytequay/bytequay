@@ -18,7 +18,6 @@ import com.bytequay.app.service.mcp.McpService;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,9 +34,6 @@ import static java.util.Objects.requireNonNull;
 /** Operation-scoped MCP endpoint that is live only for its leased ThreadTurn. */
 @RestController
 @RequestMapping("/api/v2/thread-turns/{turnId}/operations/{operationId}/mcp")
-@ConditionalOnProperty(
-        name = "bytequay.development-flow.v2-dispatch-enabled",
-        havingValue = "true")
 public final class ThreadTurnMcpController
 {
     private static final String SESSION_HEADER = "Mcp-Session-Id";

@@ -32,7 +32,6 @@ import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -143,7 +142,6 @@ public class IterationService
     /** Per-fix CI detail enriching a {@code red_ci} iteration event. */
     public record CiFixContext(String failedCheck, String errorMessage, String actionsRunUrl) {}
 
-    @EventListener
     @Transactional
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {

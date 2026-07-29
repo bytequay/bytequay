@@ -13,48 +13,21 @@
  */
 package com.bytequay.app.developmentflow.compatibility;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
-import java.util.Set;
-import java.util.stream.Collectors;
-
-/** Immutable-at-creation route: the Workspace allow-list is the creation control. */
+/** Permanent creation cutover. Legacy settings remain diagnostics only. */
 @Component
 public final class DevelopmentFlowCanaryRoute
 {
-    private static final String ALL_WORKSPACES = "*";
-
-    private final boolean v2DispatchEnabled;
-    private final Set<String> workspaceAllowList;
-
-    public DevelopmentFlowCanaryRoute(
-            @Value("${bytequay.development-flow.v2-dispatch-enabled:false}")
-            boolean v2DispatchEnabled,
-            @Value("${bytequay.development-flow.v2-workspace-allow-list:}")
-            String workspaceAllowList)
-    {
-        this.v2DispatchEnabled = v2DispatchEnabled;
-        this.workspaceAllowList = Arrays.stream(workspaceAllowList.split(","))
-                .map(String::strip)
-                .filter(value -> !value.isEmpty())
-                .collect(Collectors.toUnmodifiableSet());
-    }
-
     public boolean routesNewTaskToV2(String workspaceId)
     {
-        return workspaceId != null
-                && (workspaceAllowList.contains(ALL_WORKSPACES)
-                        || workspaceAllowList.contains(workspaceId));
+        return workspaceId != null && !workspaceId.isBlank();
     }
 
     public Snapshot snapshot()
     {
-        return new Snapshot(v2DispatchEnabled, workspaceAllowList);
+        return new Snapshot(true);
     }
 
-    public record Snapshot(
-            boolean v2DispatchEnabled,
-            Set<String> workspaceAllowList) {}
+    public record Snapshot(boolean v2Only) {}
 }

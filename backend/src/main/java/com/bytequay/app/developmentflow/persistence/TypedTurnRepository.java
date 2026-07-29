@@ -25,8 +25,8 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Additive V2 persistence only. Production routing remains on the legacy
- * stores until the owning development-flow slice switches it explicitly.
+ * Typed V2 Turn persistence. Retained legacy stores are read-only history and
+ * are never an execution route.
  */
 @Repository
 public class TypedTurnRepository

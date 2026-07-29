@@ -80,7 +80,7 @@ class TestReviewAssignmentTurnRuntimeMigration
             seedPublishedRemoteTask(connection, 1);
             seedReview(connection);
         }
-        Flyway.configure().dataSource(url, "", "").target("262").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target("278").load().migrate();
         dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         jdbc = new JdbcTemplate(dataSource);
@@ -127,6 +127,132 @@ class TestReviewAssignmentTurnRuntimeMigration
     }
 
     @Test
+    void primaryReservationsAndFollowUpRemainWithinTheRoundCapAcrossRestart()
+    {
+        seedAssignment("assignment-review-2");
+        seedAssignment("assignment-review-3");
+        Admission first = primary(
+                "review-turn-1", "review-operation-1", "review-ticket-1",
+                "assignment-review-1", 334);
+        Admission second = primary(
+                "review-turn-2", "review-operation-2", "review-ticket-2",
+                "assignment-review-2", 333);
+        Admission third = primary(
+                "review-turn-3", "review-operation-3", "review-ticket-3",
+                "assignment-review-3", 333);
+
+        store.admitRound(
+                "round-1", "head-1", List.of(first, second, third), NOW);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT SUM(cost_cap_usd_milli)
+                FROM review_assignment_turn
+                WHERE status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                """, Long.class)).isEqualTo(1000L);
+        assertThat(store.remainingCostUsdMilli("round-1")).isZero();
+
+        assertThat(store.accept(result(first, SUCCEEDED, PROVIDER_SUCCEEDED)).acceptance())
+                .isEqualTo(ACCEPTED);
+        assertThat(store.remainingCostUsdMilli("round-1")).isEqualTo(322);
+
+        seedGuidance("message-budget", "assignment-guidance", "planner");
+        Admission guidance = new Admission(
+                "review-turn-guidance", "review-operation-guidance",
+                "review-ticket-guidance", "assignment-guidance", ROUND_GUIDANCE,
+                guidanceSubject("message-budget", "planner"), null, 1, "head-1",
+                AgentTurnProviderSession.Transport.API, 500,
+                launch("review-turn-guidance", "review-operation-guidance"));
+        store.admitFollowUp("round-1", "head-1", guidance, NOW.plusSeconds(1));
+
+        assertThat(jdbc.queryForObject("""
+                SELECT cost_cap_usd_milli FROM review_assignment_turn
+                WHERE id = 'review-turn-guidance'
+                """, Long.class)).isEqualTo(322L);
+        SqliteReviewAssignmentTurnStore restarted = new SqliteReviewAssignmentTurnStore(
+                new JdbcTemplate(dataSource),
+                new SqliteDispatchWakeStore(new JdbcTemplate(dataSource)), JSON);
+        assertThat(restarted.remainingCostUsdMilli("round-1")).isZero();
+        assertThat(restarted.protectedCostUsdMilli("round-1")).isEqualTo(1000);
+        assertThatThrownBy(() -> jdbc.update("""
+                UPDATE review_round
+                SET budget_json = '{"cost_cap_cents":75,"wall_clock_minutes":10}'
+                WHERE id = 'round-1'
+                """))
+                .hasMessageContaining("below durable spend and reservations");
+    }
+
+    @Test
+    void standaloneReviewUsesWorkspaceScopeAndNullTaskFence()
+    {
+        seedStandaloneReview();
+        Admission admission = new Admission(
+                "standalone-turn-1", "standalone-operation-1", "standalone-ticket-1",
+                "assignment-review-1", "investigate", "assignment-review-1",
+                null, 1, "head-1", AgentTurnProviderSession.Transport.API,
+                1000,
+                launch("standalone-turn-1", "standalone-operation-1"));
+
+        store.admitRound("round-1", "head-1", List.of(admission), NOW);
+
+        assertThat(value("""
+                SELECT workspace_id FROM dispatch_ticket
+                WHERE id = 'standalone-ticket-1'
+                """)).isEqualTo("workspace-1");
+        assertThat(jdbc.queryForObject("""
+                SELECT trunk_id FROM dispatch_ticket
+                WHERE id = 'standalone-ticket-1'
+                """, String.class)).isNull();
+        assertThat(jdbc.queryForObject("""
+                SELECT task_id FROM dispatch_ticket
+                WHERE id = 'standalone-ticket-1'
+                """, String.class)).isNull();
+        assertThat(jdbc.queryForObject("""
+                SELECT task_epoch FROM dispatch_ticket
+                WHERE id = 'standalone-ticket-1'
+                """, Long.class)).isNull();
+
+        assertThat(store.tryStart(
+                admission.turnId(), admission.operationId(), NOW.plusSeconds(1)))
+                .isEqualTo(ReviewAssignmentTurnOperationHandler.StartDisposition.STARTED);
+        assertThat(store.accept(result(
+                admission, SUCCEEDED, PROVIDER_SUCCEEDED, null)).acceptance())
+                .isEqualTo(ACCEPTED);
+        assertThat(jdbc.queryForObject("""
+                SELECT cost_cents FROM review_round
+                WHERE id = 'round-1'
+                """, Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT cost_usd_milli FROM agent_run
+                WHERE id = 'review-run-1'
+                """, Long.class)).isZero();
+    }
+
+    @Test
+    void resultDeliveryFailsClosedWhenAProviderReportsCostPastItsTurnCap()
+    {
+        Admission admission = primary(
+                "review-turn-over-cap", "review-operation-over-cap",
+                "review-ticket-over-cap", "assignment-review-1", 10);
+        store.admitRound("round-1", "head-1", List.of(admission), NOW);
+
+        ResultReceipt receipt = store.accept(
+                result(admission, SUCCEEDED, PROVIDER_SUCCEEDED));
+
+        assertThat(receipt.acceptance()).isEqualTo(ACCEPTED);
+        assertThat(value("""
+                SELECT status FROM review_assignment_turn
+                WHERE id = 'review-turn-over-cap'
+                """)).isEqualTo("FAILED");
+        assertThat(value("SELECT status FROM review_round WHERE id = 'round-1'"))
+                .isEqualTo("ERRORED");
+        assertThat(jdbc.queryForObject("""
+                SELECT cost_usd_milli
+                FROM review_assignment_turn_result_receipt
+                WHERE turn_id = 'review-turn-over-cap'
+                """, Long.class)).isEqualTo(12L);
+    }
+
+    @Test
     void staleHeadOwnerSupersedesLateResultWithoutReopeningReview()
     {
         Admission admission = admission(
@@ -168,8 +294,13 @@ class TestReviewAssignmentTurnRuntimeMigration
                 candidate.assignmentId(), "investigate", candidate.assignmentId(), null,
                 2, candidate.startCommit(),
                 AgentTurnProviderSession.Transport.API,
+                candidate.costCapUsdMilli(),
                 launch("review-turn-retry", "review-operation-retry"));
         store.retry(retry, NOW.plusSeconds(2));
+        assertThat(jdbc.queryForObject("""
+                SELECT cost_cap_usd_milli FROM review_assignment_turn
+                WHERE id = 'review-turn-retry'
+                """, Long.class)).isEqualTo(988L);
         assertThat(store.tryStart(retry.turnId(), retry.operationId(), NOW.plusSeconds(3)))
                 .isEqualTo(ReviewAssignmentTurnOperationHandler.StartDisposition.STARTED);
         assertThat(store.accept(result(retry, SUCCEEDED, PROVIDER_SUCCEEDED)).acceptance())
@@ -184,7 +315,7 @@ class TestReviewAssignmentTurnRuntimeMigration
                 """))
                 .isEqualTo("PRIMARY");
         assertThat(value("SELECT status FROM agent_run WHERE id = 'review-run-1'"))
-                .isEqualTo("running");
+                .isEqualTo("succeeded");
     }
 
     @Test
@@ -230,9 +361,9 @@ class TestReviewAssignmentTurnRuntimeMigration
     @Test
     void purposeSpecificFollowUpsAreIdempotentAndSurviveRestart()
     {
-        Admission primary = admission(
+        Admission primary = primary(
                 "review-turn-primary", "review-operation-primary",
-                "review-ticket-primary", 1);
+                "review-ticket-primary", "assignment-review-1", 250);
         store.admitRound("round-1", "head-1", List.of(primary), NOW);
         assertThat(store.movePhase(
                 "round-1", FlowPhase.PRIMARY, FlowPhase.SELF_REFUTATION,
@@ -354,6 +485,10 @@ class TestReviewAssignmentTurnRuntimeMigration
         assertThat(value("""
                 SELECT status FROM review_assignment WHERE id = 'assignment-guidance-1'
                 """)).isEqualTo("errored");
+        assertThat(jdbc.queryForObject("""
+                SELECT cost_cents FROM review_round WHERE id = 'round-1'
+                """, Integer.class)).isEqualTo(3);
+        assertThat(store.remainingCostUsdMilli("round-1")).isEqualTo(976);
     }
 
     @Test
@@ -523,8 +658,12 @@ class TestReviewAssignmentTurnRuntimeMigration
                 """);
         execute(connection, """
                 INSERT INTO agent_run(
-                    id, kind, review_round_id, status, started_at_ms)
-                VALUES ('review-run-1', 'panel_review', 'round-1', 'running', 10)
+                    id, kind, source, review_round_id, status,
+                    started_at_ms, finished_at_ms, outcome)
+                VALUES (
+                    'review-run-1', 'review_compatibility_header',
+                    'v2_review_assignment_turn_fk', 'round-1',
+                    'succeeded', 10, 10, 'completed')
                 """);
         execute(connection, """
                 INSERT INTO review_round(
@@ -567,6 +706,18 @@ class TestReviewAssignmentTurnRuntimeMigration
                 turnId, operationId, ticketId, "assignment-review-1",
                 "investigate", "assignment-review-1", null, attempt, "head-1",
                 AgentTurnProviderSession.Transport.API,
+                1000,
+                launch(turnId, operationId));
+    }
+
+    private static Admission primary(
+            String turnId, String operationId, String ticketId,
+            String assignmentId, long costCapUsdMilli)
+    {
+        return new Admission(
+                turnId, operationId, ticketId, assignmentId,
+                "investigate", assignmentId, null, 1, "head-1",
+                AgentTurnProviderSession.Transport.API, costCapUsdMilli,
                 launch(turnId, operationId));
     }
 
@@ -579,6 +730,7 @@ class TestReviewAssignmentTurnRuntimeMigration
                 turnId, operationId, ticketId, assignmentId,
                 purpose, subjectKey, verifierRunId, 1, "head-1",
                 AgentTurnProviderSession.Transport.API,
+                250,
                 launch(turnId, operationId));
     }
 
@@ -586,8 +738,12 @@ class TestReviewAssignmentTurnRuntimeMigration
     {
         jdbc.update("""
                 INSERT INTO agent_run(
-                    id, kind, review_round_id, status, started_at_ms)
-                VALUES ('verifier-run-1', 'panel_review', 'round-1', 'running', 20)
+                    id, kind, source, review_round_id, status,
+                    started_at_ms, finished_at_ms, outcome)
+                VALUES (
+                    'verifier-run-1', 'review_compatibility_header',
+                    'v2_review_assignment_turn_fk', 'round-1',
+                    'succeeded', 20, 20, 'completed')
                 """);
         jdbc.update("""
                 INSERT INTO review_assignment(
@@ -597,6 +753,27 @@ class TestReviewAssignmentTurnRuntimeMigration
                 VALUES ('assignment-verifier-1', 'round-1', 'general-api', 'api',
                     'verifying', 'Independent verification', '[]', '[]',
                     '{"hypotheses":0,"active_hypotheses":0,"steps":6,"findings":5}')
+                """);
+    }
+
+    private void seedAssignment(String assignmentId)
+    {
+        jdbc.update("""
+                INSERT INTO review_assignment(
+                    id, round_id, reviewer_def_id, runner, status,
+                    understanding_summary, assumptions_json, unknowns_json,
+                    budget_json)
+                VALUES (?, 'round-1', 'general-api', 'api', 'queued', '', '[]', '[]',
+                    '{"hypotheses":6,"active_hypotheses":3,"steps":12,"findings":5}')
+                """, assignmentId);
+    }
+
+    private void seedStandaloneReview()
+    {
+        jdbc.update("""
+                UPDATE review_session
+                SET owner_thread_id = NULL, owner_task_id = NULL
+                WHERE id = 'review-1'
                 """);
     }
 

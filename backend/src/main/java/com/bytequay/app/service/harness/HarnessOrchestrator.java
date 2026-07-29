@@ -70,7 +70,7 @@ import java.util.concurrent.Executor;
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
-/** Durable watch/cycle phase machine. All model work goes through AgentScheduler's API lane. */
+/** Durable watch/cycle phase machine. Model calls run inside this bounded owner. */
 @Service
 public class HarnessOrchestrator
 {

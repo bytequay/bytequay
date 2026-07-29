@@ -78,7 +78,7 @@ public class ReviewerSeat
     private final ObjectMapper mapper;
     private final CliReviewRunner cliRunner;
     private final CliReviewSessionRegistry cliSessions;
-    private final LegacyReviewAdmission admission;
+    private final ReviewCallContext calls;
 
     public ReviewerSeat(
             TurnRunner runner,
@@ -91,7 +91,7 @@ public class ReviewerSeat
             ObjectMapper mapper,
             CliReviewRunner cliRunner,
             CliReviewSessionRegistry cliSessions,
-            LegacyReviewAdmission admission)
+            ReviewCallContext calls)
     {
         this.runner = requireNonNull(runner, "runner is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
@@ -103,7 +103,7 @@ public class ReviewerSeat
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
         this.cliSessions = requireNonNull(cliSessions, "cliSessions is null");
-        this.admission = requireNonNull(admission, "admission is null");
+        this.calls = requireNonNull(calls, "calls is null");
     }
 
     /** Thrown when a dispatch would spend past the seat's slice. The
@@ -231,14 +231,14 @@ public class ReviewerSeat
                 executor, hooks);
         TurnResult result;
         if (capacityHeld) {
-            admission.requireCurrent(
-                    pass, LegacyReviewAdmission.ProviderLane.API, attemptId);
+            calls.requireCurrent(
+                    pass, ReviewCallContext.ProviderLane.API, attemptId);
             result = launch.get();
         }
         else {
-            result = admission.invoke(
+            result = calls.invoke(
                     pass,
-                    LegacyReviewAdmission.ProviderLane.API,
+                    ReviewCallContext.ProviderLane.API,
                     attemptId,
                     launch::get);
         }
@@ -311,14 +311,14 @@ public class ReviewerSeat
         CliReviewRunner.Result result;
         try {
             if (capacityHeld) {
-                admission.requireCurrent(
-                        pass, LegacyReviewAdmission.ProviderLane.CLI, attemptId);
+                calls.requireCurrent(
+                        pass, ReviewCallContext.ProviderLane.CLI, attemptId);
                 result = launch.get();
             }
             else {
-                result = admission.invoke(
+                result = calls.invoke(
                         pass,
-                        LegacyReviewAdmission.ProviderLane.CLI,
+                        ReviewCallContext.ProviderLane.CLI,
                         attemptId,
                         launch::get);
             }
@@ -376,7 +376,7 @@ public class ReviewerSeat
         String discriminator = excludeMessageId == null || excludeMessageId.isBlank()
                 ? directive
                 : excludeMessageId;
-        return LegacyReviewAdmission.attemptId(
+        return ReviewCallContext.attemptId(
                 "seat", participantId, phase, round, discriminator);
     }
 

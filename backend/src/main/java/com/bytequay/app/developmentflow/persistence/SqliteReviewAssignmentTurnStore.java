@@ -195,7 +195,7 @@ public class SqliteReviewAssignmentTurnStore
         return jdbc.query("""
                 SELECT turn.assignment_id, turn.start_commit, turn.purpose,
                        turn.subject_key, turn.verifier_run_id, turn.attempt,
-                       turn.launch_input
+                       turn.cost_cap_usd_milli, turn.launch_input
                 FROM review_assignment_turn turn
                 JOIN review_assignment assignment ON assignment.id = turn.assignment_id
                 JOIN review_round round ON round.id = assignment.round_id
@@ -219,6 +219,7 @@ public class SqliteReviewAssignmentTurnStore
                         rs.getString("subject_key"),
                         rs.getString("verifier_run_id"),
                         rs.getInt("attempt"),
+                        rs.getLong("cost_cap_usd_milli"),
                         rs.getString("launch_input")), assignmentId)
                 .stream().findFirst();
     }
@@ -260,12 +261,6 @@ public class SqliteReviewAssignmentTurnStore
         if (reopened != 1) {
             throw new IllegalStateException("review round is no longer retryable");
         }
-        jdbc.update("""
-                UPDATE agent_run
-                SET status = 'running', headline = NULL, finished_at_ms = NULL
-                WHERE id = (SELECT agent_run_id FROM review_round WHERE id = ?)
-                  AND status = 'failed'
-                """, state.roundId());
         jdbc.update("""
                 UPDATE review_assignment
                 SET status = 'queued'
@@ -315,7 +310,8 @@ public class SqliteReviewAssignmentTurnStore
                 SELECT turn.id AS turn_id, turn.operation_id,
                        assignment.round_id, turn.assignment_id,
                        turn.start_commit, turn.purpose, turn.subject_key,
-                       turn.verifier_run_id, turn.attempt, turn.launch_input
+                       turn.verifier_run_id, turn.attempt,
+                       turn.cost_cap_usd_milli, turn.launch_input
                 FROM review_assignment_turn turn
                 JOIN review_assignment assignment
                   ON assignment.id = turn.assignment_id
@@ -368,6 +364,7 @@ public class SqliteReviewAssignmentTurnStore
                                 rs.getString("subject_key"),
                                 rs.getString("verifier_run_id"),
                                 rs.getInt("attempt"),
+                                rs.getLong("cost_cap_usd_milli"),
                                 rs.getString("launch_input")),
                 predecessorTurnId, predecessorOperationId, waitKind, waitId,
                 waitKind, waitId, waitKind, waitId).stream().findFirst();
@@ -547,6 +544,60 @@ public class SqliteReviewAssignmentTurnStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public long remainingCostUsdMilli(String roundId)
+    {
+        requireText(roundId, "roundId");
+        return jdbc.query("""
+                SELECT MAX(0,
+                    CAST(COALESCE(
+                        json_extract(round.budget_json, '$.cost_cap_cents'),
+                        json_extract(round.budget_json, '$.costCapCents')) AS INTEGER) * 10
+                    - COALESCE((
+                        SELECT SUM(receipt.cost_usd_milli)
+                        FROM review_assignment_turn_result_receipt receipt
+                        WHERE receipt.round_id = round.id), 0)
+                    - COALESCE((
+                        SELECT SUM(turn.cost_cap_usd_milli)
+                        FROM review_assignment_turn turn
+                        JOIN review_assignment assignment
+                          ON assignment.id = turn.assignment_id
+                        WHERE assignment.round_id = round.id
+                          AND turn.status IN (
+                              'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')), 0))
+                FROM review_round round
+                WHERE round.id = ?
+                """, (rs, row) -> rs.getLong(1), roundId).stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "review round does not exist"));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long protectedCostUsdMilli(String roundId)
+    {
+        requireText(roundId, "roundId");
+        return jdbc.query("""
+                SELECT COALESCE((
+                        SELECT SUM(receipt.cost_usd_milli)
+                        FROM review_assignment_turn_result_receipt receipt
+                        WHERE receipt.round_id = round.id), 0)
+                    + COALESCE((
+                        SELECT SUM(turn.cost_cap_usd_milli)
+                        FROM review_assignment_turn turn
+                        JOIN review_assignment assignment
+                          ON assignment.id = turn.assignment_id
+                        WHERE assignment.round_id = round.id
+                          AND turn.status IN (
+                              'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')), 0)
+                FROM review_round round
+                WHERE round.id = ?
+                """, (rs, row) -> rs.getLong(1), roundId).stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "review round does not exist"));
+    }
+
+    @Override
     @Transactional
     public boolean movePhase(
             String roundId, FlowPhase expected, FlowPhase next, Instant changedAt)
@@ -612,6 +663,7 @@ public class SqliteReviewAssignmentTurnStore
                        turn.subject_key, turn.verifier_run_id,
                        turn.status AS turn_status, turn.operation_id, turn.attempt,
                        turn.start_commit, turn.launch_input,
+                       turn.cost_cap_usd_milli,
                        round.status AS round_status, session.status AS review_status,
                        session.workspace_id, session.owner_thread_id,
                        session.owner_task_id, task.epoch AS task_epoch,
@@ -781,14 +833,20 @@ public class SqliteReviewAssignmentTurnStore
         DispatchTicket.Acceptance acceptance = current
                 ? DispatchTicket.Acceptance.ACCEPTED
                 : DispatchTicket.Acceptance.SUPERSEDED;
-        String terminal = current ? terminal(command.outcome()) : "SUPERSEDED";
+        boolean exceeded = command.costUsdMilli() > owner.costCapUsdMilli();
+        String terminal = current
+                ? exceeded ? "FAILED" : terminal(command.outcome())
+                : "SUPERSEDED";
+        String error = exceeded
+                ? "provider exceeded the frozen review Turn cost cap"
+                : command.error();
         int transitioned = jdbc.update("""
                 UPDATE review_assignment_turn
                 SET status = ?, finished_at_ms = ?, error_message = ?
                 WHERE id = ? AND operation_id = ?
                   AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
                   AND finished_at_ms IS NULL
-                """, terminal, command.recordedAt().toEpochMilli(), command.error(),
+                """, terminal, command.recordedAt().toEpochMilli(), error,
                 command.turnId(), command.operationId());
         if (transitioned != 1) {
             throw new IllegalStateException("review Turn result is stale or already terminal");
@@ -800,7 +858,7 @@ public class SqliteReviewAssignmentTurnStore
         }
         if (ROUND_GUIDANCE.equals(owner.purpose())
                 && !"SUCCEEDED".equals(terminal)) {
-            projectGuidanceFailure(owner, terminal, command.error(), command.recordedAt());
+            projectGuidanceFailure(owner, terminal, error, command.recordedAt());
         }
         String receiptId = "review-result:" + UUID.randomUUID();
         String evidence = evidence(receiptId, owner.roundId(), terminal);
@@ -820,7 +878,7 @@ public class SqliteReviewAssignmentTurnStore
                 command.disposition() == null ? null : command.disposition().name(),
                 acceptance.name(), terminal, command.finalText(), command.inputTokens(),
                 command.outputTokens(), command.costUsdMilli(), command.providerSessionId(),
-                command.payloadJson(), evidence, command.error(),
+                command.payloadJson(), evidence, error,
                 command.recordedAt().toEpochMilli());
         projectRound(owner.roundId(), command.recordedAt());
         return new ResultReceipt(acceptance, evidence);
@@ -876,17 +934,24 @@ public class SqliteReviewAssignmentTurnStore
         if ((!retry && existing != 0) || (retry && existing == 0)) {
             throw new IllegalStateException("review assignment Turn admission is not exact");
         }
+        long costCapUsdMilli = Math.min(
+                admission.costCapUsdMilli(), remainingCostUsdMilli(scope.roundId()));
+        if (costCapUsdMilli < 1) {
+            throw new IllegalStateException("review round cost cap is exhausted");
+        }
         jdbc.update("""
                 INSERT INTO review_assignment_turn(
                     id, assignment_id, purpose, subject_key, verifier_run_id,
                     status, operation_id, attempt,
-                    start_commit, delivery_lane, launch_input, requested_at_ms,
+                    start_commit, delivery_lane, cost_cap_usd_milli,
+                    launch_input, requested_at_ms,
                     started_at_ms, finished_at_ms, error_message)
-                VALUES (?, ?, ?, ?, ?, 'REQUESTED', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+                VALUES (?, ?, ?, ?, ?, 'REQUESTED', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
                 """, admission.turnId(), admission.assignmentId(), admission.purpose(),
                 admission.subjectKey(), admission.verifierRunId(),
                 admission.operationId(), admission.attempt(), admission.startCommit(),
-                admission.transport().name(), admission.launchInput(),
+                admission.transport().name(), costCapUsdMilli,
+                admission.launchInput(),
                 requestedAt.toEpochMilli());
         int laneMask = 8 | (admission.transport()
                 == AgentTurnProviderSession.Transport.CLI ? 1 : 2);
@@ -929,6 +994,7 @@ public class SqliteReviewAssignmentTurnStore
                 rs.getString("verifier_run_id"), rs.getString("turn_status"),
                 rs.getString("operation_id"), rs.getInt("attempt"),
                 rs.getString("start_commit"), rs.getString("launch_input"),
+                rs.getLong("cost_cap_usd_milli"),
                 rs.getString("round_status"), rs.getString("review_status"),
                 rs.getString("workspace_id"), rs.getString("owner_thread_id"),
                 rs.getString("owner_task_id"), nullableLong(rs, "task_epoch"),
@@ -941,7 +1007,7 @@ public class SqliteReviewAssignmentTurnStore
                 SELECT turn.assignment_id, assignment.round_id,
                        round.session_id AS review_id, turn.purpose, turn.subject_key,
                        turn.operation_id,
-                       turn.attempt, turn.start_commit,
+                       turn.attempt, turn.start_commit, turn.cost_cap_usd_milli,
                        round.status AS round_status,
                        session.status AS review_status,
                        session.owner_task_id, task.epoch AS task_epoch,
@@ -962,6 +1028,7 @@ public class SqliteReviewAssignmentTurnStore
                 rs.getString("subject_key"),
                 rs.getString("operation_id"),
                 rs.getInt("attempt"), rs.getString("start_commit"),
+                rs.getLong("cost_cap_usd_milli"),
                 rs.getString("round_status"), rs.getString("review_status"),
                 rs.getString("owner_task_id"), nullableLong(rs, "task_epoch"),
                 rs.getString("task_lifecycle"), rs.getString("current_head_sha")),
@@ -1052,23 +1119,9 @@ public class SqliteReviewAssignmentTurnStore
                 SET cost_cents = (
                     SELECT CAST((COALESCE(SUM(receipt.cost_usd_milli), 0) + 9) / 10 AS INTEGER)
                     FROM review_assignment_turn_result_receipt receipt
-                    WHERE receipt.round_id = review_round.id
-                      AND receipt.acceptance = 'ACCEPTED')
+                    WHERE receipt.round_id = review_round.id)
                 WHERE id = ?
                 """, roundId);
-        jdbc.update("""
-                UPDATE agent_run
-                SET cost_usd_milli = (SELECT cost_cents * 10
-                        FROM review_round WHERE id = ?),
-                    tokens_in = (SELECT COALESCE(SUM(input_tokens), 0)
-                        FROM review_assignment_turn_result_receipt
-                        WHERE round_id = ? AND acceptance = 'ACCEPTED'),
-                    tokens_out = (SELECT COALESCE(SUM(output_tokens), 0)
-                        FROM review_assignment_turn_result_receipt
-                        WHERE round_id = ? AND acceptance = 'ACCEPTED')
-                WHERE id = (SELECT agent_run_id FROM review_round WHERE id = ?)
-                  AND status IN ('queued', 'running')
-                """, roundId, roundId, roundId, roundId);
         int liveLatest = count("""
                 SELECT COUNT(*)
                 FROM review_assignment_turn turn
@@ -1092,8 +1145,6 @@ public class SqliteReviewAssignmentTurnStore
         if (failures > 0 || cancellations > 0 || superseded > 0) {
             String roundStatus = failures > 0 || superseded > 0
                     ? "ERRORED" : "CANCELLED";
-            String runStatus = failures > 0 || superseded > 0
-                    ? "failed" : "cancelled";
             jdbc.update("""
                     UPDATE review_round
                     SET status = CASE WHEN status = 'RUNNING' THEN ? ELSE status END,
@@ -1101,15 +1152,6 @@ public class SqliteReviewAssignmentTurnStore
                         message_gate_open = 0, lifecycle_finalized = 1
                     WHERE id = ? AND status IN ('RUNNING', 'ERRORED', 'CANCELLED')
                     """, roundStatus, recordedAt.toEpochMilli(), roundId);
-            jdbc.update("""
-                    UPDATE agent_run
-                    SET status = ?, headline = ?, finished_at_ms = ?
-                    WHERE id = (SELECT agent_run_id FROM review_round WHERE id = ?)
-                      AND status IN ('queued', 'running')
-                    """, runStatus,
-                    failures > 0 || superseded > 0
-                            ? "Review investigation failed" : "Review cancelled",
-                    recordedAt.toEpochMilli(), roundId);
             jdbc.update("""
                     UPDATE review_round_followup_v262
                     SET phase = CASE WHEN (
@@ -1240,6 +1282,7 @@ public class SqliteReviewAssignmentTurnStore
             String operationId,
             int attempt,
             String startCommit,
+            long costCapUsdMilli,
             String roundStatus,
             String reviewStatus,
             String taskId,

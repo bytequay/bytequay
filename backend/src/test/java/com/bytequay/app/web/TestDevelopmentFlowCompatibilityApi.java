@@ -20,11 +20,11 @@ import com.bytequay.app.beans.trace.MilestoneSummary;
 import com.bytequay.app.beans.trace.NextPossible;
 import com.bytequay.app.beans.trace.TaskTraceResponse;
 import com.bytequay.app.beans.trace.TraceEvent;
+import com.bytequay.app.developmentflow.stage.ManualPrValidationRuntime;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PRSyncService;
@@ -32,7 +32,6 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageRuntimeService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import com.bytequay.app.service.threads.TaskTraceService;
@@ -178,7 +177,7 @@ class TestDevelopmentFlowCompatibilityApi
                 "{\"verdict\":\"changes_requested\",\"openFindings\":2}", null)));
         PRController controller = new PRController(
                 prs, mock(PRPublishService.class), mock(PRSyncService.class), mock(TaskStore.class),
-                mapper, mock(RepoTestValidationCheck.class), mock(PullRequestService.class),
+                mapper, mock(ManualPrValidationRuntime.class), mock(PullRequestService.class),
                 mock(InvestigationReviewService.class));
         MockMvc mvc = standaloneSetup(controller).build();
 
@@ -207,7 +206,6 @@ class TestDevelopmentFlowCompatibilityApi
                 service,
                 mock(StageDetailService.class),
                 mock(StageSteeringService.class),
-                mock(StageRuntimeService.class),
                 mock(PlanStageService.class),
                 mock(StageStore.class),
                 mock(TaskStore.class),

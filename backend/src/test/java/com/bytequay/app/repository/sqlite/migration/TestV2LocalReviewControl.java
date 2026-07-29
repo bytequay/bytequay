@@ -13,23 +13,46 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.stage.V2LocalReviewControl;
+import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.review.InvestigationReviewContext;
+import com.bytequay.app.service.review.InvestigationReviewRunner;
+import com.bytequay.app.service.review.InvestigationReviewService;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
+import com.bytequay.app.service.review.TaskReviewSnapshotOperationHandler;
+import com.bytequay.app.service.review.TaskReviewSnapshotOperationHandler.SnapshotResult;
+import com.bytequay.app.service.review.TaskReviewSnapshotResultDeliveryPort;
+import com.bytequay.app.service.review.TaskReviewSnapshotRuntime;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import org.sqlite.SQLiteDataSource;
@@ -41,15 +64,185 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.RETURNS_DEFAULTS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestV2LocalReviewControl
 {
     @TempDir
     private Path tempDir;
+
+    @Test
+    void titleAndBodyEditUsesTheExactCurrentLocalReviewSubject()
+            throws Exception
+    {
+        Fixture fixture = fixture("edit-pr-content.db");
+
+        fixture.control().updateDetails(
+                localPr(), "Exact title", "Exact body");
+
+        assertThat(fixture.jdbc().queryForMap(
+                "SELECT title, description FROM pr WHERE id = 'pr-1'"))
+                .containsEntry("title", "Exact title")
+                .containsEntry("description", "Exact body");
+
+        fixture.jdbc().update(
+                "UPDATE stage SET checkpoint = 'VALIDATING', version = version + 1 "
+                        + "WHERE id = 'local-stage-1'");
+        assertThatThrownBy(() -> fixture.control().updateDetails(
+                localPr(), "Stale title", "Stale body"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("only during exact Local Review");
+    }
+
+    @Test
+    void snapshotDeliveryEntersTheTaskCommandBeforeReviewTransaction()
+            throws Exception
+    {
+        Fixture fixture = fixture("task-review-delivery.db");
+        Flyway.configure().dataSource(fixture.jdbc().getDataSource())
+                .target("286").load().migrate();
+        seedTaskReviewSnapshot(fixture.jdbc());
+
+        ObjectMapper json = new ObjectMapper();
+        TaskReviewSnapshotRuntime snapshots =
+                new TaskReviewSnapshotRuntime(fixture.jdbc(), json);
+        InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
+        InvestigationReviewContext contexts = mock(
+                InvestigationReviewContext.class);
+        InvestigationReviewRunner runner = mock(
+                InvestigationReviewRunner.class, invocation ->
+                        "investigationPrompt".equals(
+                                invocation.getMethod().getName())
+                                ? reviewTurnPrompt()
+                                : RETURNS_DEFAULTS.answer(invocation));
+        AgentRunService runs = mock(AgentRunService.class);
+        PRService prs = mock(PRService.class);
+        TaskStore tasks = mock(TaskStore.class);
+        ThreadStore threads = mock(ThreadStore.class);
+        AgentReviewRow review = new AgentReviewRow(
+                "review-1", "local", "pr-1", "base-1", "head-1",
+                "ACTIVE", null, null, "task-1");
+        ReviewerDefRow reviewer = new ReviewerDefRow(
+                "api-reviewer", "API reviewer", "Reviews exact code", "api",
+                json.createObjectNode().put("provider", "auto"), null,
+                List.of("trivial", "standard", "high-risk"), true);
+        AtomicReference<ReviewRoundRow> round = new AtomicReference<>();
+        when(reviews.findReview("review-1")).thenReturn(Optional.of(review));
+        when(reviews.findActiveReviewByPr("pr-1"))
+                .thenReturn(Optional.of(review));
+        when(reviews.reviewerDefs()).thenReturn(List.of(reviewer));
+        when(reviews.insertLiveRound(any(), any())).thenAnswer(invocation -> {
+            ReviewRoundRow inserted = invocation.getArgument(0);
+            round.set(inserted);
+            fixture.jdbc().update("""
+                    INSERT INTO agent_run(
+                        id, kind, review_round_id, status, iterations,
+                        started_at_ms)
+                    VALUES (?, 'panel_review', ?, 'RUNNING', 0, 30)
+                    """, inserted.agentRunId(), inserted.id());
+            fixture.jdbc().update("""
+                    INSERT INTO review_round(
+                        id, session_id, agent_run_id, trigger, scope,
+                        start_commit, status, budget_json, cost_cents,
+                        created_at_ms)
+                    VALUES (?, 'review-1', ?, 'initial', 'full', 'head-1',
+                        'RUNNING', '{"costCapCents":50,"wallClockMinutes":5}',
+                        0, 30)
+                    """, inserted.id(), inserted.agentRunId());
+            return inserted;
+        });
+        when(reviews.findRound(anyString())).thenAnswer(invocation ->
+                Optional.ofNullable(round.get()).filter(value ->
+                        value.id().equals(invocation.getArgument(0))));
+        when(prs.findById("pr-1")).thenReturn(Optional.of(localPr()));
+        when(tasks.isV2Task("task-1")).thenReturn(true);
+        when(runner.reviewKnowledge(any())).thenReturn(List.of());
+        InvestigationReviewRunner.ProviderChoice provider =
+                new InvestigationReviewRunner.ProviderChoice(
+                        "openai", "api", "openai");
+        when(runner.choose(anyString(), isNull())).thenReturn(provider);
+        when(runs.createReviewCompatibilityHeader(anyString(), any()))
+                .thenAnswer(invocation -> new AgentRun(
+                        "run-1", null,
+                        AgentRun.KIND_REVIEW_COMPATIBILITY_HEADER,
+                        AgentRun.SOURCE_V2_REVIEW_FOREIGN_KEY,
+                        null, invocation.getArgument(0), null,
+                        AgentRun.STATUS_SUCCEEDED, 0, 50, null, null,
+                        Instant.EPOCH, Instant.EPOCH));
+        ReviewAssignmentTurnRuntime typed = mock(
+                ReviewAssignmentTurnRuntime.class);
+        when(typed.flow(anyString())).thenAnswer(invocation -> Optional.of(
+                new ReviewAssignmentTurnRuntime.RoundFlow(
+                        invocation.getArgument(0), "head-1",
+                        ReviewAssignmentTurnRuntime.FlowPhase.PRIMARY,
+                        null, null, 0)));
+        when(typed.turns(anyString())).thenReturn(List.of(
+                new ReviewAssignmentTurnRuntime.TurnState(
+                        "turn-1", "assignment-1",
+                        ReviewAssignmentTurnRuntime.INVESTIGATE,
+                        "assignment-1", null, 1, "REQUESTED", "{}",
+                        null, 0, 0, 0)));
+
+        try (AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext()) {
+            context.register(CommandTransactions.class);
+            context.registerBean(PlatformTransactionManager.class,
+                    fixture::transactions);
+            context.registerBean(InvestigationReviewService.class, () -> {
+                InvestigationReviewService service =
+                        new InvestigationReviewService(
+                                reviews, contexts, runner, runs, prs, tasks,
+                                threads, json, mock(WorkspaceService.class));
+                service.setReviewAssignmentTurnRuntime(typed);
+                service.setV2LocalReview(fixture.control());
+                service.setTaskReviewSnapshots(snapshots);
+                return service;
+            });
+            context.refresh();
+            TaskReviewSnapshotResultDeliveryPort delivery =
+                    new TaskReviewSnapshotResultDeliveryPort(
+                            snapshots,
+                            context.getBeanProvider(
+                                    InvestigationReviewService.class),
+                            fixture.commands(), json);
+            TaskReviewSnapshotRuntime.ExecutionSubject subject =
+                    snapshots.requireExecutionSubject("operation-1");
+            SnapshotResult result = snapshotResult();
+            String evidence = json.writeValueAsString(result);
+            DispatchTicket.OperationFence fence = snapshotFence();
+
+            assertThat(delivery.deliver(
+                    new DispatchTicket.OwnerReference(
+                            DispatchTicket.OwnerKind.TASK, "task-1",
+                            TaskReviewSnapshotOperationHandler.CALLBACK_ROUTE),
+                    fence, new DispatchTicket.DispatchResult(
+                            fence, DispatchTicket.Outcome.SUCCEEDED,
+                            evidence, evidence, null)).acceptance())
+                    .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+            assertThat(subject.current()).isTrue();
+        }
+
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM local_review_agent_request
+                WHERE task_id = 'task-1' AND review_id = 'review-1'
+                  AND status = 'REQUESTED'
+                """, Integer.class)).isOne();
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT status FROM task_review_snapshot_operation_v286
+                WHERE id = 'operation-1'
+                """, String.class)).isEqualTo("COMPLETED");
+    }
 
     @Test
     void userRevisionFreezesOnceAndRestartReplaysItsTypedTurn()
@@ -520,7 +713,7 @@ class TestV2LocalReviewControl
                 commands, context.getBean(StageManager.Store.class),
                 context.getBean(LocalDevelopmentStageManager.EvidenceStore.class));
         return new Fixture(
-                jdbc, commands, local, context,
+                jdbc, transactionManager, commands, local, context,
                 new V2LocalReviewControl(
                         jdbc, commands, local, new ObjectMapper(),
                         mock(ApplicationEventPublisher.class), 53123));
@@ -532,6 +725,60 @@ class TestV2LocalReviewControl
                 "pr-1", "task-1", "dev/task-1", "main",
                 "Implement feature", "Description", Instant.ofEpochMilli(6))
                 .withStatus(PR.STATUS_LOCAL_OPEN, Instant.ofEpochMilli(7));
+    }
+
+    private static void seedTaskReviewSnapshot(JdbcTemplate jdbc)
+    {
+        jdbc.update("""
+                INSERT INTO review_session(
+                    id, repo_id, pr_id, base_commit, reviewed_head_commit,
+                    status, workspace_id, owner_thread_id, owner_task_id,
+                    created_at_ms, updated_at_ms)
+                VALUES ('review-1', 'local', 'pr-1', 'base-1', 'head-1',
+                    'ACTIVE', 'workspace-1', 'trunk-1', 'task-1', 20, 20)
+                """);
+        jdbc.update("""
+                INSERT INTO task_review_snapshot_operation_v286(
+                    id, review_id, pr_id, repository, remote_pr_number,
+                    base_branch, pr_title, pr_description,
+                    task_id, task_epoch, worktree_path,
+                    code_fingerprint, expected_head_sha, expected_base_sha,
+                    start_options_json, status, requested_at_ms)
+                VALUES ('operation-1', 'review-1', 'pr-1', NULL, NULL,
+                    'main', 'Implement feature', 'Description', 'task-1', 1,
+                    '/tmp/task-1', 'fp-1', 'head-1', 'base-1',
+                    '{}', 'REQUESTED', 21)
+                """);
+    }
+
+    private static SnapshotResult snapshotResult()
+    {
+        return new SnapshotResult(
+                1, "operation-1", "review-1", "pr-1", "task-1",
+                null, null, "main", "Implement feature", "Description", 1,
+                "/tmp/task-1", "fp-1", "head-1", "base-1", true,
+                "diff --git a/src/Main.java b/src/Main.java\n+change\n",
+                List.of(new DiffFile(
+                        "src/Main.java", "M", 0, 0, null)),
+                Map.of("src/Main.java", "change\n"),
+                "fp-1", "head-1", 22, 23);
+    }
+
+    private static Object reviewTurnPrompt()
+            throws ReflectiveOperationException
+    {
+        Class<?> type = Class.forName(
+                "com.bytequay.app.service.review.InvestigationReviewModel$ReviewTurnPrompt");
+        var constructor = type.getDeclaredConstructor(String.class, String.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance("review system", "review exact head");
+    }
+
+    private static DispatchTicket.OperationFence snapshotFence()
+    {
+        return new DispatchTicket.OperationFence(
+                1L, null, null, "operation-1", 1,
+                "fp-1", "head-1", "base-1");
     }
 
     private static void seedReviewSession(JdbcTemplate jdbc, String reviewId)
@@ -685,6 +932,7 @@ class TestV2LocalReviewControl
 
     private record Fixture(
             JdbcTemplate jdbc,
+            DataSourceTransactionManager transactions,
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             AnnotationConfigApplicationContext context,
@@ -697,4 +945,8 @@ class TestV2LocalReviewControl
                     mock(ApplicationEventPublisher.class), 53123);
         }
     }
+
+    @Configuration
+    @EnableTransactionManagement(proxyTargetClass = true)
+    static class CommandTransactions {}
 }

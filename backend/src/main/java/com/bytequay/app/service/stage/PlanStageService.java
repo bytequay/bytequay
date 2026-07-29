@@ -51,7 +51,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -156,7 +155,6 @@ public class PlanStageService
      *       loop). The hard guarantee remains the approve endpoint's reject.</li>
      * </ul>
      */
-    @EventListener
     @Transactional
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {
@@ -219,7 +217,6 @@ public class PlanStageService
      * the brain's own plan(s) record as revisions on top of it. A no-op when
      * no trunk plan was supplied.
      */
-    @EventListener
     @Transactional
     public void onPlanKickoff(PlanKickoffRequested event)
     {

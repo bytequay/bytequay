@@ -1267,7 +1267,7 @@ function BranchDetailPage({
               : `Conflict in ${result.conflictPaths.length} file${result.conflictPaths.length === 1 ? '' : 's'}`}</strong>
             <span>{result.status === 'done'
               ? 'No remote was changed or pushed.'
-              : 'The isolated worktree was retained and a CI-fix session was queued.'}</span>
+              : (result.message ?? 'Resolve or abort the cherry-pick manually in the retained worktree.')}</span>
             {result.trunkId !== null && (
               <button type="button" onClick={() => onOpenTrunk?.(result.trunkId as string)}>
                 Open fix session
@@ -1276,7 +1276,7 @@ function BranchDetailPage({
           </div>
         )}
         <p className="wu-branch-detail__note">
-          Cherry-pick runs on the local clone; a conflict opens a fix session in the owning thread.
+          Cherry-pick runs on the local clone; a conflict retains an isolated worktree for manual resolution.
         </p>
       </main>
     </section>

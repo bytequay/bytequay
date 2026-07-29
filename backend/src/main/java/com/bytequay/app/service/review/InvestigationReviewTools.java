@@ -20,12 +20,11 @@ import com.bytequay.app.domain.InvestigationReviewData.FindingVerificationRow;
 import com.bytequay.app.domain.InvestigationReviewData.HypothesisRow;
 import com.bytequay.app.domain.InvestigationReviewData.InvestigationStepRow;
 import com.bytequay.app.domain.InvestigationReviewData.ObservationRow;
-import com.bytequay.app.domain.PR;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.repository.sqlite.InvestigationReviewStore.ReviewRoundSnapshot;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnSpec;
-import com.bytequay.app.service.localpr.PRService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -66,19 +65,14 @@ public class InvestigationReviewTools
     private static final int MAX_TOOL_TEXT = 32_000;
 
     private final InvestigationReviewStore store;
-    private final InvestigationReviewContext contexts;
-    private final PRService prs;
     private final ObjectMapper mapper;
     private final ConcurrentHashMap<String, InvestigationReviewContext.Snapshot> snapshots =
             new ConcurrentHashMap<>();
 
     public InvestigationReviewTools(
-            InvestigationReviewStore store, InvestigationReviewContext contexts,
-            PRService prs, ObjectMapper mapper)
+            InvestigationReviewStore store, ObjectMapper mapper)
     {
         this.store = requireNonNull(store, "store is null");
-        this.contexts = requireNonNull(contexts, "contexts is null");
-        this.prs = requireNonNull(prs, "prs is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -88,6 +82,11 @@ public class InvestigationReviewTools
             throw new IllegalArgumentException("assignment does not belong to review");
         }
         return call -> execute(reviewId, assignmentId, call);
+    }
+
+    boolean usesQuickReviewScope(String assignmentId)
+    {
+        return store.assignmentUsesQuickReviewScope(assignmentId);
     }
 
     public ArrayNode tools(TurnSpec.Transport transport, boolean verifier)
@@ -122,6 +121,10 @@ public class InvestigationReviewTools
         try {
             if (!store.assignmentRoundIsRunning(assignmentId)) {
                 return error("review round is no longer running");
+            }
+            if (store.assignmentUsesQuickReviewScope(assignmentId)
+                    && "read_file".equals(call.name())) {
+                return error("quick review is limited to the frozen pull-request diff");
             }
             return switch (call.name()) {
                 case "record_assignment" -> recordAssignment(assignmentId, call.input());
@@ -206,7 +209,7 @@ public class InvestigationReviewTools
         String stepId = requireStep(assignmentId, input);
         InvestigationReviewContext.Snapshot snapshot = snapshot(reviewId, assignmentId);
         String path = required(input, "path");
-        String content = contexts.readFile(snapshot, path);
+        String content = snapshot.readFile(path);
         int start = Math.max(1, input.path("start_line").asInt(1));
         int end = Math.max(start, input.path("end_line").asInt(start + 199));
         String excerpt = lines(content, start, end);
@@ -381,10 +384,10 @@ public class InvestigationReviewTools
     {
         return snapshots.computeIfAbsent(assignmentId, id -> {
             AgentReviewRow review = requireReview(reviewId);
-            PR pr = prs.findById(review.prId())
-                    .orElseThrow(() -> new IllegalArgumentException("unknown PR " + review.prId()));
-            return contexts.load(pr,
-                    review.workspaceId() != null || review.ownerTaskId() != null);
+            ReviewRoundSnapshot frozen = store.findRoundSnapshotByAssignment(id)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "review assignment has no frozen round snapshot"));
+            return FrozenReviewSubject.snapshot(review, frozen);
         });
     }
 

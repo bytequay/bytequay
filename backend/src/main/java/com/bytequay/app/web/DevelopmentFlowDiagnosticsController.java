@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import static java.util.Objects.requireNonNull;
 
-/** Local operator diagnostics for the V2 canary and LEGACY drain. */
+/** Local operator diagnostics for the V2-only runtime and historical rows. */
 @RestController
 @RequestMapping("/api/development-flow")
 public final class DevelopmentFlowDiagnosticsController

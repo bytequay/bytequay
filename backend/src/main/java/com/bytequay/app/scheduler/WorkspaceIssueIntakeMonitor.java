@@ -13,25 +13,21 @@
  */
 package com.bytequay.app.scheduler;
 
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.Snapshot;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.State;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.RepoIssue;
-import com.bytequay.app.domain.StageEvent;
-import com.bytequay.app.domain.StageEventType;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceAutomationState;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceAutomationStateStore;
 import com.bytequay.app.service.RepoService;
-import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
 import com.bytequay.app.service.workspaces.WorkspaceIssueService;
@@ -49,7 +45,6 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -92,9 +87,8 @@ public class WorkspaceIssueIntakeMonitor
     private final WorkspaceIssueService workspaceIssues;
     private final ThreadService threads;
     private final TaskStore tasks;
-    private final StageStore stages;
-    private final TaskService taskService;
-    private final PlanStageService plans;
+    private final V2TaskControlService taskControls;
+    private final V2AutomationPlanService plans;
     private final WorkspaceAutomationStateStore states;
     private final ObjectMapper mapper;
     private final Executor executor;
@@ -110,9 +104,8 @@ public class WorkspaceIssueIntakeMonitor
             WorkspaceIssueService workspaceIssues,
             ThreadService threads,
             TaskStore tasks,
-            StageStore stages,
-            TaskService taskService,
-            PlanStageService plans,
+            V2TaskControlService taskControls,
+            V2AutomationPlanService plans,
             WorkspaceAutomationStateStore states,
             ObjectMapper mapper,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
@@ -125,8 +118,7 @@ public class WorkspaceIssueIntakeMonitor
         this.workspaceIssues = requireNonNull(workspaceIssues, "workspaceIssues is null");
         this.threads = requireNonNull(threads, "threads is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
-        this.stages = requireNonNull(stages, "stages is null");
-        this.taskService = requireNonNull(taskService, "taskService is null");
+        this.taskControls = requireNonNull(taskControls, "taskControls is null");
         this.plans = requireNonNull(plans, "plans is null");
         this.states = requireNonNull(states, "states is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -331,7 +323,8 @@ public class WorkspaceIssueIntakeMonitor
                 context.workspace().id(), issue.number(), linked.isEmpty() ? null : linked.getFirst());
         Thread thread = threads.find(threadId).orElseThrow();
         boolean exists = tasks.listTasksByThread(thread.id()).stream()
-                .anyMatch(task -> TRIAGE_TASK_TYPE.equals(task.taskType())
+                .anyMatch(task -> tasks.isV2Task(task.id())
+                        && TRIAGE_TASK_TYPE.equals(task.taskType())
                         && Integer.valueOf(issue.number()).equals(task.linkedIssueNumber()));
         if (exists) {
             return false;
@@ -362,51 +355,45 @@ public class WorkspaceIssueIntakeMonitor
 
     private void reconcilePlans(Context context, RunCounters counters)
     {
-        tasks.listByPhaseAndOrigin(TaskPhase.PLANNING, Task.ORIGIN_ISSUE_MONITOR).stream()
-                .filter(task -> TRIAGE_TASK_TYPE.equals(task.taskType())
-                        && task.linkedIssueNumber() != null)
-                .filter(task -> threads.find(task.threadId())
-                        .map(thread -> context.workspace().id().equals(thread.workspaceId()))
-                        .orElse(false))
-                .forEach(task -> reconcilePlan(context, task, counters));
+        plans.listCurrent(
+                        context.workspace().id(), Task.ORIGIN_ISSUE_MONITOR,
+                        TRIAGE_TASK_TYPE)
+                .forEach(plan -> reconcilePlan(context, plan, counters));
     }
 
-    private void reconcilePlan(Context context, Task task, RunCounters counters)
+    private void reconcilePlan(Context context, Snapshot snapshot, RunCounters counters)
     {
-        StageInstance stage = stages.findActiveStage(task.id())
-                .filter(candidate -> candidate.type() == StageType.PLAN_STAGE)
-                .orElse(null);
-        if (stage == null) {
+        if (snapshot.state() == State.FAILED) {
+            taskControls.cancelByAutomation(snapshot.taskId(), AUTOMATION_KIND);
+            log.warn("Issue-intake Plan failed for {}#{} in workspace {}: {}",
+                    context.repo().fullName(), snapshot.linkedIssueNumber(),
+                    context.workspace().id(), snapshot.failureReason());
             return;
         }
-        JsonNode plan = latestFinalizedPlan(stage).orElse(null);
+        if (snapshot.state() != State.REVIEWED) {
+            return;
+        }
+        JsonNode plan = parse(snapshot.content()).orElse(null);
         if (plan == null || !isStructurallyComplete(plan)) {
             return;
         }
 
         switch (classify(plan)) {
             case AUTO_IMPLEMENT -> {
-                plans.approveByAutomation(stage.id(), plan);
+                plans.approveIssueIntake(snapshot);
                 counters.implementationsStarted++;
                 log.info("Started local implementation for {}#{} in workspace {}",
-                        context.repo().fullName(), task.linkedIssueNumber(), context.workspace().id());
+                        context.repo().fullName(), snapshot.linkedIssueNumber(),
+                        context.workspace().id());
             }
             case BACKLOG_PERMISSION -> {
-                taskService.cancelTask(task.threadId(), task.id());
-                requestBacklogPermission(context, task, plan);
+                taskControls.cancelByAutomation(snapshot.taskId(), AUTOMATION_KIND);
+                requestBacklogPermission(context, snapshot, plan);
                 log.info("Asked whether to backlog {}#{} in workspace {}",
-                        context.repo().fullName(), task.linkedIssueNumber(), context.workspace().id());
+                        context.repo().fullName(), snapshot.linkedIssueNumber(),
+                        context.workspace().id());
             }
         }
-    }
-
-    private Optional<JsonNode> latestFinalizedPlan(StageInstance stage)
-    {
-        return stages.findEventsByStage(stage.id()).stream()
-                .filter(event -> event.eventType() == StageEventType.PLAN_RECORDED)
-                .max(Comparator.comparing(StageEvent::eventAt))
-                .flatMap(event -> parse(event.payloadJson()))
-                .filter(plan -> "finalized".equals(plan.path("status").asText()));
     }
 
     private Optional<JsonNode> parse(String json)
@@ -421,7 +408,9 @@ public class WorkspaceIssueIntakeMonitor
 
     static boolean isStructurallyComplete(JsonNode plan)
     {
-        return !summary(plan).isBlank() && steps(plan).isArray() && !steps(plan).isEmpty();
+        return "finalized".equals(plan.path("status").asText())
+                && !summary(plan).isBlank()
+                && steps(plan).isArray() && !steps(plan).isEmpty();
     }
 
     static Route classify(JsonNode plan)
@@ -436,10 +425,10 @@ public class WorkspaceIssueIntakeMonitor
         return Route.BACKLOG_PERMISSION;
     }
 
-    private void requestBacklogPermission(Context context, Task task, JsonNode plan)
+    private void requestBacklogPermission(Context context, Snapshot task, JsonNode plan)
     {
         int issueNumber = requireNonNull(task.linkedIssueNumber(), "linked issue number is null");
-        threads.sendTrunkUnattended(task.threadId(), """
+        threads.sendTrunkUnattended(task.trunkId(), """
                 Triage for remote issue %s#%d is complete, but it is not a safe high-confidence,
                 low-risk, small fix. Do not create a backlog item yet. First call ask_user_question
                 to ask whether to store this issue in the local backlog, offering Store in backlog

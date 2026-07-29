@@ -15,12 +15,11 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.runs.SessionControlService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.server.ResponseStatusException;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -79,6 +78,65 @@ class TestWorkspaceConfigurationService
         assertThat(restarted.settings("workspace-1").maxRunningTasks()).isEqualTo(2);
     }
 
+    @Test
+    void repositoryChangesRequireTerminalTasksAndTerminalDispatch()
+    {
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("quiescence.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.execute("""
+                CREATE TABLE threads(
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE tasks(
+                    id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL,
+                    workflow_version TEXT NOT NULL,
+                    lifecycle_state TEXT NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE dispatch_ticket(
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT,
+                    status TEXT NOT NULL)
+                """);
+        jdbc.update("INSERT INTO threads VALUES ('trunk-1', 'workspace-1')");
+        jdbc.update("""
+                INSERT INTO tasks VALUES (
+                    'task-1', 'trunk-1', 'V2', 'COMPLETED')
+                """);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket VALUES (
+                    'ticket-1', 'workspace-1', 'SUCCEEDED')
+                """);
+        WorkspaceConfigurationService service = service(
+                jdbc, mock(CapacityManager.class));
+
+        service.requireRepositoryQuiescent("workspace-1");
+
+        jdbc.update("""
+                UPDATE tasks SET lifecycle_state = 'PAUSED'
+                WHERE id = 'task-1'
+                """);
+        assertThatThrownBy(() -> service.requireRepositoryQuiescent("workspace-1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("complete or cancel active Tasks");
+
+        jdbc.update("""
+                UPDATE tasks SET lifecycle_state = 'COMPLETED'
+                WHERE id = 'task-1'
+                """);
+        jdbc.update("""
+                UPDATE dispatch_ticket SET status = 'RETRY_WAIT'
+                WHERE id = 'ticket-1'
+                """);
+        assertThatThrownBy(() -> service.requireRepositoryQuiescent("workspace-1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("wait for active Workspace operations");
+    }
+
     private static WorkspaceConfigurationService service(
             JdbcTemplate jdbc,
             CapacityManager capacity)
@@ -87,8 +145,6 @@ class TestWorkspaceConfigurationService
                 jdbc,
                 new ObjectMapper(),
                 mock(WorkspaceService.class),
-                mock(AgentRunService.class),
-                mock(SessionControlService.class),
                 capacity);
     }
 

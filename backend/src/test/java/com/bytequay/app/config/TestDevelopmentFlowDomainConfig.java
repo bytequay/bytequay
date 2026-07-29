@@ -87,7 +87,7 @@ class TestDevelopmentFlowDomainConfig
     }
 
     @Test
-    void productionGraphComposesEverySynchronousHandoffButNotV2Dispatch()
+    void productionGraphComposesEverySynchronousHandoffAndV2Dispatch()
     {
         assertThat(beans(BrainVerdictHandoff.class)).hasSize(1);
         assertThat(beans(TaskControlHandoff.class)).hasSize(1);
@@ -99,7 +99,7 @@ class TestDevelopmentFlowDomainConfig
         assertThat(beans(CleanupQuiescenceHandoff.class)).hasSize(1);
         assertThat(beans(ReplanHandoff.class)).hasSize(3);
         assertThat(beans(CancellationToCleanupHandoff.class)).hasSize(3);
-        assertThat(beans(ExecutionDispatcher.class)).isEmpty();
+        assertThat(beans(ExecutionDispatcher.class)).hasSize(1);
     }
 
     private <T> Map<String, T> beans(Class<T> type)

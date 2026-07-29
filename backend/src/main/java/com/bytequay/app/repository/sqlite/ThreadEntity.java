@@ -114,8 +114,12 @@ class ThreadEntity
     private String prRef;
 
     /** Set once by the V2 creation route; existing Trunks remain LEGACY. */
-    @Column(name = "turn_version", nullable = false, insertable = false, updatable = false)
-    private String turnVersion;
+    @Column(name = "turn_version", nullable = false, updatable = false)
+    private String turnVersion = "LEGACY";
+
+    /** V2 aggregate lifecycle is set only when the row is first created. */
+    @Column(name = "lifecycle_state", updatable = false)
+    private String lifecycleState;
 
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
@@ -195,6 +199,9 @@ class ThreadEntity
     void setPrRef(String prRef) { this.prRef = prRef; }
 
     String getTurnVersion() { return turnVersion; }
+    void setTurnVersion(String turnVersion) { this.turnVersion = turnVersion; }
+
+    void setLifecycleState(String lifecycleState) { this.lifecycleState = lifecycleState; }
 
     int getParallelSlots() { return parallelSlots; }
     void setParallelSlots(int parallelSlots) { this.parallelSlots = parallelSlots; }

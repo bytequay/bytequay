@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.stage;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.OutputCodeSubject;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RuntimeDeliveryReceipt;
@@ -37,8 +38,6 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringSto
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -47,8 +46,6 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -77,8 +74,6 @@ public final class RemoteFeedbackRuntimeCoordinator
     private final RemoteDevelopmentStageManager remote;
     private final SqliteRemoteDevelopmentRuntimeStore remoteStore;
     private final SqliteRemoteFeedbackLoopStore store;
-    private final CodeFingerprints fingerprints;
-    private final GitRunner git;
     private final ObjectMapper json;
     private final ObjectReader repairReader;
     private final ObjectReader validationReader;
@@ -94,8 +89,6 @@ public final class RemoteFeedbackRuntimeCoordinator
             RemoteDevelopmentStageManager remote,
             SqliteRemoteDevelopmentRuntimeStore remoteStore,
             SqliteRemoteFeedbackLoopStore store,
-            CodeFingerprints fingerprints,
-            GitRunner git,
             ObjectMapper json,
             Clock clock,
             int serverPort)
@@ -105,8 +98,6 @@ public final class RemoteFeedbackRuntimeCoordinator
         this.remote = requireNonNull(remote, "remote is null");
         this.remoteStore = requireNonNull(remoteStore, "remoteStore is null");
         this.store = requireNonNull(store, "store is null");
-        this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
-        this.git = requireNonNull(git, "git is null");
         this.json = requireNonNull(json, "json is null");
         this.repairReader = strictReader(RepairResult.class);
         this.validationReader = strictReader(
@@ -263,8 +254,7 @@ public final class RemoteFeedbackRuntimeCoordinator
                     SUPERSEDED, "Remote StageTurn subject is stale", now);
         }
         RepairResult resultValue = decodeRepair(result.payload().finalText());
-        CodeSubject output = observe(
-                Path.of(context.worktreePath()), context.baseSha());
+        CodeSubject output = requireOutputCodeSubject(result, context);
         store.finishStageTurn(context, "SUCCEEDED", null, now);
         String repairId = id("remote-feedback-repair", context.operationId());
         List<ReplyDraft> drafts = resultValue.replies().stream()
@@ -298,8 +288,7 @@ public final class RemoteFeedbackRuntimeCoordinator
                     SUPERSEDED, "Remote feedback predecessor was superseded", now);
         }
         RepairResult result = decodeRepair(raw.payload().finalText());
-        CodeSubject output = observe(
-                Path.of(context.worktreePath()), context.baseSha());
+        CodeSubject output = requireOutputCodeSubject(raw, context);
         store.finishStageTurn(context, "SUCCEEDED", null, now);
         String repairId = id("remote-feedback-repair", context.operationId());
         List<ReplyDraft> drafts = result.replies().stream()
@@ -683,19 +672,22 @@ public final class RemoteFeedbackRuntimeCoordinator
         }
     }
 
-    private CodeSubject observe(Path worktree, String baseSha)
+    private static CodeSubject requireOutputCodeSubject(
+            AgentTurnOwnerResultCodec.OwnerResult result,
+            StageTurnContext context)
     {
-        try {
-            return new CodeSubject(
-                    fingerprints.fingerprint(worktree), git.headSha(worktree), baseSha);
+        OutputCodeSubject output =
+                result.requireOutputCodeSubject(context.baseSha());
+        if (!output.clean()) {
+            throw new IllegalStateException(
+                    "Remote feedback Turn left uncommitted changes");
         }
-        catch (IOException e) {
-            throw new IllegalStateException("Could not read Remote feedback worktree", e);
+        if (context.headSha().equals(output.headSha())) {
+            throw new IllegalStateException(
+                    "Remote feedback Turn did not create a new committed head");
         }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Remote worktree inspection was interrupted", e);
-        }
+        return new CodeSubject(
+                output.codeFingerprint(), output.headSha(), output.baseSha());
     }
 
     private RuntimeDeliveryReceipt duplicate(

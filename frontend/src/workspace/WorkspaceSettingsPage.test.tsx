@@ -438,6 +438,15 @@ describe('WorkspaceSettingsPage', () => {
     expect(onOpenMemory).toHaveBeenCalled();
   });
 
+  it('does not expose the retired generic pause-all action', () => {
+    installBridge();
+    render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="danger" />);
+
+    expect(screen.queryByText('Pause all sessions')).toBeNull();
+    expect(screen.getByText('Re-clone workspace')).toBeTruthy();
+    expect(screen.getByText('Detach workspace')).toBeTruthy();
+  });
+
   it('saves workspace automation opt-ins through the existing settings endpoint', async () => {
     const workspaceApi = installBridge();
     render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="automation" />);

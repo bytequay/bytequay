@@ -96,18 +96,23 @@ public class TaskCommandExecutor
     }
 
     /**
-     * Leave Spring's transaction-completion callback thread before starting
-     * repository work. JPA resources remain bound while AFTER_COMMIT
-     * listeners run, even though the transaction has already completed.
+     * Retained only for direct compatibility callers that already run outside
+     * a command and transaction. The former implementation started an
+     * unowned virtual thread from transaction-completion callbacks; that was
+     * an admission and restart-recovery bypass. V2 asynchronous work must
+     * persist a DispatchTicket and let ExecutionDispatcher claim it.
+     *
+     * @deprecated migrate the caller to durable dispatch
      */
+    @Deprecated(forRemoval = true)
     public static void dispatchAfterCommit(Runnable work)
     {
         requireNonNull(work, "work is null");
         if (CURRENT_TASK.get() != null
                 || TransactionSynchronizationManager.isSynchronizationActive()
                 || TransactionSynchronizationManager.isActualTransactionActive()) {
-            Thread.startVirtualThread(work);
-            return;
+            throw new IllegalStateException(
+                    "raw post-commit callbacks are retired; persist a DispatchTicket");
         }
         work.run();
     }

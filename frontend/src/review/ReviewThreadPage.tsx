@@ -17,12 +17,14 @@ import type {
   AgendaPhaseDto,
   AgendaPhaseStatusDto,
   PullRequestCommitDto,
+  ReviewBuildCommentProposalDto,
   ReviewFindingDto,
   ReviewFindingSeverityDto,
   ReviewFindingStatusDto,
   ReviewPanelMessageDto,
   ReviewParticipantDto,
   ReviewPassDetailDto,
+  ReviewPassPublicationDto,
   ReviewVerdictDto,
 } from '../types';
 
@@ -256,7 +258,7 @@ function ReviewThreadPage({ threadId, onBack, onOpenPr, onOpenDiff }: Props) {
               spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
               emptyHint="Nothing locked in yet."
             />
-            <PostReviewControl detail={detail} onPublished={(next) => setDetail(next)} />
+            <PostReviewControl detail={detail} onPublished={setDetail} />
             <AddFindingPanel passId={detail.pass.id} onAdded={(next) => setDetail(next)} />
             {onOpenDiff !== undefined && agreedFindings.length > 0 && (() => {
               const [owner, repo] = detail.pass.repoFullName.split('/');
@@ -317,16 +319,7 @@ function SpawnBuildSection(
   }
 
   if (pass.spawnedBuildThreadId !== null) {
-    const applied = detail.findings.filter(
-      f => f.status === 'AGREED' || f.status === 'RESOLVED');
-    const resolved = applied.filter(f => f.status === 'RESOLVED').length;
-    return (
-      <div style={spawnStripStyle}>
-        <strong>{applied.length} AGREED</strong> → {resolved} resolved
-        {' '}(build thread {pass.spawnedBuildThreadId.slice(0, 8)})
-        {' · '}{applied.length - resolved} unresolved
-      </div>
-    );
+    return <SpawnedBuildSection detail={detail} onPublished={onSpawned} />;
   }
 
   // Hidden in every phase before the pass terminates — there's nothing
@@ -369,14 +362,147 @@ function SpawnBuildSection(
       </button>
       <p style={spawnHintStyle}>
         {eligible
-          ? `Opens a build thread pre-seeded with the AGREED findings. Your own
-             PR forks off its head; someone else's gets suggested-change
-             comments — both still go through the publish gate.`
+          ? `Opens a build thread pre-seeded with the included findings. Your own
+             PR uses writable Tasks and their publish gate; someone else's is
+             a zero-Task comment proposal with explicit approve/discard.`
           : disabledReason}
       </p>
       {error !== null && <div style={errorStyle} role="alert">{error}</div>}
     </div>
   );
+}
+
+function SpawnedBuildSection({ detail, onPublished }: {
+  detail: ReviewPassDetailDto;
+  onPublished: () => void;
+}) {
+  const pass = detail.pass;
+  const [proposal, setProposal] = useState<ReviewBuildCommentProposalDto | null>(null);
+  const [busy, setBusy] = useState<'approve' | 'discard' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const commandIds = useRef<Record<'approve' | 'discard', string | null>>({
+    approve: null,
+    discard: null,
+  });
+  const publishedNotified = useRef(false);
+  const acceptProposal = useCallback((next: ReviewBuildCommentProposalDto | null) => {
+    setProposal(next);
+    if (next?.status === 'PUBLISHED' && !publishedNotified.current) {
+      publishedNotified.current = true;
+      onPublished();
+    }
+  }, [onPublished]);
+  const load = useCallback(async () => {
+    // Older test bridges and the author-is-reviewer path have no comment
+    // proposal; the normal build-resolution strip still renders unchanged.
+    if (typeof window.bridge.getReviewBuildCommentProposal !== 'function') return;
+    try {
+      acceptProposal(await window.bridge.getReviewBuildCommentProposal(pass.id));
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [acceptProposal, pass.id]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (proposal?.status !== 'APPROVED') return;
+    const timer = window.setInterval(() => { void load(); }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [load, proposal?.status]);
+
+  const decide = async (decision: 'approve' | 'discard') => {
+    const existing = commandIds.current[decision];
+    const commandId = existing ?? globalThis.crypto.randomUUID();
+    commandIds.current[decision] = commandId;
+    setBusy(decision);
+    setError(null);
+    try {
+      const next = decision === 'approve'
+        ? await window.bridge.approveReviewBuildComments(pass.id, commandId)
+        : await window.bridge.discardReviewBuildComments(pass.id, commandId);
+      acceptProposal(next);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setBusy(null);
+    }
+  };
+
+  const frozenIds = proposal === null
+    ? null
+    : new Set(proposal.items.map(item => item.findingId));
+  const applied = detail.findings.filter(f => frozenIds === null
+    ? f.status === 'AGREED' || f.status === 'ARBITRATED' || f.status === 'RESOLVED'
+    : frozenIds.has(f.id));
+  const resolved = applied.filter(f => f.status === 'RESOLVED').length;
+  return (
+    <div>
+      <div style={spawnStripStyle}>
+        <strong>{applied.length} included</strong> → {resolved} resolved
+        {' '}(build thread {pass.spawnedBuildThreadId!.slice(0, 8)})
+        {' · '}{applied.length - resolved} unresolved
+      </div>
+      {proposal !== null && (
+        <section style={commentProposalStyle} aria-label="Suggested-change comments">
+          <div style={commentProposalHeaderStyle}>
+            <strong>Suggested-change review</strong>
+            <span>{proposal.status.toLowerCase()}</span>
+          </div>
+          <p style={spawnHintStyle}>
+            Review the exact frozen comments below. Approval authorizes the
+            dispatcher; it does not call GitHub from this screen.
+          </p>
+          {proposal.items.map(item => (
+            <article key={item.findingId} style={commentProposalItemStyle}>
+              <small>
+                {item.kind === 'INLINE'
+                  ? `${item.path}:${item.line}`
+                  : item.path ?? 'Top-level review comment'}
+              </small>
+              <MarkdownProse text={stripProposalMarker(item.body)} />
+            </article>
+          ))}
+          {proposal.status === 'PENDING' && (
+            <div style={commentProposalActionsStyle}>
+              <button
+                type="button"
+                style={btnApplyStyle}
+                disabled={busy !== null}
+                onClick={() => void decide('approve')}
+              >
+                {busy === 'approve' ? 'Authorizing…' : 'Approve comments'}
+              </button>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => void decide('discard')}
+              >
+                {busy === 'discard' ? 'Discarding…' : 'Discard'}
+              </button>
+            </div>
+          )}
+          {proposal.evidence !== null && (
+            <p style={spawnHintStyle}>{proposal.evidence}</p>
+          )}
+          {proposal.status === 'FAILED' && (
+            <div style={errorStyle} role="alert">
+              {proposal.lastError ?? 'The publication could not be proven.'}
+              {' '}Start a new review pass and selection to authorize a new
+              publication; this frozen action cannot be retried or reset.
+            </div>
+          )}
+        </section>
+      )}
+      {error !== null && <div style={errorStyle} role="alert">{error}</div>}
+    </div>
+  );
+}
+
+function stripProposalMarker(body: string): string {
+  return body.replace(/\n?\n?<!-- bytequay-review-build:[\s\S]*? -->\s*$/, '');
 }
 
 /** A finding worth spinning up a build thread for — Major or Blocker.
@@ -2200,12 +2326,44 @@ function PostReviewControl({
   const [busy, setBusy] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [publication, setPublication] =
+      useState<ReviewPassPublicationDto | null>(null);
   // Post the kept findings — everything not still in dispute or discarded.
   const postableIds = useMemo(
       () => detail.findings
           .filter(f => f.status !== 'DISPUTED' && f.status !== 'REPORTED' && f.status !== 'DROPPED')
           .map(f => f.id),
       [detail.findings]);
+
+  // Publication is dispatcher-owned and may finish after this component or
+  // the whole app restarts. The durable read projection is the source of
+  // truth; only non-terminal states keep polling.
+  useEffect(() => {
+    let canceled = false;
+    let timer: number | undefined;
+    const refreshPublication = async () => {
+      try {
+        const next = await window.bridge.getReviewPassPublication(detail.pass.id);
+        if (canceled) return;
+        setPublication(next);
+        if (next?.status === 'PUBLISHED') {
+          const published = await window.bridge.getReviewPass(detail.pass.id);
+          if (!canceled && published !== null) onPublished(published);
+          return;
+        }
+        if (next !== null && !next.terminal) {
+          timer = window.setTimeout(() => { void refreshPublication(); }, 1_000);
+        }
+      } catch (e) {
+        if (!canceled) setError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    void refreshPublication();
+    return () => {
+      canceled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [detail.pass.id, onPublished, publication?.status, publication?.terminal]);
 
   const post = async () => {
     if (busy || alreadyPublished) {
@@ -2214,8 +2372,9 @@ function PostReviewControl({
     setBusy(true);
     setError(null);
     try {
-      const next = await window.bridge.publishReviewPass(detail.pass.id, verdict, postableIds);
-      onPublished(next);
+      const next = await window.bridge.publishReviewPass(
+        detail.pass.id, verdict, postableIds);
+      setPublication(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -2249,6 +2408,40 @@ function PostReviewControl({
     return (
       <div style={postReviewDoneStyle}>
         ✓ Posted to the PR as a <strong>{detail.pass.verdict}</strong> review.
+      </div>
+    );
+  }
+
+  if (publication?.status === 'PUBLISHED') {
+    return (
+      <div style={postReviewDoneStyle}>
+        ✓ Posted to the PR as a <strong>{publication.reviewAction}</strong> review.
+      </div>
+    );
+  }
+
+  if (publication?.terminal && publication.status === 'FAILED') {
+    return (
+      <div style={postReviewFailureStyle} role="alert">
+        <strong>Publication stopped safely.</strong>
+        <span>{publication.lastError ?? 'The remote review was not confirmed.'}</span>
+        <span>This one-shot pass will not re-arm. Start a new review pass to retry.</span>
+      </div>
+    );
+  }
+
+  if (publication !== null) {
+    const message = publication.status === 'QUEUED'
+      ? 'Queued for remote publication.'
+      : publication.status === 'INDETERMINATE'
+        ? 'Remote outcome is unclear; checking GitHub before any retry.'
+        : publication.status === 'FAILED'
+          ? 'An attempt failed; the dispatcher will retry safely.'
+          : 'Posting the review to the remote PR.';
+    return (
+      <div style={postReviewPendingStyle} role="status">
+        <strong>{message}</strong>
+        <span>You can close this page; progress is stored durably.</span>
       </div>
     );
   }
@@ -2332,6 +2525,18 @@ const postReviewCompletedStyle: React.CSSProperties = {
   background: 'rgba(100,116,139,0.08)',
   border: '1px solid rgba(100,116,139,0.28)',
   borderRadius: 9,
+};
+const postReviewPendingStyle: React.CSSProperties = {
+  ...postReviewCompletedStyle,
+  color: '#1d4ed8',
+  background: 'rgba(37,99,235,0.08)',
+  border: '1px solid rgba(37,99,235,0.28)',
+};
+const postReviewFailureStyle: React.CSSProperties = {
+  ...postReviewCompletedStyle,
+  color: '#b91c1c',
+  background: 'rgba(220,38,38,0.08)',
+  border: '1px solid rgba(220,38,38,0.28)',
 };
 const postReviewCompletedHintStyle: React.CSSProperties = {
   fontWeight: 400,
@@ -2545,6 +2750,34 @@ const spawnStripStyle: React.CSSProperties = {
   border: '1px solid var(--border-subtle)',
   fontSize: 12,
   color: 'var(--text-default)',
+};
+
+const commentProposalStyle: React.CSSProperties = {
+  marginTop: 8,
+  padding: 10,
+  border: '1px solid var(--accent-border)',
+  borderRadius: 8,
+  background: 'var(--accent-a2)',
+};
+const commentProposalHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 8,
+  fontSize: 12,
+};
+const commentProposalItemStyle: React.CSSProperties = {
+  marginTop: 8,
+  padding: 8,
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 6,
+  background: 'var(--bg-default)',
+  fontSize: 12,
+};
+const commentProposalActionsStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr auto',
+  gap: 8,
+  marginTop: 10,
 };
 
 const topBarStyle: React.CSSProperties = {

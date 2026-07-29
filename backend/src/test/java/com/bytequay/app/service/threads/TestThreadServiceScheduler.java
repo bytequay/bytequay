@@ -57,11 +57,8 @@ import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -74,7 +71,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
@@ -87,6 +83,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestThreadServiceScheduler
 {
+    @Test
+    void legacyTrunkMetadataPatchFailsClosed()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        Thread legacy = thread("trunk-legacy");
+        Mockito.when(store.findThreadById(legacy.id()))
+                .thenReturn(Optional.of(legacy));
+        Mockito.when(store.findTurnVersion(legacy.id()))
+                .thenReturn(Optional.of("LEGACY"));
+        ThreadService service = service(
+                store, Mockito.mock(ThreadGroupStore.class));
+
+        assertThatThrownBy(() -> service.patchTask(
+                legacy.id(), new ThreadService.TaskPatch("renamed")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
+
+        Mockito.verify(store, Mockito.never()).saveThread(Mockito.any());
+    }
+
     @Test
     void threadReadsAndStatusListsUseTheV2RuntimeProjection()
     {
@@ -283,7 +299,7 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void routedLegacyTrunkSendPromotesToTypedRoute()
+    void routedLegacyTrunkSendFailsClosedWithoutPromotion()
     {
         ThreadStore store = Mockito.mock(ThreadStore.class);
         ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
@@ -293,9 +309,6 @@ class TestThreadServiceScheduler
         Thread trunk = thread("trunk-legacy");
         Mockito.when(store.findThreadById(trunk.id())).thenReturn(Optional.of(trunk));
         Mockito.when(store.findTurnVersion(trunk.id())).thenReturn(Optional.of("LEGACY"));
-        Mockito.when(taskCreation.routes(trunk.workspaceId())).thenReturn(true);
-        Mockito.when(typed.send(trunk, "plan this", TurnInitiator.user()))
-                .thenReturn("thread-turn-v2");
         ThreadService service = new ThreadService(
                 store,
                 Mockito.mock(TaskStore.class),
@@ -312,16 +325,14 @@ class TestThreadServiceScheduler
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
-        service.setV2TaskCreation(
-                taskCreation, Mockito.mock(PlatformTransactionManager.class));
+        service.setV2TaskCreation(taskCreation);
         service.setV2ThreadControls(typed);
 
-        assertThat(service.sendTrunk(trunk.id(), "plan this"))
-                .isEqualTo("thread-turn-v2");
+        assertThatThrownBy(() -> service.sendTrunk(trunk.id(), "plan this"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        Mockito.verify(taskCreation).prepareTrunk(trunk.id(), trunk.workspaceId());
-        Mockito.verify(typed).send(trunk, "plan this", TurnInitiator.user());
-        Mockito.verifyNoInteractions(scheduler, registry);
+        Mockito.verifyNoInteractions(taskCreation, typed, scheduler, registry);
     }
 
     @Test
@@ -349,19 +360,18 @@ class TestThreadServiceScheduler
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
-        service.setV2TaskCreation(
-                taskCreation, Mockito.mock(PlatformTransactionManager.class));
+        service.setV2TaskCreation(taskCreation);
 
         assertThatThrownBy(() -> service.sendTrunk(trunk.id(), "plan this"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("V2 Trunk runtime is not configured");
+                .hasMessageContaining("read-only");
 
         Mockito.verify(taskCreation, Mockito.never())
                 .prepareTrunk(trunk.id(), trunk.workspaceId());
     }
 
     @Test
-    void routedLegacyTrunkMaterialisesOnlyThroughV2Creation()
+    void routedLegacyTrunkCannotMaterialiseANewTask()
     {
         ThreadStore store = Mockito.mock(ThreadStore.class);
         TaskStore tasks = Mockito.mock(TaskStore.class);
@@ -369,15 +379,12 @@ class TestThreadServiceScheduler
         WorktreeService worktrees = Mockito.mock(WorktreeService.class);
         V2TaskCreationService taskCreation = Mockito.mock(V2TaskCreationService.class);
         Thread trunk = thread("trunk-legacy");
-        Task created = Mockito.mock(Task.class);
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6",
                 "Fix tests", "/tmp/repo", "main", "please fix", List.of(),
                 "DEVELOP", null, null, null, trunk.workspaceId(), null);
         Mockito.when(store.findThreadById(trunk.id())).thenReturn(Optional.of(trunk));
         Mockito.when(store.findTurnVersion(trunk.id())).thenReturn(Optional.of("LEGACY"));
-        Mockito.when(taskCreation.routes(trunk.workspaceId())).thenReturn(true);
-        Mockito.when(taskCreation.create(trunk, request)).thenReturn(created);
         ThreadService service = new ThreadService(
                 store,
                 tasks,
@@ -394,12 +401,13 @@ class TestThreadServiceScheduler
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
-        service.setV2TaskCreation(
-                taskCreation, Mockito.mock(PlatformTransactionManager.class));
+        service.setV2TaskCreation(taskCreation);
 
-        assertThat(service.materialiseTask(trunk.id(), request)).isSameAs(created);
+        assertThatThrownBy(() -> service.materialiseTask(trunk.id(), request))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        Mockito.verify(taskCreation).create(trunk, request);
+        Mockito.verifyNoInteractions(taskCreation);
         Mockito.verifyNoInteractions(tasks, scheduler, worktrees);
     }
 
@@ -442,26 +450,23 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void permissionBudgetStaysOnTheTaskAgentThatRaisedThePrompt()
+    void legacyPermissionControlsRequireTheTypedExecutionEndpoint()
     {
-        McpPermissionGate gate = new McpPermissionGate();
-        gate.register("call-1", "Bash", "stage-1");
+        ThreadStore store = Mockito.mock(ThreadStore.class);
         ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
-        ThreadAgent stageAgent = Mockito.mock(ThreadAgent.class);
-        Mockito.when(registry.findByAgentKey("brain-1", "stage-1"))
-                .thenReturn(Optional.of(stageAgent));
-        Mockito.when(stageAgent.decide("call-1", PermissionDecision.ALLOW))
-                .thenAnswer(invocation -> gate.decide("call-1", PermissionDecision.ALLOW));
-        Mockito.when(stageAgent.tryConsumeToolBudget("Bash"))
-                .thenReturn(OptionalInt.of(4));
+        Thread trunk = thread("trunk-legacy");
+        Mockito.when(store.findThreadById(trunk.id()))
+                .thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion(trunk.id()))
+                .thenReturn(Optional.of("V2"));
         ThreadService service = new ThreadService(
-                Mockito.mock(ThreadStore.class),
+                store,
                 Mockito.mock(TaskStore.class),
                 Mockito.mock(ThreadGroupStore.class),
                 Mockito.mock(ThreadTurnStore.class),
                 Mockito.mock(ThreadTurnEventStore.class),
                 registry,
-                gate,
+                Mockito.mock(McpPermissionGate.class),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
@@ -471,16 +476,15 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
 
-        assertThat(service.decide(
-                "brain-1", "call-1", PermissionDecision.ALLOW, "Bash", 5)).isTrue();
-        assertThat(gate.agentKeyFor("call-1")).isNull();
-        Mockito.verify(stageAgent).decide("call-1", PermissionDecision.ALLOW);
-        Mockito.verify(stageAgent).grantToolBudget("Bash", 5);
-
-        assertThat(service.tryConsumeToolBudget("brain-1", "stage-1", "Bash"))
-                .hasValue(4);
-        Mockito.verify(registry, Mockito.times(2))
-                .findByAgentKey("brain-1", "stage-1");
+        assertThatThrownBy(() -> service.decide(
+                trunk.id(), "call-1", PermissionDecision.ALLOW, "Bash", 5))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed V2 execution endpoint");
+        assertThatThrownBy(() -> service.tryConsumeToolBudget(
+                trunk.id(), "stage-1", "Bash"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed V2 execution endpoint");
+        Mockito.verifyNoInteractions(registry);
     }
 
     @Test
@@ -490,27 +494,9 @@ class TestThreadServiceScheduler
         ThreadStore store = Mockito.mock(ThreadStore.class);
         TaskStore tasks = Mockito.mock(TaskStore.class);
         ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
-        ThreadAgent legacyAgent = Mockito.mock(ThreadAgent.class);
-        Task legacyTask = Mockito.mock(Task.class);
-        Task v2Task = Mockito.mock(Task.class);
-        Task siblingLegacyTask = Mockito.mock(Task.class);
         Mockito.when(store.findTurnVersion(trunkId)).thenReturn(Optional.of("V2"));
-        Mockito.when(legacyTask.id()).thenReturn("legacy-task");
-        Mockito.when(legacyTask.threadId()).thenReturn(trunkId);
-        Mockito.when(v2Task.id()).thenReturn("v2-task");
-        Mockito.when(v2Task.threadId()).thenReturn(trunkId);
-        Mockito.when(siblingLegacyTask.id()).thenReturn("sibling-task");
-        Mockito.when(siblingLegacyTask.threadId()).thenReturn("other-trunk");
-        Mockito.when(tasks.findTaskById("legacy-task")).thenReturn(Optional.of(legacyTask));
-        Mockito.when(tasks.findTaskById("v2-task")).thenReturn(Optional.of(v2Task));
-        Mockito.when(tasks.findTaskById("sibling-task"))
-                .thenReturn(Optional.of(siblingLegacyTask));
-        Mockito.when(tasks.findWorkflowVersion("legacy-task"))
-                .thenReturn(Optional.of("LEGACY"));
-        Mockito.when(tasks.findWorkflowVersion("v2-task"))
-                .thenReturn(Optional.of("V2"));
-        Mockito.when(registry.findByAgentKey(trunkId, "legacy-task"))
-                .thenReturn(Optional.of(legacyAgent));
+        Mockito.when(store.findThreadById(trunkId))
+                .thenReturn(Optional.of(thread(trunkId)));
         ThreadService service = new ThreadService(
                 store,
                 tasks,
@@ -528,20 +514,17 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
 
-        service.notifyPermissionRequested(
-                trunkId, "legacy-task", "call-1", "Bash", "run tests");
-
-        Mockito.verify(legacyAgent).notifyPermissionRequested(
-                "call-1", "Bash", "run tests");
+        assertThatThrownBy(() -> service.notifyPermissionRequested(
+                trunkId, "legacy-task", "call-1", "Bash", "run tests"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed V2 execution endpoint");
         for (String rejected : List.of("v2-task", "sibling-task", "unknown", "trunk")) {
             assertThatThrownBy(() -> service.notifyPermissionRequested(
                     trunkId, rejected, "call-2", "Bash", "run tests"))
-                    .isInstanceOf(NoSuchElementException.class)
-                    .hasMessageContaining("typed execution endpoint");
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("typed V2 execution endpoint");
         }
-        Mockito.verify(registry, Mockito.times(1))
-                .findByAgentKey(trunkId, "legacy-task");
-        Mockito.verifyNoMoreInteractions(registry);
+        Mockito.verifyNoInteractions(registry);
     }
 
     @Test
@@ -564,6 +547,7 @@ class TestThreadServiceScheduler
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
+        enableV2Creation(service);
         // initialPrompt feeds title derivation but is treated as
         // context the create dialog will stage in the trunk composer,
         // not as a turn to fire at the agent.
@@ -612,6 +596,7 @@ class TestThreadServiceScheduler
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
+        enableV2Creation(service);
 
         NewThreadRequestBuilder request = title -> new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", title,
@@ -657,6 +642,7 @@ class TestThreadServiceScheduler
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
+        enableV2Creation(service);
 
         service.create(new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
@@ -697,6 +683,7 @@ class TestThreadServiceScheduler
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
+        enableV2Creation(service);
 
         service.create(new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
@@ -717,7 +704,7 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void followUpSendQueuesThroughScheduler()
+    void legacyTaskFollowUpSendFailsClosed()
     {
         Thread thread = thread();
         Task task = new Task(
@@ -745,10 +732,11 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
-        String turnId = service.send(thread.id(), task.id(), "next");
+        assertThatThrownBy(() -> service.send(thread.id(), task.id(), "next"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        assertThat(turnId).isEqualTo("turn-1");
-        assertThat(scheduler.requests).containsExactly(new QueuedRequest(thread, "next"));
+        assertThat(scheduler.requests).isEmpty();
         assertThat(registry.used).isFalse();
     }
 
@@ -1125,6 +1113,7 @@ class TestThreadServiceScheduler
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
+        enableV2Creation(service);
 
         Thread thread = service.create(new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
@@ -1146,7 +1135,7 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void stopCancelsQueuedTurnsBeforeStoppingSession()
+    void legacyStopFailsClosedBeforeSchedulerOrRuntime()
     {
         Thread thread = thread();
         InMemoryTaskStore store = new InMemoryTaskStore();
@@ -1169,16 +1158,15 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
-        service.stop(thread.id());
+        assertThatThrownBy(() -> service.stop(thread.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        assertThat(events).containsExactly(
-                "cancel:" + thread.id(),
-                "stop",
-                "evict:" + thread.id());
+        assertThat(events).isEmpty();
     }
 
     @Test
-    void stopCancelsQueuedTurnsWithoutLiveSession()
+    void legacyStopDoesNotProbeForALiveSession()
     {
         Thread thread = thread();
         InMemoryTaskStore store = new InMemoryTaskStore();
@@ -1200,14 +1188,16 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
-        service.stop(thread.id());
+        assertThatThrownBy(() -> service.stop(thread.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        assertThat(scheduler.cancelledTaskIds).containsExactly(thread.id());
+        assertThat(scheduler.cancelledTaskIds).isEmpty();
         assertThat(registry.used).isFalse();
     }
 
     @Test
-    void deleteCancelsQueuedTurnsBeforeDeletingTask()
+    void legacyDeleteFailsClosedAndKeepsHistory()
     {
         Thread thread = thread("thread-1", ThreadStatus.COMPLETED);
         InMemoryTaskStore store = new InMemoryTaskStore();
@@ -1228,10 +1218,12 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
-        service.delete(thread.id());
+        assertThatThrownBy(() -> service.delete(thread.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        assertThat(scheduler.cancelledTaskIds).containsExactly(thread.id());
-        assertThat(store.findThreadById(thread.id())).isEmpty();
+        assertThat(scheduler.cancelledTaskIds).isEmpty();
+        assertThat(store.findThreadById(thread.id())).contains(thread);
     }
 
     @Test
@@ -1319,310 +1311,50 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void materialiseTaskCutsAWorktreeAndDefersDevWorkToPlanApproval()
+    void materialiseTaskFailsClosedWithoutV2Creation()
     {
-        InMemoryTaskStore store = new InMemoryTaskStore();
-        RecordingScheduler scheduler = new RecordingScheduler();
-        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
-                new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/repo/.worktrees/task-1"),
-                        "dev/task-1", null)));
-        // Use the recording task store + a store wrapper so the
-        // active-task projection actually populates on read-back.
-        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
-        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        TaskStore tasks = Mockito.mock(TaskStore.class);
+        ThreadTurnScheduler scheduler = Mockito.mock(ThreadTurnScheduler.class);
+        WorktreeService worktrees = Mockito.mock(WorktreeService.class);
+        Thread trunk = thread("trunk");
+        Mockito.when(store.findThreadById(trunk.id()))
+                .thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion(trunk.id()))
+                .thenReturn(Optional.of("V2"));
         ThreadService service = new ThreadService(
-                projecting,
+                store,
                 tasks,
-                new EmptyTaskGroupStore(),
-                new InMemoryTaskTurnStore(),
-                new InMemoryTaskTurnEventStore(),
-                new ThrowingRegistry(),
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                Mockito.mock(ThreadRegistry.class),
                 Mockito.mock(McpPermissionGate.class),
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 worktrees,
                 new RoleSkillService(new ConceptRegistry()),
-                stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
-        ApplicationEventPublisher publisher = Mockito.mock(ApplicationEventPublisher.class);
-        service.setApplicationEventPublisher(publisher);
-
-        // Step 1 — create is a 0-Task path: no worktree, no Task.
-        Thread thread = service.create(new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT,
-                "claude-code",
-                "claude-sonnet-4.6",
-                "Fix tests",
-                /* workingDir */ null,
-                /* branchName */ null,
-                /* initialPrompt */ null,
-                List.of(),
-                "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null));
-        assertThat(worktrees.createRequests).isEmpty();
-        assertThat(tasks.byId).isEmpty();
-
-        // Step 2 — materialiseTask is the branch-worthy step.
-        projecting.setPlanningSnapshot(thread.id(), new ThreadStore.PlanningSnapshot(
-                Path.of("/tmp/repo").toAbsolutePath().normalize().toString(), "planned-sha"));
-        service.materialiseTask(thread.id(), new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT,
-                "claude-code",
-                "claude-sonnet-4.6",
-                "Fix tests",
-                "/tmp/repo",
-                "main",
-                "please fix",
-                List.of(),
-                "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null)
-                .withOrigin(Task.ORIGIN_AGENT));
-
-        Task active = tasks.activeTasksForThread(thread.id()).stream().findFirst().orElseThrow();
-        assertThat(active.worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
-        assertThat(active.branchName()).isEqualTo("dev/task-1");
-        assertThat(active.agentCwd()).isEqualTo(active.worktreePath());
-        // materialiseTask cuts the worktree but no longer enqueues a dev turn:
-        // development is gated on plan approval, and planning is kicked off via
-        // a PlanKickoffRequested event handled by the brain layer (covered by an
-        // integration test), so this unit-level scheduler sees no turn.
-        assertThat(scheduler.requests).isEmpty();
-        assertThat(worktrees.createRequests)
-                .singleElement()
-                .extracting(WorktreeCreateRequest::repoRoot,
-                        WorktreeCreateRequest::title,
-                        WorktreeCreateRequest::baseSha)
-                .containsExactly(
-                        Path.of("/tmp/repo").toAbsolutePath().normalize(),
-                        "Fix tests", "planned-sha");
-        // The cut no longer consumes the snapshot — it keeps reflecting the
-        // planning worktree until the turn-start sync moves it.
-        assertThat(projecting.findPlanningSnapshot(thread.id())).isPresent();
-        var createdEvent = ArgumentCaptor.forClass(TaskCreatedEvent.class);
-        Mockito.verify(publisher).publishEvent(createdEvent.capture());
-        assertThat(createdEvent.getValue().taskId()).isEqualTo(active.id());
-        assertThat(createdEvent.getValue().initialPrompt()).isEqualTo("please fix");
-        assertThat(createdEvent.getValue().planKickoffRequested()).isTrue();
-        Mockito.verify(publisher, Mockito.never())
-                .publishEvent(Mockito.any(PlanKickoffRequested.class));
-    }
-
-    @Test
-    void materialiseTaskRemovesWorktreeWhenCreationFailsAfterGitCut()
-    {
-        InMemoryTaskStore store = new InMemoryTaskStore();
-        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
-                new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/repo/.worktrees/task-1"), "dev/task-1", "base-sha")));
-        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
-        ThreadService service = new ThreadService(
-                store, tasks, new EmptyTaskGroupStore(),
-                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
-                new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
-                new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(), worktrees, new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
-        ApplicationEventPublisher publisher = Mockito.mock(ApplicationEventPublisher.class);
-        Mockito.doThrow(new IllegalStateException("kickoff failed"))
-                .when(publisher).publishEvent(Mockito.any(TaskCreatedEvent.class));
-        service.setApplicationEventPublisher(publisher);
-        Thread thread = service.create(new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
-                null, null, null, List.of(), "DEVELOP", null, null,
-                null, "ws-default", null));
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6",
+                "Fix tests", "/tmp/repo", "main", "please fix", List.of(),
+                "DEVELOP", null, null, null, trunk.workspaceId(), null);
 
-        assertThatThrownBy(() -> service.materialiseTask(
-                thread.id(), new ThreadService.NewTaskRequest(
-                        ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
-                        "/tmp/repo", null, "please fix", List.of(), "DEVELOP", null, null,
-                        null, "ws-default", null)))
-                .hasMessage("kickoff failed");
+        assertThatThrownBy(() -> service.materialiseTask(trunk.id(), request))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(failure -> assertThat(
+                        ((ResponseStatusException) failure).getStatusCode().value())
+                        .isEqualTo(503))
+                .hasMessageContaining("V2 Task creation is not configured");
 
-        assertThat(worktrees.removeRequests)
-                .containsExactly(new WorktreeRemoveRequest(
-                        Path.of("/tmp/repo").toAbsolutePath().normalize(),
-                        "/tmp/repo/.worktrees/task-1", "dev/task-1"));
+        Mockito.verifyNoInteractions(tasks, scheduler, worktrees);
     }
 
     @Test
-    void userOriginTaskCutIgnoresThePlanningSnapshot()
-    {
-        InMemoryTaskStore store = new InMemoryTaskStore();
-        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
-                new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/repo/.worktrees/task-1"),
-                        "dev/task-1", null)));
-        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
-        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
-        ThreadService service = new ThreadService(
-                projecting, tasks, new EmptyTaskGroupStore(),
-                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
-                new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
-                new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(), worktrees,
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
-                Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class),
-                Mockito.mock(CheckpointSummariser.class));
-        Thread thread = service.create(new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
-                null, null, null, List.of(), "DEVELOP", null, null,
-                null, "ws-default", null));
-        projecting.setPlanningSnapshot(thread.id(), new ThreadStore.PlanningSnapshot(
-                Path.of("/tmp/repo").toAbsolutePath().normalize().toString(), "planned-sha"));
-
-        // Default origin is "user": the trunk's planning view is unrelated,
-        // so the cut branches from the freshly-fetched remote base instead.
-        service.materialiseTask(thread.id(), new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
-                "/tmp/repo", "main", "please fix", List.of(), "DEVELOP", null, null,
-                null, "ws-default", null));
-
-        assertThat(worktrees.createRequests)
-                .singleElement()
-                .extracting(WorktreeCreateRequest::baseSha)
-                .isNull();
-        assertThat(projecting.findPlanningSnapshot(thread.id())).isPresent();
-    }
-
-    @Test
-    void materialiseTaskUsesAiTitleWhenSourceTitleNeedsShortening()
-    {
-        InMemoryTaskStore store = new InMemoryTaskStore();
-        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
-                new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/repo/.worktrees/task-1"),
-                        "dev/task-1", null)));
-        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
-        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
-        String longTitle = "Remove the 3 confirmed-dead skill routes (GET /skills/by-role, "
-                + "GET /skills/{id}, POST /skills/{id}/set-default) and their tests";
-        CheckpointSummariser summariser = Mockito.mock(CheckpointSummariser.class);
-        Mockito.when(summariser.summariseTaskTitle(longTitle)).thenReturn("Remove dead skill routes");
-        ThreadService service = new ThreadService(
-                projecting,
-                tasks,
-                new EmptyTaskGroupStore(),
-                new InMemoryTaskTurnStore(),
-                new InMemoryTaskTurnEventStore(),
-                new ThrowingRegistry(),
-                Mockito.mock(McpPermissionGate.class),
-                new RecordingScheduler(),
-                Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
-                worktrees,
-                new RoleSkillService(new ConceptRegistry()),
-                stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), summariser);
-
-        Thread thread = service.create(new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
-                /* workingDir */ null, /* branchName */ null, /* initialPrompt */ null,
-                List.of(), "DEVELOP", /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null));
-        service.materialiseTask(thread.id(), new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", longTitle,
-                "/tmp/repo", "main", "please fix", List.of(), "DEVELOP",
-                /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null));
-
-        Task active = tasks.activeTasksForThread(thread.id()).stream().findFirst().orElseThrow();
-        assertThat(active.name()).isEqualTo("Remove dead skill routes");
-    }
-
-    @Test
-    void failedTaskCutKeepsThePlanningSnapshotForRetry()
-    {
-        InMemoryTaskStore store = new InMemoryTaskStore();
-        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
-        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
-        ThreadService service = new ThreadService(
-                projecting, tasks, new EmptyTaskGroupStore(),
-                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
-                new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
-                new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(), new RecordingWorktreeService(Optional.empty()),
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
-                Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class),
-                Mockito.mock(CheckpointSummariser.class));
-        Thread thread = service.create(new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix NPE",
-                null, null, null, List.of(), "DEVELOP", null, null,
-                null, "ws-default", null));
-        String repoRoot = Path.of("/tmp/repo").toAbsolutePath().normalize().toString();
-        projecting.setPlanningSnapshot(thread.id(),
-                new ThreadStore.PlanningSnapshot(repoRoot, "planned-sha"));
-
-        assertThatThrownBy(() -> service.materialiseTask(thread.id(),
-                new ThreadService.NewTaskRequest(
-                        ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix NPE",
-                        repoRoot, null, "fix it", List.of(), "DEVELOP", null, null,
-                        null, "ws-default", null)
-                        .withOrigin(Task.ORIGIN_AGENT)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("planned-sha");
-
-        assertThat(projecting.findPlanningSnapshot(thread.id()))
-                .contains(new ThreadStore.PlanningSnapshot(repoRoot, "planned-sha"));
-        assertThat(tasks.byId).isEmpty();
-    }
-
-    @Test
-    void materialiseTaskFallsBackToWordBoundaryTruncationWhenAiSummarisationFails()
-    {
-        InMemoryTaskStore store = new InMemoryTaskStore();
-        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
-                new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/repo/.worktrees/task-1"),
-                        "dev/task-1", null)));
-        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
-        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
-        String longTitle = "Remove the 3 confirmed-dead skill routes (GET /skills/by-role, "
-                + "GET /skills/{id}, POST /skills/{id}/set-default) and their tests";
-        // Mockito.mock() returns null from an unstubbed method — exactly the
-        // contract summariseTaskTitle uses to signal "AI unavailable", so
-        // this stands in for a missing credential or a network failure.
-        CheckpointSummariser summariser = Mockito.mock(CheckpointSummariser.class);
-        ThreadService service = new ThreadService(
-                projecting,
-                tasks,
-                new EmptyTaskGroupStore(),
-                new InMemoryTaskTurnStore(),
-                new InMemoryTaskTurnEventStore(),
-                new ThrowingRegistry(),
-                Mockito.mock(McpPermissionGate.class),
-                new RecordingScheduler(),
-                Mockito.mock(WorktreeLeaseService.class),
-                new GitRunner(),
-                worktrees,
-                new RoleSkillService(new ConceptRegistry()),
-                stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), summariser);
-
-        Thread thread = service.create(new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
-                /* workingDir */ null, /* branchName */ null, /* initialPrompt */ null,
-                List.of(), "DEVELOP", /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null));
-        service.materialiseTask(thread.id(), new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", longTitle,
-                "/tmp/repo", "main", "please fix", List.of(), "DEVELOP",
-                /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null));
-
-        Task active = tasks.activeTasksForThread(thread.id()).stream().findFirst().orElseThrow();
-        // Word-boundary truncation at TASK_NAME_MAX (60 chars) — never
-        // cuts mid-word.
-        assertThat(active.name()).isEqualTo("Remove the 3 confirmed-dead skill routes (GET");
-        assertThat(active.name().length()).isLessThanOrEqualTo(60);
-    }
-
-    @Test
-    void deleteRemovesTaskWorktreeBeforeDeletingRow()
+    void legacyDeleteDoesNotRemoveTaskWorktree()
     {
         Thread thread = threadWithWorktree("thread-1");
         InMemoryTaskStore store = new InMemoryTaskStore();
@@ -1656,13 +1388,12 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
-        service.delete(thread.id());
+        assertThatThrownBy(() -> service.delete(thread.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("read-only");
 
-        assertThat(worktrees.removeRequests).containsExactly(new WorktreeRemoveRequest(
-                Path.of("/tmp/work"),
-                "/tmp/work/.bytequay/worktrees/dev/thread-1",
-                "dev/thread-1"));
-        assertThat(store.findThreadById(thread.id())).isEmpty();
+        assertThat(worktrees.removeRequests).isEmpty();
+        assertThat(store.findThreadById(thread.id())).contains(thread);
     }
 
     @Test
@@ -1931,6 +1662,13 @@ class TestThreadServiceScheduler
     private static WorktreeService noopWorktreeService()
     {
         return new RecordingWorktreeService(Optional.empty());
+    }
+
+    private static void enableV2Creation(ThreadService service)
+    {
+        V2TaskCreationService creation = Mockito.mock(V2TaskCreationService.class);
+        Mockito.when(creation.routes(Mockito.anyString())).thenReturn(true);
+        service.setV2TaskCreation(creation);
     }
 
     /** IdGenerator backed by a tiny in-memory sequence store. Hand-rolled

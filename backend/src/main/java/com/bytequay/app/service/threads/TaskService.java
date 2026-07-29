@@ -62,7 +62,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -261,13 +260,9 @@ public class TaskService
      *  plan-card selector offers. */
     public int setMinApprovals(String threadId, String taskId, int minApprovals)
     {
-        requireTask(threadId, taskId);
+        requireV2Task(threadId, taskId);
         int clamped = Math.clamp(minApprovals, 0, 2);
-        if (taskStore.isV2Task(taskId)) {
-            return requireV2Controls().setMinApprovals(taskId, clamped);
-        }
-        taskStore.setMinApprovals(taskId, clamped);
-        return taskStore.minApprovals(taskId);
+        return requireV2Controls().setMinApprovals(taskId, clamped);
     }
 
     /** Flip the task's auto-approve mode, returning the stored value. While
@@ -275,17 +270,8 @@ public class TaskService
      *  final PR merge stays manually gated. */
     public boolean setAutoApprove(String threadId, String taskId, boolean enabled)
     {
-        requireTask(threadId, taskId);
-        if (taskStore.isV2Task(taskId)) {
-            return requireV2Controls().setAutoApprove(taskId, enabled);
-        }
-        taskStore.setAutoApprove(taskId, enabled);
-        // Turning it on clears any gate already parked, not just future ones —
-        // AutoApproveGateListener sweeps the task's parked non-merge gates.
-        if (enabled) {
-            eventPublisher.publishEvent(new AutoApproveEnabledEvent(threadId, taskId));
-        }
-        return taskStore.isAutoApprove(taskId);
+        requireV2Task(threadId, taskId);
+        return requireV2Controls().setAutoApprove(taskId, enabled);
     }
 
     /** Read the task's auto-merge mode. */
@@ -305,16 +291,8 @@ public class TaskService
      *  turning it on regardless — this is their call, not a system gate. */
     public boolean setAutoMerge(String threadId, String taskId, boolean enabled)
     {
-        requireTask(threadId, taskId);
-        if (taskStore.isV2Task(taskId)) {
-            return requireV2Controls().setAutoMerge(taskId, enabled);
-        }
-        taskStore.setAutoMerge(taskId, enabled);
-        if (enabled) {
-            taskStore.setAutoApprove(taskId, true);
-            eventPublisher.publishEvent(new AutoApproveEnabledEvent(threadId, taskId));
-        }
-        return taskStore.isAutoMerge(taskId);
+        requireV2Task(threadId, taskId);
+        return requireV2Controls().setAutoMerge(taskId, enabled);
     }
 
     /** Single task lookup. 404s if the task is missing OR if it
@@ -379,14 +357,9 @@ public class TaskService
     @Transactional
     public Task setWorkModel(String threadId, String taskId, WorkModel workModel)
     {
-        Task current = requireTask(threadId, taskId);
-        if (taskStore.isV2Task(taskId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Task engines are frozen at creation");
-        }
-        Task next = current.withWorkModel(workModel);
-        taskStore.saveTask(next);
-        return next;
+        requireV2Task(threadId, taskId);
+        throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                "V2 Task engines are frozen at creation");
     }
 
     /** Task-scoped agent selection seals when task execution first emits a
@@ -405,7 +378,7 @@ public class TaskService
     @Transactional
     public Task renameTask(String threadId, String taskId, String newName)
     {
-        Task current = requireTask(threadId, taskId);
+        Task current = requireV2Task(threadId, taskId);
         String trimmed = newName == null ? null : newName.trim();
         String stored = (trimmed == null || trimmed.isEmpty()) ? null : trimmed;
         Task next = current.withName(stored);
@@ -414,9 +387,9 @@ public class TaskService
     }
 
     /**
-     * Return control to Trunk planning. LEGACY keeps its park-and-cut
-     * compatibility flow; V2 leaves the current Task at its exact owner
-     * checkpoint so only a typed Trunk assignment can create a sibling.
+     * Return control to Trunk planning. V2 leaves the current Task at its
+     * exact owner checkpoint so only a typed Trunk assignment can create a
+     * sibling; historical LEGACY Tasks are read-only.
      */
     public Task parkAndStartNext(String threadId, String taskId, ShipRequest request)
     {
@@ -434,19 +407,16 @@ public class TaskService
     private Task shipOrParkAndStartNext(
             String threadId, String taskId, ShipRequest request, ParkMode mode, boolean approvedParked)
     {
-        if (taskStore.isV2Task(taskId)) {
-            Task current = requireTask(threadId, taskId);
-            if (mode == ParkMode.NEXT && !approvedParked) {
-                // V2 Next is a navigation handoff back to Trunk planning.
-                // The Task remains at its exact owner checkpoint; only a
-                // subsequent typed Trunk assignment may create a sibling.
-                return v2Projection == null ? current : v2Projection.project(current);
-            }
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Task promotion is owned by Local Development");
+        requireNonNull(request, "request is null");
+        Task current = requireV2Task(threadId, taskId);
+        if (mode == ParkMode.NEXT && !approvedParked) {
+            // V2 Next is a navigation handoff back to Trunk planning.
+            // The Task remains at its exact owner checkpoint; only a
+            // subsequent typed Trunk assignment may create a sibling.
+            return v2Projection == null ? current : v2Projection.project(current);
         }
-        return TaskExternalEffectGate.withEffectGate(taskId, () ->
-                shipOrParkAndStartNextLocked(threadId, taskId, request, mode, approvedParked));
+        throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                "V2 Task promotion is owned by Local Development");
     }
 
     private Task shipOrParkAndStartNextLocked(
@@ -759,13 +729,11 @@ public class TaskService
      * and only flips rows that are not already terminal. A bookkeeping
      * failure here never propagates back to the merge call.
      */
-    @TransactionalEventListener(fallbackExecution = true)
     public void onPullRequestMerged(PullRequestMergedEvent event)
     {
         completeTasksForMergedPr(event.repoFullName(), event.prNumber());
     }
 
-    @TransactionalEventListener(fallbackExecution = true)
     public void onPullRequestClosed(PullRequestClosedEvent event)
     {
         closeTasksForRemotePr(event.repoFullName(), event.prNumber());
@@ -781,38 +749,24 @@ public class TaskService
      */
     public void completeTasksForMergedPr(String repoFullName, int prNumber)
     {
-        finishTasksForRemotePr(repoFullName, prNumber, true);
+        finishTasksForRemotePr(repoFullName, prNumber);
     }
 
     /** Immediately seal a task whose PR the user closed without merging. */
     public void closeTasksForRemotePr(String repoFullName, int prNumber)
     {
-        finishTasksForRemotePr(repoFullName, prNumber, false);
+        finishTasksForRemotePr(repoFullName, prNumber);
     }
 
-    private void finishTasksForRemotePr(String repoFullName, int prNumber, boolean merged)
+    private void finishTasksForRemotePr(String repoFullName, int prNumber)
     {
-        try {
-            for (Task candidate : taskStore.findByLinkedPrNumber(prNumber)) {
-                if (taskStore.isV2Task(candidate.id())) {
-                    // Typed Remote Development owns V2 terminal evidence and
-                    // Cleanup admission. A legacy webhook must not seal it.
-                    continue;
-                }
-                TaskExternalEffectGate.withEffectGate(candidate.id(), () -> {
-                    RemoteTerminalResult result = commands.execute(candidate.id(),
-                            () -> finishOneForRemotePrInCommand(
-                                    candidate, repoFullName, prNumber, merged));
-                    if (result != null) {
-                        finishRemoteTerminalRuntime(result);
-                    }
-                    return null;
-                });
+        for (Task candidate : taskStore.findByLinkedPrNumber(prNumber)) {
+            if (!taskStore.isV2Task(candidate.id())
+                    && repoMatches(candidate, repoFullName)) {
+                throw legacyMutationRetired(candidate.id());
             }
-        }
-        catch (RuntimeException e) {
-            log.warn("completing tasks for merged PR {} #{} failed: {}",
-                    repoFullName, prNumber, e.getMessage());
+            // Typed Remote Development owns V2 terminal evidence and Cleanup
+            // admission. This compatibility callback is observation-only.
         }
     }
 
@@ -858,18 +812,12 @@ public class TaskService
      */
     public void authorizeMergeForPr(String repoFullName, int prNumber)
     {
-        try {
-            for (Task task : taskStore.findByLinkedPrNumber(prNumber)) {
-                if (!taskStore.isV2Task(task.id())
-                        && task.status() == TaskStatus.IN_REVIEW
-                        && repoMatches(task, repoFullName)) {
-                    taskStore.authorizeMerge(task.id(), Instant.now());
-                }
+        for (Task task : taskStore.findByLinkedPrNumber(prNumber)) {
+            if (!taskStore.isV2Task(task.id())
+                    && repoMatches(task, repoFullName)) {
+                throw legacyMutationRetired(task.id());
             }
-        }
-        catch (RuntimeException e) {
-            log.warn("recording merge consent for PR {} #{} failed: {}",
-                    repoFullName, prNumber, e.getMessage());
+            // V2 merge consent is recorded by its typed remote-effect owner.
         }
     }
 
@@ -882,15 +830,9 @@ public class TaskService
      */
     public Task cancelTask(String threadId, String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            requireTask(threadId, taskId);
-            requireV2Controls().cancel(taskId);
-            return projectV2Task(taskId);
-        }
-        return TaskExternalEffectGate.withEffectGate(taskId, () -> {
-            Task task = commands.execute(taskId, () -> cancelTaskInCommand(taskId));
-            return finishCancelRuntime(threadId, task);
-        });
+        requireV2Task(threadId, taskId);
+        requireV2Controls().cancel(taskId);
+        return projectV2Task(taskId);
     }
 
     private Task cancelTaskInCommand(String taskId)
@@ -965,12 +907,9 @@ public class TaskService
      */
     public Task pauseTask(String threadId, String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            requireTask(threadId, taskId);
-            requireV2Controls().pause(taskId);
-            return projectV2Task(taskId);
-        }
-        return TaskExternalEffectGate.withEffectGate(taskId, () -> pauseTaskCommand(threadId, taskId));
+        requireV2Task(threadId, taskId);
+        requireV2Controls().pause(taskId);
+        return projectV2Task(taskId);
     }
 
     private Task pauseTaskCommand(String threadId, String taskId)
@@ -1055,13 +994,9 @@ public class TaskService
     /** Compatibility wrapper for the nested task URL. */
     public Task resumeTask(String threadId, String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            requireTask(threadId, taskId);
-            requireV2Controls().resume(taskId);
-            return projectV2Task(taskId);
-        }
-        return TaskExternalEffectGate.withEffectGate(
-                taskId, () -> resumeTaskCommand(taskId, threadId, false));
+        requireV2Task(threadId, taskId);
+        requireV2Controls().resume(taskId);
+        return projectV2Task(taskId);
     }
 
     /**
@@ -1070,12 +1005,9 @@ public class TaskService
      */
     public Task resumeTask(String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            requireV2Controls().resume(taskId);
-            return projectV2Task(taskId);
-        }
-        return TaskExternalEffectGate.withEffectGate(
-                taskId, () -> resumeTaskCommand(taskId, null, false));
+        requireV2Task(taskId);
+        requireV2Controls().resume(taskId);
+        return projectV2Task(taskId);
     }
 
     /** Explicitly restart a CI lifecycle that parked after exhausting its
@@ -1083,13 +1015,9 @@ public class TaskService
      *  because recovery causes a remote GitHub Actions rerun. */
     public Task retryFailedCi(String threadId, String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            requireTask(threadId, taskId);
-            requireV2Controls().retryFailedCi(taskId);
-            return projectV2Task(taskId);
-        }
-        return TaskExternalEffectGate.withEffectGate(
-                taskId, () -> resumeTaskCommand(taskId, threadId, true));
+        requireV2Task(threadId, taskId);
+        requireV2Controls().retryFailedCi(taskId);
+        return projectV2Task(taskId);
     }
 
     private Task resumeTaskCommand(
@@ -1276,11 +1204,8 @@ public class TaskService
      */
     public Task completeRequestedResume(String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            return projectV2Task(taskId);
-        }
-        return TaskExternalEffectGate.withEffectGate(
-                taskId, () -> completeRequestedResumeLocked(taskId));
+        requireV2Task(taskId);
+        return projectV2Task(taskId);
     }
 
     private Task completeRequestedResumeLocked(String taskId)
@@ -1385,11 +1310,8 @@ public class TaskService
      */
     public Task completeRequestedRecovery(String taskId)
     {
-        if (taskStore.isV2Task(taskId)) {
-            return projectV2Task(taskId);
-        }
-        return TaskExternalEffectGate.withEffectGate(
-                taskId, () -> completeRequestedRecoveryLocked(taskId));
+        requireV2Task(taskId);
+        return projectV2Task(taskId);
     }
 
     private Task completeRequestedRecoveryLocked(String taskId)
@@ -1470,6 +1392,34 @@ public class TaskService
                     "V2 Task controls are not configured");
         }
         return v2Controls;
+    }
+
+    private Task requireV2Task(String threadId, String taskId)
+    {
+        Task task = requireTask(threadId, taskId);
+        if (!taskStore.isV2Task(taskId)) {
+            throw legacyMutationRetired(taskId);
+        }
+        return task;
+    }
+
+    private Task requireV2Task(String taskId)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (!taskStore.isV2Task(taskId)) {
+            throw legacyMutationRetired(taskId);
+        }
+        return task;
+    }
+
+    private static ResponseStatusException legacyMutationRetired(String taskId)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "Historical LEGACY Task " + taskId
+                        + " is read-only; use a typed V2 Task");
     }
 
     private Task projectV2Task(String taskId)

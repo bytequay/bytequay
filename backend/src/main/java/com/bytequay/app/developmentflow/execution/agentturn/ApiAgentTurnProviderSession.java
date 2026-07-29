@@ -198,6 +198,13 @@ public final class ApiAgentTurnProviderSession
                 {
                     return canceled.get() || Thread.currentThread().isInterrupted();
                 }
+
+                @Override
+                public boolean abortTurn(long costSoFarMilliUsd)
+                {
+                    return request.maxCostUsdMilli() != null
+                            && costSoFarMilliUsd >= request.maxCostUsdMilli();
+                }
             };
         }
 

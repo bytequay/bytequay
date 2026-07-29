@@ -82,9 +82,25 @@ public class RepoTestValidationCheck
     @Override
     public List<ValidationFailure> run(String taskId, Path worktree)
     {
+        Optional<TestRun> run = runWithoutRecording(worktree);
+        if (run.isEmpty()) {
+            return List.of();
+        }
+        TestRun result = run.orElseThrow();
+        if (Thread.currentThread().isInterrupted()) {
+            return result.failures();
+        }
+        recordCheck(
+                taskId, result.ecosystem(), result.passed(), result.durationMs());
+        return result.failures();
+    }
+
+    /** Runs the detected test command without projecting a PR check. */
+    public Optional<TestRun> runWithoutRecording(Path worktree)
+    {
         Optional<TestRunnerDetector.Detected> detected = detector.detect(worktree);
         if (detected.isEmpty()) {
-            return List.of(); // No recognised ecosystem — nothing to run, passes vacuously.
+            return Optional.empty();
         }
         TestRunnerDetector.Detected runner = detected.get();
         Instant start = Instant.now();
@@ -94,20 +110,31 @@ public class RepoTestValidationCheck
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return List.of(new ValidationFailure(
-                    "test", "interrupted running " + runner.ecosystem() + " tests"));
+            Instant completed = Instant.now();
+            return Optional.of(new TestRun(
+                    runner.ecosystem(), false, elapsed(start, completed),
+                    List.of(new ValidationFailure(
+                            "test", "interrupted running "
+                                    + runner.ecosystem() + " tests")),
+                    start.toEpochMilli(), completed.toEpochMilli()));
         }
-        long durationMs = Duration.between(start, Instant.now()).toMillis();
+        Instant completed = Instant.now();
+        long durationMs = elapsed(start, completed);
         boolean passed = result.ran() && result.exitCode() == 0;
-        recordCheck(taskId, runner.ecosystem(), passed, durationMs);
+        List<ValidationFailure> failures;
         if (passed) {
-            return List.of();
+            failures = List.of();
         }
-        String detail = result.ran()
-                ? runner.ecosystem() + " tests failed (exit " + result.exitCode() + "): "
-                        + tail(result.output())
-                : runner.ecosystem() + " tests failed to run: " + result.error();
-        return List.of(new ValidationFailure("test", detail));
+        else {
+            String detail = result.ran()
+                    ? runner.ecosystem() + " tests failed (exit "
+                            + result.exitCode() + "): " + tail(result.output())
+                    : runner.ecosystem() + " tests failed to run: " + result.error();
+            failures = List.of(new ValidationFailure("test", detail));
+        }
+        return Optional.of(new TestRun(
+                runner.ecosystem(), passed, durationMs, failures,
+                start.toEpochMilli(), completed.toEpochMilli()));
     }
 
     private void recordCheck(String taskId, String ecosystem, boolean passed, long durationMs)
@@ -124,5 +151,30 @@ public class RepoTestValidationCheck
         return trimmed.length() <= DETAIL_TAIL_CHARS
                 ? trimmed
                 : "…" + trimmed.substring(trimmed.length() - DETAIL_TAIL_CHARS);
+    }
+
+    private static long elapsed(Instant start, Instant completed)
+    {
+        return Math.max(0, Duration.between(start, completed).toMillis());
+    }
+
+    public record TestRun(
+            String ecosystem,
+            boolean passed,
+            long durationMs,
+            List<ValidationFailure> failures,
+            long startedAtMs,
+            long completedAtMs)
+    {
+        public TestRun
+        {
+            requireNonNull(ecosystem, "ecosystem is null");
+            failures = List.copyOf(requireNonNull(failures, "failures is null"));
+            if (ecosystem.isBlank() || durationMs < 0 || startedAtMs < 0
+                    || completedAtMs < startedAtMs
+                    || passed != failures.isEmpty()) {
+                throw new IllegalArgumentException("invalid test run");
+            }
+        }
     }
 }

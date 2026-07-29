@@ -21,20 +21,16 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
-import com.bytequay.app.service.threads.ThreadStartupReconciler;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.core.annotation.Order;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -112,26 +108,6 @@ class TestStageLifecyclePlanningReconcile
 
         verify(events).publishEvent(
                 new PlanKickoffRequested("task-recover", null, null));
-    }
-
-    @Test
-    void staleRuntimeRecoveryFinishesBeforePlanningReplay()
-            throws NoSuchMethodException
-    {
-        int threadCleanup = startupOrder(
-                ThreadStartupReconciler.class, "reconcileOnStartup");
-        int turnRecovery = startupOrder(AgentScheduler.class, "recoverQueuedTurns");
-        int planningReplay = startupOrder(
-                StageLifecycle.class, "reconcilePlanningTasksOnStartup");
-
-        assertThat(threadCleanup).isLessThan(turnRecovery);
-        assertThat(turnRecovery).isLessThan(planningReplay);
-    }
-
-    private static int startupOrder(Class<?> type, String method)
-            throws NoSuchMethodException
-    {
-        return type.getMethod(method).getAnnotation(Order.class).value();
     }
 
     private static Task planningTask(String id, TaskStatus status)

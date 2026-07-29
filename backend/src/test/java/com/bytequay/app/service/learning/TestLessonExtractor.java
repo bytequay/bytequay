@@ -19,7 +19,6 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,7 +27,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -49,7 +47,6 @@ import static org.mockito.Mockito.when;
 class TestLessonExtractor
 {
     private LessonExtractor extractor;
-    private AgentScheduler scheduler;
     private ReviewProviderEndpoints endpoints;
     private WorkModelResolver workModels;
     private CliReviewRunner cliRunner;
@@ -57,13 +54,11 @@ class TestLessonExtractor
     @BeforeEach
     void setUp()
     {
-        scheduler = mock(AgentScheduler.class);
         endpoints = mock(ReviewProviderEndpoints.class);
         workModels = mock(WorkModelResolver.class);
         cliRunner = mock(CliReviewRunner.class);
         extractor = new LessonExtractor(
                 mock(TurnRunner.class),
-                scheduler,
                 endpoints,
                 workModels,
                 cliRunner,
@@ -71,24 +66,22 @@ class TestLessonExtractor
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void testUsesWorkspaceDefaultCliForExtraction()
-            throws Exception
     {
         WorkModel model = new WorkModel(WorkModelKind.CLI, "codex", null, null);
         when(workModels.resolveForWorkspace("ws-1", SessionAudience.REVIEW))
                 .thenReturn(new WorkModelResolver.Resolved(model,
                         new WorkModelResolver.Provenance(
                                 WorkModelResolver.Source.WORKSPACE, "ws-1", "workspace Widget")));
-        when(scheduler.invokeCli(any())).thenAnswer(invocation ->
-                ((Callable<CliReviewRunner.Result>) invocation.getArgument(0)).call());
-        when(cliRunner.runWithSchedulerCapacity(
+        when(cliRunner.run(
                 eq(CliReviewRunner.Provider.CODEX), anyString(), isNull(), any(), isNull(), eq(30)))
                 .thenReturn(new CliReviewRunner.Result("{\"lessons\": []}", null, 0));
 
         assertThat(extractor.extract("ws-1", bundle(), List.of())).isEmpty();
 
         verify(workModels).resolveForWorkspace("ws-1", SessionAudience.REVIEW);
+        verify(cliRunner).run(
+                eq(CliReviewRunner.Provider.CODEX), anyString(), isNull(), any(), isNull(), eq(30));
         verifyNoInteractions(endpoints);
     }
 

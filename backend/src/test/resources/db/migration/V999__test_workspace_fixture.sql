@@ -13,3 +13,9 @@ SELECT
 WHERE instr(
     (SELECT file FROM pragma_database_list WHERE name = 'main'),
     'bytequay-test-') > 0;
+
+-- Production rejects every fresh LEGACY Task after V277. Older persistence
+-- tests intentionally construct historical Task/Stage graphs through the JPA
+-- stores, so test databases remove only that creation fence. The dedicated
+-- V277 migration test stops at the production version and proves the fence.
+DROP TRIGGER IF EXISTS legacy_task_creation_retired;

@@ -19,37 +19,21 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Regression coverage for the trunk-altitude session routing in
- * {@link ThreadService}. A 0-task (planning) thread has no task to
- * build a task-mode CLI agent from, so explicit trunk routing must
- * select the trunk-scope agent — otherwise every session-scoped op
- * at the trunk (subscribe, interrupt, the permission-prompt / budget
- * path behind gated MCP tools) throws
- * "thread … has no task; cannot spawn CLI agent".
+ * Verifies that legacy live-session routes are retained only as fail-closed
+ * compatibility ports after the V2 hard cutover.
  */
 @SpringBootTest
 class TestThreadServiceTrunkSession
@@ -60,58 +44,19 @@ class TestThreadServiceTrunkSession
     private ThreadStore threadStore;
     @Autowired
     private TaskStore taskStore;
-    @Autowired
-    private ThreadRegistry registry;
-    @Autowired
-    private WatchedRepoStore watchedRepos;
-    @Autowired
-    private WorkspaceStore workspaces;
-    @MockitoBean
-    private WorktreeService worktrees;
-
-    @TempDir
-    private Path cloneRoot;
-
-    @BeforeEach
-    void linkVerifiedWorkspaceClone()
-    {
-        for (WatchedRepo repo : watchedRepos.findAll()) {
-            watchedRepos.remove(repo.owner(), repo.repo());
-        }
-        watchedRepos.add("octocat", "auto-fix-fixture");
-        watchedRepos.setLocalClonePath(
-                "octocat", "auto-fix-fixture", cloneRoot.toString());
-        workspaces.addRepo(new WorkspaceRepo(
-                "ws-default", "octocat/auto-fix-fixture",
-                "main", false, Instant.now()));
-        when(worktrees.syncPlanningWorktree(
-                eq(cloneRoot.toAbsolutePath().normalize()), any(), any()))
-                .thenAnswer(invocation -> Optional.of(
-                        new WorktreeService.PlanningSync(
-                                cloneRoot,
-                                "origin/main",
-                                "fixture-base")));
-    }
 
     @Test
-    void subscribeAtTrunkBuildsTheTrunkAgentNotTheTaskAgent()
+    void subscribeRejectsALegacyTrunk()
     {
         String threadId = newTrunkThread();
 
-        Runnable unsubscribe = threads.subscribeTrunk(threadId, event -> {});
-
-        assertThat(unsubscribe).isNotNull();
-        // The trunk-scope session is the one that got built; the
-        // task-scope map stays empty for a 0-task thread.
-        assertThat(registry.findTrunk(threadId)).isPresent();
-        assertThat(registry.find(threadId)).isEmpty();
-
-        unsubscribe.run();
-        registry.evictTrunk(threadId);
+        assertThatThrownBy(() -> threads.subscribeTrunk(threadId, event -> {}))
+                .hasMessageContaining("Historical LEGACY Trunk")
+                .hasMessageContaining("read-only");
     }
 
     @Test
-    void resumeErroredThreadBuildsTheTrunkAgentAndDoesNotResumeLatestTask()
+    void resumeRejectsALegacyTrunkWithoutChangingItsTask()
     {
         String threadId = UUID.randomUUID().toString();
         String taskId = threadId + ".task";
@@ -141,20 +86,18 @@ class TestThreadServiceTrunkSession
                 now, now, "limit hit",
                 /* name */ null, /* roleSkill */ null, /* workModel */ null));
 
-        threads.resume(threadId);
+        assertThatThrownBy(() -> threads.resume(threadId))
+                .hasMessageContaining("Historical LEGACY Trunk")
+                .hasMessageContaining("read-only");
 
-        Thread resumedThread = threadStore.findThreadById(threadId).orElseThrow();
+        Thread retainedThread = threadStore.findThreadById(threadId).orElseThrow();
         Task untouchedTask = taskStore.findTaskById(taskId).orElseThrow();
-        assertThat(resumedThread.status()).isEqualTo(ThreadStatus.IDLE);
-        assertThat(resumedThread.endedAt()).isNull();
-        assertThat(resumedThread.errorMessage()).isNull();
+        assertThat(retainedThread.status()).isEqualTo(ThreadStatus.ERRORED);
+        assertThat(retainedThread.endedAt()).isNotNull();
+        assertThat(retainedThread.errorMessage()).isEqualTo("limit hit");
         assertThat(untouchedTask.status()).isEqualTo(TaskStatus.ERRORED);
         assertThat(untouchedTask.endedAt()).isNotNull();
         assertThat(untouchedTask.errorMessage()).isEqualTo("limit hit");
-        assertThat(registry.find(threadId)).isEmpty();
-        assertThat(registry.findTrunk(threadId)).isPresent();
-
-        registry.evictTrunk(threadId);
     }
 
     private String newTrunkThread()

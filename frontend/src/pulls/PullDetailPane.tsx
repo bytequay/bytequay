@@ -18,7 +18,12 @@ import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDra
 import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
 import { MarkdownProse } from '../threads/MarkdownProse';
-import type { AiReviewDraftDto, DiffFileDto, UserProfileDto } from '../types';
+import type {
+  DiffFileDto,
+  LocalPrReviewPublicationDto,
+  UserProfileDto,
+} from '../types';
+import type { AgentReviewData } from '../review/agentReviewTypes';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import { getCached, setCached } from '../dataCache';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
@@ -39,6 +44,39 @@ const branchChipStyle = { fontFamily: "'SF Mono',ui-monospace,Menlo,monospace", 
 const statePillStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', fontSize: 12.5, fontWeight: 600, borderRadius: 999, padding: '5px 13px' } as const;
 const tabBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 4px 10px', border: 0, background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
 
+function isLocalPrReviewPublication(value: unknown): value is LocalPrReviewPublicationDto {
+  return typeof value === 'object' && value !== null
+    && 'commandId' in value
+    && 'status' in value
+    && 'blocksNewPublication' in value;
+}
+
+function reviewPublicationNotice(publication: LocalPrReviewPublicationDto): string {
+  const detail = publication.lastError === null ? '' : ` ${publication.lastError}`;
+  if (publication.status === 'PUBLISHED') return 'Review published on GitHub.';
+  if (publication.terminal) {
+    const recovery = publication.reviewId === null
+      ? ' Reselect the comments before trying again.'
+      : ' Start a new review before trying again.';
+    return `Review publication failed.${detail}${recovery}`;
+  }
+  if (publication.status === 'QUEUED') return 'Review queued for publication.';
+  if (publication.status === 'PUBLISHING') return 'Publishing review to GitHub…';
+  if (publication.status === 'INDETERMINATE') {
+    return 'GitHub’s response is uncertain. ByteQuay is verifying the same publication.';
+  }
+  return `Review publication failed and will retry automatically.${detail}`;
+}
+
+function reviewPublicationButtonLabel(publication: LocalPrReviewPublicationDto): string {
+  if (publication.terminal) return 'Review publication blocked';
+  if (publication.status === 'QUEUED') return 'Review queued…';
+  if (publication.status === 'PUBLISHING') return 'Publishing review…';
+  if (publication.status === 'INDETERMINATE') return 'Verifying publication…';
+  if (publication.status === 'FAILED') return 'Retrying publication…';
+  return 'Submit review';
+}
+
 export type PullDetailActions = {
   /** Zooms this already-mounted detail pane without changing its PR or tab. */
   onToggleZoom?: () => void;
@@ -54,14 +92,14 @@ export type PullDetailActions = {
   onOpenInWorkspace?: () => void;
   /** Starts an agent review for a PR with no agent assigned yet. */
   onAssignAgent?: () => void;
-  /** Runs the non-navigable, diff-only review available to unwatched repos. */
+  /** Runs the durable one-seat, diff-only review available to unwatched repos. */
   onRunQuickReview?: () => void;
   /** Watches an external repo, then starts its workspace-bound full review. */
   onWatchRepoForFullReview?: () => void;
-  /** State and persisted result for the non-navigable one-shot review. */
+  /** State and persisted result for the inline one-seat review. */
   quickReview?: {
     state: 'idle' | 'running' | 'done' | 'failed';
-    result: AiReviewDraftDto | null;
+    result: AgentReviewData | null;
     error: string | null;
   };
   /** State of cloning/syncing an unwatched repository for full review. */
@@ -218,11 +256,9 @@ function QuickReviewInline({
   const quickError = quickReview?.state === 'failed' ? quickReview.error : null;
   const watchError = fullReviewPreparation?.state === 'failed' ? fullReviewPreparation.error : null;
   const result = quickReview?.state === 'done' ? quickReview.result : null;
-  const findings = result?.comments.filter(finding => {
-    const severity = finding.severity.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
-    return severity === 'blocker' || severity === 'critical'
-      || severity === 'error' || severity === 'request_changes';
-  }) ?? [];
+  const findings = result?.findings.filter(finding =>
+    finding.severity >= 4 && finding.lifecycle_status !== 'dropped'
+      && finding.verification_status !== 'rejected') ?? [];
   return (
     <>
       {(quickError !== null || watchError !== null) && (
@@ -236,11 +272,6 @@ function QuickReviewInline({
             <span>Quick review</span>
             <small>Diff only · no repository exploration</small>
           </header>
-          {result.summary !== null && result.summary.trim() !== '' && (
-            <div className="pl-quick-review__summary">
-              <MarkdownProse text={result.summary} />
-            </div>
-          )}
           {findings.length === 0 ? (
             <p className="pl-quick-review__empty">No actionable findings in the supplied diff.</p>
           ) : (
@@ -248,11 +279,12 @@ function QuickReviewInline({
               {findings.map(finding => (
                 <article key={finding.id} className="pl-quick-review__finding">
                   <div className="pl-quick-review__finding-meta">
-                    <span>{finding.severity}</span>
-                    <code>{finding.filePath}{finding.lineNumber > 0 ? `:${finding.lineNumber}` : ''}</code>
+                    <span>{finding.severity >= 5 ? 'critical' : 'major'}</span>
+                    <code>{finding.path ?? 'diff'}{finding.end_line !== null && finding.end_line !== undefined
+                      ? `:${finding.end_line}` : ''}</code>
                   </div>
                   <div className="pl-quick-review__finding-body">
-                    <MarkdownProse text={finding.editedBody ?? finding.body} />
+                    <MarkdownProse text={`${finding.claim}\n\n**Requested action:** ${finding.requested_action}`} />
                   </div>
                 </article>
               ))}
@@ -274,6 +306,14 @@ export function PullDetailBody({
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const [reviewPublication, setReviewPublication] = useState<
+    LocalPrReviewPublicationDto | null | undefined
+  >(() => bundle?.pr.taskId === null
+    && typeof window !== 'undefined'
+    && typeof window.bridge?.getLocalPrReviewPublication === 'function'
+    ? undefined
+    : null);
+  const [publicationPollVersion, setPublicationPollVersion] = useState(0);
   const [copied, setCopied] = useState(false);
   // The signed-in GitHub handle, so "You" comments render the real avatar
   // instead of a github.com/You.png placeholder.
@@ -305,7 +345,7 @@ export function PullDetailBody({
     if (openOverviewToken !== undefined) setSubTab('overview');
   }, [openOverviewToken]);
   const completedQuickReview = actions.quickReview?.state === 'done'
-    ? actions.quickReview.result?.updatedAt ?? null
+    ? actions.quickReview.result?.rounds.at(-1)?.id ?? null
     : null;
   useEffect(() => {
     if (completedQuickReview !== null) refresh();
@@ -316,6 +356,52 @@ export function PullDetailBody({
     : derivePRCapabilities(bundle.pr, 'details');
   const canPublish = detailCapabilities?.publishReview === true;
   const canActOnLocalThreads = detailCapabilities?.draftLocalComments === true;
+  const durablePublicationPrId = canPublish && bundle?.pr.taskId === null
+    ? bundle.pr.id
+    : null;
+  useEffect(() => {
+    const getPublication = typeof window === 'undefined'
+      ? undefined
+      : window.bridge?.getLocalPrReviewPublication;
+    if (durablePublicationPrId === null || typeof getPublication !== 'function') {
+      setReviewPublication(null);
+      return;
+    }
+
+    let cancelled = false;
+    let retry: number | undefined;
+    const load = async () => {
+      try {
+        const next = await getPublication(durablePublicationPrId);
+        if (cancelled) return;
+        setReviewPublication(next);
+        if (next !== null && next.status !== 'PUBLISHED' && !next.terminal) {
+          retry = window.setTimeout(() => { void load(); }, 1500);
+        }
+      }
+      catch {
+        if (!cancelled) retry = window.setTimeout(() => { void load(); }, 1500);
+      }
+    };
+
+    setReviewPublication(current => current?.prId === durablePublicationPrId
+      ? current
+      : undefined);
+    void load();
+    return () => {
+      cancelled = true;
+      if (retry !== undefined) window.clearTimeout(retry);
+    };
+  }, [durablePublicationPrId, publicationPollVersion]);
+  const publishedCommandId = reviewPublication?.status === 'PUBLISHED'
+    ? reviewPublication.commandId
+    : null;
+  useEffect(() => {
+    if (publishedCommandId !== null) refresh();
+  }, [publishedCommandId, refresh]);
+  const publicationBlocked = reviewPublication === undefined
+    || reviewPublication?.blocksNewPublication === true;
+  const submissionBlocked = submitting || publicationBlocked;
   const removePending = (id: string) => {
     void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ });
   };
@@ -324,18 +410,28 @@ export function PullDetailBody({
     setSubmitting(true);
     setReviewNotice(null);
     try {
-      await window.bridge.publishLocalPrReview(bundle.pr.id, {
+      const result = await window.bridge.publishLocalPrReview(bundle.pr.id, {
         verdict, findingIds: [], comments: pending.map(comment => comment.id),
         body: body.trim().length > 0 ? body : null,
       });
-      setReviewNotice(verdict === 'APPROVE'
-        ? 'Review approved on GitHub. The timeline may take a moment to update.'
-        : verdict === 'REQUEST_CHANGES'
-          ? 'Changes requested on GitHub. The timeline may take a moment to update.'
-          : 'Review submitted to GitHub. The timeline may take a moment to update.');
-      refresh();
+      if (isLocalPrReviewPublication(result)) {
+        setReviewPublication(result);
+      }
+      else {
+        setReviewNotice(verdict === 'APPROVE'
+          ? 'Review approved on GitHub. The timeline may take a moment to update.'
+          : verdict === 'REQUEST_CHANGES'
+            ? 'Changes requested on GitHub. The timeline may take a moment to update.'
+            : 'Review submitted to GitHub. The timeline may take a moment to update.');
+        refresh();
+      }
     }
-    finally { setSubmitting(false); }
+    finally {
+      setSubmitting(false);
+      if (durablePublicationPrId !== null) {
+        setPublicationPollVersion(version => version + 1);
+      }
+    }
   };
   const replyLocalComment = bundle === null || bundle === undefined || !canActOnLocalThreads ? undefined
     : async (root: LocalPRComment, body: string) => {
@@ -430,11 +526,17 @@ export function PullDetailBody({
               <button
                 type="button"
                 className="pl-hov-green"
-                onClick={!submitting ? () => setSubmitOpen(true) : undefined}
-                disabled={submitting}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', marginBottom: 4, border: '1px solid #1a7f37', background: '#1f883d', borderRadius: 7, fontSize: 12.5, fontWeight: 400, color: '#fff', cursor: submitting ? 'default' : 'pointer', flexShrink: 0 }}
+                onClick={!submissionBlocked ? () => setSubmitOpen(true) : undefined}
+                disabled={submissionBlocked}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', marginBottom: 4, border: '1px solid #1a7f37', background: '#1f883d', borderRadius: 7, fontSize: 12.5, fontWeight: 400, color: '#fff', cursor: submissionBlocked ? 'default' : 'pointer', flexShrink: 0 }}
               >
-                {submitting ? 'Submitting…' : `Submit review${pending.length > 0 ? ` • ${pending.length}` : ''}`}
+                {submitting
+                  ? 'Submitting…'
+                  : reviewPublication === undefined
+                    ? 'Checking publication…'
+                    : reviewPublication !== null && reviewPublication.blocksNewPublication
+                      ? reviewPublicationButtonLabel(reviewPublication)
+                      : `Submit review${pending.length > 0 ? ` • ${pending.length}` : ''}`}
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </button>
             )}
@@ -442,11 +544,26 @@ export function PullDetailBody({
         </div>
       </div>
 
-      {reviewNotice !== null && (
-        <div role="status" aria-live="polite" style={reviewNoticeStyle}>
-          <span aria-hidden="true">✓</span> {reviewNotice}
+      {(reviewPublication !== null && reviewPublication !== undefined) || reviewNotice !== null ? (
+        <div
+          role={reviewPublication?.terminal === true && reviewPublication.status !== 'PUBLISHED'
+            ? 'alert'
+            : 'status'}
+          aria-live="polite"
+          style={reviewPublication === null
+            ? reviewNoticeStyle
+            : reviewPublication.status === 'PUBLISHED'
+              ? reviewNoticeStyle
+              : reviewPublication.terminal
+                ? reviewFailureNoticeStyle
+                : reviewPendingNoticeStyle}
+        >
+          <span aria-hidden="true">{reviewPublication?.status === 'PUBLISHED' || reviewPublication === null ? '✓' : '•'}</span>{' '}
+          {reviewPublication === null
+            ? reviewNotice
+            : reviewPublicationNotice(reviewPublication)}
         </div>
-      )}
+      ) : null}
 
       {isOverview ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -488,9 +605,9 @@ export function PullDetailBody({
       )}
       <SubmitReviewDrawer
         open={submitOpen}
-        submitting={submitting}
+        submitting={submissionBlocked}
         pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment))}
-        onRemovePending={removePending}
+        onRemovePending={submissionBlocked ? undefined : removePending}
         onClose={() => setSubmitOpen(false)}
         onSubmit={async (body, verdict) => {
           await submitReview(body, verdict);
@@ -522,6 +639,20 @@ const reviewNoticeStyle = {
   color: '#116329',
   fontSize: 12.5,
   fontWeight: 500,
+} as const;
+
+const reviewPendingNoticeStyle = {
+  ...reviewNoticeStyle,
+  border: '1px solid #b6d7f2',
+  background: '#ddf4ff',
+  color: '#0550ae',
+} as const;
+
+const reviewFailureNoticeStyle = {
+  ...reviewNoticeStyle,
+  border: '1px solid #ff8182',
+  background: '#ffebe9',
+  color: '#82071e',
 } as const;
 
 export default function PullDetailPane({ row, ...actions }: { row: PullRow } & PullDetailActions) {

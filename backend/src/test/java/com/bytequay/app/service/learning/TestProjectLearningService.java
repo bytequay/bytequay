@@ -108,7 +108,7 @@ class TestProjectLearningService
 
         service = new ProjectLearningService(store, resolver, watchedRepos, workspaceStore,
                 indexer, catalog, scorer, selector, evidenceFetcher, extractor, ingestor,
-                knowledge, patResolver, new ObjectMapper());
+                knowledge, patResolver, new ObjectMapper(), Runnable::run);
     }
 
     @Test

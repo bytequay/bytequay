@@ -209,17 +209,23 @@ export default function PullOverview({
               prAuthor={(bundle?.pr.author ?? row.author).replace(/^@/, '')}
               prHtmlUrl={row.dto.htmlUrl || `https://github.com/${row.repo}/pull/${remotePrNumber}`}
               reviewThreadsByRemoteId={reviewThreadsByRemoteId}
-              onCommentReaction={(commentId, content) => window.bridge.addIssueCommentReaction(row.repo, commentId, content)}
+              onCommentReaction={remotePrNumber === null ? undefined : (commentId, content) => (
+                window.bridge.addIssueCommentReaction(row.repo, remotePrNumber, commentId, content)
+              )}
               onThreadReply={remotePrNumber === null ? undefined : async (rootGithubId, body) => {
                 await window.bridge.replyToReviewThread(row.repo, remotePrNumber, rootGithubId, body);
                 refreshGitHubFeed(true);
               }}
-              onThreadReact={async (commentGithubId, content) => {
-                await window.bridge.addReviewCommentReaction(row.repo, commentGithubId, content);
+              onThreadReact={remotePrNumber === null ? undefined : async (commentGithubId, content) => {
+                await window.bridge.addReviewCommentReaction(
+                  row.repo, remotePrNumber, commentGithubId, content,
+                );
                 refreshGitHubFeed(true);
               }}
-              onThreadSetResolved={async (rootGithubId, resolved) => {
-                await window.bridge.setReviewThreadResolved(row.repo, Number(row.dto.id) || 0, rootGithubId, resolved);
+              onThreadSetResolved={remotePrNumber === null ? undefined : async (rootGithubId, resolved) => {
+                await window.bridge.setReviewThreadResolved(
+                  row.repo, remotePrNumber, Number(row.dto.id) || 0, rootGithubId, resolved,
+                );
                 refreshGitHubFeed(true);
               }}
               localPr={bundle?.pr}

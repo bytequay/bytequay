@@ -19,6 +19,7 @@ import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.task.V2TaskControlService.PolicyRevisionRedriver;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -37,6 +38,36 @@ import static org.mockito.Mockito.when;
 
 class TestV2TaskControlService
 {
+    @Test
+    void automationCancellationKeepsItsActorIdentity()
+    {
+        TaskManager tasks = mock(TaskManager.class);
+        TaskManager.Store store = mock(TaskManager.Store.class);
+        when(store.findById("task-1")).thenReturn(Optional.of(activeTask()));
+        TaskManager.State canceling = new TaskManager.State(
+                "task-1", "trunk-1", TaskLifecycle.CANCELING,
+                2, 5, "stage-1", null, null, null,
+                TaskManager.TerminalOutcome.CANCELED);
+        when(tasks.requestCancel(any())).thenReturn(
+                CommandResult.applied(canceling));
+        V2UserWaitStore waits = mock(V2UserWaitStore.class);
+        V2TaskControlService controls = new V2TaskControlService(
+                tasks, store, mock(DispatchTicketControl.class),
+                mock(RemoteCiRepairRuntimeCoordinator.class),
+                mock(JdbcTemplate.class), waits, ignored -> {});
+
+        assertThat(controls.cancelByAutomation("task-1", "quality-scan"))
+                .isSameAs(canceling);
+
+        ArgumentCaptor<TaskManager.Command> command =
+                ArgumentCaptor.forClass(TaskManager.Command.class);
+        verify(tasks).requestCancel(command.capture());
+        assertThat(command.getValue().actor()).isEqualTo("automation/quality-scan");
+        verify(waits).cancelOpenWaitsForTask(
+                eq("task-1"), eq("automation/quality-scan"),
+                eq("Task canceled"), any());
+    }
+
     @Test
     void retryCiExtendsOnlyTheCurrentExhaustedEpisode()
     {

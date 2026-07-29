@@ -19,8 +19,9 @@ import java.time.Instant;
  * One check run on a {@link PR} (design #51). {@code kind} is
  * {@code local} (the {@code mvn verify} / {@code tsc} / {@code vitest}
  * validation scripts run every dev iteration) or {@code remote} (GitHub
- * Actions, populated after push — {@code runId} is the Actions run id,
- * remote-only). {@code status} wire values match the TypeScript union.
+ * Actions, populated after push). {@code runId} is the durable local
+ * operation id or the remote Actions run id. {@code status} wire values
+ * match the TypeScript union.
  */
 public record PRCheck(
         String id,

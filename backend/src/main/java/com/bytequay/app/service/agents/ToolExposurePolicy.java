@@ -30,12 +30,23 @@ public class ToolExposurePolicy
 {
     public static final int MAX_ACTIVE_TOOLS = 32;
 
+    /** Exact global-MCP catalogs used by typed V2 AgentTurn profiles. Plan
+     * turns use their dedicated operation-scoped MCP instead. */
+    public enum V2Profile
+    {
+        PLAN_PROTOCOL,
+        TASK_BRAIN_READ_ONLY,
+        LOCAL_DEVELOPMENT,
+        REMOTE_DEVELOPMENT,
+        CLEANUP
+    }
+
     private static final Set<String> TRUNK = Set.of(
             "approval_prompt", "ask_user_question", "codegraph_explore", "explore_project",
             "recall_memory", "lookup_memory", "read_workspace_memory", "recall_thread",
             "list_prs", "read_pr", "read_issue", "read_task", "read_current_repository",
-            "read_file", "sync_repo", "create_task", "queue_task", "reorder_queue",
-            "drop_queued_task", "propose_backlog_items", "list_terms", "lookup_term");
+            "read_file", "sync_repo", "create_task", "propose_backlog_items",
+            "list_terms", "lookup_term");
 
     private static final Set<String> BRAIN = Set.of(
             "approval_prompt", "ask_user_question", "codegraph_explore", "read_file",
@@ -87,6 +98,27 @@ public class ToolExposurePolicy
             "read_remote_pr_status", "list_unresolved_comments", "list_pr_review_threads",
             "run_checks", "record_iteration_summary", "record_dev_report", "record_pr_check", "push"));
 
+    private static final Set<String> V2_COMMON = Set.of(
+            "approval_prompt", "ask_user_question", "codegraph_explore", "explore_project",
+            "recall_memory", "lookup_memory", "read_workspace_memory", "lookup_term",
+            "read_current_repository", "read_task", "read_plan_summary",
+            "read_plan_conversation", "read_pr", "read_file");
+
+    private static final Set<String> V2_TASK_BRAIN = union(V2_COMMON, Set.of(
+            "count_operations", "read_commit_summary", "read_diff_summary",
+            "check_test_coverage", "read_stage_metrics", "read_phase_history",
+            "read_review_panel_findings", "read_remote_pr_status",
+            "list_unresolved_comments", "read_dev_report", "read_dev_conversation"));
+
+    private static final Set<String> V2_LOCAL_DEVELOPMENT = union(V2_COMMON, Set.of(
+            "run_checks", "read_dev_report", "read_dev_conversation",
+            "list_unresolved_comments", "list_pr_review_threads"));
+
+    private static final Set<String> V2_REMOTE_DEVELOPMENT = union(V2_COMMON, Set.of(
+            "run_checks", "read_remote_pr_status", "read_ci_log",
+            "get_new_updated_ci_fixing_log", "read_dev_report", "read_dev_conversation",
+            "list_unresolved_comments", "list_pr_review_threads"));
+
     public Set<String> activeTools(ByteQuayRole role, StageType stageType)
     {
         Set<String> selected = switch (role) {
@@ -106,6 +138,27 @@ public class ToolExposurePolicy
     public Set<String> completionSummaryTools()
     {
         return COMPLETION_SUMMARY;
+    }
+
+    /**
+     * V2 AgentTurns complete only through their exact owner result. These
+     * catalogs therefore expose observation, typed user-wait, and local check
+     * helpers, never a legacy lifecycle/artifact mutation tool.
+     */
+    public Set<String> v2Tools(V2Profile profile)
+    {
+        Set<String> selected = switch (profile) {
+            case PLAN_PROTOCOL, CLEANUP -> Set.of();
+            case TASK_BRAIN_READ_ONLY -> V2_TASK_BRAIN;
+            case LOCAL_DEVELOPMENT -> V2_LOCAL_DEVELOPMENT;
+            case REMOTE_DEVELOPMENT -> V2_REMOTE_DEVELOPMENT;
+        };
+        if (selected.size() > MAX_ACTIVE_TOOLS) {
+            throw new IllegalStateException(
+                    "V2 tool context exceeds " + MAX_ACTIVE_TOOLS
+                            + " entries for " + profile + ": " + selected.size());
+        }
+        return selected;
     }
 
     private static Set<String> taskTools(StageType stageType)

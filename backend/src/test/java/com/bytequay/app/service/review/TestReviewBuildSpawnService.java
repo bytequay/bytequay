@@ -15,25 +15,23 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
-import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPhase;
+import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.PrDetailStore;
+import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
@@ -51,8 +49,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -61,13 +57,12 @@ import static org.mockito.Mockito.when;
 class TestReviewBuildSpawnService
 {
     private ReviewStore reviewStore;
-    private PullRequestRepository pullRequests;
-    private PatResolver patResolver;
+    private PullRequestStore pullRequests;
+    private PrDetailStore prDetails;
     private WorkspaceService workspaceService;
     private WorkspaceRepositoryResolver repositories;
     private WorkspaceRelationService relations;
     private WatchedRepoStore watchedRepos;
-    private GitRunner git;
     private ReviewBuildSpawnCommitter committer;
     private ReviewBuildSpawnService service;
 
@@ -78,21 +73,21 @@ class TestReviewBuildSpawnService
     void setUp()
     {
         reviewStore = mock(ReviewStore.class);
-        pullRequests = mock(PullRequestRepository.class);
-        patResolver = mock(PatResolver.class);
+        pullRequests = mock(PullRequestStore.class);
+        prDetails = mock(PrDetailStore.class);
         workspaceService = mock(WorkspaceService.class);
         repositories = mock(WorkspaceRepositoryResolver.class);
         relations = mock(WorkspaceRelationService.class);
         watchedRepos = mock(WatchedRepoStore.class);
-        git = mock(GitRunner.class);
         committer = mock(ReviewBuildSpawnCommitter.class);
-        service = new ReviewBuildSpawnService(reviewStore, pullRequests, patResolver,
-                workspaceService, repositories, relations, watchedRepos, git,
+        service = new ReviewBuildSpawnService(reviewStore, pullRequests, prDetails,
+                workspaceService, repositories, relations, watchedRepos,
                 committer);
 
-        when(patResolver.resolve(REPO)).thenReturn("pat");
-        when(pullRequests.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(rawDetail());
-        when(pullRequests.fetchUserProfile("pat")).thenReturn(profile("alice"));
+        when(pullRequests.findIdByRepoAndNumber(REPO, PR))
+                .thenReturn(Optional.of(1L));
+        when(pullRequests.findById(1L)).thenReturn(Optional.of(pr("alice")));
+        when(prDetails.find(1L)).thenReturn(Optional.of(detail(rawDetail())));
         when(watchedRepos.find("acme", "widget"))
                 .thenReturn(Optional.of(new WatchedRepo(1, "acme", "widget", 0, "/clones/widget", null, null)));
         when(repositories.resolve("ws-1")).thenReturn(
@@ -106,7 +101,6 @@ class TestReviewBuildSpawnService
                 .thenReturn(committed);
         when(workspaceService.listRepos("ws-1")).thenReturn(List.of(
                 new WorkspaceRepo("ws-1", REPO, "main", false, Instant.EPOCH)));
-        when(pullRequests.getPullRequest(eq("pat"), any(PullRequestRef.class))).thenReturn(pr("alice"));
     }
 
     // ── gating ───────────────────────────────────────────────────────
@@ -179,18 +173,14 @@ class TestReviewBuildSpawnService
     // ── happy paths ──────────────────────────────────────────────────
 
     @Test
-    void authorIsReviewerSpawnsBuildThreadFetchesHeadAndSetsBackLinks()
-            throws Exception
+    void authoredPrSpawnsBuildThreadFromTheFrozenLocalSnapshot()
     {
         eligiblePass();
-        when(pullRequests.getPullRequest(eq("pat"), any(PullRequestRef.class))).thenReturn(pr("alice"));
 
         ReviewBuildSpawnService.BuildSpawn out = service.spawn("p", "ws-1", null);
 
         assertThat(out.mode()).isEqualTo(ReviewBuildSpawnService.MODE_AUTHOR);
         assertThat(out.threadId()).isEqualTo("thread-new");
-        // author mode pre-fetches pr.head locally.
-        verify(git).fetchPrRefs(any(), eq(PR), anyString());
         // The committed request is a BUILD Trunk with an exact route.
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
                 ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
@@ -239,8 +229,7 @@ class TestReviewBuildSpawnService
     {
         eligiblePass();
         PrRawDetail current = rawDetail();
-        when(pullRequests.fetchPrDetail(eq("pat"), any(PullRequestRef.class)))
-                .thenReturn(new PrRawDetail(
+        when(prDetails.find(1L)).thenReturn(Optional.of(detail(new PrRawDetail(
                         current.body(), current.labels(),
                         current.draft(), current.mergeable(),
                         current.mergeableState(), current.additions(),
@@ -248,7 +237,7 @@ class TestReviewBuildSpawnService
                         current.requestedReviewerCount(),
                         current.requestedReviewers(), "moved-head",
                         current.headRef(), current.headRepo(), current.baseRef(),
-                        current.baseRepo()));
+                        current.baseRepo()))));
 
         assertThatThrownBy(() -> service.spawn("p", "ws-1", null))
                 .isInstanceOf(ResponseStatusException.class)
@@ -257,17 +246,14 @@ class TestReviewBuildSpawnService
     }
 
     @Test
-    void someoneElsesPrUsesSuggestedChangeModeAndDoesNotFetchHead()
-            throws Exception
+    void someoneElsesPrUsesSuggestedChangeMode()
     {
         eligiblePass();
-        when(pullRequests.getPullRequest(eq("pat"), any(PullRequestRef.class))).thenReturn(pr("bob"));
+        when(pullRequests.findById(1L)).thenReturn(Optional.of(pr("bob")));
 
         ReviewBuildSpawnService.BuildSpawn out = service.spawn("p", "ws-1", null);
 
         assertThat(out.mode()).isEqualTo(ReviewBuildSpawnService.MODE_SUGGESTED);
-        // suggested-change mode is comment-only: no PR-head checkout.
-        verify(git, never()).fetchPrRefs(any(), eq(PR), anyString());
     }
 
     // ── opening turn (Step 3) ────────────────────────────────────────
@@ -296,7 +282,11 @@ class TestReviewBuildSpawnService
 
         String suggested = service.renderOpeningTurn(7, "My PR", findings,
                 ReviewBuildSpawnService.MODE_SUGGESTED, "feature/7");
-        assertThat(suggested).contains("or as suggested-change comments on PR #7");
+        assertThat(suggested)
+                .contains("immutable frozen suggested-change comments for PR #7")
+                .contains("explicitly approve or discard")
+                .contains("never creates a Task or writable worktree")
+                .doesNotContain("Split into separate Tasks");
 
         // Byte-identical reruns for the same inputs.
         assertThat(service.renderOpeningTurn(7, "My PR", findings,
@@ -309,7 +299,9 @@ class TestReviewBuildSpawnService
     {
         when(reviewStore.findPassById("p")).thenReturn(Optional.of(pass(ReviewPhase.TERMINATE, null)));
         when(reviewStore.listFindingsForPass("p")).thenReturn(List.of(
-                finding("f1", ReviewFindingSeverity.MAJOR, ReviewFindingStatus.AGREED, "[Claude] fix it", null)));
+                finding("f1", ReviewFindingSeverity.MAJOR,
+                        ReviewFindingStatus.ARBITRATED,
+                        "[Claude] fix it", null)));
     }
 
     private static ReviewPass pass(ReviewPhase phase, String spawnedThreadId)
@@ -329,7 +321,9 @@ class TestReviewBuildSpawnService
     {
         return new PullRequest(
                 1L, REPO, PR, "My PR", author, "https://github.com/" + REPO + "/pull/" + PR,
-                Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.REVIEW_REQUESTED,
+                Instant.EPOCH, Instant.EPOCH, "alice".equals(author)
+                        ? PullRequest.Origin.AUTHORED
+                        : PullRequest.Origin.REVIEW_REQUESTED,
                 List.of(), Map.of(), false, null, null, null, List.of(), null,
                 0, 0, 0, null, "open", null, null, null, null, null, Map.of(),
                 null, null, "feature/" + PR);
@@ -341,9 +335,11 @@ class TestReviewBuildSpawnService
                 "sha", "feature/" + PR, REPO, "main", REPO);
     }
 
-    private static UserProfile profile(String login)
+    private static StoredPrDetail detail(PrRawDetail raw)
     {
-        return new UserProfile(login, "Name", null, null, 0, 0, 0, null, null, null, null, false);
+        return new StoredPrDetail(
+                raw, List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of());
     }
 
     private static Workspace ws(String id)

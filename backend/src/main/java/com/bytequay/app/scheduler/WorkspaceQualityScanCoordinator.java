@@ -13,13 +13,11 @@
  */
 package com.bytequay.app.scheduler;
 
-import com.bytequay.app.domain.StageEvent;
-import com.bytequay.app.domain.StageEventType;
-import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageType;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.Snapshot;
+import com.bytequay.app.developmentflow.stage.V2AutomationPlanService.State;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -28,13 +26,11 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceAutomationState;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceAutomationStateStore;
 import com.bytequay.app.service.threads.ParkedProposalService;
-import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.tools.ParkedProposal;
 import com.bytequay.app.service.workmodel.SessionAudience;
@@ -72,8 +68,9 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Opt-in daily clean-code/performance scan for each verified workspace clone.
- * Planning runs through the Agent Scheduler. A concrete finding becomes a
- * normal publish gate; GitHub is not called until the user approves it.
+ * Planning runs through a durable V2 Task and typed Plan owner commands. A
+ * concrete finding becomes a normal publish gate; GitHub is not called until
+ * the user approves it.
  */
 @Component
 public class WorkspaceQualityScanCoordinator
@@ -101,8 +98,8 @@ public class WorkspaceQualityScanCoordinator
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
     private final ThreadService threads;
-    private final StageStore stages;
-    private final TaskService taskService;
+    private final V2AutomationPlanService plans;
+    private final V2TaskControlService taskControls;
     private final ParkedProposalService parkedProposals;
     private final WorkspaceAutomationStateStore states;
     private final ObjectMapper mapper;
@@ -118,8 +115,8 @@ public class WorkspaceQualityScanCoordinator
             ThreadStore threadStore,
             TaskStore taskStore,
             ThreadService threads,
-            StageStore stages,
-            TaskService taskService,
+            V2AutomationPlanService plans,
+            V2TaskControlService taskControls,
             ParkedProposalService parkedProposals,
             WorkspaceAutomationStateStore states,
             ObjectMapper mapper,
@@ -133,8 +130,8 @@ public class WorkspaceQualityScanCoordinator
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threads = requireNonNull(threads, "threads is null");
-        this.stages = requireNonNull(stages, "stages is null");
-        this.taskService = requireNonNull(taskService, "taskService is null");
+        this.plans = requireNonNull(plans, "plans is null");
+        this.taskControls = requireNonNull(taskControls, "taskControls is null");
         this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.states = requireNonNull(states, "states is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -283,10 +280,8 @@ public class WorkspaceQualityScanCoordinator
 
     private boolean hasOpenScan(String workspaceId)
     {
-        return threadStore.listThreadsByWorkspace(workspaceId).stream()
-                .flatMap(thread -> taskStore.listTasksByThread(thread.id()).stream())
-                .anyMatch(task -> Task.ORIGIN_QUALITY_SCAN.equals(task.origin())
-                        && !isTerminal(task.status()));
+        return !plans.listCurrent(
+                workspaceId, Task.ORIGIN_QUALITY_SCAN, TASK_TYPE).isEmpty();
     }
 
     private void enqueueScan(Context context)
@@ -348,23 +343,21 @@ public class WorkspaceQualityScanCoordinator
     {
         return threadStore.listThreadsByWorkspace(workspaceId).stream()
                 .filter(thread -> taskStore.listTasksByThread(thread.id()).stream()
-                        .anyMatch(task -> Task.ORIGIN_QUALITY_SCAN.equals(task.origin())))
+                        .anyMatch(task -> taskStore.isV2Task(task.id())
+                                && Task.ORIGIN_QUALITY_SCAN.equals(task.origin())))
                 .max(Comparator.comparing(Thread::updatedAt));
     }
 
     private Optional<String> reconcileFailedScans(Context context)
     {
-        for (Task task : qualityPlanningTasks(context.workspaceId())) {
-            StageInstance stage = stages.findActiveStage(task.id())
-                    .filter(candidate -> candidate.type() == StageType.PLAN_STAGE)
-                    .orElse(null);
-            boolean failed = stage != null && stages.findEventsByStage(stage.id()).stream()
-                    .anyMatch(event -> event.eventType() == StageEventType.PLAN_FAILED);
-            boolean stale = task.createdAt().plus(STALE_SCAN_AFTER).isBefore(Instant.now());
+        for (Snapshot task : qualityPlanningTasks(context.workspaceId())) {
+            boolean failed = task.state() == State.FAILED;
+            boolean stale = task.state() == State.PENDING
+                    && task.taskCreatedAt().plus(STALE_SCAN_AFTER).isBefore(Instant.now());
             if (!failed && !stale) {
                 continue;
             }
-            taskService.cancelTask(task.threadId(), task.id());
+            taskControls.cancelByAutomation(task.taskId(), KIND);
             return Optional.of(failed
                     ? "The quality-scan planning turn failed. It will retry on the next check."
                     : "The quality-scan planning turn timed out. It will retry on the next check.");
@@ -377,32 +370,31 @@ public class WorkspaceQualityScanCoordinator
         int proposals = 0;
         int completed = 0;
         String fingerprint = null;
-        for (Task task : qualityPlanningTasks(context.workspaceId())) {
-            if (task.status() == TaskStatus.AWAITING_REVIEW) {
+        for (Snapshot task : qualityPlanningTasks(context.workspaceId())) {
+            if (task.state() != State.REVIEWED) {
                 continue;
             }
-            StageInstance stage = stages.findActiveStage(task.id())
-                    .filter(candidate -> candidate.type() == StageType.PLAN_STAGE)
-                    .orElse(null);
-            JsonNode plan = stage == null ? null : latestFinalizedPlan(stage).orElse(null);
+            JsonNode plan = parse(task.content()).orElse(null);
             if (plan == null || !isComplete(plan)) {
                 continue;
             }
             fingerprint = findingFingerprint(plan);
             if (fingerprint.equals(priorFingerprint)) {
-                taskService.cancelTask(task.threadId(), task.id());
+                taskControls.cancelByAutomation(task.taskId(), KIND);
                 completed++;
                 log.info("Skipped duplicate quality finding in workspace {}",
                         context.workspaceId());
             }
             else if (isNoActionableFinding(plan)) {
-                taskService.cancelTask(task.threadId(), task.id());
+                taskControls.cancelByAutomation(task.taskId(), KIND);
                 completed++;
                 log.info("Quality scan found no actionable finding in workspace {}",
                         context.workspaceId());
             }
             else if (isPublishableFinding(plan)) {
-                parkedProposals.park(task, new ParkedProposal.CreateIssue(
+                taskControls.cancelByAutomation(task.taskId(), KIND);
+                parkedProposals.parkReadOnlyV2Proposal(
+                        task.trunkId(), task.taskId(), new ParkedProposal.CreateIssue(
                         issueTitle(plan), issueBody(plan),
                         new ParkedProposal.RepoRef(
                                 context.repo().owner(), context.repo().repo())));
@@ -412,7 +404,7 @@ public class WorkspaceQualityScanCoordinator
                         context.workspaceId());
             }
             else {
-                taskService.cancelTask(task.threadId(), task.id());
+                taskControls.cancelByAutomation(task.taskId(), KIND);
                 requestBacklogPermission(task, plan);
                 completed++;
             }
@@ -420,28 +412,15 @@ public class WorkspaceQualityScanCoordinator
         return new ReconcileResult(proposals, completed, fingerprint);
     }
 
-    private List<Task> qualityPlanningTasks(String workspaceId)
+    private List<Snapshot> qualityPlanningTasks(String workspaceId)
     {
-        return taskStore.listByPhaseAndOrigin(TaskPhase.PLANNING, Task.ORIGIN_QUALITY_SCAN).stream()
-                .filter(task -> !isTerminal(task.status()))
-                .filter(task -> threadStore.findThreadById(task.threadId())
-                        .map(thread -> workspaceId.equals(thread.workspaceId()))
-                        .orElse(false))
-                .toList();
+        return plans.listCurrent(
+                workspaceId, Task.ORIGIN_QUALITY_SCAN, TASK_TYPE);
     }
 
-    private Optional<JsonNode> latestFinalizedPlan(StageInstance stage)
+    private void requestBacklogPermission(Snapshot task, JsonNode plan)
     {
-        return stages.findEventsByStage(stage.id()).stream()
-                .filter(event -> event.eventType() == StageEventType.PLAN_RECORDED)
-                .max(Comparator.comparing(StageEvent::eventAt))
-                .flatMap(event -> parse(event.payloadJson()))
-                .filter(plan -> "finalized".equals(plan.path("status").asText()));
-    }
-
-    private void requestBacklogPermission(Task task, JsonNode plan)
-    {
-        threads.sendTrunkUnattended(task.threadId(), """
+        threads.sendTrunkUnattended(task.trunkId(), """
                 The local clean-code/performance scan produced the result below, but it is not
                 confident enough to propose a GitHub issue. Do not create a backlog item yet.
                 First call ask_user_question with Store in backlog and Dismiss options. If the
@@ -457,7 +436,9 @@ public class WorkspaceQualityScanCoordinator
 
     static boolean isComplete(JsonNode plan)
     {
-        return !summary(plan).isBlank() && steps(plan).isArray() && !steps(plan).isEmpty();
+        return "finalized".equals(plan.path("status").asText())
+                && !summary(plan).isBlank()
+                && steps(plan).isArray() && !steps(plan).isEmpty();
     }
 
     static boolean isPublishableFinding(JsonNode plan)
@@ -587,14 +568,6 @@ public class WorkspaceQualityScanCoordinator
         catch (JsonProcessingException e) {
             throw new IllegalStateException("could not encode quality scan status", e);
         }
-    }
-
-    private static boolean isTerminal(TaskStatus status)
-    {
-        return status == TaskStatus.COMPLETED
-                || status == TaskStatus.REMOTE_CLOSED
-                || status == TaskStatus.ERRORED
-                || status == TaskStatus.CANCELED;
     }
 
     private static String nonBlank(String... values)

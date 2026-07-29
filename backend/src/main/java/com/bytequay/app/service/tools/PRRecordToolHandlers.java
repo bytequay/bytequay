@@ -213,6 +213,10 @@ public class PRRecordToolHandlers
         if (args.requestUserReview() == null || !args.requestUserReview()) {
             return ToolOutcome.Completed.ok("no-op: request_user_review was not set");
         }
+        if (taskStore.isV2Task(call.requireTaskId())) {
+            return ToolOutcome.Completed.error(
+                    "V2 Local Development completes through its exact StageTurn result");
+        }
         return withPr(call, pr -> {
             return TaskPhaseMachine.withTaskLock(pr.taskId(), () -> {
                 Task task = taskStore.findTaskById(pr.taskId()).orElse(null);

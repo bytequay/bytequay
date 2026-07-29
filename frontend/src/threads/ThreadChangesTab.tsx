@@ -105,8 +105,8 @@ export function DiffModeToggle({
 /** Owner of the diff mode + per-tab counts. Lives in the parent so
  *  the inline {@link DiffModeToggle} in the panel header and the
  *  one rendered next to the Diff button stay in sync. Exposed as a
- *  hook so both {@code ThreadDetailPage} and {@code ThreadZoomModal}
- *  can wire the same state without duplicating fetch logic. */
+ *  hook so any compact or zoomed Task surface can wire the same state
+ *  without duplicating fetch logic. */
 export function useTaskDiffState(threadId: string): {
   mode: DiffMode;
   setMode: (next: DiffMode) => void;
@@ -148,7 +148,7 @@ export function useTaskDiffState(threadId: string): {
   return { mode, setMode, workingCount, commitsCount };
 }
 
-// ─── Tabbed wrapper — used by ThreadDetailPage / ThreadZoomModal ────────
+// ─── Reusable tabbed wrapper ────────────────────────────────────────────
 // When the diff pane is opened from the conversation chrome, the user
 // might want either "what's uncommitted" or "what got committed since
 // the thread started." Earlier the pane only surfaced the working tree,

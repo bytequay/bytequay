@@ -14,12 +14,9 @@
 package com.bytequay.app.service.ai;
 
 import com.bytequay.app.domain.AiReviewDraft;
-import com.bytequay.app.domain.CreateReviewCommand;
-import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PrRawDetail;
-import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
@@ -48,7 +45,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
@@ -77,14 +73,12 @@ public class AiReviewService
             - Keep each comment precise and ADHD-friendly: at most three short sentences or 80 words. Lead with the concrete impact, then the smallest actionable fix. Use Markdown only where it improves scanning.
             """;
 
-    private final PullRequestStore pullRequestStore;
     private final PRService prs;
     private final PullRequestRepository gitHub;
     private final LlmReviewerRegistry registry;
     private final GlobalReviewRunner globalReview;
     private final AiReviewDraftStore draftStore;
     private final SkillService skillService;
-    private final PullRequestDetailInvalidator detailInvalidator;
     private final PatResolver patResolver;
 
     public AiReviewService(
@@ -98,14 +92,14 @@ public class AiReviewService
             PullRequestDetailInvalidator detailInvalidator,
             PatResolver patResolver)
     {
-        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
+        requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.prs = requireNonNull(prs, "prs is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.globalReview = requireNonNull(globalReview, "globalReview is null");
         this.draftStore = requireNonNull(draftStore, "draftStore is null");
         this.skillService = requireNonNull(skillService, "skillService is null");
-        this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
+        requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
@@ -621,110 +615,19 @@ public class AiReviewService
             String event,
             String bodyOverride)
     {
-        AiReviewDraft active = draftStore.findOrCreateActive(prId, repo, number, headSha);
-        return publish(active.id(), event, bodyOverride);
+        throw retiredDirectPublish();
     }
 
     public AiReviewDraft publish(long draftId, String event, String bodyOverride)
     {
-        AiReviewDraft draft = draftStore.byId(draftId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "draft " + draftId + " not found"));
-        if ("PUBLISHED".equals(draft.status())) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(409), "draft " + draftId + " has already been published");
-        }
-        // Prefer the draft's own repo+number (set at run time, V15+); fall
-        // back to the local PR store for legacy rows that pre-date the
-        // columns. Both empty means we genuinely can't address the PR.
-        String repo;
-        int number;
-        if (draft.repo() != null && draft.number() != null) {
-            repo = draft.repo();
-            number = draft.number();
-        }
-        else {
-            PullRequest pr = pullRequestStore.findById(draft.prId())
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "PR for draft " + draftId + " no longer in local DB"));
-            repo = pr.repo();
-            number = pr.number();
-        }
-        String pat = patResolver.resolve(repo);
-
-        // Dismissed comments stay on the row (so the user can restore them)
-        // but never make it into the GitHub payload. Both AI and HUMAN
-        // source comments are submitted in the same review.
-        List<ReviewLineComment> inline = draft.comments().stream()
-                .filter(c -> !c.dismissed())
-                .map(c -> new ReviewLineComment(
-                        c.filePath(),
-                        Optional.empty(),
-                        Optional.of(c.lineNumber()),
-                        requireNonNullElse(c.side(), "RIGHT"),
-                        formatCommentBody(c),
-                        Optional.ofNullable(c.startLine()),
-                        Optional.ofNullable(c.startSide())))
-                .collect(toImmutableList());
-
-        String reviewEvent = normaliseEvent(event);
-        // Three cases:
-        //   • null override         → frontend didn't open the "Finish your
-        //                              review" panel; fall back to the AI
-        //                              summary so an Approve / Comment from
-        //                              the older code path still ships some
-        //                              context.
-        //   • blank-string override → the user opened the panel and cleared
-        //                              the body on purpose. Respect that and
-        //                              send no body — do NOT silently
-        //                              substitute the AI summary they just
-        //                              deleted.
-        //   • non-blank override    → use it verbatim.
-        String body;
-        if (bodyOverride == null) {
-            body = draft.summary();
-        }
-        else if (bodyOverride.isBlank()) {
-            body = null;
-        }
-        else {
-            body = bodyOverride.strip();
-        }
-        CreateReviewCommand command = new CreateReviewCommand(
-                Optional.ofNullable(draft.headSha()),
-                Optional.ofNullable(body),
-                reviewEvent,
-                inline);
-
-        gitHub.createReview(pat, parseRef(repo, number), command);
-        detailInvalidator.invalidate(repo, number);
-        return draftStore.markPublished(draftId);
+        throw retiredDirectPublish();
     }
 
-    private static String formatCommentBody(AiReviewDraft.DraftComment c)
+    private static ResponseStatusException retiredDirectPublish()
     {
-        // editedBody is the user's revision; falls back to the AI's original
-        // when the user hasn't touched it.
-        String text = c.editedBody() != null && !c.editedBody().isBlank() ? c.editedBody() : c.body();
-        // Human-authored comments are sent verbatim — no severity prefix.
-        if ("HUMAN".equals(c.source())) {
-            return text;
-        }
-        if (c.severity() == null || c.severity().isBlank() || "suggestion".equals(c.severity())) {
-            return text;
-        }
-        return "**[" + c.severity() + "]** " + text;
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "legacy AI draft publication is retired; use AgentReview and the durable PR review publication route");
     }
 
-    private static String normaliseEvent(String event)
-    {
-        if (event == null) {
-            return "COMMENT";
-        }
-        String upper = event.toUpperCase(Locale.ROOT);
-        return switch (upper) {
-            case "APPROVE", "REQUEST_CHANGES", "COMMENT" -> upper;
-            default -> "COMMENT";
-        };
-    }
 }

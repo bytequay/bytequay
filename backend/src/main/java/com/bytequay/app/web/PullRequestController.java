@@ -13,10 +13,15 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
+import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.MyActivitySummary;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PrAnalyticsSummary;
 import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequest;
@@ -24,6 +29,7 @@ import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.SuggestedReviewer;
+import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -38,6 +44,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -46,6 +53,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -57,7 +65,9 @@ public class PullRequestController
     private final MyActivityService myActivityService;
     private final PullRequestFilters prFilters;
     private final PrTaskLinkService prTaskLink;
-    private final PublishService publishService;
+    private final PRPublishService prPublishService;
+    private final V2TaskControlService v2TaskControls;
+    private final V2UserRemoteActionRuntime v2UserRemoteActions;
 
     public PullRequestController(
             PullRequestService pullRequestService,
@@ -65,14 +75,21 @@ public class PullRequestController
             MyActivityService myActivityService,
             PullRequestFilters prFilters,
             PrTaskLinkService prTaskLink,
-            PublishService publishService)
+            PublishService publishService,
+            PRPublishService prPublishService,
+            V2TaskControlService v2TaskControls,
+            V2UserRemoteActionRuntime v2UserRemoteActions)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.prAnalyticsService = requireNonNull(prAnalyticsService, "prAnalyticsService is null");
         this.myActivityService = requireNonNull(myActivityService, "myActivityService is null");
         this.prFilters = requireNonNull(prFilters, "prFilters is null");
         this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
-        this.publishService = requireNonNull(publishService, "publishService is null");
+        requireNonNull(publishService, "publishService is null");
+        this.prPublishService = requireNonNull(prPublishService, "prPublishService is null");
+        this.v2TaskControls = requireNonNull(v2TaskControls, "v2TaskControls is null");
+        this.v2UserRemoteActions = requireNonNull(
+                v2UserRemoteActions, "v2UserRemoteActions is null");
     }
 
     /**
@@ -222,9 +239,21 @@ public class PullRequestController
     @PostMapping("/prs/rerun-checks")
     public Map<String, Integer> rerunChecks(
             @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+            @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        return ImmutableMap.of("rerunCount", pullRequestService.rerunFailedChecks(repo, number));
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.rerunFailedChecks(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id());
+            return ImmutableMap.of("rerunCount", 1);
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.RERUN_FAILED_CHECKS, ActionPayload.empty());
+        return ImmutableMap.of("rerunCount", 1);
     }
 
     /**
@@ -237,9 +266,20 @@ public class PullRequestController
     @PostMapping("/prs/trigger-ci")
     public PublishService.EmptyCommitResult triggerCi(
             @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+            @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        return publishService.triggerCiViaEmptyCommit(repo, number);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.triggerCiViaEmptyCommit(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id());
+            return new PublishService.EmptyCommitResult(
+                    true, "durable empty-commit CI trigger accepted");
+        }
+        requireExternalPullRequest(repo, number);
+        return new PublishService.EmptyCommitResult(
+                false, "taskless PRs have no owned worktree for an empty CI commit");
     }
 
     /**
@@ -283,9 +323,21 @@ public class PullRequestController
     public Map<String, Object> setDraft(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody SetDraftRequest req)
     {
-        pullRequestService.setPullRequestDraft(repo, number, req.draft());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.setDraft(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), req.draft());
+            return ImmutableMap.of("result", req.draft() ? "draft" : "ready");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.SET_DRAFT_STATE,
+                ActionPayload.selected(null, req.draft()));
         return ImmutableMap.of("result", req.draft() ? "draft" : "ready");
     }
 
@@ -299,9 +351,29 @@ public class PullRequestController
     public PullRequestService.PrTitleUpdate updateTitle(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody UpdateTitleRequest req)
     {
-        return pullRequestService.updatePullRequestTitle(repo, number, req.title());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            String title = req.title() == null ? "" : req.title().strip();
+            if (title.isEmpty() || title.length() > 256) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(400),
+                        "Title must be between 1 and 256 characters");
+            }
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.updateTitle(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), title);
+            return new PullRequestService.PrTitleUpdate(
+                    number, title, Instant.now());
+        }
+        String title = req.title() == null ? "" : req.title().strip();
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.UPDATE_TITLE, ActionPayload.value(title));
+        return new PullRequestService.PrTitleUpdate(number, title, Instant.now());
     }
 
     /**
@@ -411,9 +483,20 @@ public class PullRequestController
     public Map<String, String> updateBody(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody UpdateBodyRequest req)
     {
-        pullRequestService.updatePullRequestBody(repo, number, req.body());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.updateBody(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), req.body());
+            return ImmutableMap.of("result", "ok");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.UPDATE_BODY, ActionPayload.body(req.body()));
         return ImmutableMap.of("result", "ok");
     }
 
@@ -429,9 +512,27 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestParam("id") long prId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody CommentRequest req)
     {
-        pullRequestService.commentOnPullRequest(repo, number, prId, req.body(), req.close());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            if (req.close()) {
+                v2UserRemoteActions.commentAndClose(
+                        requireV2CommandId(commandId), pr.taskId(), pr.id(), req.body());
+                return ImmutableMap.of("result", "closed");
+            }
+            prPublishService.postComment(
+                    requireV2CommandId(commandId), pr.id(), req.body());
+            return ImmutableMap.of("result", "commented");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                req.close() ? SemanticAction.COMMENT_AND_CLOSE
+                        : SemanticAction.POST_TOP_LEVEL_COMMENT,
+                ActionPayload.body(req.body()));
         return ImmutableMap.of("result", req.close() ? "closed" : "commented");
     }
 
@@ -447,67 +548,135 @@ public class PullRequestController
             @PathVariable long rootCommentId,
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody ReplyRequest req)
     {
-        pullRequestService.replyToReviewThread(repo, number, rootCommentId, req.body());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.replyToReviewThread(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    rootCommentId, req.body());
+            return ImmutableMap.of("result", "replied");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.REPLY_REVIEW_THREAD,
+                ActionPayload.targetBody(
+                        Long.toString(rootCommentId), req.body()));
         return ImmutableMap.of("result", "replied");
     }
 
     /**
      * Edits a top-level issue / PR comment authored by the authenticated
-     * user. POST /prs/issue-comments/{commentId}/body?repo=
+     * user. POST /prs/issue-comments/{commentId}/body?repo=&number=
      * Body: {"body": "..."}
      */
     @PostMapping("/prs/issue-comments/{commentId}/body")
     public Map<String, String> editIssueComment(
             @PathVariable long commentId,
             @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody UpdateBodyRequest req)
     {
-        pullRequestService.editIssueComment(repo, commentId, req.body());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.editIssueComment(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    commentId, req.body());
+            return ImmutableMap.of("result", "edited");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.EDIT_ISSUE_COMMENT,
+                ActionPayload.targetBody(Long.toString(commentId), req.body()));
         return ImmutableMap.of("result", "edited");
     }
 
     /**
      * Edits a per-line review comment authored by the authenticated user.
-     * POST /prs/review-comments/{commentId}/body?repo=
+     * POST /prs/review-comments/{commentId}/body?repo=&number=
      * Body: {"body": "..."}
      */
     @PostMapping("/prs/review-comments/{commentId}/body")
     public Map<String, String> editReviewComment(
             @PathVariable long commentId,
             @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody UpdateBodyRequest req)
     {
-        pullRequestService.editReviewComment(repo, commentId, req.body());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.editReviewComment(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    commentId, req.body());
+            return ImmutableMap.of("result", "edited");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.EDIT_REVIEW_COMMENT,
+                ActionPayload.targetBody(Long.toString(commentId), req.body()));
         return ImmutableMap.of("result", "edited");
     }
 
     /**
      * Deletes a top-level issue / PR comment the authenticated user owns
      * (or can delete via repo write access).
-     * DELETE /prs/issue-comments/{commentId}?repo=
+     * DELETE /prs/issue-comments/{commentId}?repo=&number=
      */
     @DeleteMapping("/prs/issue-comments/{commentId}")
     public Map<String, String> deleteIssueComment(
             @PathVariable long commentId,
-            @RequestParam("repo") String repo)
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        pullRequestService.deleteIssueComment(repo, commentId);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.deleteIssueComment(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), commentId);
+            return ImmutableMap.of("result", "deleted");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.DELETE_ISSUE_COMMENT,
+                ActionPayload.target(Long.toString(commentId)));
         return ImmutableMap.of("result", "deleted");
     }
 
     /**
      * Deletes a per-line review comment the authenticated user owns (or
      * can delete via repo write access).
-     * DELETE /prs/review-comments/{commentId}?repo=
+     * DELETE /prs/review-comments/{commentId}?repo=&number=
      */
     @DeleteMapping("/prs/review-comments/{commentId}")
     public Map<String, String> deleteReviewComment(
             @PathVariable long commentId,
-            @RequestParam("repo") String repo)
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        pullRequestService.deleteReviewComment(repo, commentId);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.deleteReviewComment(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), commentId);
+            return ImmutableMap.of("result", "deleted");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.DELETE_REVIEW_COMMENT,
+                ActionPayload.target(Long.toString(commentId)));
         return ImmutableMap.of("result", "deleted");
     }
 
@@ -519,9 +688,20 @@ public class PullRequestController
     public Map<String, String> addReviewer(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @RequestParam("reviewer") String reviewer)
+            @RequestParam("reviewer") String reviewer,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        pullRequestService.addRequestedReviewer(repo, number, reviewer);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.addReviewer(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), reviewer);
+            return ImmutableMap.of("result", "added");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.ADD_REVIEWER, ActionPayload.value(reviewer));
         return ImmutableMap.of("result", "added");
     }
 
@@ -533,9 +713,20 @@ public class PullRequestController
     public Map<String, String> removeReviewer(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @RequestParam("reviewer") String reviewer)
+            @RequestParam("reviewer") String reviewer,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        pullRequestService.removeRequestedReviewer(repo, number, reviewer);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.removeReviewer(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), reviewer);
+            return ImmutableMap.of("result", "removed");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.REMOVE_REVIEWER, ActionPayload.value(reviewer));
         return ImmutableMap.of("result", "removed");
     }
 
@@ -568,9 +759,22 @@ public class PullRequestController
     public Map<String, String> setAssignee(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody MetadataSelectionRequest request)
     {
-        pullRequestService.setPullRequestAssignee(repo, number, request.value(), request.selected());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.setAssignee(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    request.value(), request.selected());
+            return ImmutableMap.of("result", "updated");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.SET_ASSIGNEE,
+                ActionPayload.selected(request.value(), request.selected()));
         return ImmutableMap.of("result", "updated");
     }
 
@@ -578,9 +782,21 @@ public class PullRequestController
     public Map<String, String> setLabel(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody MetadataSelectionRequest request)
     {
-        pullRequestService.setPullRequestLabel(repo, number, request.value(), request.selected());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.setLabel(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    request.value(), request.selected());
+            return ImmutableMap.of("result", "updated");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(), SemanticAction.SET_LABEL,
+                ActionPayload.selected(request.value(), request.selected()));
         return ImmutableMap.of("result", "updated");
     }
 
@@ -608,11 +824,25 @@ public class PullRequestController
     public Map<String, String> createInlineReviewComment(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody InlineCommentRequest req)
     {
-        pullRequestService.createInlineReviewComment(
-                repo, number, req.body(), req.path(), req.line(), req.side(), req.commitId(),
-                req.startLine(), req.startSide());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.createInlineComment(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    req.body(), req.path(), req.line(), req.side(),
+                    req.startLine(), req.startSide());
+            return ImmutableMap.of("result", "commented");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.CREATE_INLINE_COMMENT,
+                ActionPayload.inlineComment(
+                        req.body(), req.path(), req.line(), req.side(),
+                        req.startLine(), req.startSide()));
         return ImmutableMap.of("result", "commented");
     }
 
@@ -626,38 +856,80 @@ public class PullRequestController
     public Map<String, String> addPullRequestReaction(
             @RequestParam("repo") String repo,
             @PathVariable int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody AddReactionRequest req)
     {
-        pullRequestService.addPullRequestReaction(repo, number, req.content());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.addPullRequestReaction(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(), req.content());
+            return ImmutableMap.of("result", "reacted");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.REACT_PULL_REQUEST,
+                ActionPayload.value(req.content()));
         return ImmutableMap.of("result", "reacted");
     }
 
     /**
      * Adds an emoji reaction to a per-line review comment. Idempotent on
      * the GitHub side — re-adding returns 200 with the same reaction id.
-     * POST /prs/review-comments/{commentId}/reactions?repo=
+     * POST /prs/review-comments/{commentId}/reactions?repo=&number=
      */
     @PostMapping("/prs/review-comments/{commentId}/reactions")
     public Map<String, String> addReviewCommentReaction(
             @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
             @PathVariable long commentId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody AddReactionRequest req)
     {
-        pullRequestService.addReviewCommentReaction(repo, commentId, req.content());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.addReviewCommentReaction(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    commentId, req.content());
+            return ImmutableMap.of("result", "reacted");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.REACT_REVIEW_COMMENT,
+                ActionPayload.targetValue(
+                        Long.toString(commentId), req.content()));
         return ImmutableMap.of("result", "reacted");
     }
 
     /**
      * Adds an emoji reaction to a top-level issue / PR comment.
-     * POST /prs/issue-comments/{commentId}/reactions?repo=
+     * POST /prs/issue-comments/{commentId}/reactions?repo=&number=
      */
     @PostMapping("/prs/issue-comments/{commentId}/reactions")
     public Map<String, String> addIssueCommentReaction(
             @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
             @PathVariable long commentId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody AddReactionRequest req)
     {
-        pullRequestService.addIssueCommentReaction(repo, commentId, req.content());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.addIssueCommentReaction(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    commentId, req.content());
+            return ImmutableMap.of("result", "reacted");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.REACT_ISSUE_COMMENT,
+                ActionPayload.targetValue(
+                        Long.toString(commentId), req.content()));
         return ImmutableMap.of("result", "reacted");
     }
 
@@ -668,16 +940,32 @@ public class PullRequestController
      * thread is identified by the REST root comment id (the same id
      * the frontend already uses elsewhere); the service translates to
      * the GraphQL node id internally.
-     * POST /prs/review-threads/{rootId}/resolved?repo=&prId=
+     * POST /prs/review-threads/{rootId}/resolved?repo=&number=&prId=
      */
     @PostMapping("/prs/review-threads/{rootId}/resolved")
     public Map<String, String> setReviewThreadResolved(
             @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
             @RequestParam("prId") long prId,
             @PathVariable long rootId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody SetThreadResolvedRequest req)
     {
-        pullRequestService.setReviewThreadResolved(repo, prId, rootId, req.resolved());
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.setThreadResolved(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    rootId, req.resolved());
+            return ImmutableMap.of(
+                    "result", req.resolved() ? "resolved" : "unresolved");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.SET_THREAD_RESOLUTION,
+                ActionPayload.targetSelected(
+                        Long.toString(rootId), req.resolved()));
         return ImmutableMap.of("result", req.resolved() ? "resolved" : "unresolved");
     }
 
@@ -689,9 +977,22 @@ public class PullRequestController
     public Map<String, String> approve(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @RequestParam("id") long prId)
+            @RequestParam("id") long prId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        pullRequestService.approvePullRequest(repo, number, prId);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            prPublishService.publishReview(
+                    requireV2CommandId(commandId), v2Pr.orElseThrow().id(),
+                    "APPROVE", List.of(), List.of(), "");
+            return ImmutableMap.of("result", "approved");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.SUBMIT_REVIEW,
+                new ActionPayload(
+                        1, "", "APPROVE", null, List.of()));
         return ImmutableMap.of("result", "approved");
     }
 
@@ -705,9 +1006,22 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam("id") long prId,
             // Optional so older clients (no dropdown) keep getting rebase.
-            @RequestParam(value = "strategy", required = false) String strategy)
+            @RequestParam(value = "strategy", required = false) String strategy,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        return pullRequestService.mergePullRequest(repo, number, prId, strategy);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            prPublishService.merge(
+                    requireV2CommandId(commandId), v2Pr.orElseThrow().id(), strategy);
+            return new MergeResult(null, false, "merge accepted by Task workflow", false);
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        String method = strategy == null ? "REBASE" : strategy;
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(), SemanticAction.MERGE,
+                ActionPayload.value(method));
+        return new MergeResult(
+                null, false, "merge accepted by REVIEW Trunk", false);
     }
 
     /**
@@ -721,9 +1035,20 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestParam("id") long prId,
-            @RequestParam(value = "strategy", required = false) String strategy)
+            @RequestParam(value = "strategy", required = false) String strategy,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId)
     {
-        pullRequestService.enableAutoMerge(repo, number, prId, strategy);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            v2TaskControls.setAutoMerge(v2Pr.orElseThrow().taskId(), true);
+            return ImmutableMap.of("result", "auto-merge-enabled");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.ENABLE_AUTO_MERGE,
+                ActionPayload.value(strategy == null ? "REBASE" : strategy));
         return ImmutableMap.of("result", "auto-merge-enabled");
     }
 
@@ -737,9 +1062,19 @@ public class PullRequestController
     public Map<String, String> disableAutoMerge(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @RequestParam("id") long prId)
+            @RequestParam("id") long prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId)
     {
-        pullRequestService.disableAutoMerge(repo, number, prId);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            v2TaskControls.setAutoMerge(v2Pr.orElseThrow().taskId(), false);
+            return ImmutableMap.of("result", "auto-merge-disabled");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.DISABLE_AUTO_MERGE, ActionPayload.empty());
         return ImmutableMap.of("result", "auto-merge-disabled");
     }
 
@@ -753,9 +1088,19 @@ public class PullRequestController
     public Map<String, String> dequeue(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @RequestParam("id") long prId)
+            @RequestParam("id") long prId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId)
     {
-        pullRequestService.dequeuePullRequest(repo, number, prId);
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            prPublishService.dequeue(
+                    requireV2CommandId(commandId), v2Pr.orElseThrow().id());
+            return ImmutableMap.of("result", "dequeued");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(), SemanticAction.DEQUEUE,
+                ActionPayload.empty());
         return ImmutableMap.of("result", "dequeued");
     }
 
@@ -827,5 +1172,28 @@ public class PullRequestController
     {
         pullRequestService.clearSnoozeWakeReason(prId);
         return ImmutableMap.of("result", "cleared");
+    }
+
+    private Optional<PR> v2TaskPullRequest(String repo, int number)
+    {
+        return prPublishService.findV2TaskPullRequest(repo, number);
+    }
+
+    private PR requireExternalPullRequest(String repo, int number)
+    {
+        return prPublishService.findExternalPullRequest(repo, number)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(409),
+                        "taskless PR requires a synchronized external PR aggregate"));
+    }
+
+    private static String requireV2CommandId(String commandId)
+    {
+        if (commandId == null || commandId.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400),
+                    "Idempotency-Key is required for a V2 remote action");
+        }
+        return commandId;
     }
 }

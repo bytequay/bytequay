@@ -31,8 +31,10 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
+import java.util.stream.IntStream;
 
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY;
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /** Admits and controls durable V2 review seats; it never runs provider work. */
@@ -90,7 +92,8 @@ public final class ReviewAssignmentTurnRuntime
     public void admit(
             String roundId,
             String startCommit,
-            List<Seat> seats)
+            List<Seat> seats,
+            int roundCostCapCents)
     {
         requireText(roundId, "roundId");
         requireText(startCommit, "startCommit");
@@ -98,8 +101,19 @@ public final class ReviewAssignmentTurnRuntime
         if (seats.isEmpty()) {
             throw new IllegalArgumentException("a review round needs at least one seat");
         }
-        List<Admission> admissions = seats.stream()
-                .map(seat -> admission(startCommit, seat, 1))
+        if (roundCostCapCents < 1) {
+            throw new IllegalArgumentException("roundCostCapCents must be positive");
+        }
+        long roundCap = (long) roundCostCapCents * 10;
+        if (roundCap < seats.size()) {
+            throw new IllegalArgumentException(
+                    "round budget cannot fund every review seat");
+        }
+        List<Admission> admissions = IntStream.range(0, seats.size())
+                .mapToObj(index -> admission(
+                        startCommit, seats.get(index), 1,
+                        roundCap / seats.size()
+                                + (index < roundCap % seats.size() ? 1 : 0)))
                 .toList();
         store.admitRound(roundId, startCommit, admissions, clock.instant());
     }
@@ -113,7 +127,8 @@ public final class ReviewAssignmentTurnRuntime
         requireText(roundId, "roundId");
         requireText(startCommit, "startCommit");
         requireNonNull(seat, "seat is null");
-        Admission admission = admission(startCommit, seat, 1);
+        Admission admission = admission(
+                startCommit, seat, 1, (long) seat.costCapCents() * 10);
         return store.admitFollowUp(
                 roundId, startCommit, admission, clock.instant());
     }
@@ -144,7 +159,7 @@ public final class ReviewAssignmentTurnRuntime
                 turnId, operationId, ticketId, assignmentId, candidate.purpose(),
                 candidate.subjectKey(), candidate.verifierRunId(),
                 candidate.attempt() + 1, candidate.startCommit(),
-                oldLaunch.transport(), encode(launch));
+                oldLaunch.transport(), candidate.costCapUsdMilli(), encode(launch));
         store.retry(admission, clock.instant());
         return turnId;
     }
@@ -197,7 +212,8 @@ public final class ReviewAssignmentTurnRuntime
                 turnId, operationId, ticketId, candidate.assignmentId(),
                 candidate.purpose(), candidate.subjectKey(),
                 candidate.verifierRunId(), candidate.attempt() + 1,
-                candidate.startCommit(), oldLaunch.transport(), encode(launch));
+                candidate.startCommit(), oldLaunch.transport(),
+                candidate.costCapUsdMilli(), encode(launch));
         return store.continueUserWait(
                 candidate, waitKind, waitId, admission, clock.instant());
     }
@@ -236,6 +252,18 @@ public final class ReviewAssignmentTurnRuntime
     {
         requireText(turnId, "turnId");
         return store.roundId(turnId);
+    }
+
+    public long remainingCostUsdMilli(String roundId)
+    {
+        requireText(roundId, "roundId");
+        return store.remainingCostUsdMilli(roundId);
+    }
+
+    public int protectedCostCents(String roundId)
+    {
+        requireText(roundId, "roundId");
+        return toIntExact((store.protectedCostUsdMilli(roundId) + 9) / 10);
     }
 
     public boolean movePhase(String roundId, FlowPhase expected, FlowPhase next)
@@ -288,7 +316,8 @@ public final class ReviewAssignmentTurnRuntime
     private Admission admission(
             String startCommit,
             Seat seat,
-            int attempt)
+            int attempt,
+            long costCapUsdMilli)
     {
         requireNonNull(seat, "seat is null");
         String turnId = id("review-turn");
@@ -304,13 +333,15 @@ public final class ReviewAssignmentTurnRuntime
         return new Admission(
                 turnId, operationId, ticketId, seat.assignmentId(), INVESTIGATE,
                 seat.assignmentId(), null,
-                attempt, startCommit, provider.transport(), encode(launch));
+                attempt, startCommit, provider.transport(),
+                costCapUsdMilli, encode(launch));
     }
 
     private Admission admission(
             String startCommit,
             FollowUpSeat seat,
-            int attempt)
+            int attempt,
+            long costCapUsdMilli)
     {
         String turnId = id("review-turn");
         String operationId = id("review-operation");
@@ -325,7 +356,7 @@ public final class ReviewAssignmentTurnRuntime
         return new Admission(
                 turnId, operationId, ticketId, seat.assignmentId(), seat.purpose(),
                 seat.subjectKey(), seat.verifierRunId(), attempt, startCommit,
-                provider.transport(), encode(launch));
+                provider.transport(), costCapUsdMilli, encode(launch));
     }
 
     private AgentTurnProviderSession.OwnerToolEndpoint endpoint(
@@ -428,6 +459,10 @@ public final class ReviewAssignmentTurnRuntime
 
         Optional<String> roundId(String turnId);
 
+        long remainingCostUsdMilli(String roundId);
+
+        long protectedCostUsdMilli(String roundId);
+
         boolean movePhase(
                 String roundId, FlowPhase expected, FlowPhase next, Instant changedAt);
 
@@ -463,7 +498,8 @@ public final class ReviewAssignmentTurnRuntime
             String verifierRunId,
             AgentLaunch provider,
             Path workingDirectory,
-            ReviewTurnPrompt prompt)
+            ReviewTurnPrompt prompt,
+            int costCapCents)
     {
         public FollowUpSeat
         {
@@ -473,6 +509,9 @@ public final class ReviewAssignmentTurnRuntime
             requireNonNull(provider, "provider is null");
             requireNonNull(workingDirectory, "workingDirectory is null");
             requireNonNull(prompt, "prompt is null");
+            if (costCapCents < 1) {
+                throw new IllegalArgumentException("costCapCents must be positive");
+            }
             if (verifierRunId != null) {
                 requireText(verifierRunId, "verifierRunId");
             }
@@ -491,6 +530,7 @@ public final class ReviewAssignmentTurnRuntime
             int attempt,
             String startCommit,
             AgentTurnProviderSession.Transport transport,
+            long costCapUsdMilli,
             String launchInput)
     {
         public Admission
@@ -508,8 +548,9 @@ public final class ReviewAssignmentTurnRuntime
             requireText(startCommit, "startCommit");
             requireNonNull(transport, "transport is null");
             requireText(launchInput, "launchInput");
-            if (attempt < 1) {
-                throw new IllegalArgumentException("attempt must be positive");
+            if (attempt < 1 || costCapUsdMilli < 1) {
+                throw new IllegalArgumentException(
+                        "attempt and cost cap must be positive");
             }
         }
     }
@@ -521,6 +562,7 @@ public final class ReviewAssignmentTurnRuntime
             String subjectKey,
             String verifierRunId,
             int attempt,
+            long costCapUsdMilli,
             String launchInput)
     {
         public RetryCandidate
@@ -534,8 +576,9 @@ public final class ReviewAssignmentTurnRuntime
             }
             validatePurpose(purpose, verifierRunId, false);
             requireText(launchInput, "launchInput");
-            if (attempt < 1) {
-                throw new IllegalArgumentException("attempt must be positive");
+            if (attempt < 1 || costCapUsdMilli < 1) {
+                throw new IllegalArgumentException(
+                        "attempt and cost cap must be positive");
             }
         }
     }
@@ -550,6 +593,7 @@ public final class ReviewAssignmentTurnRuntime
             String subjectKey,
             String verifierRunId,
             int attempt,
+            long costCapUsdMilli,
             String launchInput)
     {
         public ContinuationCandidate
@@ -565,8 +609,9 @@ public final class ReviewAssignmentTurnRuntime
                 requireText(verifierRunId, "verifierRunId");
             }
             requireText(launchInput, "launchInput");
-            if (attempt < 1) {
-                throw new IllegalArgumentException("attempt must be positive");
+            if (attempt < 1 || costCapUsdMilli < 1) {
+                throw new IllegalArgumentException(
+                        "attempt and cost cap must be positive");
             }
         }
     }

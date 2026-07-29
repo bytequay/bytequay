@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.InvestigationReviewData.ReviewCapabilities;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.Task;
@@ -29,13 +31,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestInvestigationReviewContext
@@ -44,15 +49,13 @@ class TestInvestigationReviewContext
     private Path root;
 
     @Test
-    void validationCountsLinesBeyondThePromptTruncationLimit()
+    void validationCountsCompleteFrozenFileBodies()
             throws Exception
     {
         String path = "src/Large.java";
         String content = IntStream.rangeClosed(1, 5_000)
                 .mapToObj(line -> "line " + line + " " + "x".repeat(30))
                 .collect(Collectors.joining("\n"));
-        Files.createDirectories(root.resolve("src"));
-        Files.writeString(root.resolve(path), content);
         InvestigationReviewContext context = new InvestigationReviewContext(
                 mock(PRService.class), mock(PullRequestService.class),
                 mock(TaskStore.class), mock(WatchedRepoStore.class), mock(GitRunner.class));
@@ -61,10 +64,43 @@ class TestInvestigationReviewContext
                 "feature", "main", "Large file", "", PR.STATUS_REMOTE_OPEN,
                 Instant.EPOCH, null, null);
         InvestigationReviewContext.Snapshot snapshot = new InvestigationReviewContext.Snapshot(
-                pr, "base", "head", "", List.of(), root);
+                pr, "base", "head", "", List.of(), null, root,
+                ReviewCapabilities.frozenChangedFiles(), Map.of(path, content));
 
-        assertThat(context.readFile(snapshot, path)).contains("file truncated");
+        assertThat(context.readFile(snapshot, path)).isEqualTo(content);
         assertThat(context.fileLineCount(snapshot, path)).isEqualTo(5_000);
+    }
+
+    @Test
+    void readsFrozenBodyAfterCheckoutCleanupAndRejectsUncapturedPaths()
+            throws Exception
+    {
+        GitRunner git = mock(GitRunner.class);
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        InvestigationReviewContext context = new InvestigationReviewContext(
+                mock(PRService.class), pullRequests, mock(TaskStore.class),
+                mock(WatchedRepoStore.class), git);
+        Path mutableFile = root.resolve("src/A.java");
+        Files.createDirectories(mutableFile.getParent());
+        Files.writeString(mutableFile, "mutable body\n");
+        PR pr = PR.createExternal(
+                "pr-cleanup", "acme/widget", 7, null, null, "feature",
+                "main", "Frozen", "", PR.STATUS_REMOTE_OPEN,
+                Instant.EPOCH, null, null);
+        InvestigationReviewContext.Snapshot snapshot =
+                new InvestigationReviewContext.Snapshot(
+                        pr, "base", "head", "", List.of(), root, root,
+                        ReviewCapabilities.frozenChangedFiles(),
+                        Map.of("src/A.java", "frozen body\n"));
+
+        Files.delete(mutableFile);
+
+        assertThat(context.readFile(snapshot, "src/A.java"))
+                .isEqualTo("frozen body\n");
+        assertThatThrownBy(() -> context.readFile(snapshot, "src/B.java"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not captured in frozen review snapshot");
+        verifyNoInteractions(git, pullRequests);
     }
 
     @Test
@@ -84,7 +120,8 @@ class TestInvestigationReviewContext
                 new PRCommit("c1", pr.id(), "base", "base", 0, 0, Instant.EPOCH, Instant.EPOCH),
                 new PRCommit("c2", pr.id(), "head", "head", 1, 0, Instant.EPOCH, Instant.EPOCH)));
         when(pullRequests.getPullRequestDiffFiles(pr.repo(), pr.remotePrNumber()))
-                .thenReturn(List.of());
+                .thenReturn(List.of(new DiffFile(
+                        "src/Exact.java", "modified", 1, 1, "patch")));
         when(watchedRepos.find("acme", "widget")).thenReturn(Optional.of(
                 new WatchedRepo(1, "acme", "widget", 0, root.toString(), null, null)));
         when(git.refExists(root, "head")).thenReturn(true);
@@ -92,11 +129,13 @@ class TestInvestigationReviewContext
         InvestigationReviewContext context = new InvestigationReviewContext(
                 prs, pullRequests, tasks, watchedRepos, git);
 
-        InvestigationReviewContext.Snapshot snapshot = context.load(pr);
+        InvestigationReviewContext.Snapshot snapshot =
+                context.freezeChangedFiles(context.load(pr));
 
         assertThat(snapshot.localRoot()).isNull();
         assertThat(snapshot.repositoryRoot()).isEqualTo(root);
-        assertThat(snapshot.capabilities().sourceMode()).isEqualTo("local-source");
+        assertThat(snapshot.capabilities().sourceMode())
+                .isEqualTo("frozen-changed-files");
         assertThat(context.readFile(snapshot, "src/Exact.java")).isEqualTo("exact reviewed source");
     }
 
@@ -194,7 +233,8 @@ class TestInvestigationReviewContext
                 new PRCommit("c1", pr.id(), "base", "base", 0, 0, Instant.EPOCH, Instant.EPOCH),
                 new PRCommit("c2", pr.id(), "head", "head", 1, 0, Instant.EPOCH, Instant.EPOCH)));
         when(pullRequests.getPullRequestDiffFiles(pr.repo(), pr.remotePrNumber()))
-                .thenReturn(List.of());
+                .thenReturn(List.of(new DiffFile(
+                        "src/Exact.java", "modified", 1, 1, "patch")));
         when(tasks.findTaskById("task-1")).thenReturn(Optional.of(task));
         when(task.worktreePath()).thenReturn(root.toString());
         when(git.refExists(root, "head")).thenReturn(true);
@@ -202,7 +242,8 @@ class TestInvestigationReviewContext
         InvestigationReviewContext context = new InvestigationReviewContext(
                 prs, pullRequests, tasks, watchedRepos, git);
 
-        InvestigationReviewContext.Snapshot snapshot = context.load(pr);
+        InvestigationReviewContext.Snapshot snapshot =
+                context.freezeChangedFiles(context.load(pr));
 
         assertThat(snapshot.localRoot()).isNull();
         assertThat(snapshot.repositoryRoot()).isEqualTo(root);

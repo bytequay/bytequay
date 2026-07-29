@@ -18,6 +18,11 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
+import com.bytequay.app.domain.PrRawDetail;
+import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -27,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.GITHUB;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.SUCCEEDED;
@@ -39,23 +45,29 @@ public final class ProvisionTaskOperationHandler
 {
     public static final String OPERATION_KIND = "PROVISION_TASK";
     public static final String CALLBACK_ROUTE = "TASK_PROVISION_RESULT";
-    public static final String SOURCE_PROOF_SCHEMA = "PROVISION_SOURCE_PROOF_V1";
+    public static final String SOURCE_PROOF_SCHEMA = "PROVISION_SOURCE_PROOF_V2";
     public static final long SOURCE_PROOF_LOG_SEQUENCE = 0;
 
     private final OperationStore operations;
     private final ProvisioningGit git;
     private final WorktreeWriterLeaseManager writers;
+    private final PullRequestRepository pullRequests;
+    private final PatResolver pats;
     private final ObjectMapper json;
 
     public ProvisionTaskOperationHandler(
             OperationStore operations,
             ProvisioningGit git,
             WorktreeWriterLeaseManager writers,
+            PullRequestRepository pullRequests,
+            PatResolver pats,
             ObjectMapper json)
     {
         this.operations = requireNonNull(operations, "operations is null");
         this.git = requireNonNull(git, "git is null");
         this.writers = requireNonNull(writers, "writers is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pats = requireNonNull(pats, "pats is null");
         this.json = requireNonNull(json, "json is null");
     }
 
@@ -146,7 +158,7 @@ public final class ProvisionTaskOperationHandler
         cancelBeforeMutation(context);
         ProvisioningGit.Probe created = git.probe(target);
         requireExactHead(created, source.headSha());
-        return success(context, request, target, source.baseSha(), source.headSha());
+        return success(context, request, target, source);
     }
 
     private ResolvedSource resolveSource(
@@ -175,23 +187,57 @@ public final class ProvisionTaskOperationHandler
                 yield new ResolvedSource(base, base);
             }
             case EXISTING_PR_HEAD -> {
+                RemotePullRequestSubject pullRequest = discoverPullRequest(request);
                 String baseRemote = git.requireExactRemote(
-                        target.repositoryRoot(), request.baseRepositoryId());
+                        target.repositoryRoot(), pullRequest.baseRepositoryId());
                 String headRemote = git.requireExactRemote(
-                        target.repositoryRoot(), request.assignmentHeadRepositoryId());
+                        target.repositoryRoot(), pullRequest.headRepositoryId());
                 fetch(context, lease, target, baseRemote);
                 if (!headRemote.equals(baseRemote)) {
                     fetch(context, lease, target, headRemote);
                 }
                 String base = requireRemoteCommit(
-                        target.repositoryRoot(), baseRemote, request.baseRef(),
-                        request.expectedBaseSha(), "existing PR base");
+                        target.repositoryRoot(), baseRemote, pullRequest.baseRef(),
+                        pullRequest.baseSha(), "existing PR base");
                 String head = requireRemoteCommit(
-                        target.repositoryRoot(), headRemote, request.headRef(),
-                        request.expectedHeadSha(), "existing PR head");
-                yield new ResolvedSource(base, head);
+                        target.repositoryRoot(), headRemote, pullRequest.headRef(),
+                        pullRequest.headSha(), "existing PR head");
+                yield new ResolvedSource(base, head, pullRequest);
             }
         };
+    }
+
+    private RemotePullRequestSubject discoverPullRequest(ProvisionRequest request)
+            throws ExecutionPorts.RetryableExecutionException,
+            ExecutionPorts.IndeterminateExecutionException
+    {
+        if (request.reviewSelection() != null
+                && !request.reviewSelection().current()) {
+            throw indeterminate("review finding selection is stale");
+        }
+        RepoRef repository = RepoRef.parse(request.baseRepositoryId());
+        PrRawDetail raw;
+        try {
+            raw = pullRequests.fetchPrDetail(
+                    pats.resolve(repository.fullName()),
+                    PullRequestRef.of(
+                            repository.owner(), repository.repo(),
+                            request.pullRequestNumber()));
+        }
+        catch (RuntimeException failure) {
+            throw new ExecutionPorts.RetryableExecutionException(
+                    "existing PR subject discovery failed", failure);
+        }
+        RemotePullRequestSubject subject = new RemotePullRequestSubject(
+                request.pullRequestNumber(),
+                requireText(raw.baseRepo(), "PR base repository"),
+                requireText(raw.headRepo(), "PR head repository"),
+                requireText(raw.baseRef(), "PR base ref"),
+                requireText(raw.headRef(), "PR head ref"),
+                requireText(raw.baseSha(), "PR base SHA"),
+                requireText(raw.headSha(), "PR head SHA"));
+        requireDiscoveredSubject(request, subject);
+        return subject;
     }
 
     private void fetch(
@@ -234,8 +280,7 @@ public final class ProvisionTaskOperationHandler
         if (after.state() == ProvisioningGit.ProbeState.EXACT) {
             if (source != null) {
                 requireExactHead(after, source.headSha());
-                return success(
-                        context, request, target, source.baseSha(), source.headSha());
+                return success(context, request, target, source);
             }
             return exactResult(
                     context, request, target, after.headSha(), priorSource);
@@ -260,17 +305,15 @@ public final class ProvisionTaskOperationHandler
         ResolvedSource source = switch (request.baseSource()) {
             case PLANNING_SNAPSHOT -> new ResolvedSource(
                     request.expectedBaseSha(), request.expectedBaseSha());
-            case FRESH_REMOTE_BASE -> priorSource.orElseThrow(() -> indeterminate(
-                    "exact fresh-base target has no prior durable source proof"));
-            case EXISTING_PR_HEAD -> new ResolvedSource(
-                    request.expectedBaseSha(), request.expectedHeadSha());
+            case FRESH_REMOTE_BASE, EXISTING_PR_HEAD ->
+                    priorSource.orElseThrow(() -> indeterminate(
+                            "exact discovered-source target has no prior durable source proof"));
         };
         requireExactHead(
                 ProvisioningGit.Probe.exact(observedHead), source.headSha());
         requireLocalCommit(
                 target.repositoryRoot(), source.baseSha(), "provisioning base");
-        return success(
-                context, request, target, source.baseSha(), source.headSha());
+        return success(context, request, target, source);
     }
 
     private Optional<ResolvedSource> requirePriorSourceProof(
@@ -284,12 +327,6 @@ public final class ProvisionTaskOperationHandler
         }
         ProvisionSourceProof durable = proof.orElseThrow();
         ProvisionSourceEvidence evidence = durable.evidence();
-        String expectedHeadRepository = request.baseSource() == BaseSource.EXISTING_PR_HEAD
-                ? request.assignmentHeadRepositoryId()
-                : null;
-        String expectedHeadRef = request.baseSource() == BaseSource.EXISTING_PR_HEAD
-                ? request.headRef()
-                : null;
         if (!SOURCE_PROOF_SCHEMA.equals(evidence.schema())
                 || !durable.executionId().equals(evidence.executionId())
                 || !request.operationId().equals(evidence.operationId())
@@ -299,23 +336,35 @@ public final class ProvisionTaskOperationHandler
                 || request.baseSource() != evidence.baseSource()
                 || !request.repositoryId().equals(evidence.repositoryId())
                 || !request.baseRepositoryId().equals(evidence.baseRepositoryId())
-                || !request.baseRef().equals(evidence.baseRef())
-                || !Objects.equals(expectedHeadRepository, evidence.headRepositoryId())
-                || !Objects.equals(expectedHeadRef, evidence.headRef())
+                || (request.baseSource() != BaseSource.EXISTING_PR_HEAD
+                    && (!Objects.equals(request.baseRef(), evidence.baseRef())
+                        || evidence.pullRequestNumber() != null
+                        || evidence.headRepositoryId() != null
+                        || evidence.headRef() != null))
                 || !request.branchName().equals(evidence.branchName())
                 || !request.worktreePath().equals(evidence.worktreePath())) {
             throw indeterminate(
                     "prior provisioning source proof does not match the exact operation");
         }
         ResolvedSource source = new ResolvedSource(
-                evidence.baseSha(), evidence.headSha());
+                evidence.baseSha(), evidence.headSha(),
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        ? new RemotePullRequestSubject(
+                                requireNonNull(
+                                        evidence.pullRequestNumber(),
+                                        "proof PR number is null"),
+                                evidence.baseRepositoryId(),
+                                evidence.headRepositoryId(),
+                                evidence.baseRef(), evidence.headRef(),
+                                evidence.baseSha(), evidence.headSha())
+                        : null);
         switch (request.baseSource()) {
             case PLANNING_SNAPSHOT -> requireFrozenSource(
                     source, request.expectedBaseSha(), request.expectedBaseSha());
             case FRESH_REMOTE_BASE -> requireFrozenSource(
                     source, source.baseSha(), source.baseSha());
-            case EXISTING_PR_HEAD -> requireFrozenSource(
-                    source, request.expectedBaseSha(), request.expectedHeadSha());
+            case EXISTING_PR_HEAD -> requireDiscoveredSubject(
+                    request, source.pullRequest());
         }
         requireLocalCommit(
                 target.repositoryRoot(), source.baseSha(), "proven provisioning base");
@@ -339,15 +388,22 @@ public final class ProvisionTaskOperationHandler
                 request.taskId(),
                 request.taskEpoch(),
                 request.baseSource(),
+                source.pullRequest() == null
+                        ? null
+                        : source.pullRequest().number(),
                 request.repositoryId(),
-                request.baseRepositoryId(),
-                request.baseRef(),
-                request.baseSource() == BaseSource.EXISTING_PR_HEAD
-                        ? request.assignmentHeadRepositoryId()
-                        : null,
-                request.baseSource() == BaseSource.EXISTING_PR_HEAD
-                        ? request.headRef()
-                        : null,
+                source.pullRequest() == null
+                        ? request.baseRepositoryId()
+                        : source.pullRequest().baseRepositoryId(),
+                source.pullRequest() == null
+                        ? request.baseRef()
+                        : source.pullRequest().baseRef(),
+                source.pullRequest() == null
+                        ? null
+                        : source.pullRequest().headRepositoryId(),
+                source.pullRequest() == null
+                        ? null
+                        : source.pullRequest().headRef(),
                 target.branchName(),
                 target.worktreePath().toString(),
                 source.baseSha(),
@@ -369,18 +425,49 @@ public final class ProvisionTaskOperationHandler
         }
     }
 
+    private static void requireDiscoveredSubject(
+            ProvisionRequest request,
+            RemotePullRequestSubject subject)
+            throws ExecutionPorts.IndeterminateExecutionException
+    {
+        ReviewSelectionFence selection = request.reviewSelection();
+        if (subject == null
+                || subject.number() != request.pullRequestNumber()
+                || !request.baseRepositoryId().equalsIgnoreCase(
+                        subject.baseRepositoryId())
+                || !request.repositoryId().equalsIgnoreCase(
+                        subject.headRepositoryId())
+                || (request.expectedBaseSha() != null
+                    && (!request.expectedBaseSha().equals(subject.baseSha())
+                        || !request.expectedHeadSha().equals(subject.headSha())
+                        || !request.baseRef().equals(subject.baseRef())
+                        || !request.headRef().equals(subject.headRef())))
+                || (selection != null
+                    && (!selection.current()
+                        || selection.prNumber() != subject.number()
+                        || !selection.baseRepositoryId().equalsIgnoreCase(
+                                subject.baseRepositoryId())
+                        || !selection.headRepositoryId().equalsIgnoreCase(
+                                subject.headRepositoryId())
+                        || !selection.baseRef().equals(subject.baseRef())
+                        || !selection.headRef().equals(subject.headRef())
+                        || !selection.reviewedHeadSha().equals(subject.headSha())))) {
+            throw indeterminate(
+                    "discovered PR subject does not match its frozen assignment");
+        }
+    }
+
     private DispatchTicket.DispatchResult success(
             ExecutionContext context,
             ProvisionRequest request,
             MutationTarget target,
-            String baseSha,
-            String headSha)
+            ResolvedSource source)
             throws JsonProcessingException
     {
         String fingerprint = requireText(
                 git.codeFingerprint(target), "codeFingerprint");
         ProvisionEvidence evidence = new ProvisionEvidence(
-                "PROVISION_TASK_V1",
+                "PROVISION_TASK_V2",
                 request.operationId(),
                 request.taskId(),
                 request.taskEpoch(),
@@ -388,9 +475,10 @@ public final class ProvisionTaskOperationHandler
                 request.repositoryId(),
                 request.branchName(),
                 request.worktreePath(),
-                requireText(baseSha, "baseSha"),
-                requireText(headSha, "headSha"),
-                fingerprint);
+                source.baseSha(),
+                source.headSha(),
+                fingerprint,
+                source.pullRequest());
         String serialized = json.writeValueAsString(evidence);
         return new DispatchTicket.DispatchResult(
                 context.envelope().fence(), SUCCEEDED, serialized, serialized, null);
@@ -465,6 +553,11 @@ public final class ProvisionTaskOperationHandler
         DispatchTicket.OperationFence fence = envelope.fence();
         CapacityManager.CapacityRequest capacity = envelope.capacityRequest();
         CapacityManager.CapacityScope scope = capacity.scope();
+        Set<CapacityManager.CapacityLane> expectedLanes =
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        && request.expectedHeadSha() == null
+                        ? Set.of(LOCAL_GIT, GITHUB)
+                        : Set.of(LOCAL_GIT);
         if (!OPERATION_KIND.equals(envelope.operationKind())
                 || envelope.family() != DispatchTicket.AsyncFamily.LOCAL_GIT
                 || envelope.owner().kind() != TASK
@@ -479,7 +572,7 @@ public final class ProvisionTaskOperationHandler
                 || !Objects.equals(request.expectedHeadSha(), fence.expectedHeadSha())
                 || !Objects.equals(request.expectedBaseSha(), fence.expectedBaseSha())
                 || capacity.source() != V2
-                || !capacity.lanes().equals(Set.of(LOCAL_GIT))
+                || !capacity.lanes().equals(expectedLanes)
                 || capacity.trunkControl()
                 || !capacity.exclusiveTask()
                 || !capacity.writerRequired()
@@ -508,7 +601,7 @@ public final class ProvisionTaskOperationHandler
                 || request.baseSource() != request.contextBaseSource()
                 || !request.baseRepositoryId().equals(
                         request.contextBaseRepositoryId())
-                || !request.baseRef().equals(request.contextBaseRef())
+                || !Objects.equals(request.baseRef(), request.contextBaseRef())
                 || !request.branchName().equals(request.targetBranchName())
                 || !request.worktreePath().equals(request.targetWorktreePath())) {
             throw indeterminate("provisioning rows do not form one exact frozen graph");
@@ -545,31 +638,39 @@ public final class ProvisionTaskOperationHandler
                 }
             }
             case EXISTING_PR_HEAD -> {
+                boolean pendingDiscovery = request.expectedBaseSha() == null
+                        && request.expectedHeadSha() == null
+                        && request.contextAssignmentBaseSha() == null
+                        && request.contextAssignmentHeadSha() == null
+                        && request.assignmentBaseRef() == null
+                        && request.headRef() == null
+                        && request.assignmentRemoteBaseSha() == null
+                        && request.assignmentRemoteHeadSha() == null;
+                boolean historicallyFrozen = request.expectedBaseSha() != null
+                        && request.expectedHeadSha() != null
+                        && Objects.equals(request.contextAssignmentBaseSha(),
+                                request.expectedBaseSha())
+                        && Objects.equals(request.contextAssignmentHeadSha(),
+                                request.expectedHeadSha())
+                        && Objects.equals(request.assignmentBaseRef(),
+                                request.baseRef())
+                        && request.headRef() != null
+                        && Objects.equals(request.assignmentRemoteBaseSha(),
+                                request.expectedBaseSha())
+                        && Objects.equals(request.assignmentRemoteHeadSha(),
+                                request.expectedHeadSha());
                 if (!Set.of("EXISTING_OWN_PR", "REVIEW_FINDINGS")
                         .contains(request.assignmentKind())
+                        || request.pullRequestNumber() < 1
                         || !request.repositoryId().equals(
                                 request.assignmentRepositoryId())
                         || !request.baseRepositoryId().equals(
                                 request.assignmentBaseRepositoryId())
                         || !request.contextPublishRepositoryId().equals(
                                 request.assignmentHeadRepositoryId())
-                        || !request.baseRef().equals(request.assignmentBaseRef())
-                        || !Objects.equals(
-                                request.contextAssignmentBaseSha(),
-                                request.expectedBaseSha())
-                        || !Objects.equals(
-                                request.contextAssignmentHeadSha(),
-                                request.expectedHeadSha())
-                        || !Objects.equals(
-                                request.assignmentRemoteBaseSha(),
-                                request.expectedBaseSha())
-                        || !Objects.equals(
-                                request.assignmentRemoteHeadSha(),
-                                request.expectedHeadSha())
-                        || request.headRef() == null
-                        || request.expectedBaseSha() == null
-                        || request.expectedHeadSha() == null
-                        || request.headRef().isBlank()
+                        || !(pendingDiscovery || historicallyFrozen)
+                        || ("REVIEW_FINDINGS".equals(request.assignmentKind())
+                            != (request.reviewSelection() != null))
                         || request.contextPlanningBaseSha() != null
                         || request.assignmentPlanningBaseSha() != null) {
                     throw indeterminate("existing PR source is not exact");
@@ -803,7 +904,9 @@ public final class ProvisionTaskOperationHandler
             String headRef,
             String assignmentRemoteBaseSha,
             String assignmentRemoteHeadSha,
-            String localClonePath)
+            String localClonePath,
+            int pullRequestNumber,
+            ReviewSelectionFence reviewSelection)
     {
         public ProvisionRequest
         {
@@ -819,7 +922,9 @@ public final class ProvisionTaskOperationHandler
             requireText(repositoryId, "repositoryId");
             requireNonNull(baseSource, "baseSource is null");
             requireText(baseRepositoryId, "baseRepositoryId");
-            requireText(baseRef, "baseRef");
+            if (baseSource != BaseSource.EXISTING_PR_HEAD || baseRef != null) {
+                requireText(baseRef, "baseRef");
+            }
             requireText(branchName, "branchName");
             requireText(worktreePath, "worktreePath");
             requireText(operationStatus, "operationStatus");
@@ -828,7 +933,10 @@ public final class ProvisionTaskOperationHandler
             requireText(contextPublishRepositoryId, "contextPublishRepositoryId");
             requireNonNull(contextBaseSource, "contextBaseSource is null");
             requireText(contextBaseRepositoryId, "contextBaseRepositoryId");
-            requireText(contextBaseRef, "contextBaseRef");
+            if (contextBaseSource != BaseSource.EXISTING_PR_HEAD
+                    || contextBaseRef != null) {
+                requireText(contextBaseRef, "contextBaseRef");
+            }
             requireText(targetRepositoryId, "targetRepositoryId");
             requireText(targetPublishRepositoryId, "targetPublishRepositoryId");
             requireText(targetBranchName, "targetBranchName");
@@ -838,6 +946,16 @@ public final class ProvisionTaskOperationHandler
             if (taskEpoch < 1 || attempt < 1) {
                 throw new IllegalArgumentException(
                         "Task epoch and operation attempt must be positive");
+            }
+            if ((baseSource == BaseSource.EXISTING_PR_HEAD)
+                    != (pullRequestNumber > 0)) {
+                throw new IllegalArgumentException(
+                        "only existing-PR provisioning names a PR number");
+            }
+            if (reviewSelection != null
+                    && !"REVIEW_FINDINGS".equals(assignmentKind)) {
+                throw new IllegalArgumentException(
+                        "only review findings carry a review selection");
             }
         }
     }
@@ -853,7 +971,109 @@ public final class ProvisionTaskOperationHandler
             String worktreePath,
             String baseSha,
             String headSha,
-            String codeFingerprint) {}
+            String codeFingerprint,
+            RemotePullRequestSubject pullRequest)
+    {
+        public ProvisionEvidence(
+                String schema,
+                String operationId,
+                String taskId,
+                long taskEpoch,
+                BaseSource baseSource,
+                String repositoryId,
+                String branchName,
+                String worktreePath,
+                String baseSha,
+                String headSha,
+                String codeFingerprint)
+        {
+            this(schema, operationId, taskId, taskEpoch, baseSource,
+                    repositoryId, branchName, worktreePath, baseSha, headSha,
+                    codeFingerprint, null);
+        }
+
+        public ProvisionEvidence
+        {
+            requireText(schema, "schema");
+            requireText(operationId, "operationId");
+            requireText(taskId, "taskId");
+            requireNonNull(baseSource, "baseSource is null");
+            requireText(repositoryId, "repositoryId");
+            requireText(branchName, "branchName");
+            requireText(worktreePath, "worktreePath");
+            requireText(baseSha, "baseSha");
+            requireText(headSha, "headSha");
+            requireText(codeFingerprint, "codeFingerprint");
+            boolean legacyExistingSubject = "PROVISION_TASK_V1".equals(schema)
+                    && baseSource == BaseSource.EXISTING_PR_HEAD
+                    && pullRequest == null;
+            if (taskEpoch < 1
+                    || (!legacyExistingSubject
+                        && (baseSource == BaseSource.EXISTING_PR_HEAD)
+                            != (pullRequest != null))) {
+                throw new IllegalArgumentException(
+                        "provision evidence has an invalid owner or PR subject");
+            }
+            if (pullRequest != null
+                    && (!baseSha.equals(pullRequest.baseSha())
+                    || !headSha.equals(pullRequest.headSha())
+                    || !repositoryId.equalsIgnoreCase(
+                            pullRequest.headRepositoryId()))) {
+                throw new IllegalArgumentException(
+                        "provision evidence differs from its PR subject");
+            }
+        }
+    }
+
+    public record RemotePullRequestSubject(
+            int number,
+            String baseRepositoryId,
+            String headRepositoryId,
+            String baseRef,
+            String headRef,
+            String baseSha,
+            String headSha)
+    {
+        public RemotePullRequestSubject
+        {
+            if (number < 1) {
+                throw new IllegalArgumentException("PR number must be positive");
+            }
+            requireText(baseRepositoryId, "baseRepositoryId");
+            requireText(headRepositoryId, "headRepositoryId");
+            requireText(baseRef, "baseRef");
+            requireText(headRef, "headRef");
+            requireText(baseSha, "baseSha");
+            requireText(headSha, "headSha");
+        }
+    }
+
+    public record ReviewSelectionFence(
+            String reviewPassId,
+            int prNumber,
+            String reviewedHeadSha,
+            String baseRepositoryId,
+            String headRepositoryId,
+            String baseRef,
+            String headRef,
+            String selectionDigest,
+            boolean current)
+    {
+        public ReviewSelectionFence
+        {
+            requireText(reviewPassId, "reviewPassId");
+            requireText(reviewedHeadSha, "reviewedHeadSha");
+            requireText(baseRepositoryId, "baseRepositoryId");
+            requireText(headRepositoryId, "headRepositoryId");
+            requireText(baseRef, "baseRef");
+            requireText(headRef, "headRef");
+            requireText(selectionDigest, "selectionDigest");
+            if (prNumber < 1) {
+                throw new IllegalArgumentException(
+                        "review selection PR number must be positive");
+            }
+        }
+    }
 
     public record ProvisionSourceProof(
             String executionId,
@@ -879,6 +1099,7 @@ public final class ProvisionTaskOperationHandler
             String taskId,
             long taskEpoch,
             BaseSource baseSource,
+            Integer pullRequestNumber,
             String repositoryId,
             String baseRepositoryId,
             String baseRef,
@@ -908,10 +1129,15 @@ public final class ProvisionTaskOperationHandler
                         "operationAttempt and taskEpoch must be positive");
             }
             if (baseSource == BaseSource.EXISTING_PR_HEAD) {
+                if (pullRequestNumber == null || pullRequestNumber < 1) {
+                    throw new IllegalArgumentException(
+                            "existing-PR proof requires its PR number");
+                }
                 requireText(headRepositoryId, "headRepositoryId");
                 requireText(headRef, "headRef");
             }
-            else if (headRepositoryId != null || headRef != null) {
+            else if (pullRequestNumber != null
+                    || headRepositoryId != null || headRef != null) {
                 throw new IllegalArgumentException(
                         "only existing-PR source proof may carry a head ref");
             }
@@ -925,6 +1151,7 @@ public final class ProvisionTaskOperationHandler
                     && taskId.equals(other.taskId)
                     && taskEpoch == other.taskEpoch
                     && baseSource == other.baseSource
+                    && Objects.equals(pullRequestNumber, other.pullRequestNumber)
                     && repositoryId.equals(other.repositoryId)
                     && baseRepositoryId.equals(other.baseRepositoryId)
                     && baseRef.equals(other.baseRef)
@@ -937,12 +1164,26 @@ public final class ProvisionTaskOperationHandler
         }
     }
 
-    private record ResolvedSource(String baseSha, String headSha)
+    private record ResolvedSource(
+            String baseSha,
+            String headSha,
+            RemotePullRequestSubject pullRequest)
     {
+        private ResolvedSource(String baseSha, String headSha)
+        {
+            this(baseSha, headSha, null);
+        }
+
         private ResolvedSource
         {
             requireText(baseSha, "baseSha");
             requireText(headSha, "headSha");
+            if (pullRequest != null
+                    && (!baseSha.equals(pullRequest.baseSha())
+                    || !headSha.equals(pullRequest.headSha()))) {
+                throw new IllegalArgumentException(
+                        "resolved PR subject does not match its SHAs");
+            }
         }
     }
 }

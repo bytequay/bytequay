@@ -226,10 +226,19 @@ public sealed interface TaskAssignment
             if (number <= 0) {
                 throw new IllegalArgumentException("number must be positive");
             }
-            requireText(baseRef, "baseRef");
-            requireText(headRef, "headRef");
-            requireText(remoteBaseSha, "remoteBaseSha");
-            requireText(remoteHeadSha, "remoteHeadSha");
+            boolean discovered = baseRef != null || headRef != null
+                    || remoteBaseSha != null || remoteHeadSha != null;
+            if (discovered) {
+                requireText(baseRef, "baseRef");
+                requireText(headRef, "headRef");
+                requireText(remoteBaseSha, "remoteBaseSha");
+                requireText(remoteHeadSha, "remoteHeadSha");
+            }
+        }
+
+        public boolean discoveryPending()
+        {
+            return baseRef == null;
         }
     }
 

@@ -61,6 +61,24 @@ class TestReviewBuildOutcomeService
     }
 
     @Test
+    void completedTaskOutcomeResolvesAnExactArbitratedSelection()
+    {
+        Fixture fixture = fixture(
+                "arbitrated.db", "COMPLETED", false,
+                ReviewFindingStatus.ARBITRATED);
+
+        fixture.service().acceptTaskOutcome("task-1");
+
+        assertThat(fixture.text("""
+                SELECT status FROM review_findings WHERE id = 'finding-1'
+                """)).isEqualTo("resolved");
+        assertThat(fixture.text("""
+                SELECT disposition || '|' || resolved_count
+                FROM review_build_outcome_receipt
+                """)).isEqualTo("RESOLVED|1");
+    }
+
+    @Test
     void canceledAndRemoteClosedOutcomesNeverResolveFindings()
     {
         for (String reason : List.of("CANCELED", "REMOTE_CLOSED")) {
@@ -119,6 +137,14 @@ class TestReviewBuildOutcomeService
     private Fixture fixture(
             String file, String terminalReason, boolean sibling)
     {
+        return fixture(
+                file, terminalReason, sibling, ReviewFindingStatus.AGREED);
+    }
+
+    private Fixture fixture(
+            String file, String terminalReason, boolean sibling,
+            ReviewFindingStatus findingStatus)
+    {
         String url = "jdbc:sqlite:" + tempDir.resolve(file)
                 + "?busy_timeout=30000";
         Flyway.configure().dataSource(url, "", "").target("258").load().migrate();
@@ -129,7 +155,8 @@ class TestReviewBuildOutcomeService
                 "task_assignment_v2_exact_insert",
                 "v2_task_insert_shape",
                 "v2_task_creation_authority_insert",
-                "task_outcome_insert")) {
+                "task_outcome_insert",
+                "review_build_task_materialization")) {
             jdbc.execute("DROP TRIGGER " + trigger);
         }
         jdbc.update("""
@@ -165,8 +192,8 @@ class TestReviewBuildOutcomeService
                     id, review_pass_id, path, line, severity, status, body,
                     created_at_ms)
                 VALUES ('finding-1', 'review-pass', 'src/Main.java', 17,
-                    'blocker', 'agreed', 'Fix the exact race', 3)
-                """);
+                    'blocker', ?, 'Fix the exact race', 3)
+                """, findingStatus.dbValue());
 
         ReviewBuildSelectionStore selections = new ReviewBuildSelectionStore(
                 jdbc, new ObjectMapper().findAndRegisterModules());
@@ -180,7 +207,7 @@ class TestReviewBuildOutcomeService
                 List.of(new ReviewFinding(
                         "finding-1", "review-pass", "src/Main.java", 17,
                         ReviewFindingSeverity.BLOCKER,
-                        ReviewFindingStatus.AGREED, "Fix the exact race",
+                        findingStatus, "Fix the exact race",
                         null, null, Instant.ofEpochMilli(3))),
                 Instant.ofEpochMilli(4));
 

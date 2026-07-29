@@ -165,7 +165,7 @@ public class ReviewBuildSelectionStore
                     || current.revision() != frozen.findingRevision()
                     || !frozen.reviewPassId().equals(
                     current.finding().reviewPassId())
-                    || current.finding().status() != ReviewFindingStatus.AGREED) {
+                    || !isIncluded(current.finding().status())) {
                 return false;
             }
             String content = snapshot(current.finding());
@@ -267,12 +267,18 @@ public class ReviewBuildSelectionStore
             throw new IllegalArgumentException(
                     "review finding belongs to a different pass");
         }
-        if (finding.status() != ReviewFindingStatus.AGREED
+        if (!isIncluded(finding.status())
                 || (finding.severity() != ReviewFindingSeverity.BLOCKER
                 && finding.severity() != ReviewFindingSeverity.MAJOR)) {
             throw new IllegalArgumentException(
-                    "review build finding is not an agreed Major+ finding");
+                    "review build finding is not an included Major+ finding");
         }
+    }
+
+    private static boolean isIncluded(ReviewFindingStatus status)
+    {
+        return status == ReviewFindingStatus.AGREED
+                || status == ReviewFindingStatus.ARBITRATED;
     }
 
     private Selection selection(

@@ -26,42 +26,16 @@ class TestDevelopmentFlowCanaryRoute
             .withUserConfiguration(RouteConfig.class);
 
     @Test
-    void emptyWorkspaceListDisablesCreationIndependentlyOfDispatch()
+    void everyNonblankWorkspaceRoutesToV2()
     {
-        context.withPropertyValues(
-                        "bytequay.development-flow.v2-dispatch-enabled=true",
-                        "bytequay.development-flow.v2-workspace-allow-list=")
-                .run(result -> {
-                    DevelopmentFlowCanaryRoute route =
-                            result.getBean(DevelopmentFlowCanaryRoute.class);
-                    assertThat(route.routesNewTaskToV2("workspace-1")).isFalse();
-                    assertThat(route.snapshot().v2DispatchEnabled()).isTrue();
-                    assertThat(route.snapshot().workspaceAllowList()).isEmpty();
-                });
-    }
-
-    @Test
-    void allowListAloneRoutesExactAndWildcardWorkspaces()
-    {
-        context.withPropertyValues(
-                        "bytequay.development-flow.v2-dispatch-enabled=false",
-                        "bytequay.development-flow.v2-workspace-allow-list= workspace-1 ")
-                .run(result -> {
-                    DevelopmentFlowCanaryRoute route =
-                            result.getBean(DevelopmentFlowCanaryRoute.class);
-                    assertThat(route.routesNewTaskToV2("workspace-1")).isTrue();
-                    assertThat(route.routesNewTaskToV2("workspace-2")).isFalse();
-                    assertThat(route.snapshot().v2DispatchEnabled()).isFalse();
-                });
-
-        context.withPropertyValues(
-                        "bytequay.development-flow.v2-workspace-allow-list=*")
-                .run(result -> {
-                    DevelopmentFlowCanaryRoute route =
-                            result.getBean(DevelopmentFlowCanaryRoute.class);
-                    assertThat(route.routesNewTaskToV2("workspace-2")).isTrue();
-                    assertThat(route.routesNewTaskToV2(null)).isFalse();
-                });
+        context.run(result -> {
+            DevelopmentFlowCanaryRoute route =
+                    result.getBean(DevelopmentFlowCanaryRoute.class);
+            assertThat(route.routesNewTaskToV2("workspace-1")).isTrue();
+            assertThat(route.routesNewTaskToV2(" ")).isFalse();
+            assertThat(route.routesNewTaskToV2(null)).isFalse();
+            assertThat(route.snapshot().v2Only()).isTrue();
+        });
     }
 
     @Configuration(proxyBeanMethods = false)

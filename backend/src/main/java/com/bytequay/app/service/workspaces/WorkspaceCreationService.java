@@ -180,7 +180,7 @@ public class WorkspaceCreationService
             return live.getFirst();
         }
 
-        configuration.pauseAllSessions(workspaceId);
+        configuration.requireRepositoryQuiescent(workspaceId);
         String mode = watched.upstreamRemoteName() == null ? "DIRECT" : "FORK";
         long now = Instant.now().toEpochMilli();
         String id = UUID.randomUUID().toString();

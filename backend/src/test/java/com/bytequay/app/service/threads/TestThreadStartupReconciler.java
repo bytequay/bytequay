@@ -42,9 +42,6 @@ class TestThreadStartupReconciler
     @Autowired
     private ThreadStore store;
 
-    @Autowired
-    private ThreadStartupReconciler reconciler;
-
     @Test
     void flipsOrphanedRunningTasksToIdle()
     {
@@ -55,7 +52,7 @@ class TestThreadStartupReconciler
         store.saveThread(pending);
         store.saveThread(completed);
 
-        reconciler.reconcileOnStartup();
+        new ThreadStartupReconciler(store).reconcileOnStartup();
 
         // RUNNING row reconciled.
         Thread afterRunning = store.findThreadById(running.id()).orElseThrow();
@@ -74,7 +71,7 @@ class TestThreadStartupReconciler
             store.saveThread(newTask(ThreadStatus.RUNNING));
         }
 
-        reconciler.reconcileOnStartup();
+        new ThreadStartupReconciler(store).reconcileOnStartup();
 
         assertThat(store.listTasksByStatus(ThreadStatus.RUNNING, 1)).isEmpty();
     }

@@ -515,7 +515,9 @@ describe('PullOverview', () => {
     await waitFor(() => expect(replyToReviewThread).toHaveBeenCalledWith('trinodb/trino', 1, 501, 'Looks good now.'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
-    await waitFor(() => expect(setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 0, 501, true));
+    await waitFor(() => expect(setReviewThreadResolved).toHaveBeenCalledWith(
+      'trinodb/trino', 1, 0, 501, true,
+    ));
   });
 
   it('selects reviewers, assignees, and labels from the searchable popovers', async () => {

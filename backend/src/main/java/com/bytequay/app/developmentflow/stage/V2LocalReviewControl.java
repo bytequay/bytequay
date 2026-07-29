@@ -139,6 +139,35 @@ public final class V2LocalReviewControl
         return count != null && count > 0;
     }
 
+    /** Edit the PR content only while this exact Local Development subject
+     * owns Local Review. The synchronous command is fenced by the current
+     * Task epoch, Stage generation, DevReport, and code subject. */
+    public void updateDetails(PR pr, String title, String description)
+    {
+        requireNonNull(pr, "pr is null");
+        if (!handles(pr)) {
+            throw conflict("PR is not owned by V2 Local Review");
+        }
+        inCommand(pr.taskId(), () -> {
+            Subject subject = requireSubject(pr.taskId(), pr.id());
+            if (!"LOCAL_REVIEW".equals(subject.checkpoint())) {
+                throw conflict("PR content can be edited only during exact Local Review");
+            }
+            int changed = jdbc.update("""
+                    UPDATE pr
+                    SET title = COALESCE(?, title),
+                        description = COALESCE(?, description)
+                    WHERE id = ? AND task_id = ? AND origin = 'task'
+                      AND status = 'local-open'
+                    """, title, description, subject.prId(), subject.taskId());
+            if (changed != 1) {
+                throw conflict("Local Review PR content changed before edit");
+            }
+            updated(subject.prId());
+            return null;
+        });
+    }
+
     public PRComment addComment(
             PR pr,
             String origin,

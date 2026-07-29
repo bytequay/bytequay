@@ -30,10 +30,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
  * trigger the {@code SpringBootTest} context load. If the context fails
  * to start, JUnit fails this test with the underlying cause.
  */
-@SpringBootTest(properties = {
-        "bytequay.development-flow.v2-dispatch-enabled=true",
-        "bytequay.development-flow.v2-workspace-allow-list=*"
-})
+@SpringBootTest
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)

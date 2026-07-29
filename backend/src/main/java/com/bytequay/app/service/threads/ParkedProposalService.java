@@ -106,6 +106,32 @@ public class ParkedProposalService
         });
     }
 
+    /** Parks a user-gated remote proposal after V2 cancellation was committed. */
+    public Notification parkReadOnlyV2Proposal(
+            String trunkId, String taskId, Object payload)
+    {
+        requireNonNull(trunkId, "trunkId is null");
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(payload, "payload is null");
+        if (trunkId.isBlank() || taskId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Read-only V2 proposal owner is blank");
+        }
+        if (!taskStore.isV2Task(taskId)) {
+            throw new IllegalArgumentException(
+                    "Read-only V2 proposal requires a V2 Task");
+        }
+        String payloadJson;
+        try {
+            payloadJson = mapper.writeValueAsString(payload);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to serialise parked proposal", e);
+        }
+        return commands.execute(taskId, () -> notifications.notifyAwaitingReview(
+                trunkId, taskId, payloadJson));
+    }
+
     /** Finalize a successful approved proposal after any remote side
      *  effect has returned. Advance actions already updated their task
      *  rows in {@link TaskService}; other actions close the parked task

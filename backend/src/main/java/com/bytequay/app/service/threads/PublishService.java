@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.execution.quality.V2QualityIssuePublishRuntime;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
@@ -54,6 +55,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
@@ -150,6 +152,7 @@ public class PublishService
     private final PullRequestService pullRequestDetails;
     private final ReadyToMergeService readyToMerge;
     private final ApplicationEventPublisher eventPublisher;
+    private V2QualityIssuePublishRuntime qualityIssuePublishes;
 
     public PublishService(
             NotificationService notifications,
@@ -187,6 +190,14 @@ public class PublishService
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
     }
 
+    @Autowired(required = false)
+    public void setQualityIssuePublishes(
+            V2QualityIssuePublishRuntime qualityIssuePublishes)
+    {
+        this.qualityIssuePublishes = requireNonNull(
+                qualityIssuePublishes, "qualityIssuePublishes is null");
+    }
+
     /**
      * Run the parked publish action. {@code editedBody} only applies
      * to {@code post_comment} — push has no editable surface, so any
@@ -198,6 +209,21 @@ public class PublishService
         Notification original = requireParked(notificationId);
         ParkedProposal proposal = parseProposal(original);
         String action = proposal.action();
+        if (proposal instanceof ParkedProposal.CreateIssue createIssue
+                && usesV2QualityIssueRuntime(original)) {
+            if (qualityIssuePublishes == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(503),
+                        "V2 quality issue dispatcher is unavailable");
+            }
+            if (original.status() != NotificationStatus.RESOLVING) {
+                requireExpectedAction(expectedAction, action);
+            }
+            preflightCreateIssue(createIssue, editedBody);
+            return qualityIssuePublishes.approve(
+                    original, createIssue, editedBody);
+        }
+        rejectRetiredParkedProposal(proposal);
         // Recovering an interrupted (RESOLVING) row runs no remote action
         // — it only finalizes local state — so it must reach the recovery
         // branch even when the caller can't supply the expectedAction
@@ -238,8 +264,8 @@ public class PublishService
             log.warn("publish approve {} ({}) interrupted before remote returned: {}",
                     notificationId, action, e.getMessage());
             writeAuditRow(original, RESOLUTION_INTERRUPTED_UNCONFIRMED, action,
-                    "publish outcome unknown — the remote action may or may not have run: "
-                            + e.getMessage());
+                    "publish outcome unknown — the remote action may or may not have run: %s"
+                            .formatted(e.getMessage()));
             return interruptedResult(action);
         }
         catch (PublishPushFailedException e) {
@@ -252,8 +278,8 @@ public class PublishService
             log.info("publish approve {} ({}) push failed pre-remote, released for retry: {}",
                     notificationId, action, e.getMessage());
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "push failed — nothing was published. Fix the cause and approve again: "
-                            + e.getMessage());
+                    "push failed — nothing was published. Fix the cause and approve again: %s"
+                            .formatted(e.getMessage()));
         }
         catch (RuntimeException e) {
             // Any error after the claim may follow an ambiguous remote
@@ -263,8 +289,8 @@ public class PublishService
             log.warn("publish approve {} ({}) interrupted before remote returned: {}",
                     notificationId, action, e.getMessage());
             writeAuditRow(original, RESOLUTION_INTERRUPTED_UNCONFIRMED, action,
-                    "publish outcome unknown — the remote action may or may not have run: "
-                            + e.getMessage());
+                    "publish outcome unknown — the remote action may or may not have run: %s"
+                            .formatted(e.getMessage()));
             return interruptedResult(action);
         }
 
@@ -286,8 +312,8 @@ public class PublishService
                 log.warn("publish approve {} ({}) raced a concurrent resolver: {}",
                         notificationId, action, e.getMessage());
                 writeAuditRow(original, RESOLUTION_APPROVED_CONCURRENT, action,
-                        "remote action completed; another resolver finalized this row first: "
-                                + e.getMessage());
+                        "remote action completed; another resolver finalized this row first: %s"
+                                .formatted(e.getMessage()));
                 return result;
             }
             log.warn("local finalization of publish {} ({}) failed: {}",
@@ -792,6 +818,19 @@ public class PublishService
         Notification original = requireParked(notificationId);
         ParkedProposal proposal = parseProposal(original);
         String action = proposal.action();
+        if (proposal instanceof ParkedProposal.CreateIssue createIssue
+                && usesV2QualityIssueRuntime(original)) {
+            if (qualityIssuePublishes == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(503),
+                        "V2 quality issue dispatcher is unavailable");
+            }
+            if (original.status() != NotificationStatus.RESOLVING) {
+                requireExpectedAction(expectedAction, action);
+            }
+            return qualityIssuePublishes.discard(original, createIssue);
+        }
+        rejectRetiredParkedProposal(proposal);
         boolean interrupted = original.status() == NotificationStatus.RESOLVING;
         if (!interrupted) {
             // A fresh discard guards against a payload that changed under
@@ -858,6 +897,27 @@ public class PublishService
         }
     }
 
+    /** Unknown workflow ownership fails closed instead of reaching legacy I/O. */
+    private boolean usesV2QualityIssueRuntime(Notification notification)
+    {
+        if (notification.taskId() == null || notification.taskId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "quality issue notification has no Task owner");
+        }
+        String workflow = taskStore.findWorkflowVersion(notification.taskId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(409),
+                        "quality issue Task workflow is unknown"));
+        return switch (workflow) {
+            case "V2" -> true;
+            case "LEGACY" -> false;
+            default -> throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "unsupported quality issue Task workflow: " + workflow);
+        };
+    }
+
     /**
      * Rewrite a parked ship proposal's PR title/body before the user
      * approves it. Loads the AWAITING_REVIEW notification, requires it to
@@ -869,35 +929,21 @@ public class PublishService
     public Notification updateShipDescription(String notificationId, String prTitle, String prBody)
     {
         Notification original = requireParked(notificationId);
-        ParkedProposal proposal = parseProposal(original);
-        if (!(proposal instanceof ParkedProposal.ShipTask shipTask)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "notification " + notificationId + " is not a ship proposal");
-        }
-        String title = nullToEmpty(prTitle).trim();
-        String body = nullToEmpty(prBody);
-        ParkedProposal.ShipTask updated = new ParkedProposal.ShipTask(
-                shipTask.threadId(),
-                shipTask.taskId(),
-                shipTask.branch(),
-                shipTask.baseBranch(),
-                shipTask.worktreePath(),
-                shipTask.nextTitle(),
-                shipTask.baseMode(),
-                shipTask.diffBase(),
-                shipTask.diff(),
-                shipTask.diffError(),
-                title.isEmpty() ? null : title,
-                body.isEmpty() ? null : body);
-        String payloadJson;
-        try {
-            payloadJson = mapper.writeValueAsString(updated);
-        }
-        catch (JsonProcessingException e) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(500),
-                    "failed to serialise updated ship proposal: " + e.getMessage());
-        }
-        return notifications.updatePayload(notificationId, payloadJson);
+        throw retiredParkedProposal(parseProposal(original));
+    }
+
+    private static ResponseStatusException retiredParkedProposal(
+            ParkedProposal proposal)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "Historical parked " + proposal.action()
+                        + " proposal is read-only; use its typed V2 owner");
+    }
+
+    private static void rejectRetiredParkedProposal(ParkedProposal proposal)
+    {
+        throw retiredParkedProposal(proposal);
     }
 
     private Notification requireParked(String notificationId)

@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import type { WorkUnitTaskDto } from '../types';
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
+import { approveAndShipTask } from './shipState';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -67,9 +68,8 @@ export function TasksInThreadSection({ threadId }: Props) {
   // active / most recent task lands at the top of the rail, matching
   // how segments / checkpoints already render.
   const ordered = [...tasks].reverse();
-  // Active = newest task whose status is non-terminal. The button
-  // closes this one out and opens the next; greyed out when only
-  // terminal tasks remain so the click can't churn closed work.
+  // Active = newest task whose status is non-terminal. The button promotes
+  // that Task's exact local PR; Trunk remains available for subsequent work.
   const activeTask = tasks
     .filter(t => ACTIVE_STATUSES.has(t.status))
     .reduce<WorkUnitTaskDto | null>(
@@ -78,15 +78,15 @@ export function TasksInThreadSection({ threadId }: Props) {
   const onShipAndContinue = async () => {
     if (activeTask === null || shipping) return;
     if (!window.confirm(
-        `Ship Task ${activeTask.seq}`
+        `Approve and ship Task ${activeTask.seq}`
         + (activeTask.branchName !== null ? ` (${activeTask.branchName})` : '')
-        + ` and start the next task on main?`)) {
+        + `, then continue planning on Trunk?`)) {
       return;
     }
     setShipping(true);
     setShipError(null);
     try {
-      await window.bridge.shipAndContinue(threadId, activeTask.id);
+      await approveAndShipTask(window.bridge, activeTask.id);
       await refresh();
     }
     catch (e) {
@@ -134,7 +134,7 @@ export function TasksInThreadSection({ threadId }: Props) {
         style={shipBtnStyle}
         title={activeTask === null
           ? 'No active task — start a new one with the next prompt'
-          : `Ship Task ${activeTask.seq} and start the next one`}
+          : `Approve and ship Task ${activeTask.seq}, then continue on Trunk`}
       >
         {shipping ? '⚡ shipping…' : '⚡ Ship & continue'}
       </button>

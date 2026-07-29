@@ -24,15 +24,12 @@ import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.settings.AiDefaultsService.AiDefaults;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -51,20 +48,16 @@ class TestGlobalReviewRunner
             """;
 
     @Test
-    void usesConfiguredCliThroughSchedulerAndParsesReview()
-            throws Exception
+    void usesConfiguredCliAndParsesReview()
     {
         AiDefaultsService defaults = defaults("cli:codex");
         CliReviewRunner cli = mock(CliReviewRunner.class);
-        AgentScheduler scheduler = mock(AgentScheduler.class);
-        when(scheduler.invokeCli(any())).thenAnswer(invocation ->
-                ((Callable<?>) invocation.getArgument(0)).call());
-        when(cli.runWithSchedulerCapacity(
+        when(cli.run(
                 eq(CliReviewRunner.Provider.CODEX), anyString(), isNull(), any(Path.class), isNull()))
                 .thenReturn(new CliReviewRunner.Result(JSON, null, 0));
 
         GlobalReviewRunner runner = runner(defaults, mock(CredentialService.class),
-                mock(Ds4LifecycleService.class), mock(TurnRunner.class), cli, scheduler);
+                mock(Ds4LifecycleService.class), mock(TurnRunner.class), cli);
 
         ReviewOutput output = runner.review(request());
 
@@ -75,31 +68,25 @@ class TestGlobalReviewRunner
             assertThat(comment.line()).isEqualTo(7);
             assertThat(comment.severity()).isEqualTo("critical");
         });
-        verify(cli).runWithSchedulerCapacity(
+        verify(cli).run(
                 eq(CliReviewRunner.Provider.CODEX),
                 contains("Unified diff"),
                 isNull(), any(Path.class), isNull());
     }
 
     @Test
-    void usesConfiguredApiAccountThroughApiSchedulerLane()
-            throws Exception
+    void usesConfiguredApiAccount()
     {
         AiDefaultsService defaults = defaults("api:openai:work");
         CredentialService credentials = mock(CredentialService.class);
         TurnRunner turns = mock(TurnRunner.class);
-        AgentScheduler scheduler = mock(AgentScheduler.class);
         when(credentials.getSecret(CredentialType.AI, "openai", "work"))
                 .thenReturn(Optional.of("secret"));
-        when(scheduler.invokeAll(any())).thenAnswer(invocation -> {
-            List<Callable<?>> calls = invocation.getArgument(0);
-            return List.of(calls.getFirst().call());
-        });
         when(turns.runTurn(any(), any(), any())).thenReturn(new TurnResult(
                 JSON, 100, 20, 1, 1, TurnResult.End.COMPLETED));
 
         GlobalReviewRunner runner = runner(defaults, credentials,
-                mock(Ds4LifecycleService.class), turns, mock(CliReviewRunner.class), scheduler);
+                mock(Ds4LifecycleService.class), turns, mock(CliReviewRunner.class));
 
         ReviewOutput output = runner.review(request());
 
@@ -116,11 +103,10 @@ class TestGlobalReviewRunner
             CredentialService credentials,
             Ds4LifecycleService ds4,
             TurnRunner turns,
-            CliReviewRunner cli,
-            AgentScheduler scheduler)
+            CliReviewRunner cli)
     {
         return new GlobalReviewRunner(
-                defaults, credentials, ds4, turns, cli, scheduler, new ObjectMapper());
+                defaults, credentials, ds4, turns, cli, new ObjectMapper());
     }
 
     private static AiDefaultsService defaults(String globalReview)

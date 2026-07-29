@@ -30,10 +30,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageRuntimeService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
-import com.bytequay.app.service.workmodel.ScopeWorkModel;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
@@ -67,8 +65,6 @@ public class StageController
     private final StageService service;
     private final StageDetailService detailService;
     private final StageSteeringService steeringService;
-    private final StageRuntimeService runtimeService;
-    private final PlanStageService planStageService;
     private final StageStore stageStore;
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
@@ -81,7 +77,6 @@ public class StageController
             StageService service,
             StageDetailService detailService,
             StageSteeringService steeringService,
-            StageRuntimeService runtimeService,
             PlanStageService planStageService,
             StageStore stageStore,
             TaskStore taskStore,
@@ -91,8 +86,7 @@ public class StageController
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
         this.steeringService = requireNonNull(steeringService, "steeringService is null");
-        this.runtimeService = requireNonNull(runtimeService, "runtimeService is null");
-        this.planStageService = requireNonNull(planStageService, "planStageService is null");
+        requireNonNull(planStageService, "planStageService is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
@@ -157,8 +151,11 @@ public class StageController
     public SseEmitter stream(@PathVariable String stageId)
     {
         UUID id = parseStageId(stageId);
-        SseEmitter emitter = new SseEmitter(30L * 60L * 1000L);
         String v2TaskId = v2TaskForStage(id);
+        if (v2TaskId == null) {
+            throw legacyStageMutationRetired(id.toString());
+        }
+        SseEmitter emitter = new SseEmitter(30L * 60L * 1000L);
         Consumer<StreamEvent> listener = event -> {
             try {
                 emitter.send(SseEmitter.event()
@@ -169,9 +166,8 @@ public class StageController
                 throw new IllegalStateException("SSE channel closed", e);
             }
         };
-        Runnable unsubscribe = v2TaskId == null
-                ? runtimeService.subscribe(id, listener)
-                : requireV2Stages().subscribe(v2TaskId, id.toString(), listener);
+        Runnable unsubscribe = requireV2Stages().subscribe(
+                v2TaskId, id.toString(), listener);
         emitter.onCompletion(unsubscribe);
         emitter.onTimeout(() -> {
             unsubscribe.run();
@@ -190,7 +186,7 @@ public class StageController
             requireV2Stages().interrupt(v2TaskId, id.toString());
             return;
         }
-        runtimeService.interrupt(id);
+        throw legacyStageMutationRetired(id.toString());
     }
 
     public record SteerRequest(
@@ -219,7 +215,7 @@ public class StageController
                     "/tasks/" + approval.taskId() + "/stages/"
                             + approval.localStageId());
         }
-        return planStageService.approveByStage(stageId);
+        throw legacyStageMutationRetired(stageId.toString());
     }
 
     @PostMapping("/api/tasks/{taskId}/replan")
@@ -231,7 +227,7 @@ public class StageController
             return new PlanStageService.ReplanResult(
                     result.planStageId(), result.preparing());
         }
-        return planStageService.replan(taskId);
+        throw legacyStageMutationRetired(taskId);
     }
 
     public record FollowupPatch(String status) {}
@@ -250,8 +246,15 @@ public class StageController
                     patch == null ? null : patch.status());
             return;
         }
-        planStageService.resolveFollowup(
-                parseStageId(followupEventId), patch == null ? null : patch.status());
+        throw legacyStageMutationRetired(planStageId);
+    }
+
+    private static ResponseStatusException legacyStageMutationRetired(String ownerId)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "Historical LEGACY Stage/Plan owner " + ownerId
+                        + " is read-only; use the typed V2 Stage/Plan owner");
     }
 
     private boolean isV2Stage(UUID stageId)
@@ -317,15 +320,12 @@ public class StageController
         UUID id = parseStageId(stageId);
         StageInstance stage = requireStage(id);
         Task task = requireTaskForStage(stage);
-        WorkModel stored = ScopeWorkModel.effortOnly(
-                workModelResolver.resolveForStage(task.threadId(), task.id(), stageId).choice(),
-                body == null ? null : body.workModel());
-        stageStore.updateWorkModel(id, stored);
-        WorkModelResolver.Resolved resolved =
-                workModelResolver.resolveForStage(task.threadId(), task.id(), stageId);
-        return new ResolvedWorkModelResponse(
-                stored, resolved.choice(), resolved.provenance(),
-                !threadStore.listStageMessages(stageId).isEmpty());
+        if (taskStore.isV2Task(task.id())) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "V2 Stage engines are frozen at creation");
+        }
+        throw legacyStageMutationRetired(id.toString());
     }
 
     private StageInstance requireStage(UUID stageId)

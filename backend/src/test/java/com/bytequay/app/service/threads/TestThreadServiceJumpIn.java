@@ -22,25 +22,20 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * SpringBootTest coverage for {@link ThreadService#jumpIn}. The path
- * threads through several services (registry, lease service,
- * notification service) so a real-wired test catches the integration
- * gotchas. We seed the data plane directly through the stores
- * (no live agent session is required — jumpIn must tolerate that case).
+ * Verifies that the retired legacy jump-in route fails before changing any
+ * historical state.
  */
 @SpringBootTest
 class TestThreadServiceJumpIn
@@ -55,15 +50,8 @@ class TestThreadServiceJumpIn
     private NotificationService notifications;
     @Autowired
     private WorktreeLeaseService leases;
-    @Autowired
-    @SuppressWarnings("unused")
-    private ThreadCheckpointStore checkpoints;
-    @Autowired
-    @SuppressWarnings("unused")
-    private WorkspaceService workspaces;
-
     @Test
-    void jumpInReleasesWorktreeLeaseButLeavesParkedNotificationsVisible()
+    void jumpInRejectsALegacyTrunkWithoutSideEffects()
     {
         String threadId = newThread(ThreadStatus.IDLE);
         Task task = newTask(threadId);
@@ -75,47 +63,15 @@ class TestThreadServiceJumpIn
         Notification other = notifications.notifyAwaitingReview(threadId, task.id(),
                 "{\"summary\":\"ready for review\"}");
 
-        Thread updated = threads.jumpIn(threadId);
+        assertThatThrownBy(() -> threads.jumpIn(threadId))
+                .hasMessageContaining("Historical LEGACY Trunk")
+                .hasMessageContaining("read-only");
 
-        assertThat(updated.id()).isEqualTo(threadId);
         assertThat(leases.isHeld(task.worktreePath()))
-                .as("worktree lease must be released so the user's next turn can claim it")
-                .isFalse();
-        // Jump-in transfers the lease but does NOT resolve the parked
-        // work, so both rows stay UNREAD — visible in the bell + strip
-        // until the proposal is approved/discarded or the stuck task is
-        // resolved. Marking them read here would hide unresolved work
-        // and (for the CI-failure row) defeat the auto-fix dedup.
+                .as("fail-closed compatibility must not release the historical lease")
+                .isTrue();
         assertThat(reload(parked).status()).isEqualTo(NotificationStatus.UNREAD);
         assertThat(reload(other).status()).isEqualTo(NotificationStatus.UNREAD);
-    }
-
-    @Test
-    void jumpInLeavesUnrelatedKindsAlone()
-    {
-        String threadId = newThread(ThreadStatus.IDLE);
-        // Notifications with kinds other than the two parked kinds
-        // must stay UNREAD — jumping in to one thread shouldn't quiet
-        // an AUTO_FIX_DONE row that's pointing at a different concern.
-        Notification autoFixDone = notifications.notifyAutoFixDone(threadId, /* taskId */ null,
-                "{\"summary\":\"branch updated\"}");
-
-        threads.jumpIn(threadId);
-
-        assertThat(reload(autoFixDone).status()).isEqualTo(NotificationStatus.UNREAD);
-    }
-
-    @Test
-    void jumpInIsIdempotentWhenNoLeaseOrNotificationsExist()
-    {
-        String threadId = newThread(ThreadStatus.IDLE);
-        // No active task, no lease, no notifications — jumpIn should
-        // still return the thread cleanly. (The user navigated to a
-        // thread that already cleaned itself up.)
-
-        Thread result = threads.jumpIn(threadId);
-
-        assertThat(result.id()).isEqualTo(threadId);
     }
 
     private Notification reload(Notification n)
@@ -166,11 +122,5 @@ class TestThreadServiceJumpIn
                 Instant.now(),
                 /* endedAt */ null, /* errorMessage */ null,
                 /* name */ null, /* roleSkill */ null, /* workModel */ null);
-    }
-
-    @SuppressWarnings("unused")
-    private static List<String> tag()
-    {
-        return List.of("jump-in");
     }
 }

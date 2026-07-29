@@ -13,84 +13,49 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.domain.ThreadTurn;
-import com.bytequay.app.domain.ThreadTurnStatus;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.WorkspaceBehaviorService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * The task-axis sibling of {@code IdleThreadArchiver}. Dormant Tasks drop to
- * ARCHIVED after the workspace's archive-idle cadence. Legacy Tasks retain the
- * sole {@link TaskPhaseMachine#archiveIdle} path; typed Tasks ask their Task
- * owner to record ARCHIVING only after an atomic durable-liveness recheck.
- *
- * <p>Each owner rechecks its own durable liveness under the Task command lock.
+ * Archives dormant V2 Tasks through their aggregate owner after an atomic
+ * durable-liveness recheck.
  */
 @Service
 public class TaskIdleArchiver
+        implements ExecutionPorts.MaintenanceWork
 {
-    private static final Logger log = LoggerFactory.getLogger(TaskIdleArchiver.class);
-
     private static final int PAGE = 200;
+    private static final Duration SWEEP_INTERVAL = Duration.ofHours(1);
 
-    /** Latest terminal turn activity marks the task's last work. */
-    private static final Set<ThreadTurnStatus> TERMINAL_TURNS = EnumSet.of(
-            ThreadTurnStatus.COMPLETED, ThreadTurnStatus.FAILED, ThreadTurnStatus.CANCELLED);
-
-    private final TaskStore taskStore;
-    private final ThreadTurnStore turnStore;
-    private final ReviewRoundStore roundStore;
-    private final ValidationPassStore validationStore;
     private final WorkspaceBehaviorService behavior;
-    private final TaskPhaseMachine machine;
     private final ObjectProvider<V2TaskControlService> v2Controls;
+    private Instant nextSweepAt = Instant.MIN;
 
     public TaskIdleArchiver(
-            TaskStore taskStore,
-            ThreadTurnStore turnStore,
-            ReviewRoundStore roundStore,
-            ValidationPassStore validationStore,
             WorkspaceBehaviorService behavior,
-            TaskPhaseMachine machine,
             ObjectProvider<V2TaskControlService> v2Controls)
     {
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.turnStore = requireNonNull(turnStore, "turnStore is null");
-        this.roundStore = requireNonNull(roundStore, "roundStore is null");
-        this.validationStore = requireNonNull(validationStore, "validationStore is null");
         this.behavior = requireNonNull(behavior, "behavior is null");
-        this.machine = requireNonNull(machine, "machine is null");
         this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
     }
 
-    @Scheduled(fixedDelayString = "PT1H", initialDelayString = "PT5M")
-    public void sweep()
+    @Override
+    public synchronized void maintain(Instant now)
     {
-        try {
-            sweepOnce(Instant.now());
+        requireNonNull(now, "now is null");
+        if (now.isBefore(nextSweepAt)) {
+            return;
         }
-        catch (RuntimeException e) {
-            log.warn("Idle-task sweep failed; will retry next tick: {}", e.getMessage());
-        }
+        nextSweepAt = now.plus(SWEEP_INTERVAL);
+        sweepOnce(now);
     }
 
     /** Visible for tests. */
@@ -107,34 +72,6 @@ public class TaskIdleArchiver
                 controls.archiveIfIdle(taskId, cutoff, now);
             }
         }
-        for (Task task : taskStore.listByStatuses(Set.of(TaskStatus.IDLE), PAGE)) {
-            if (taskStore.isV2Task(task.id())) {
-                continue;
-            }
-            if (!lastActivity(task).isBefore(cutoff)) {
-                continue;
-            }
-            if (roundStore.findLiveByTask(task.id()).isPresent()
-                    || !validationStore.findOpenByTask(task.id()).isEmpty()) {
-                continue;
-            }
-            machine.archiveIdle(task.id());
-        }
-    }
-
-    private Instant lastActivity(Task task)
-    {
-        Instant latest = task.createdAt();
-        for (ThreadTurnStatus status : TERMINAL_TURNS) {
-            List<ThreadTurn> turns = turnStore.listTurnsByExactTaskIdAndStatus(task.id(), status, 1);
-            for (ThreadTurn turn : turns) {
-                Instant at = turn.finishedAt() != null ? turn.finishedAt() : turn.createdAt();
-                if (at != null && at.isAfter(latest)) {
-                    latest = at;
-                }
-            }
-        }
-        return latest;
     }
 
     private Duration cadence()

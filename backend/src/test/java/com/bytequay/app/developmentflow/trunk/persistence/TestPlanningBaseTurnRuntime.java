@@ -527,7 +527,8 @@ class TestPlanningBaseTurnRuntime
                         "workspace-1", "trunk-1", null, null),
                 false, false, false))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Task writer or Trunk control");
+                .hasMessageContaining(
+                        "Task writer, Trunk control, or exact workspace repository lease");
     }
 
     @Test

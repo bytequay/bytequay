@@ -134,7 +134,14 @@ export function useAgentReviewState(
     });
   }, [load, prId]);
 
-  const running = data?.rounds.some(
+  const snapshotPreparation = data?.snapshot_preparation;
+  const preparingSnapshot = snapshotPreparation?.status === 'REQUESTED';
+  const snapshotError = snapshotPreparation !== undefined
+      && snapshotPreparation !== null
+      && ['FAILED', 'CANCELED', 'SUPERSEDED'].includes(snapshotPreparation.status)
+    ? snapshotPreparation.error ?? 'Review source preparation failed.'
+    : null;
+  const running = preparingSnapshot || data?.rounds.some(
     round => round.status === 'RUNNING' || round.status === 'QUEUED',
   ) === true || data?.runs.some(run => run.status === 'running') === true;
   const waitingForExpectedReview = pollWhileMissing && prId !== null && data === null && !loading;
@@ -470,13 +477,14 @@ export function useAgentReviewState(
   const head = bundle?.commits.at(-1)?.sha;
   const stale = data !== null && (data.review.status === 'STALE'
     || (head !== undefined && data.review.reviewed_head_commit !== head));
-  const headerState: AgentReviewHeaderState = starting ? 'running' : data === null ? 'never'
+  const headerState: AgentReviewHeaderState = starting || preparingSnapshot ? 'running' : data === null ? 'never'
     : stale ? 'stale'
       : latestRound?.status === 'RUNNING' || latestRound?.status === 'QUEUED'
         || latestRun?.status === 'running' ? 'running' : 'done';
 
   return {
-    data, displayedBundle, excludedFindings, pendingComments, latestRound, latestRoundNumber, headerState, loading, error,
+    data, displayedBundle, excludedFindings, pendingComments, latestRound, latestRoundNumber, headerState, loading,
+    error: error ?? snapshotError,
     startReview, startRound, sendRoundMessage, updateRoundBudget,
     updateComment, dismissComment, submitReview, answerFinding, roundAction, cancelRound, reopenFinding, setFindingResolved, toggleFinding,
     hasAgentComment: (commentId: string) => data?.pr_comments.some(comment => comment.id === commentId) === true,

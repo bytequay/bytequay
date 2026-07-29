@@ -84,13 +84,10 @@ describe('workspace unified interaction flows', () => {
     expect(workspaceApi).not.toHaveBeenCalledWith({ path: '/api/ai/deepseek/balance' });
   });
 
-  it('controls a live session and opens its owning trunk', async () => {
+  it('keeps projected sessions read-only and opens the owning trunk', async () => {
     const session = sessionFixture();
     const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
       if (request.path === '/api/workspaces/w1/sessions') return [session];
-      if (request.path === '/api/sessions/s1/pause') {
-        return { ...session, status: 'paused' };
-      }
       throw new Error(`Unexpected request: ${request.path}`);
     });
     setBridge(workspaceApi);
@@ -104,13 +101,11 @@ describe('workspace unified interaction flows', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Pause' }));
-    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
-      path: '/api/sessions/s1/pause',
-      method: 'POST',
-    }));
-    fireEvent.click(screen.getByRole('button', { name: /Open thread/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Open thread/ }));
     expect(onOpenThread).toHaveBeenCalledWith('t1');
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    expect(workspaceApi.mock.calls.some(([request]) => request.path.startsWith('/api/sessions/')))
+      .toBe(false);
   });
 
   it('hides lifecycle controls when the session owner exposes none', async () => {
@@ -188,7 +183,7 @@ describe('workspace unified interaction flows', () => {
     });
   });
 
-  it('keeps task review session controls and thread navigation', async () => {
+  it('keeps task review session navigation without generic controls', async () => {
     const session: WorkspaceSessionDto = {
       ...sessionFixture(),
       kind: 'review',
@@ -196,7 +191,6 @@ describe('workspace unified interaction flows', () => {
     };
     const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
       if (request.path === '/api/workspaces/w1/sessions') return [session];
-      if (request.path === '/api/sessions/s1/pause') return { ...session, status: 'paused' };
       throw new Error(`Unexpected request: ${request.path}`);
     });
     const getAgentReviewRoundLog = vi.fn();
@@ -211,9 +205,9 @@ describe('workspace unified interaction flows', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Pause' }));
-    fireEvent.click(screen.getByRole('button', { name: /Open thread/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Open thread/ }));
     expect(onOpenThread).toHaveBeenCalledWith('t1');
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Open pull request' })).toBeNull();
     expect(getAgentReviewRoundLog).not.toHaveBeenCalled();
   });

@@ -271,15 +271,30 @@ class TestApiAgentTurnProviderSession
     void providerBudgetAbortIsAFailedOperation()
             throws Exception
     {
-        ApiAgentTurnProviderSession provider = providerReturning(TurnResult.End.ABORTED);
+        AtomicBoolean aborted = new AtomicBoolean();
+        ApiAgentTurnProviderSession provider = new ApiAgentTurnProviderSession(
+                ignored -> new ApiAgentTurnProviderSession.ResolvedProvider(
+                        TurnSpec.Transport.ANTHROPIC,
+                        "https://api.anthropic.com/v1/messages",
+                        "secret"),
+                new RecordingTools(),
+                (spec, tools, hooks) -> {
+                    aborted.set(hooks.abortTurn(250));
+                    return new TurnResult(
+                            "result", 0, 0, 250, 1, TurnResult.End.ABORTED);
+                },
+                JSON);
+        AgentTurnProviderSession.Request request = request(
+                READ_ONLY, TurnSpec.Transport.ANTHROPIC, List.of(), 250L);
 
         AgentTurnProviderSession.Result result;
         try (AgentTurnProviderSession.Session session = provider.open(
-                request(READ_ONLY, TurnSpec.Transport.ANTHROPIC),
+                request,
                 new RecordingObserver())) {
             result = session.startAndAwait(null);
         }
 
+        assertThat(aborted).isTrue();
         assertThat(result.completion()).isEqualTo(FAILED);
         assertThat(result.error()).contains("budget was exhausted");
     }
@@ -398,6 +413,15 @@ class TestApiAgentTurnProviderSession
             TurnSpec.Transport ignoredProviderTransport,
             List<AgentTurnProviderSession.ImageAttachment> images)
     {
+        return request(access, ignoredProviderTransport, images, null);
+    }
+
+    private static AgentTurnProviderSession.Request request(
+            AgentTurnProviderSession.Access access,
+            TurnSpec.Transport ignoredProviderTransport,
+            List<AgentTurnProviderSession.ImageAttachment> images,
+            Long maxCostUsdMilli)
+    {
         return new AgentTurnProviderSession.Request(
                 API,
                 ignoredProviderTransport == TurnSpec.Transport.ANTHROPIC
@@ -410,7 +434,8 @@ class TestApiAgentTurnProviderSession
                 "prompt",
                 images,
                 endpoint(access),
-                access);
+                access,
+                maxCostUsdMilli);
     }
 
     private static AgentTurnProviderSession.OwnerToolEndpoint endpoint(

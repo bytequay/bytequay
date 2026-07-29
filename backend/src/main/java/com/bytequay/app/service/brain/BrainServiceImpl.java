@@ -43,7 +43,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -137,11 +136,17 @@ public class BrainServiceImpl
         if (v2Brain != null && v2Brain.isV2Task(taskId)) {
             return v2Brain.sendMessage(taskId, text, images);
         }
-        if (planningTransactions == null) {
-            return sendLegacyMessage(taskId, text, images);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (taskStore.isV2Task(task.id())) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "V2 Task Brain runtime is unavailable");
         }
-        return planningTransactions.execute(
-                ignored -> sendLegacyMessage(taskId, text, images));
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "LEGACY Task Brain turns are read-only; use a typed V2 Task control");
     }
 
     @Autowired(required = false)
@@ -186,7 +191,6 @@ public class BrainServiceImpl
      * seeded from the user's opening prompt. The brain investigates and calls
      * {@code record_plan}; the user approves before any development begins.
      */
-    @EventListener
     public void onPlanKickoff(PlanKickoffRequested event)
     {
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
@@ -221,7 +225,6 @@ public class BrainServiceImpl
      * already pending for this task (a re-delivered COMPLETED transition).
      * No trunk write happens here — this only starts the brain thinking.
      */
-    @EventListener
     @Transactional
     public void onTaskCompleted(TaskPhaseTransitionedEvent event)
     {

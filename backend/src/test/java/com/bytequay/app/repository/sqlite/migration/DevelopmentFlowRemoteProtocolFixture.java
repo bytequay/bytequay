@@ -100,7 +100,10 @@ final class DevelopmentFlowRemoteProtocolFixture
                     engine_snapshot, work_model_snapshot, created_at_ms)
                 VALUES ('task-%1$s', 'assignment-%1$s', 'policy-%1$s',
                     'DIRECT_USER', 'acme/widget', 'acme/widget', 'base-%1$s',
-                    'engine-%1$s', 'model-%1$s', 3)
+                    'engine-%1$s',
+                    '{"kind":"API","agentOrProvider":"openai",'
+                    || '"model":"review-model","account":null,'
+                    || '"reasoningEffort":null}', 3)
                 """.formatted(number));
         execute(connection, """
                 INSERT INTO task_brain(

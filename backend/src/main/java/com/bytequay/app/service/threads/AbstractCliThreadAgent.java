@@ -56,7 +56,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -1415,16 +1414,5 @@ public abstract class AbstractCliThreadAgent
         catch (JsonProcessingException e) {
             return mapper.nullNode();
         }
-    }
-
-    /** Default executor for production use — daemon threads named per
-     *  thread so jstack output is readable. */
-    public static ExecutorService defaultExecutor()
-    {
-        return Executors.newCachedThreadPool(r -> {
-            java.lang.Thread t = new java.lang.Thread(r, "thread-runner");
-            t.setDaemon(true);
-            return t;
-        });
     }
 }

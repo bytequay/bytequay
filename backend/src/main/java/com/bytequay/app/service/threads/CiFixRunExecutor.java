@@ -43,8 +43,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -70,7 +68,6 @@ import static java.util.Objects.requireNonNull;
  * they're process-lifetime dedup/pacing guards, not state the run row is
  * meant to carry.
  */
-@Component
 public class CiFixRunExecutor
 {
     private static final Logger log = LoggerFactory.getLogger(CiFixRunExecutor.class);
@@ -156,7 +153,6 @@ public class CiFixRunExecutor
      * still refuses if the remote moved unexpectedly. The push runs off-thread
      * so the turn-completion path isn't blocked on the network.
      */
-    @EventListener
     public void autoPushAfterCiFix(TaskTurnFinishedEvent event)
     {
         if (event.failed() || taskStore.isV2Task(event.taskId())) {
@@ -254,7 +250,7 @@ public class CiFixRunExecutor
      *     barging in on a worktree the human is using.
      *   * the repo is opted in AND the worktree is free AND the
      *     owning thread is IDLE → enqueue a headless turn through the
-     *     agent scheduler with a CI-fail prompt. The CLI lane cap, the
+     *     durable V2 dispatcher with a CI-fail prompt. The CLI lane cap, the
      *     worktree lease, the permission gate are all the scheduler's
      *     concern; the coordinator just supplies the prompt.
      *   * any other thread state (RUNNING, AWAITING, terminal, …) →

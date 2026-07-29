@@ -24,8 +24,7 @@ import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskManager;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
@@ -43,12 +42,69 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class TestV2LocalStageStore
 {
     @TempDir
     private Path tempDir;
+
+    @Test
+    void exactCommittedStageResultMaterializesTheStableTaskPr()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database();
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedLocalOwner(jdbc);
+        Flyway.configure().dataSource(dataSource).target("266").load().migrate();
+        seedImplementationRequest(jdbc);
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2StageStore stageStore = new V2StageStore(jdbc);
+        TaskManager tasks = new TaskManager(
+                commands, taskStore(jdbc, transactions));
+        LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
+                commands, stageStore, stageStore);
+        ResultFence fence = implementationFence();
+        commands.execute("task-1", () -> local.requestImplementationInCommand(
+                new StageManager.Command(
+                        "request-implementation", "runtime", "task-1",
+                        1, "local-stage", 1, 0),
+                fence, "implementation-request"));
+        markSucceededResultPending(jdbc, "implementation-ticket", fence);
+        PRService prs = mock(PRService.class);
+
+        DispatchTicket.DeliveryReceipt receipt = runtime(
+                commands, tasks, local,
+                new SqliteLocalDevelopmentRuntimeStore(jdbc),
+                new ObjectMapper(), prs)
+                .deliverStageTurn(stageDelivery(
+                        new ObjectMapper(), fence, true, "head-new"));
+
+        assertThat(receipt.acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+        verify(prs).createForTaskInCommand(
+                "task-1", "dev/task-1", "main", "dev/task-1", "");
+    }
+
+    @Test
+    void dirtyStageResultCannotCreatePrReportOrAdvanceStage()
+            throws Exception
+    {
+        assertInvalidStageOutput(false, "head-new", "uncommitted");
+    }
+
+    @Test
+    void unchangedStageHeadCannotCreatePrReportOrAdvanceStage()
+            throws Exception
+    {
+        assertInvalidStageOutput(true, "head-old", "no commit ahead");
+    }
 
     @Test
     void changedCodeSubjectCanAdvanceImplementationToValidation()
@@ -421,10 +477,71 @@ class TestV2LocalStageStore
             SqliteLocalDevelopmentRuntimeStore store,
             ObjectMapper mapper)
     {
+        return runtime(commands, tasks, local, store, mapper,
+                mock(PRService.class));
+    }
+
+    private static LocalDevelopmentRuntimeCoordinator runtime(
+            TaskCommandExecutor commands,
+            TaskManager tasks,
+            LocalDevelopmentStageManager local,
+            SqliteLocalDevelopmentRuntimeStore store,
+            ObjectMapper mapper,
+            PRService prs)
+    {
         return new LocalDevelopmentRuntimeCoordinator(
-                commands, tasks, local, store,
-                mock(CodeFingerprints.class), mock(GitRunner.class), mapper,
+                commands, tasks, local, store, prs, mapper,
                 Clock.fixed(Instant.ofEpochMilli(20), ZoneOffset.UTC), 8080);
+    }
+
+    private void assertInvalidStageOutput(
+            boolean clean, String outputHead, String expectedMessage)
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database();
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedLocalOwner(jdbc);
+        Flyway.configure().dataSource(dataSource).target("266").load().migrate();
+        seedImplementationRequest(jdbc);
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2StageStore stageStore = new V2StageStore(jdbc);
+        LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
+                commands, stageStore, stageStore);
+        ResultFence fence = implementationFence();
+        commands.execute("task-1", () -> local.requestImplementationInCommand(
+                new StageManager.Command(
+                        "request-implementation", "runtime", "task-1",
+                        1, "local-stage", 1, 0),
+                fence, "implementation-request"));
+        markSucceededResultPending(jdbc, "implementation-ticket", fence);
+        PRService prs = mock(PRService.class);
+        LocalDevelopmentRuntimeCoordinator owner = runtime(
+                commands,
+                new TaskManager(commands, taskStore(jdbc, transactions)),
+                local, new SqliteLocalDevelopmentRuntimeStore(jdbc),
+                new ObjectMapper(), prs);
+
+        assertThatThrownBy(() -> owner.deliverStageTurn(stageDelivery(
+                new ObjectMapper(), fence, clean, outputHead)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(expectedMessage);
+
+        verify(prs, never()).createForTaskInCommand(
+                anyString(), anyString(), anyString(), anyString(), anyString());
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dev_report", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT checkpoint FROM stage WHERE id = 'local-stage'",
+                String.class)).isEqualTo("IMPLEMENTING");
+    }
+
+    private static ResultFence implementationFence()
+    {
+        return new ResultFence(
+                1, "local-stage", 1, "implementation-operation", 1,
+                "fingerprint-old", "head-old", "head-old");
     }
 
     private static AgentTurnOwnerResultCodec.OwnerResult brainDelivery(
@@ -461,6 +578,16 @@ class TestV2LocalStageStore
             ObjectMapper mapper, ResultFence fence)
             throws Exception
     {
+        return stageDelivery(mapper, fence, true, "head-new");
+    }
+
+    private static AgentTurnOwnerResultCodec.OwnerResult stageDelivery(
+            ObjectMapper mapper,
+            ResultFence fence,
+            boolean clean,
+            String outputHead)
+            throws Exception
+    {
         DispatchTicket.OperationFence operationFence =
                 new DispatchTicket.OperationFence(
                         fence.taskEpoch(), fence.stageId(), fence.stageGeneration(),
@@ -476,12 +603,33 @@ class TestV2LocalStageStore
                         DispatchTicket.OwnerKind.STAGE_TURN,
                         "IMPLEMENT_LOCAL_PLAN",
                         AgentTurnProviderSession.Transport.API, "openai", "session",
-                        "late success", 1, 1, 1, null,
+                        """
+                                {"schemaVersion":1,
+                                 "implementedIntent":"implemented",
+                                 "commitSummary":"one commit",
+                                 "fileSummary":"one file",
+                                 "validationSummary":"pending",
+                                 "knownRisks":"none",
+                                 "unresolvedConcerns":"none",
+                                 "contextRefs":"none"}
+                                """, 1, 1, 1, null,
                         AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
-                        null);
+                        null, null,
+                        new AgentTurnOperationHandler.OutputCodeSubject(
+                                "fingerprint-new", outputHead, "head-old",
+                                clean, "head-old"));
+        AgentTurnOperationHandler.Evidence evidence =
+                new AgentTurnOperationHandler.Evidence(
+                        1, AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
+                        null,
+                        new AgentTurnProviderSession.WriterFence(
+                                "/tmp/task-1", "task-1", fence.operationId(),
+                                fence.taskEpoch(), 1),
+                        null, payload.outputCodeSubject());
         DispatchTicket.DispatchResult raw = new DispatchTicket.DispatchResult(
                 operationFence, DispatchTicket.Outcome.SUCCEEDED,
-                mapper.writeValueAsString(payload), "{}", null);
+                mapper.writeValueAsString(payload),
+                mapper.writeValueAsString(evidence), null);
         return new AgentTurnOwnerResultCodec(mapper).decode(
                 owner, operationFence, raw);
     }

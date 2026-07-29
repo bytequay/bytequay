@@ -34,7 +34,9 @@ import com.bytequay.app.service.review.BrainReviewService;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -98,19 +100,11 @@ public class PRSyncService
         this.prPublish = requireNonNull(prPublish, "prPublish is null");
     }
 
-    /** Ensure the task's local PR exists and reflects the branch's commits
-     *  and (once pushed) the remote PR's comments/reviews. Returns empty
-     *  when the task has no branch yet (nothing to show). */
+    /** Historical compatibility read. Task-owned PR creation and observation
+     * are owned by typed V2 commands, never this Git/GitHub synchronizer. */
     public Optional<PR> syncFromTask(String taskId)
     {
-        Task task = taskStore.findTaskById(taskId).orElse(null);
-        if (task == null || task.branchName() == null || task.branchName().isBlank()) {
-            return Optional.empty();
-        }
-        String base = task.baseBranch() == null || task.baseBranch().isBlank() ? DEFAULT_BASE : task.baseBranch();
-        String title = task.name() != null && !task.name().isBlank() ? task.name() : task.branchName();
-        PR pr = prService.createForTask(taskId, task.branchName(), base, title, "");
-        return syncPR(pr.id(), DEFAULT_MAX_AGE_SECONDS);
+        return prService.findByTask(taskId);
     }
 
     /** Canonical id-based refresh for either origin — the {@code POST
@@ -128,7 +122,7 @@ public class PRSyncService
      *  GET polling must never start an agent review. */
     public Optional<PR> syncPRForDisplay(String prId)
     {
-        return syncPR(prId, DEFAULT_MAX_AGE_SECONDS, false);
+        return syncPR(prId, DEFAULT_MAX_AGE_SECONDS);
     }
 
     /**
@@ -138,14 +132,14 @@ public class PRSyncService
      */
     public Optional<PR> syncPR(String prId, int maxAgeSeconds)
     {
-        return syncPR(prId, maxAgeSeconds, true);
-    }
-
-    private Optional<PR> syncPR(String prId, int maxAgeSeconds, boolean advanceLifecycle)
-    {
         PR pr = prService.findById(prId).orElse(null);
         if (pr == null) {
             return Optional.empty();
+        }
+        if (pr.taskId() != null) {
+            // Task-owned remote/local truth is delivered by exact typed owners.
+            // Historical LEGACY rows remain readable but immutable.
+            return Optional.of(pr);
         }
         if (PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
             if (pr.repo() != null && pr.remotePrNumber() != null) {
@@ -155,23 +149,7 @@ public class PRSyncService
             return prService.findById(prId);
         }
 
-        Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
-        if (task == null) {
-            return Optional.of(pr);
-        }
-        String base = task.baseBranch() == null || task.baseBranch().isBlank() ? DEFAULT_BASE : task.baseBranch();
-        syncCommits(pr, task, base);
-        if (advanceLifecycle) {
-            maybeFlipToOpen(pr.id(), task);
-        }
-        pr = healIfAlreadyPushedRemotely(pr, task);
-        PR healed = pr;
-        if (healed.remotePrNumber() != null) {
-            resolveGitRemoteSlug(task).ifPresent(
-                    repo -> syncRemoteTimeline(healed, repo.owner() + "/" + repo.repo(), maxAgeSeconds));
-        }
-        prService.markSynced(healed.id(), Instant.now());
-        return prService.findById(healed.id());
+        return Optional.of(pr);
     }
 
     /**
@@ -189,6 +167,9 @@ public class PRSyncService
         Optional<PR> existing = prService.findTaskByRepoAndNumber(repo, number)
                 .or(() -> prService.findByRepoAndNumber(repo, number));
         if (existing.isPresent()) {
+            if (existing.orElseThrow().taskId() != null) {
+                throw taskOwnedExternalAlias(existing.orElseThrow());
+            }
             return syncPR(existing.get().id(), DEFAULT_MAX_AGE_SECONDS);
         }
         PullRequest light;
@@ -252,6 +233,9 @@ public class PRSyncService
                             ghPr.title(), "",
                             deriveExternalStatus(ghPr.mergedAt() != null, ghPr.state(), ghPr.draft()),
                             ghPr.createdAt(), ghPr.mergedAt(), ghPr.closedAt()));
+            if (pr.taskId() != null) {
+                continue;
+            }
             pr = prService.updateAuthor(pr.id(), actorLabel(ghPr.author()));
             PR.PRSyncSnapshot baseline = pr.githubSync();
             boolean needsDetail = baseline == null || baseline.ciStatus() == null
@@ -280,6 +264,9 @@ public class PRSyncService
         }
 
         for (PRDashboardEntry entry : prService.dashboardEntries()) {
+            if (entry.pr().taskId() != null) {
+                continue;
+            }
             String key = entry.pr().repo() + "#" + entry.pr().remotePrNumber();
             if (freshKeys.contains(key)) {
                 continue;
@@ -296,14 +283,17 @@ public class PRSyncService
     }
 
     /** Detail pass for the dashboard's richer fields — CI status, mergeable,
-     *  reviewer verdicts, attention reason, comment count. Runs {@link
-     *  #syncPR} first for the timeline/status side effects every other
-     *  surface relies on, then re-derives the snapshot fields from the same
+     *  reviewer verdicts, attention reason, comment count. Refreshes commits
+     *  and remote observations without advancing Task lifecycle, then
+     *  re-derives the snapshot fields from the same
      *  detail shape {@code syncPR} itself fetches (re-fetched here since
      *  that internal detail object isn't otherwise exposed — cheap, since
      *  {@link PullRequestService#refreshPullRequestDetail} is ETag-cached). */
     private void syncDashboardDetail(PR pr, String currentLogin, Instant now)
     {
+        if (pr.taskId() != null) {
+            return;
+        }
         syncPR(pr.id(), 0);
         PullRequestDetail detail;
         try {
@@ -333,6 +323,29 @@ public class PRSyncService
                 attentionReason, detail.mergeable(), detail.mergeableState(), baseline.headPushedAt(),
                 reviewerVerdicts, detail.requestedReviewers() == null ? List.of() : detail.requestedReviewers(),
                 detail.mergeQueueEnabled(), detail.mergeQueueState()));
+    }
+
+    private ResponseStatusException taskOwnedExternalAlias(PR pr)
+    {
+        String workflow = taskStore.findWorkflowVersion(pr.taskId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Task " + pr.taskId() + " has no immutable workflow route"));
+        if ("V2".equals(workflow)) {
+            return new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "PR " + pr.id() + " is owned by V2 Task " + pr.taskId()
+                            + "; use the Task review surface");
+        }
+        if ("LEGACY".equals(workflow)) {
+            return new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Historical LEGACY Task-owned PR " + pr.id()
+                            + " is read-only");
+        }
+        return new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "unsupported Task workflow version " + workflow);
     }
 
     private Instant triageViewedAt(String prId)

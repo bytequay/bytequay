@@ -15,9 +15,6 @@ package com.bytequay.app.service.stage;
 
 import com.bytequay.app.beans.stage.BrainFeedRow;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
-import com.bytequay.app.domain.Actor;
-import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
@@ -35,18 +32,13 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.IterationStore;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.threads.TaskAutoPushEvent;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
@@ -72,29 +64,17 @@ class TestStageBrain
     @Autowired
     private StageService stageService;
     @Autowired
-    private TaskPhaseMachine machine;
-    @Autowired
-    private PlanStageService planStageService;
-    @Autowired
-    private StageBudgetService budgetService;
-    @Autowired
     private StageStore stageStore;
     @Autowired
     private TaskStore taskStore;
     @Autowired
     private ThreadStore threadStore;
     @Autowired
-    private ApplicationEventPublisher events;
-    @Autowired
     private IterationService iterationService;
     @Autowired
     private IterationStore iterationStore;
     @Autowired
     private ThreadTurnStore threadTurnStore;
-    @Autowired
-    private AgentRunService agentRuns;
-    @Autowired
-    private ReviewRoundStore reviewRounds;
 
     @Test
     void brainFeedIncludesIterationSummariesInChronologicalOrder()
@@ -328,40 +308,6 @@ class TestStageBrain
     }
 
     @Test
-    void brainReflectsBudgetExhaustionAndReadyState()
-    {
-        String taskId = seedTask();
-        taskStore.linkPullRequest(taskId, 7, "open");
-        StageInstance ciFixing = openCiFixing(taskId);
-
-        // Exhaust the budget, then arm + fire the ready-to-merge signal.
-        for (int i = 0; i < StageBudgetService.DEFAULT_AUTO_PUSH_BUDGET; i++) {
-            events.publishEvent(new TaskAutoPushEvent(taskId));
-        }
-        taskStore.markMergeNotificationSentIfUnset(taskId, Instant.parse("2026-06-20T12:00:00Z"));
-        stageStore.recordEvent(ciFixing.id(), taskId, StageEventType.NOTIFY_FIRED,
-                Map.of("reason", "ready_to_merge"));
-
-        TaskBrainViewData brain = stageService.getBrain(taskId);
-
-        assertThat(brain.aggregate().pushes()).isEqualTo(StageBudgetService.DEFAULT_AUTO_PUSH_BUDGET);
-        assertThat(brain.aggregate().autoPushBudget()).isNotNull();
-        assertThat(brain.aggregate().autoPushBudget().used())
-                .isEqualTo(StageBudgetService.DEFAULT_AUTO_PUSH_BUDGET);
-
-        assertThat(brain.rightRail().approval()).isNotNull();
-        assertThat(brain.rightRail().approval().tone()).isEqualTo("approve");
-        assertThat(brain.rightRail().approval().reasonShort()).contains("5/5");
-        assertThat(brain.rightRail().approval().primaryAction().href())
-                .isEqualTo("/api/stages/" + ciFixing.id() + "/budget/extend");
-        assertThat(brain.rightRail().linkedPr()).isNotNull();
-        assertThat(brain.rightRail().linkedPr().mergeable()).isTrue();
-
-        assertThat(brain.brainFeed()).anyMatch(r -> r.type().equals("NEEDS_ATTENTION"));
-        assertThat(brain.brainFeed()).anyMatch(r -> r.type().equals("NOTIFY_READY_FOR_MERGE"));
-    }
-
-    @Test
     void brainFeedMapsAClosedReviewStageToPanelReviewCompleted()
     {
         String taskId = seedTask();
@@ -387,11 +333,10 @@ class TestStageBrain
     void rightRailIsPanelSpawnableInInternalReviewWithAPr()
     {
         String taskId = seedTask();
-        approvePlan(taskId);
+        StageInstance active = stageStore.openStage(
+                taskId, StageType.DEVELOPMENT_STAGE, null);
         taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withPrNumber(42));
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
-        StageInstance active = stageStore.findActiveStage(taskId).orElseThrow();
+        taskStore.updatePhase(taskId, TaskPhase.INTERNAL_REVIEW);
 
         TaskBrainViewData brain = stageService.getBrain(taskId);
 
@@ -403,9 +348,8 @@ class TestStageBrain
     void rightRailIsNotPanelSpawnableWithoutAPr()
     {
         String taskId = seedTask();
-        approvePlan(taskId);
-        machine.transition(taskId, TaskPhase.VALIDATING, "ready", Actor.AGENT);
-        machine.transition(taskId, TaskPhase.INTERNAL_REVIEW, "validated", Actor.AGENT);
+        stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        taskStore.updatePhase(taskId, TaskPhase.INTERNAL_REVIEW);
 
         TaskBrainViewData brain = stageService.getBrain(taskId);
 
@@ -632,7 +576,9 @@ class TestStageBrain
         StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
         stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED,
                 Map.of("id", "rev-1", "status", "finalized"));
-        planStageService.approve(taskId, "rev-1");
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_APPROVED,
+                Map.of("approvedRevisionId", "rev-1"));
+        stageStore.closeStage(plan.id(), "plan_approved", Map.of());
 
         TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
         assertThat(card.state()).isEqualTo("locked");
@@ -647,134 +593,6 @@ class TestStageBrain
         taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withStatus(TaskStatus.PAUSED));
 
         assertThat(stageService.getBrain(taskId).task().paused()).isTrue();
-    }
-
-    @Test
-    void exhaustedCiFixStatusIncludesTheAttemptCount()
-    {
-        String taskId = seedTask();
-        StageInstance remote = stageStore.openStage(
-                taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
-        AgentRun run = agentRuns.openInStage(
-                taskId, AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
-                remote.id().toString(), 5);
-        for (int i = 0; i < 5; i++) {
-            agentRuns.recordIteration(run.id(), null);
-        }
-        agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "attempts_exhausted");
-        machine.transition(
-                taskId, TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted", Actor.AGENT);
-        taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow()
-                .withStatus(TaskStatus.NEEDS_ATTENTION));
-
-        assertThat(stageService.getBrain(taskId).task().statusLabel())
-                .isEqualTo("ci fix attempts exhausted (5/5)");
-    }
-
-    @Test
-    void budgetPauseProjectsAnAmberSettingsActionIntoTheConversation()
-    {
-        String taskId = seedTask();
-        StageInstance development = stageStore.openStage(
-                taskId, StageType.DEVELOPMENT_STAGE, null);
-        AgentRun run = agentRuns.openInStage(
-                taskId, AgentRun.KIND_DEV, AgentRun.SOURCE_SCHEDULED,
-                development.id().toString(), null);
-        Task task = taskStore.findTaskById(taskId).orElseThrow();
-        agentRuns.attachOwnership(
-                run.id(), "ws-default", task.threadId(),
-                "claude-code", "claude-sonnet-4.6", "Implement");
-        agentRuns.pause(run.id(), "daily workspace budget cap reached ($10.00)");
-        taskStore.saveTask(task.withStatus(TaskStatus.PAUSED));
-
-        TaskBrainViewData brain = stageService.getBrain(taskId);
-
-        assertThat(brain.liveRuns()).isEmpty();
-        assertThat(brain.rightRail().approval()).isNotNull();
-        assertThat(brain.rightRail().approval().tone()).isEqualTo("ask");
-        assertThat(brain.rightRail().approval().reasonShort())
-                .isEqualTo("daily workspace budget cap reached ($10.00)");
-        assertThat(brain.rightRail().approval().primaryAction().label())
-                .isEqualTo("Increase budget");
-        assertThat(brain.rightRail().approval().primaryAction().href())
-                .isEqualTo("#/workspace/ws-default/settings/agents");
-    }
-
-    @Test
-    void parkedTaskDoesNotExposeStaleLiveWork()
-    {
-        String taskId = seedTask();
-        StageInstance remote = stageStore.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
-        AgentRun run = agentRuns.openInStage(
-                taskId, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
-                remote.id().toString(), null);
-        reviewRounds.insert(new ReviewRound(
-                UUID.randomUUID().toString(), taskId, 1, List.of("@reviewer"),
-                ReviewRound.STATUS_TRIAGING, ReviewRound.ReviewRoundStats.empty(),
-                run.id(), Instant.parse("2026-06-20T09:30:00Z"), null, null,
-                ReviewRound.ORIGIN_EXTERNAL, null, 1, ReviewRound.DEFAULT_BRAIN_BUDGET));
-        taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow()
-                .withStatus(TaskStatus.NEEDS_ATTENTION));
-
-        TaskBrainViewData brain = stageService.getBrain(taskId);
-
-        assertThat(brain.task().paused()).isTrue();
-        assertThat(brain.task().terminal()).isFalse();
-        assertThat(brain.liveRuns()).isEmpty();
-        assertThat(brain.liveRound()).isNull();
-    }
-
-    @Test
-    void dormantTasksRemainResumableInTheBrainProjection()
-    {
-        for (TaskStatus status : List.of(TaskStatus.ERRORED, TaskStatus.ARCHIVED)) {
-            String taskId = seedTask();
-            StageInstance remote = stageStore.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
-            agentRuns.openInStage(taskId, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
-                    remote.id().toString(), null);
-            taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withStatus(status));
-
-            TaskBrainViewData brain = stageService.getBrain(taskId);
-            TaskBrainViewData.BrainTask projected = brain.task();
-
-            assertThat(projected.paused()).as(status.name()).isTrue();
-            assertThat(projected.terminal()).as(status.name()).isFalse();
-            assertThat(brain.liveRuns()).as(status.name()).isEmpty();
-        }
-    }
-
-    @Test
-    void terminalTasksDoNotExposeStaleLiveRuns()
-    {
-        String taskId = seedTask();
-        StageInstance remote = stageStore.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
-        agentRuns.openInStage(taskId, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
-                remote.id().toString(), null);
-        taskStore.completeTask(taskId, Instant.parse("2026-06-20T10:00:00Z"));
-        taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
-
-        TaskBrainViewData brain = stageService.getBrain(taskId);
-
-        assertThat(brain.liveRuns()).isEmpty();
-        assertThat(brain.liveRound()).isNull();
-    }
-
-    /** Open a ci-fixing stage with its budget seeded — a {@code ci_fix}
-     *  {@link com.bytequay.app.domain.AgentRun} opens one directly (it no
-     *  longer rides a phase transition), so the test does the same. */
-    private StageInstance openCiFixing(String taskId)
-    {
-        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
-        budgetService.onStageOpened(stage);
-        return stage;
-    }
-
-    /** Approve a plan so the DevelopmentStage opens and the task is at
-     *  IMPLEMENTING — the precondition for the dev-phase walk. */
-    private void approvePlan(String taskId)
-    {
-        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        planStageService.approve(taskId, "rev-1");
     }
 
     private String seedTask()

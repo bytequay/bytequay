@@ -32,7 +32,6 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageBudgetService;
 import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageRuntimeService;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringService;
 import com.bytequay.app.service.threads.TaskTraceService;
@@ -177,7 +176,6 @@ class TestV2DevelopmentFlowCompatibilityApi
                 stageService,
                 mock(StageDetailService.class),
                 mock(StageSteeringService.class),
-                mock(StageRuntimeService.class),
                 mock(PlanStageService.class),
                 legacyStages,
                 tasks,

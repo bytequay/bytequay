@@ -35,14 +35,12 @@ import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import { compareConversationSeq } from './conversationSeq';
+import { approveAndShipTask, isTaskOwnedLocalOpenPr } from './shipState';
 
 type Props = {
   threadId: string;
   onBack: () => void;
-  /** Enter a specific task's window (Open → / double-click). Phase 3
-   *  replaces the current ThreadDetailPage with the proper task-detail
-   *  shell; until then this still routes to that page with the focused
-   *  taskId so the user can pick up the agent conversation. */
+  /** Enter the canonical detail route for a specific Task. */
   onOpenTask: (taskId: string) => void;
 };
 
@@ -117,6 +115,10 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState<'next' | 'ship' | null>(null);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
+  const [shipReadiness, setShipReadiness] = useState<{
+    taskId: string;
+    state: 'loading' | 'ready' | 'unavailable';
+  } | null>(null);
   const [interrupting, setInterrupting] = useState<boolean>(false);
   const [composerInput, setComposerInput] = useState<string>(() => {
     // Seed once on mount from a sessionStorage draft the
@@ -136,7 +138,6 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   });
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [resuming, setResuming] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   useInspectorHotkey(setInspectorOpen);
   // The user's own messages are always labelled "YOU" on their avatar.
@@ -302,6 +303,37 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     [tasks]);
   const foreground = useMemo(
     () => tasks === null ? null : newestActiveTask(tasks), [tasks]);
+  const selectedActiveTask = useMemo(
+    () => findSelectedActiveTask(tasks, selectedTaskId),
+    [tasks, selectedTaskId]);
+  const selectedActiveTaskId = selectedActiveTask?.id ?? null;
+  const shipReady = selectedActiveTaskId !== null
+    && shipReadiness?.taskId === selectedActiveTaskId
+    && shipReadiness.state === 'ready';
+
+  useEffect(() => {
+    if (selectedActiveTaskId === null) {
+      setShipReadiness(null);
+      return;
+    }
+    let cancelled = false;
+    setShipReadiness({ taskId: selectedActiveTaskId, state: 'loading' });
+    void window.bridge.getPrForTask(selectedActiveTaskId)
+      .then(pr => {
+        if (!cancelled) {
+          setShipReadiness({
+            taskId: selectedActiveTaskId,
+            state: isTaskOwnedLocalOpenPr(pr, selectedActiveTaskId) ? 'ready' : 'unavailable',
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setShipReadiness({ taskId: selectedActiveTaskId, state: 'unavailable' });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [selectedActiveTaskId]);
   const parkedCount = useMemo(
     () => tasks === null ? 0 : tasks.filter(
       t => t.status === 'AWAITING_REVIEW' || t.status === 'NEEDS_ATTENTION').length,
@@ -504,23 +536,24 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   }, [composerInput, sending, threadId, refreshMessages, refreshTurns, refreshTasks]);
 
   const onAdvance = useCallback(async (mode: 'next' | 'ship') => {
-    if (foreground === null || advancing !== null) return;
-    const verb = mode === 'next' ? 'Return to trunk planning' : 'Ship';
+    if (selectedActiveTask === null || advancing !== null || (mode === 'ship' && !shipReady)) return;
+    const verb = mode === 'next' ? 'Return to trunk planning' : 'Approve and ship';
     const ok = window.confirm(
-      `${verb}: task ${foreground.seq}`
-      + (foreground.branchName !== null ? ` (${foreground.branchName})` : '')
+      `${verb}: task ${selectedActiveTask.seq}`
+      + (selectedActiveTask.branchName !== null ? ` (${selectedActiveTask.branchName})` : '')
       + (mode === 'next'
         ? '. Current work remains available while you plan the next assignment.'
-        : ' — closes the task and reaps the worktree.'));
+        : ' — promotes its local PR and keeps Trunk planning available.'));
     if (!ok) return;
     setAdvancing(mode);
     setAdvanceError(null);
     try {
       if (mode === 'next') {
-        await window.bridge.parkAndStartNext(threadId, foreground.id);
+        await window.bridge.parkAndStartNext(threadId, selectedActiveTask.id);
       }
       else {
-        await window.bridge.shipAndContinue(threadId, foreground.id);
+        await approveAndShipTask(window.bridge, selectedActiveTask.id);
+        setShipReadiness({ taskId: selectedActiveTask.id, state: 'unavailable' });
       }
       await Promise.all([loadThread(), refreshTasks()]);
     }
@@ -530,29 +563,9 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     finally {
       setAdvancing(null);
     }
-  }, [foreground, advancing, threadId, loadThread, refreshTasks]);
-
-  // Revive a terminal (completed / archived / errored) trunk thread back
-  // to IDLE so the user can keep planning. Same bridge call the per-task
-  // detail page uses; the latest non-COMPLETED task is revived alongside.
-  const onResumeTrunk = useCallback(async () => {
-    if (resuming) return;
-    setResuming(true);
-    setSendError(null);
-    try {
-      await window.bridge.resumeTask(threadId);
-      await Promise.all([loadThread(), refreshTasks()]);
-    }
-    catch (e) {
-      setSendError(e instanceof Error ? e.message : String(e));
-    }
-    finally {
-      setResuming(false);
-    }
-  }, [resuming, threadId, loadThread, refreshTasks]);
+  }, [selectedActiveTask, advancing, shipReady, threadId, loadThread, refreshTasks]);
 
   const retryAfterCodexUpdate = useCallback(async () => {
-    await window.bridge.resumeTask(threadId);
     await window.bridge.sendTrunkMessage(threadId, 'continue');
     await Promise.all([loadThread(), refreshMessages(), refreshTurns(), refreshTasks()]);
   }, [threadId, loadThread, refreshMessages, refreshTurns, refreshTasks]);
@@ -694,15 +707,18 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   cutting branches. Next / Ship apply only to build flows.
                 </div>
               ) : (() => {
-                // Both buttons need a target task. Disable whenever the
-                // thread has no foreground (zero tasks, or every task
-                // terminal) or the user hasn't picked one.
-                const noTarget = foreground === null || selectedTaskId === null;
+                // Both actions target the exact selected active Task. Ship is
+                // additionally gated on that Task's exact local-open PR.
+                const noTarget = selectedActiveTask === null;
                 const noTargetReason = (tasks?.length ?? 0) === 0
                   ? 'No tasks yet — start one before parking or shipping'
-                  : foreground === null
-                    ? 'All tasks are finished — nothing to park or ship'
-                    : 'Select a task to park or ship';
+                  : selectedTaskId === null
+                    ? 'Select an active task to park or ship'
+                    : 'The selected task is finished — select an active task';
+                const shipLoading = selectedActiveTask !== null
+                  && shipReadiness?.taskId === selectedActiveTask.id
+                  && shipReadiness.state === 'loading';
+                const shipDisabled = noTarget || advancing !== null || !shipReady;
                 return (
                 <>
                   <div style={advanceRowStyle}>
@@ -713,24 +729,28 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                       style={nextBtnStyle(noTarget || advancing !== null)}
                       title={noTarget
                         ? noTargetReason
-                        : `Next: return to trunk planning from task ${foreground!.seq}`}
+                        : `Next: return to trunk planning from task ${selectedActiveTask.seq}`}
                     >
                       {advancing === 'next' ? 'Parking…' : 'Next →'}
                     </button>
                     <button
                       type="button"
                       onClick={() => { void onAdvance('ship'); }}
-                      disabled={noTarget || advancing !== null}
-                      style={shipBtnStyle(noTarget || advancing !== null)}
+                      disabled={shipDisabled}
+                      style={shipBtnStyle(shipDisabled)}
                       title={noTarget
                         ? noTargetReason
-                        : `Ship: finalise task ${foreground!.seq} (worktree reaps)`}
+                        : shipLoading
+                          ? `Checking task ${selectedActiveTask.seq}'s local PR`
+                          : !shipReady
+                            ? `Task ${selectedActiveTask.seq} needs its own local-open PR before Ship`
+                            : `Ship: promote task ${selectedActiveTask.seq}'s local PR`}
                     >
                       {advancing === 'ship' ? 'Shipping…' : 'Ship'}
                     </button>
                   </div>
                   <div style={advanceHintStyle}>
-                    Next returns to trunk planning · Ship finalises this task
+                    Next returns to trunk planning · Ship promotes the local PR
                   </div>
                 </>
                 );
@@ -834,18 +854,10 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   </span>
                   <span style={trunkResumeMsgStyle}>
                     {thread?.status === 'ARCHIVED'
-                      ? "Auto-archived after sitting idle — the work isn't finished. Resume to keep planning where you left off."
-                      : 'Resume to keep planning — the trunk picks up its session and any unfinished task comes back too.'}
+                      ? "Auto-archived after sitting idle — send a new message below to continue planning."
+                      : 'Send a new message below to continue on a new Trunk turn.'}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { void onResumeTrunk(); }}
-                  disabled={resuming}
-                  style={trunkResumeBtnStyle}
-                >
-                  {resuming ? 'Resuming…' : '↻ Resume thread'}
-                </button>
               </div>
             )}
 
@@ -1427,6 +1439,17 @@ function newestActiveTask(tasks: WorkUnitTaskDto[]): WorkUnitTaskDto | null {
       (acc, t) => acc === null || t.seq > acc.seq ? t : acc, null);
 }
 
+/** Resolve rail actions against the user's exact selection, never a sibling. */
+export function findSelectedActiveTask(
+  tasks: readonly WorkUnitTaskDto[] | null,
+  selectedTaskId: string | null,
+): WorkUnitTaskDto | null {
+  if (tasks === null || selectedTaskId === null) return null;
+  return tasks.find(task => task.id === selectedTaskId
+    && ACTIVE_STATUSES.has(task.status)
+    && task.phase !== 'COMPLETED') ?? null;
+}
+
 function summariseScheduler(turns: ThreadTurnDto[] | null) {
   if (turns === null) return { running: 0, queued: 0, cli: 0, api: 0 };
   let running = 0;
@@ -1543,11 +1566,10 @@ function SchedulerTable({
 }: {
   summary: { running: number; queued: number; cli: number; api: number };
 }) {
-  // The lanes are hard-capped by Spring properties — match the
-  // defaults in AgentScheduler (4 / 4). A future commit can pull
-  // these through a /api/scheduler/lanes endpoint.
+  // CapacityManager owns these hard ceilings (including one reserved
+  // Trunk-control slot in each lane). A future endpoint can expose them.
   const CLI_CAP = 4;
-  const API_CAP = 4;
+  const API_CAP = 6;
   return (
     <>
       <dl style={vitalsListStyle}>
@@ -2416,18 +2438,6 @@ const trunkResumeMsgStyle: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--text-2)',
 };
-const trunkResumeBtnStyle: React.CSSProperties = {
-  flexShrink: 0,
-  padding: '7px 14px',
-  border: 0,
-  borderRadius: 9,
-  background: 'linear-gradient(135deg,#4f86ff,#3b6fe0)',
-  color: '#fff',
-  fontSize: 12.5,
-  fontWeight: 400,
-  cursor: 'pointer',
-};
-
 const planningPlaceholderStyle: React.CSSProperties = {
   // Inside chatCardStyle — fill the card without re-applying the
   // border/shadow chrome the card already supplies.

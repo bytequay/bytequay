@@ -24,7 +24,6 @@ import com.bytequay.app.service.review.CliReviewRunner.Result;
 import com.bytequay.app.service.review.InvestigationReviewContext.Snapshot;
 import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
 import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +33,6 @@ import org.mockito.ArgumentCaptor;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -49,7 +47,6 @@ import static org.mockito.Mockito.when;
 class TestInvestigationReviewRunnerProjectKnowledge
 {
     private final CliReviewRunner cli = mock(CliReviewRunner.class);
-    private final AgentScheduler scheduler = mock(AgentScheduler.class);
     private final SessionKnowledgeProvider knowledge = mock(SessionKnowledgeProvider.class);
     private InvestigationReviewRunner runner;
 
@@ -60,12 +57,8 @@ class TestInvestigationReviewRunnerProjectKnowledge
         runner = new InvestigationReviewRunner(
                 mock(TurnRunner.class), cli, mock(ReviewProviderEndpoints.class),
                 mock(ReviewPassService.class), mock(InvestigationReviewTools.class),
-                scheduler, knowledge, new ObjectMapper());
-        when(scheduler.invokeCli(any())).thenAnswer(invocation -> {
-            Callable<?> work = invocation.getArgument(0);
-            return work.call();
-        });
-        when(cli.runWithSchedulerCapacity(
+                knowledge, new ObjectMapper());
+        when(cli.run(
                 eq(Provider.CLAUDE), anyString(), isNull(), any(Path.class),
                 any(McpEndpoint.class), anyInt()))
                 .thenReturn(new Result("done", null, 0));
@@ -96,7 +89,7 @@ class TestInvestigationReviewRunnerProjectKnowledge
                 .doesNotContain("frontend/Wrong.tsx");
 
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(cli).runWithSchedulerCapacity(
+        verify(cli).run(
                 eq(Provider.CLAUDE), prompt.capture(), isNull(), any(Path.class),
                 any(McpEndpoint.class), eq(25));
         assertThat(prompt.getValue())
@@ -120,7 +113,7 @@ class TestInvestigationReviewRunnerProjectKnowledge
                 "finding", null, null, 25);
 
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(cli).runWithSchedulerCapacity(
+        verify(cli).run(
                 eq(Provider.CLAUDE), prompt.capture(), isNull(), any(Path.class),
                 any(McpEndpoint.class), eq(25));
         assertThat(prompt.getValue())
@@ -184,7 +177,7 @@ class TestInvestigationReviewRunnerProjectKnowledge
                 "review-1", "assignment-1", snapshot, List.of(),
                 "coverage", null, 25);
 
-        verify(cli).runWithSchedulerCapacity(
+        verify(cli).run(
                 eq(Provider.CLAUDE), anyString(), isNull(), any(Path.class),
                 any(McpEndpoint.class), eq(25));
     }

@@ -15,21 +15,20 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
-import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPhase;
+import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.PrDetailStore;
+import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
@@ -52,26 +51,27 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static java.util.Objects.requireNonNull;
 
 /**
  * The "→ Spawn build thread" handoff: a TERMINATE-d review pass spins up
- * a BUILD thread pre-seeded with its AGREED findings, keyed off PR
+ * a BUILD thread pre-seeded with its included findings, keyed off PR
  * authorship.
  *
  * <ul>
  *   <li><b>author-is-reviewer</b> (you authored the PR) — the build
- *       thread fetches {@code pr.head} locally and edits it; pushes go
- *       through the standard parked-publish gate.</li>
+ *       thread's first durable provisioning operation fetches and fences
+ *       {@code pr.head}; pushes go through the standard publish protocol.</li>
  *   <li><b>suggested-change</b> (someone else's PR) — the immutable mode is
- *       retained, but writable V2 Task materialization fails closed until a
- *       dedicated comment-only execution owner exists.</li>
+ *       owned by a zero-Task BUILD Trunk whose frozen comments are explicitly
+ *       approved or discarded; only durable dispatch may post them.</li>
  * </ul>
  *
- * <p>The pass is never auto-closed. A completed V2 TaskOutcome resolves only
- * the exact frozen findings through {@link ReviewBuildOutcomeService}; publish
- * text and commit-message references are deliberately not lifecycle proof.
+ * <p>The pass is never auto-closed. In author mode, a completed V2
+ * TaskOutcome resolves the exact frozen findings through
+ * {@link ReviewBuildOutcomeService}. In suggested mode, only accepted
+ * comment-action result finalization resolves them. Creating either handoff,
+ * publish text, and commit-message references are not lifecycle proof.
  */
 @Service
 public class ReviewBuildSpawnService
@@ -86,34 +86,31 @@ public class ReviewBuildSpawnService
     public static final String MODE_SUGGESTED = "suggested_change";
 
     private final ReviewStore reviewStore;
-    private final PullRequestRepository pullRequests;
-    private final PatResolver patResolver;
+    private final PullRequestStore pullRequests;
+    private final PrDetailStore prDetails;
     private final WorkspaceService workspaceService;
     private final WorkspaceRepositoryResolver repositories;
     private final WorkspaceRelationService relations;
     private final WatchedRepoStore watchedRepos;
-    private final GitRunner git;
     private final ReviewBuildSpawnCommitter committer;
 
     public ReviewBuildSpawnService(
             ReviewStore reviewStore,
-            PullRequestRepository pullRequests,
-            PatResolver patResolver,
+            PullRequestStore pullRequests,
+            PrDetailStore prDetails,
             WorkspaceService workspaceService,
             WorkspaceRepositoryResolver repositories,
             WorkspaceRelationService relations,
             WatchedRepoStore watchedRepos,
-            GitRunner git,
             ReviewBuildSpawnCommitter committer)
     {
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.prDetails = requireNonNull(prDetails, "prDetails is null");
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.relations = requireNonNull(relations, "relations is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
-        this.git = requireNonNull(git, "git is null");
         this.committer = requireNonNull(committer, "committer is null");
     }
 
@@ -142,9 +139,9 @@ public class ReviewBuildSpawnService
             return replay(pass, workspaceId, openingTitle, selectedFindingIds);
         }
 
-        // Gate: at least one AGREED finding at severity >= MAJOR.
+        // Gate: at least one included finding at severity >= MAJOR.
         List<ReviewFinding> eligible = reviewStore.listFindingsForPass(passId).stream()
-                .filter(f -> f.status() == ReviewFindingStatus.AGREED)
+                .filter(ReviewBuildSpawnService::isIncluded)
                 .filter(f -> f.severity() == ReviewFindingSeverity.BLOCKER
                         || f.severity() == ReviewFindingSeverity.MAJOR)
                 .sorted(Comparator
@@ -159,10 +156,17 @@ public class ReviewBuildSpawnService
 
         String repo = pass.repoFullName();
         int prNumber = pass.prNumber();
-        PullRequestRef ref = parseRef(repo, prNumber);
-        String pat = patResolver.resolve(repo);
-        PullRequest pr = pullRequests.getPullRequest(pat, ref);
-        PrRawDetail raw = pullRequests.fetchPrDetail(pat, ref);
+        long prId = pullRequests.findIdByRepoAndNumber(repo, prNumber)
+                .orElseThrow(() -> status(409,
+                        "review_pr_snapshot_unavailable"));
+        PullRequest pr = pullRequests.findById(prId)
+                .orElseThrow(() -> status(409,
+                        "review_pr_snapshot_unavailable"));
+        StoredPrDetail detail = prDetails.find(prId)
+                .orElseThrow(() -> status(409,
+                        "review_pr_snapshot_unavailable"));
+        PrRawDetail raw = requireNonNull(
+                detail.raw(), "cached PR detail has no raw snapshot");
         if (pass.headSha() == null || pass.headSha().isBlank()
                 || raw.headSha() == null
                 || !pass.headSha().equals(raw.headSha())
@@ -170,29 +174,12 @@ public class ReviewBuildSpawnService
                 || !repo.equalsIgnoreCase(raw.baseRepo())) {
             throw status(409, "review_head_moved");
         }
-        String currentLogin = pullRequests.fetchUserProfile(pat).login();
-        boolean authorIsReviewer = pr.author() != null && currentLogin != null
-                && pr.author().equalsIgnoreCase(currentLogin);
+        boolean authorIsReviewer = pr.origin() == PullRequest.Origin.AUTHORED;
         String mode = authorIsReviewer ? MODE_AUTHOR : MODE_SUGGESTED;
 
         String headRepo = requireText(raw.headRepo(), "PR head repository");
         String ws = resolveWorkspace(
                 workspaceId, repo, headRepo, authorIsReviewer);
-
-        // author-mode: best-effort pre-fetch of pr.head so the branch is
-        // available locally for the trunk to cut a task worktree off.
-        if (authorIsReviewer) {
-            Path clone = resolveClonePath(headRepo);
-            if (clone != null) {
-                try {
-                    git.fetchPrRefs(clone, prNumber, raw.baseRef());
-                }
-                catch (Exception e) {
-                    log.warn("Pre-fetch of PR #{} head into {} failed (the build agent can fetch "
-                            + "it itself): {}", prNumber, clone, e.getMessage());
-                }
-            }
-        }
 
         String opening = renderOpeningTurn(
                 prNumber, pr.title(), selected, mode, raw.headRef());
@@ -339,9 +326,6 @@ public class ReviewBuildSpawnService
     String renderOpeningTurn(int prNumber, String prTitle, List<ReviewFinding> eligible, String mode, String headRef)
     {
         String branch = headRef == null || headRef.isBlank() ? "the PR head branch" : headRef;
-        String modeSuffix = MODE_AUTHOR.equals(mode)
-                ? ""
-                : " (or as suggested-change comments on PR #" + prNumber + " if you can't push)";
         // Deterministic order: severity desc, then id asc — so the same
         // findings always render byte-identically.
         List<ReviewFinding> ordered = eligible.stream()
@@ -352,7 +336,7 @@ public class ReviewBuildSpawnService
         StringBuilder sb = new StringBuilder();
         sb.append("Review of PR #").append(prNumber)
                 .append(" (").append(prTitle == null ? "" : prTitle).append(") terminated with the ")
-                .append("following AGREED findings (").append(ordered.size())
+                .append("following included findings (").append(ordered.size())
                 .append(", all severity >= MAJOR):\n\n");
         int n = 1;
         for (ReviewFinding f : ordered) {
@@ -371,9 +355,25 @@ public class ReviewBuildSpawnService
             }
             sb.append(" · #finding-").append(f.id()).append('\n');
         }
-        sb.append("\nAddress them on `").append(branch).append('`').append(modeSuffix)
-                .append(". Split into separate Tasks if it helps; the trunk plans, the Tasks do.\n");
+        if (MODE_AUTHOR.equals(mode)) {
+            sb.append("\nAddress them on `").append(branch)
+                    .append("`. Split into separate Tasks if it helps; ")
+                    .append("the trunk plans, the Tasks do.\n");
+        }
+        else {
+            sb.append("\nReview the immutable frozen suggested-change comments ")
+                    .append("for PR #").append(prNumber)
+                    .append(", then explicitly approve or discard them. ")
+                    .append("This comment-only build never creates a Task or ")
+                    .append("writable worktree.\n");
+        }
         return sb.toString();
+    }
+
+    private static boolean isIncluded(ReviewFinding finding)
+    {
+        return finding.status() == ReviewFindingStatus.AGREED
+                || finding.status() == ReviewFindingStatus.ARBITRATED;
     }
 
     private static String reporterOf(ReviewFinding f)

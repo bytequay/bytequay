@@ -99,7 +99,7 @@ final class ReviewToolSchemas
             "dispatch_to_reviewer",
             "Send a directive to one reviewer seat and get its reply. The body MUST "
                     + "@-mention the reviewer's label. Multiple dispatches in one turn "
-                    + "run in parallel. Pass finding_id when debating one finding so its "
+                    + "run serially in dispatch order. Pass finding_id when debating one finding so its "
                     + "debate budget is metered.",
             """
             {"type":"object","properties":{

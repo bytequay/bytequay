@@ -13,41 +13,31 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
 import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
-import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.HandledAction;
-import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
-import com.bytequay.app.domain.PRTimelineEntry;
-import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.threads.TaskService;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +50,7 @@ import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Orchestration coverage for saga delegation and explicit remote PR actions. */
@@ -69,8 +60,6 @@ class TestPRPublishService
 
     private final PRService prService = mock(PRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
-    private final GitRunner git = mock(GitRunner.class);
     private final PullRequestRepository pullRequests = mock(PullRequestRepository.class);
     private final PatResolver patResolver = mock(PatResolver.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
@@ -86,13 +75,12 @@ class TestPRPublishService
             new PRPublishService(
                     prService, taskStore, pullRequests, patResolver, brainReview,
                     pullRequestDetails, readyToMerge, taskService, pushSaga,
-                    v2Controls, v2UserRemoteActions, Runnable::run);
+                    v2Controls, v2UserRemoteActions);
 
     {
         when(prService.comments(anyString())).thenReturn(List.of());
         when(taskStore.findWorkflowVersion(anyString()))
                 .thenReturn(Optional.of("LEGACY"));
-        when(watchedRepos.findAll()).thenReturn(List.of());
         when(pullRequestDetails.fetchFreshPullRequestDetail(anyString(), anyInt())).thenReturn(liveDetail);
         when(readyToMerge.isReadyForMerge(nullable(String.class), eq(liveDetail))).thenReturn(true);
     }
@@ -108,6 +96,22 @@ class TestPRPublishService
         return PR.create("pr1", "task1", "feature/x", "main", "Add cache", "desc", NOW)
                 .withRemote("acme/widget", 145, "https://github.com/acme/widget/pull/145", NOW)
                 .withStatus(status, NOW);
+    }
+
+    private PR standalonePr(String status)
+    {
+        return PR.create("pr1", null, "feature/x", "main", "Add cache", "desc", NOW)
+                .withStatus(status, NOW);
+    }
+
+    private PR standalonePushedPr(String status)
+    {
+        return PR.createExternal(
+                "pr1", "acme/widget", 145,
+                "https://github.com/acme/widget/pull/145", "@octocat",
+                "feature/x", "main", "Add cache", "desc", status, NOW,
+                PR.STATUS_MERGED.equals(status) ? NOW : null,
+                PR.STATUS_CLOSED.equals(status) ? NOW : null);
     }
 
     private Task task()
@@ -154,10 +158,55 @@ class TestPRPublishService
         when(prService.findById("pr1")).thenReturn(Optional.of(local));
         when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
 
-        assertThat(service.push("pr1", true)).isSameAs(local);
+        assertThat(service.push("push-command", "pr1", true)).isSameAs(local);
 
-        verify(v2Controls).approveAndShip("task1", "pr1", true);
+        verify(v2Controls).approveAndShip(
+                "push-command", "task1", "pr1", true);
         verify(pushSaga, never()).push(anyString(), anyBoolean());
+    }
+
+    @Test
+    void genericRemoteWriteResolverReturnsTheTaskPrForV2Ownership()
+    {
+        PR remote = pushedPr(PR.STATUS_REMOTE_OPEN);
+        when(prService.findTaskByRepoAndNumber("acme/widget", 145))
+                .thenReturn(Optional.of(remote));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        assertThat(service.findV2TaskPullRequest("acme/widget", 145))
+                .containsSame(remote);
+    }
+
+    @Test
+    void genericRemoteWriteResolverFailsClosedForActiveV2TaskWithoutLocalPrIdentity()
+    {
+        when(prService.findTaskByRepoAndNumber("acme/widget", 145))
+                .thenReturn(Optional.empty());
+        when(taskStore.findActiveTaskByPrRef("acme/widget#145"))
+                .thenReturn(Optional.of(task()));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        assertThatThrownBy(() -> service.findV2TaskPullRequest("acme/widget", 145))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> {
+                            assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                            assertThat(error.getReason()).contains("local PR identity is unavailable");
+                        });
+    }
+
+    @Test
+    void genericRemoteWriteResolverFailsClosedWhenTaskRouteIsMissing()
+    {
+        when(prService.findTaskByRepoAndNumber("acme/widget", 145))
+                .thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.findV2TaskPullRequest("acme/widget", 145))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        error -> {
+                            assertThat(error.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                            assertThat(error.getReason()).contains("no immutable workflow route");
+                        });
     }
 
     @Test
@@ -167,9 +216,10 @@ class TestPRPublishService
         when(prService.findById("pr1")).thenReturn(Optional.of(remote));
         when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
 
-        assertThat(service.merge("pr1", "squash")).isSameAs(remote);
+        assertThat(service.merge("merge-command", "pr1", "squash"))
+                .isSameAs(remote);
 
-        verify(v2Controls).merge("task1", "squash");
+        verify(v2Controls).merge("merge-command", "task1", "squash");
         verify(pullRequests, never()).mergePullRequest(any(), any(), any());
         verify(taskService, never()).completeTasksForMergedPr(anyString(), anyInt());
     }
@@ -286,616 +336,141 @@ class TestPRPublishService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no immutable workflow route");
 
-        verify(v2Controls, never()).approveAndShip(any(), any(), anyBoolean());
+        verify(v2Controls, never()).approveAndShip(
+                any(), any(), any(), anyBoolean());
         verify(pushSaga, never()).push(anyString(), anyBoolean());
     }
 
     @Test
-    void onPushedElsewhereAdvancesALocalOpenRowToRemoteDrafted()
+    void historicalPushEventsCannotReenterLegacyReconciliation()
     {
-        // Mirrors a push/open_pr gate or the ship/next tool flow — none of
-        // which call this service's own push(), so the row would otherwise
-        // stay stuck offering "ready to push" for a push that already
-        // happened.
-        when(prService.findByTask("task1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-
-        service.onPushedElsewhere(new PrPushedEvent("task1", "acme/widget", 145, "https://github.com/acme/widget/pull/145"));
-
-        verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
-        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
-    }
-
-    @Test
-    void pushedElsewhereListenerHandsWorkOffTheCommittingThread()
-    {
-        AtomicReference<Runnable> submitted = new AtomicReference<>();
-        PRPublishService asynchronous = new PRPublishService(
-                prService, taskStore, pullRequests, patResolver, brainReview,
-                pullRequestDetails, readyToMerge, taskService, pushSaga,
-                v2Controls, v2UserRemoteActions, submitted::set);
-        when(prService.findByTask("task1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        PrPushedEvent event = new PrPushedEvent(
+        assertThatThrownBy(() -> service.onPushedElsewhere(new PrPushedEvent(
                 "task1", "acme/widget", 145,
-                "https://github.com/acme/widget/pull/145");
+                "https://github.com/acme/widget/pull/145")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Historical LEGACY Task-owned PR");
 
-        asynchronous.onPushedElsewhere(event);
-
-        assertThat(submitted.get()).isNotNull();
         verify(pushSaga, never()).adoptRemotePullRequest(any(), any(), anyInt(), any());
-        submitted.get().run();
-        verify(prService).recordPush(
-                "pr1", "acme/widget", 145,
-                "https://github.com/acme/widget/pull/145");
-    }
-
-    @Test
-    void onPushedElsewhereLetsAnActiveSagaAdoptTheRemoteFact()
-    {
-        when(pushSaga.adoptRemotePullRequest(
-                "task1", "acme/widget", 145,
-                "https://github.com/acme/widget/pull/145"))
-                .thenReturn(true);
-
-        service.onPushedElsewhere(new PrPushedEvent(
-                "task1", "acme/widget", 145,
-                "https://github.com/acme/widget/pull/145"));
-
         verify(prService, never()).recordPush(any(), any(), anyInt(), any());
         verify(prService, never()).findByTask(any());
     }
 
     @Test
-    void onPushedElsewhereRunsTheBrainReviewFirstWhenStillLocalDrafted()
+    void historicalLocalReviewEventsCannotReenterLegacyAutoPush()
     {
-        when(prService.findByTask("task1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_DRAFTED)));
-        when(brainReview.reviewBeforeLocalOpen("pr1", PRTimelineEntry.ACTOR_AGENT))
-                .thenReturn(pr(PR.STATUS_LOCAL_OPEN));
+        assertThatThrownBy(() -> service.onLocalReviewCleared(
+                new LocalReviewClearedEvent("task1", "pr1", true)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Historical LEGACY Task-owned PR");
 
-        service.onPushedElsewhere(new PrPushedEvent("task1", "acme/widget", 145, "https://github.com/acme/widget/pull/145"));
-
-        verify(brainReview).reviewBeforeLocalOpen("pr1", PRTimelineEntry.ACTOR_AGENT);
-        verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
-    }
-
-    @Test
-    void onPushedElsewhereIsANoOpForATaskWithNoPr()
-    {
-        when(prService.findByTask("task-none")).thenReturn(Optional.empty());
-
-        service.onPushedElsewhere(new PrPushedEvent("task-none", "x/y", 145, "https://github.com/x/y/pull/145"));
-
-        verify(prService, never()).recordPush(any(), any(), anyInt(), any());
-    }
-
-    @Test
-    void onLocalReviewClearedRecordsTheAutoApprovedPushGateWhenAutoMergeIsOn()
-    {
-        when(taskStore.isAutoMerge("task1")).thenReturn(true);
-        when(pushSaga.push("pr1", false)).thenReturn(pushedPr(PR.STATUS_REMOTE_DRAFTED));
-
-        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
-
-        verify(pushSaga).push("pr1", false);
-        verify(prService).recordGateApproval("pr1", "push", "auto-merge");
-    }
-
-    @Test
-    void onLocalReviewClearedDoesNothingOnAnEscalationEvenWithAutoMergeOn()
-    {
-        when(taskStore.isAutoMerge("task1")).thenReturn(true);
-
-        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", false));
-
-        verify(pushSaga, never()).push(any(), anyBoolean());
-    }
-
-    @Test
-    void onLocalReviewClearedDoesNothingWithoutAutoMerge()
-    {
-        when(taskStore.isAutoMerge("task1")).thenReturn(false);
-
-        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
-
-        verify(pushSaga, never()).push(any(), anyBoolean());
-    }
-
-    @Test
-    void onLocalReviewClearedSwallowsAPushFailureLeavingTheManualButtonAsTheFallback()
-    {
-        // E.g. an open local comment thread — push()'s own precondition
-        // check throws; auto-merge just leaves it for the user to push
-        // manually rather than propagating the failure.
-        when(taskStore.isAutoMerge("task1")).thenReturn(true);
-        when(pushSaga.push("pr1", false)).thenThrow(
-                new ResponseStatusException(HttpStatus.CONFLICT, "not ready"));
-
-        service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
-
-        verify(pushSaga).push("pr1", false);
+        verify(pushSaga, never()).push(anyString(), anyBoolean());
         verify(prService, never()).recordGateApproval(any(), any(), any());
     }
 
     @Test
-    void mergeMergesTheRemotePrAndFlipsToMerged()
-            throws Exception
+    void externalRemoteWritesAuthorizeDurableReviewTrunkCommands()
     {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.mergePullRequest(eq("ghp"), eq(new PullRequestRef("acme", "widget", 145)), any()))
-                .thenReturn(new MergeResult("sha123", true, "Merged"));
-        PR merged = pushedPr(PR.STATUS_MERGED);
-        when(prService.recordMerged("pr1")).thenReturn(merged);
-
-        PR result = service.merge("pr1", "squash");
-
-        verify(pullRequests).mergePullRequest(
-                eq("ghp"), eq(new PullRequestRef("acme", "widget", 145)), any());
-        verify(prService).recordMerged("pr1");
-        verify(taskService).completeTasksForMergedPr("acme/widget", 145);
-        assertThat(result).isSameAs(merged);
-    }
-
-    @Test
-    void mergeRejectsAStillDraftPrWithoutMarkingItReady()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_DRAFTED)));
-
-        assertThatThrownBy(() -> service.merge("pr1", "squash"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("not an open, review-ready remote PR");
-
-        verify(pullRequests, never()).setPullRequestDraft(any(), any(), anyBoolean());
-        verify(pullRequests, never()).mergePullRequest(any(), any(), any());
-    }
-
-    @Test
-    void mergeRejectsAPrThatWasNeverPushed()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-
-        assertThatThrownBy(() -> service.merge("pr1", "squash"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("not an open, review-ready remote PR");
-    }
-
-    @Test
-    void mergeRejectsWhenFreshReadinessIsNotClear()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(readyToMerge.isReadyForMerge("task1", liveDetail)).thenReturn(false);
-
-        assertThatThrownBy(() -> service.merge("pr1", "squash"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("not ready to merge");
-
-        verify(pullRequestDetails).fetchFreshPullRequestDetail("acme/widget", 145);
-        verify(pullRequests, never()).mergePullRequest(any(), any(), any());
-        verify(pullRequests, never()).enqueuePullRequest(any(), any());
-    }
-
-    @Test
-    void mergeSurfacesGitHubRefusalWithoutFlipping()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        try {
-            when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                    .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-            when(pullRequests.mergePullRequest(any(), any(), any()))
-                    .thenReturn(new MergeResult(null, false, "not mergeable"));
-        }
-        catch (Exception e) {
-            throw new AssertionError(e);
-        }
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        assertThatThrownBy(() -> service.merge("pr1", "squash"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("did not merge");
-        verify(prService, never()).recordMerged(any());
-    }
-
-    @Test
-    void mergeEnqueuesInsteadOfMergingWhenTheBranchHasAMergeQueue()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        PullRequestRef ref = new PullRequestRef("acme", "widget", 145);
-        when(pullRequests.probeMergeQueue("ghp", ref))
-                .thenReturn(Optional.of(new PullRequestRepository.MergeQueueProbe("PR_nodeid123")));
-        when(pullRequests.enqueuePullRequest("ghp", "PR_nodeid123"))
-                .thenReturn(MergeResult.enqueued("Queued"));
-
-        PR result = service.merge("pr1", "squash");
-
-        verify(pullRequests, never()).mergePullRequest(any(), any(), any());
-        verify(prService, never()).recordMerged(any());
-        verify(taskService).authorizeMergeForPr("acme/widget", 145);
-        assertThat(result.status()).isEqualTo(PR.STATUS_REMOTE_OPEN);
-    }
-
-    @Test
-    void mergeFallsBackToEnqueueOnA405RequiringTheMergeQueue()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        PullRequestRef ref = new PullRequestRef("acme", "widget", 145);
-        // Probe sees no queue (a ruleset-driven queue GraphQL can't see), so a
-        // direct merge is attempted first and bounces with GitHub's 405.
-        when(pullRequests.mergePullRequest(eq("ghp"), eq(ref), any()))
-                .thenThrow(new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "requires merge queue"));
-        when(pullRequests.pullRequestNodeId("ghp", ref)).thenReturn(Optional.of("PR_nodeid456"));
-        when(pullRequests.enqueuePullRequest("ghp", "PR_nodeid456"))
-                .thenReturn(MergeResult.enqueued("Queued"));
-
-        PR result = service.merge("pr1", "squash");
-
-        verify(pullRequests).enqueuePullRequest("ghp", "PR_nodeid456");
-        verify(prService, never()).recordMerged(any());
-        verify(taskService).authorizeMergeForPr("acme/widget", 145);
-        assertThat(result.status()).isEqualTo(PR.STATUS_REMOTE_OPEN);
-    }
-
-    @Test
-    void dequeueRemovesThePrFromTheMergeQueue()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.dequeue("pr1");
-
-        verify(pullRequests).dequeuePullRequest("ghp", new PullRequestRef("acme", "widget", 145));
-    }
-
-    @Test
-    void deleteBranchDeletesOnGitHubAndStampsBranchDeletedAt()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_MERGED)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        PR deleted = pushedPr(PR.STATUS_MERGED);
-        when(prService.recordBranchDeleted("pr1")).thenReturn(deleted);
-
-        PR result = service.deleteBranch("pr1");
-
-        verify(pullRequests).deleteBranch("ghp", new PullRequestRef("acme", "widget", 145), "feature/x");
-        assertThat(result).isSameAs(deleted);
-    }
-
-    @Test
-    void deleteBranchRejectsAPrThatIsNotMerged()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-
-        assertThatThrownBy(() -> service.deleteBranch("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("is not merged");
-        verify(prService, never()).recordBranchDeleted(any());
-    }
-
-    @Test
-    void postCommentPublishesToThePushedPrAfterMerge()
-            throws Exception
-    {
-        PR merged = pushedPr(PR.STATUS_MERGED);
-        when(prService.findById("pr1")).thenReturn(Optional.of(merged));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        PR result = service.postComment("pr1", "  Thanks!  ");
-
-        verify(pullRequests).createIssueComment(
-                "ghp", new PullRequestRef("acme", "widget", 145), "Thanks!");
-        assertThat(result).isSameAs(merged);
-        // remote comes off the PR row, not the task's (possibly-gone) working dir
-        verify(taskStore, never()).findTaskById(any());
-    }
-
-    @Test
-    void mergeResolvesTheRemoteDirectlyForAnExternalPrWithoutTouchingAnyTask()
-            throws Exception
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        PullRequestRef ref = new PullRequestRef("acme", "widget", 99);
-        when(pullRequests.mergePullRequest(eq("ghp"), eq(ref), any()))
-                .thenReturn(new MergeResult("sha123", true, "Merged"));
-        when(prService.recordMerged("pr-ext")).thenReturn(externalPr());
-
-        service.merge("pr-ext", "squash");
-
-        verify(pullRequests).mergePullRequest(eq("ghp"), eq(ref), any());
-        verify(taskStore, never()).findTaskById(any());
-    }
-
-    @Test
-    void dequeueResolvesTheRemoteDirectlyForAnExternalPr()
-            throws Exception
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.dequeue("pr-ext");
-
-        verify(pullRequests).dequeuePullRequest("ghp", new PullRequestRef("acme", "widget", 99));
-        verify(taskStore, never()).findTaskById(any());
-    }
-
-    @Test
-    void deleteBranchResolvesTheRemoteDirectlyForAnExternalPr()
-            throws Exception
-    {
+        PR open = externalPr();
         PR merged = new PR(
-                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_MERGED, NOW,
-                null, 99, "https://github.com/acme/widget/pull/99", null, NOW, null,
+                "pr-merged", null, "feature/merged", "main", "Merged change", "",
+                PR.STATUS_MERGED, NOW, null, 100,
+                "https://github.com/acme/widget/pull/100", null, NOW, null,
                 PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(merged));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(prService.recordBranchDeleted("pr-ext")).thenReturn(merged);
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(open));
+        when(prService.findById("pr-merged")).thenReturn(Optional.of(merged));
 
-        service.deleteBranch("pr-ext");
+        assertThat(service.merge(
+                "merge-command", "pr-ext", "squash")).isSameAs(open);
+        assertThat(service.dequeue(
+                "dequeue-command", "pr-ext")).isSameAs(open);
+        assertThat(service.deleteBranch(
+                "delete-command", "pr-merged")).isSameAs(merged);
+        assertThat(service.postComment(
+                "comment-command", "pr-ext", "  Thanks!  ")).isSameAs(open);
 
-        verify(pullRequests).deleteBranch("ghp", new PullRequestRef("acme", "widget", 99), "feature/y");
-        verify(taskStore, never()).findTaskById(any());
+        verify(v2UserRemoteActions).authorizeExternal(
+                "merge-command", "pr-ext", SemanticAction.MERGE,
+                ActionPayload.value("squash"));
+        verify(v2UserRemoteActions).authorizeExternal(
+                "dequeue-command", "pr-ext", SemanticAction.DEQUEUE,
+                ActionPayload.empty());
+        verify(v2UserRemoteActions).authorizeExternal(
+                "delete-command", "pr-merged",
+                SemanticAction.DELETE_REMOTE_BRANCH,
+                new ActionPayload(
+                        1, null, null, "feature/merged", List.of()));
+        verify(v2UserRemoteActions).authorizeExternal(
+                "comment-command", "pr-ext", null,
+                SemanticAction.POST_TOP_LEVEL_COMMENT,
+                ActionPayload.body("Thanks!"), HandledAction.COMMENTED.name());
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void externalReviewFreezesSelectionForAsynchronousFinalization()
+    {
+        PR open = externalPr();
+        PRComment selected = draft(
+                "cm1", PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 42, "Fix this.");
+        PRComment excluded = draft(
+                "cm2", PRComment.SCOPE_PR, null, null, "Keep local.");
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(open));
+        when(prService.comments("pr-ext"))
+                .thenReturn(List.of(selected, excluded));
+
+        assertThat(service.publishReview(
+                "review-command", "pr-ext", "APPROVE",
+                List.of(), List.of("cm1"), "Looks good.")).isSameAs(open);
+
+        verify(v2UserRemoteActions).publishExternalReview(
+                "review-command", "pr-ext", null, "APPROVE", "Looks good.",
+                List.of(selected), HandledAction.APPROVED);
+        verify(prService, never()).markPublished(anyString(), any());
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void tasklessRemoteWritesWithoutStableCommandFailClosed()
+    {
+        assertThatThrownBy(() -> service.merge("pr-ext", "squash"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Idempotency-Key is required");
+        assertThatThrownBy(() -> service.dequeue("pr-ext"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Idempotency-Key is required");
+        assertThatThrownBy(() -> service.deleteBranch("pr-ext"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Idempotency-Key is required");
+        assertThatThrownBy(() -> service.postComment("pr-ext", "Thanks!"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Idempotency-Key is required");
+        assertThatThrownBy(() -> service.publishReview("pr-ext"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Idempotency-Key is required");
+
+        verifyNoInteractions(v2UserRemoteActions, pullRequests);
     }
 
     private PR externalPr()
     {
         return new PR(
-                "pr-ext", null, "feature/y", "main", "Fix flaky test", "", PR.STATUS_REMOTE_OPEN, NOW,
-                null, 99, "https://github.com/acme/widget/pull/99", null, null, null,
+                "pr-ext", null, "feature/y", "main", "Fix flaky test", "",
+                PR.STATUS_REMOTE_OPEN, NOW, null, 99,
+                "https://github.com/acme/widget/pull/99", null, null, null,
                 PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
     }
 
-    private PR dashboardPr(PullRequest.Origin watchReason)
+    private static PRComment draft(
+            String id,
+            String scope,
+            String filePath,
+            Integer lineNumber,
+            String body)
     {
-        return externalPr().withGithubSync(new PR.PRSyncSnapshot(
-                watchReason, NOW, List.of(), Map.of(), false, null, 0, 0, 0,
-                null, null, null, null, Map.of(), List.of(), false, null));
-    }
-
-    private static PRComment draft(String id, String scope, String filePath, Integer lineNumber, String body)
-    {
-        return new PRComment(id, "pr-ext", PRComment.ORIGIN_LOCAL, scope,
-                filePath, lineNumber, "you", body, NOW, null, null, null, null, null,
+        return new PRComment(
+                id, "pr-ext", PRComment.ORIGIN_LOCAL, scope, filePath,
+                lineNumber, "you", body, NOW, null, null, null, null, null,
                 "RIGHT", null, null);
-    }
-
-    @Test
-    void publishReviewBatchesDraftsIntoOneGitHubReviewThenMarksThemPublished()
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        PRComment prLevel = draft("cm1", PRComment.SCOPE_PR, null, null, "Nice work overall.");
-        PRComment lineLevel = draft("cm2", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Fix this.");
-        when(prService.comments("pr-ext")).thenReturn(List.of(prLevel, lineLevel));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr-ext");
-
-        verify(pullRequests).createReview(eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), any());
-        verify(prService).markPublished(eq("cm1"), any());
-        verify(prService).markPublished(eq("cm2"), any());
-    }
-
-    @Test
-    void publishReviewPreservesMultiLineCommentRanges()
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        PRComment ranged = new PRComment(
-                "cm-range", "pr-ext", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
-                "src/Foo.java", 42, "agent", "Guard this range.", NOW,
-                null, null, null, null, null, "RIGHT", 40, "RIGHT");
-        when(prService.comments("pr-ext")).thenReturn(List.of(ranged));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr-ext");
-
-        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
-        verify(pullRequests).createReview(
-                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
-        assertThat(command.getValue().comments()).singleElement().satisfies(comment -> {
-            assertThat(comment.path()).isEqualTo("src/Foo.java");
-            assertThat(comment.line()).contains(42);
-            assertThat(comment.startLine()).contains(40);
-            assertThat(comment.startSide()).contains("RIGHT");
-        });
-    }
-
-    @Test
-    void publishReviewSkipsResolvedLocalDrafts()
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        PRComment pending = draft(
-                "cm1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Publish this.");
-        PRComment resolved = draft(
-                "cm2", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 43, "Already resolved.")
-                .withResolved(NOW, PRTimelineEntry.ACTOR_USER);
-        when(prService.comments("pr-ext")).thenReturn(List.of(pending, resolved));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr-ext");
-
-        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
-        verify(pullRequests).createReview(
-                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
-        assertThat(command.getValue().comments()).singleElement()
-                .extracting(comment -> comment.body()).isEqualTo("Publish this.");
-        verify(prService).markPublished(eq("cm1"), any());
-        verify(prService, never()).markPublished(eq("cm2"), any());
-    }
-
-    @Test
-    void publishReviewSkipsThreadRepliesAsSeparateReviewRoots()
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        PRComment root = draft(
-                "cm1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Publish this root.");
-        PRComment reply = new PRComment(
-                "cm2", "pr-ext", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
-                "src/Foo.java", 42, "you", "Keep this reply local.", NOW,
-                null, null, null, "cm1", null, "RIGHT", null, null);
-        when(prService.comments("pr-ext")).thenReturn(List.of(root, reply));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr-ext");
-
-        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
-        verify(pullRequests).createReview(
-                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
-        assertThat(command.getValue().comments()).singleElement()
-                .extracting(comment -> comment.body()).isEqualTo("Publish this root.");
-        verify(prService).markPublished(eq("cm1"), any());
-        verify(prService, never()).markPublished(eq("cm2"), any());
-    }
-
-    @Test
-    void explicitEmptySelectionApprovesWithoutPublishingPendingDrafts()
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        PRComment pending = draft("cm1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Do not publish me.");
-        when(prService.comments("pr-ext")).thenReturn(List.of(pending));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr-ext", "APPROVE", List.of(), List.of());
-
-        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
-        verify(pullRequests).createReview(
-                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
-        assertThat(command.getValue().event()).isEqualTo("APPROVE");
-        assertThat(command.getValue().body()).isEmpty();
-        assertThat(command.getValue().comments()).isEmpty();
-        verify(prService, never()).markPublished(eq("cm1"), any());
-    }
-
-    @Test
-    void publishReviewIncludesTheOverallReviewBody()
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        when(prService.comments("pr-ext")).thenReturn(List.of());
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr-ext", "APPROVE", List.of(), List.of(), "Looks good to me.");
-
-        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
-        verify(pullRequests).createReview(
-                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
-        assertThat(command.getValue().event()).isEqualTo("APPROVE");
-        assertThat(command.getValue().body()).contains("Looks good to me.");
-    }
-
-    @Test
-    void publishedReviewsClearTheDashboardReviewRequestWithTheirVerdict()
-    {
-        when(prService.findById("pr-ext"))
-                .thenReturn(Optional.of(dashboardPr(PullRequest.Origin.REVIEW_REQUESTED)));
-        when(prService.comments("pr-ext")).thenReturn(List.of());
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr-ext", "APPROVE", List.of(), List.of(), "Looks good.");
-        service.publishReview("pr-ext", "COMMENT", List.of(), List.of(), "Please check this.");
-        service.publishReview("pr-ext", "REQUEST_CHANGES", List.of(), List.of(), "Please revise this.");
-
-        verify(prService).markHandled("pr-ext", HandledAction.APPROVED);
-        verify(prService).markHandled("pr-ext", HandledAction.COMMENTED);
-        verify(prService).markHandled("pr-ext", HandledAction.CHANGES_REQUESTED);
-    }
-
-    @Test
-    void topLevelCommentClearsOnlyADashboardReviewRequest()
-    {
-        when(prService.findById("pr-ext"))
-                .thenReturn(Optional.of(dashboardPr(PullRequest.Origin.REVIEW_REQUESTED)));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.postComment("pr-ext", "Thanks!");
-
-        verify(prService).markHandled("pr-ext", HandledAction.COMMENTED);
-    }
-
-    @Test
-    void commentOnAnAuthoredPrDoesNotChangeDashboardTriage()
-    {
-        when(prService.findById("pr-ext"))
-                .thenReturn(Optional.of(dashboardPr(PullRequest.Origin.AUTHORED)));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.postComment("pr-ext", "Thanks!");
-
-        verify(prService, never()).markHandled(anyString(), any());
-    }
-
-    @Test
-    void publishReviewPublishesTaskPrOnceItReachesTheRemoteStage()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        PRComment fresh = new PRComment(
-                "cm-task", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
-                "src/Foo.java", 10, "you", "Reviewing the remote PR.", NOW,
-                null, null, null, null, null, "RIGHT", null, null);
-        when(prService.comments("pr1")).thenReturn(List.of(fresh));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr1");
-
-        verify(pullRequests).createReview(eq("ghp"), eq(new PullRequestRef("acme", "widget", 145)), any());
-        verify(prService).markPublished(eq("cm-task"), any());
-    }
-
-    @Test
-    void publishReviewStillRejectsALocalPhaseTaskPrWithNoRemoteIdentity()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-
-        assertThatThrownBy(() -> service.publishReview("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no remote identity");
-
-        verify(pullRequests, never()).createReview(any(), any(), any());
-    }
-
-    @Test
-    void publishReviewExcludesTaskDraftsStrippedOnPush()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        PRComment stripped = new PRComment(
-                "cm-stripped", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, "you", "Drafted before the push — stays private.", NOW,
-                null, null, NOW, null, null, "RIGHT", null, null);
-        PRComment fresh = new PRComment(
-                "cm-fresh", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, "you", "Drafted while reviewing the remote PR.", NOW,
-                null, null, null, null, null, "RIGHT", null, null);
-        when(prService.comments("pr1")).thenReturn(List.of(stripped, fresh));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-
-        service.publishReview("pr1");
-
-        verify(prService).markPublished(eq("cm-fresh"), any());
-        verify(prService, never()).markPublished(eq("cm-stripped"), any());
-    }
-
-    @Test
-    void publishReviewRejectsWhenThereAreNoDraftsToPublish()
-    {
-        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
-        when(prService.comments("pr-ext")).thenReturn(List.of());
-
-        assertThatThrownBy(() -> service.publishReview("pr-ext"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no draft comments");
-        verify(pullRequests, never()).createReview(any(), any(), any());
     }
 }

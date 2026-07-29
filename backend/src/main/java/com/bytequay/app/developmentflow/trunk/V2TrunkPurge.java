@@ -129,6 +129,62 @@ public final class V2TrunkPurge
                         WHERE thread_id = ? AND workflow_version = 'V2')
                     """, trunkId);
         }
+        if (tableExists("review_build_comment_proposal_v287")) {
+            jdbc.update("""
+                    DELETE FROM review_build_comment_dispatch_v287
+                    WHERE action_id IN (
+                        SELECT id FROM review_build_comment_action_v287
+                        WHERE thread_id = ?)
+                    """, trunkId);
+            jdbc.update("""
+                    DELETE FROM review_build_comment_action_v287
+                    WHERE thread_id = ?
+                    """, trunkId);
+            jdbc.update("""
+                    DELETE FROM review_build_comment_proposal_item_v287
+                    WHERE thread_id = ?
+                    """, trunkId);
+            jdbc.update("""
+                    DELETE FROM review_build_comment_proposal_v287
+                    WHERE thread_id = ?
+                    """, trunkId);
+        }
+        if (tableExists("review_pass_publication_v288")) {
+            jdbc.update("""
+                    DELETE FROM review_pass_publication_dispatch_v288
+                    WHERE publication_id IN (
+                        SELECT id FROM review_pass_publication_v288
+                        WHERE thread_id = ?)
+                    """, trunkId);
+            jdbc.update("""
+                    DELETE FROM review_pass_publication_item_v288
+                    WHERE publication_id IN (
+                        SELECT id FROM review_pass_publication_v288
+                        WHERE thread_id = ?)
+                    """, trunkId);
+            jdbc.update("""
+                    DELETE FROM review_pass_publication_v288
+                    WHERE thread_id = ?
+                    """, trunkId);
+        }
+        if (tableExists("external_pr_action_v289")) {
+            jdbc.update("""
+                    DELETE FROM external_pr_action_draft_v289
+                    WHERE action_id IN (
+                        SELECT id FROM external_pr_action_v289
+                        WHERE thread_id = ?)
+                    """, trunkId);
+            jdbc.update("""
+                    DELETE FROM external_pr_action_dispatch_v289
+                    WHERE action_id IN (
+                        SELECT id FROM external_pr_action_v289
+                        WHERE thread_id = ?)
+                    """, trunkId);
+            jdbc.update("""
+                    DELETE FROM external_pr_action_v289
+                    WHERE thread_id = ?
+                    """, trunkId);
+        }
         jdbc.update("""
                 DELETE FROM review_build_outcome_receipt
                 WHERE thread_id = ?

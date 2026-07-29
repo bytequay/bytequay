@@ -301,7 +301,7 @@ public final class V2StageApiService
 
     /**
      * Streams newly committed V2 execution evidence. One virtual thread waits
-     * per open SSE connection; no AgentScheduler or legacy runtime is touched.
+     * per open SSE connection; no legacy runtime is touched.
      */
     public Runnable subscribe(
             String taskId, String stageId, Consumer<StreamEvent> listener)

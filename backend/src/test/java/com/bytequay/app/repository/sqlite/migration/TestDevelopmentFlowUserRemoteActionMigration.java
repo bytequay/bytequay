@@ -21,8 +21,10 @@ import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperati
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionStatus;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ClaimMode;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.FrozenDraft;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
@@ -31,6 +33,8 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.time.Instant;
@@ -45,6 +49,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.number;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk;
+import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -83,6 +88,35 @@ class TestDevelopmentFlowUserRemoteActionMigration
                 WHERE type = 'table' AND name = 'v2_user_remote_action_v270'
                 """, String.class))
                 .contains("attempt_count <= attempt_limit");
+    }
+
+    @Test
+    void fullUpgradeThroughV284KeepsTheCurrentCodeViewValid()
+            throws Exception
+    {
+        String url = database("v284-after-ci-trigger.db");
+
+        migrate(url, "284");
+
+        try (Connection connection = connect(url)) {
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM sqlite_master
+                    WHERE type = 'view'
+                      AND name = 'task_current_code_subject_v230'
+                      AND sql LIKE '%remote_worktree_subject%'
+                      AND sql NOT LIKE '%remote_worktree_subject_v248_pre_v283%'
+                    """)).isOne();
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM sqlite_master
+                    WHERE type = 'trigger'
+                      AND name = 'task_pause_evidence_insert'
+                    """)).isOne();
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM task_current_code_subject_v230
+                    """)).isZero();
+            assertThat(number(connection,
+                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
+        }
     }
 
     @Test
@@ -338,7 +372,202 @@ class TestDevelopmentFlowUserRemoteActionMigration
                 """, Integer.class, action.id())).isOne();
     }
 
+    @Test
+    void v282BackfillsLegacyRowsAndKeepsThemReadable()
+            throws Exception
+    {
+        String url = upgradedDatabaseAt270("legacy-semantic-action.db");
+        try (Connection connection = connect(url)) {
+            execute(connection, """
+                    INSERT INTO v2_user_remote_action_v270(
+                        id, operation_id, task_id, command_id, task_epoch,
+                        remote_stage_id, stage_generation,
+                        remote_pr_binding_id, pr_id, kind,
+                        remote_repository_id, head_repository_id,
+                        remote_pr_number, branch_name, expected_head_sha,
+                        expected_base_sha, payload_json, payload_digest,
+                        handled_action, attempt_limit, authorized_by,
+                        authorized_at_ms, status)
+                    VALUES (
+                        'legacy-action', 'legacy-operation', 'task-1',
+                        'legacy-command', 1, 'remote-stage-1', 1,
+                        'binding-1', 'pr-1', 'POST_TOP_LEVEL_COMMENT',
+                        'acme/widget', 'acme/widget', 41, 'dev/task-1',
+                        'head-1', 'base-1',
+                        '{"version":1,"body":"legacy","reviewAction":null,'
+                            || '"branchName":null,"drafts":[]}',
+                        lower(hex(randomblob(32))), 'COMMENTED', 3, 'user',
+                        1000, 'REQUESTED')
+                    """);
+        }
+
+        migrateSemanticActionProtocol(url);
+
+        Action legacy = store(url).requireById("legacy-action");
+        assertThat(legacy.kind()).isEqualTo(ActionKind.POST_TOP_LEVEL_COMMENT);
+        assertThat(legacy.semanticAction())
+                .isEqualTo(SemanticAction.POST_TOP_LEVEL_COMMENT);
+        assertThat(legacy.payload().body()).isEqualTo("legacy");
+    }
+
+    @Test
+    void parityActionsUseOneFencedWireProtocolAndStableCommandIdentity()
+            throws Exception
+    {
+        String url = upgradedDatabase("parity-user-actions.db");
+        SqliteUserRemoteActionStore store = store(url);
+        List<ParityCase> cases = List.of(
+                parity(SemanticAction.RERUN_FAILED_CHECKS,
+                        ActionPayload.empty()),
+                parity(SemanticAction.SET_DRAFT_STATE,
+                        ActionPayload.selected(null, true)),
+                parity(SemanticAction.UPDATE_TITLE,
+                        ActionPayload.value("New title")),
+                parity(SemanticAction.UPDATE_BODY,
+                        ActionPayload.body("New body")),
+                parity(SemanticAction.CLOSE_PULL_REQUEST,
+                        ActionPayload.empty()),
+                parity(SemanticAction.COMMENT_AND_CLOSE,
+                        ActionPayload.body("Closing")),
+                parity(SemanticAction.REPLY_REVIEW_THREAD,
+                        ActionPayload.targetBody("10", "Reply")),
+                parity(SemanticAction.EDIT_ISSUE_COMMENT,
+                        ActionPayload.targetBody("11", "Edited")),
+                parity(SemanticAction.EDIT_REVIEW_COMMENT,
+                        ActionPayload.targetBody("12", "Edited")),
+                parity(SemanticAction.DELETE_ISSUE_COMMENT,
+                        ActionPayload.target("13")),
+                parity(SemanticAction.DELETE_REVIEW_COMMENT,
+                        ActionPayload.target("14")),
+                parity(SemanticAction.ADD_REVIEWER,
+                        ActionPayload.value("alice")),
+                parity(SemanticAction.REMOVE_REVIEWER,
+                        ActionPayload.value("bob")),
+                parity(SemanticAction.SET_ASSIGNEE,
+                        ActionPayload.selected("alice", true)),
+                parity(SemanticAction.SET_LABEL,
+                        ActionPayload.selected("bug", false)),
+                parity(SemanticAction.CREATE_INLINE_COMMENT,
+                        ActionPayload.inlineComment(
+                                "Inline", "src/A.java", 12, "RIGHT",
+                                null, null)),
+                parity(SemanticAction.REACT_PULL_REQUEST,
+                        ActionPayload.value("heart")),
+                parity(SemanticAction.REACT_REVIEW_COMMENT,
+                        ActionPayload.targetValue("15", "rocket")),
+                parity(SemanticAction.REACT_ISSUE_COMMENT,
+                        ActionPayload.targetValue("16", "+1")),
+                parity(SemanticAction.SET_THREAD_RESOLUTION,
+                        ActionPayload.targetSelected("17", true)));
+
+        for (int index = 0; index < cases.size(); index++) {
+            ParityCase parity = cases.get(index);
+            String commandId = "parity-command-" + index;
+            Action authorized = store.authorize(new AuthorizationRequest(
+                    "task-1", commandId, "pr-1", parity.action(),
+                    parity.payload(), null), NOW.plusMillis(index));
+            Action replay = store(url).authorize(new AuthorizationRequest(
+                    "task-1", commandId, "pr-1", parity.action(),
+                    parity.payload(), null), NOW.plusSeconds(1));
+
+            assertThat(authorized.kind()).isEqualTo(ActionKind.DEQUEUE);
+            assertThat(authorized.semanticAction()).isEqualTo(parity.action());
+            assertThat(replay.id()).isEqualTo(authorized.id());
+            assertThat(authorized.stageId()).isEqualTo("remote-stage-1");
+            assertThat(authorized.headSha()).isEqualTo("head-1");
+            assertThat(authorized.baseSha()).isEqualTo("base-1");
+        }
+        assertThat(jdbc(url).queryForObject("""
+                SELECT COUNT(*) FROM v2_user_remote_action_v270
+                WHERE kind = 'DEQUEUE' AND semantic_action <> 'DEQUEUE'
+                """, Integer.class)).isEqualTo(cases.size());
+        assertThatThrownBy(() -> store.authorize(new AuthorizationRequest(
+                "task-1", "parity-command-0", "pr-1",
+                SemanticAction.UPDATE_BODY, ActionPayload.body("different"),
+                null), NOW.plusSeconds(2)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("reused for a different request");
+    }
+
+    @Test
+    void emptyCommitCiTriggerOwnsBothLanesAndAdvancesWorktreeIdentity()
+            throws Exception
+    {
+        String url = upgradedDatabase("empty-commit-ci-trigger.db");
+        SqliteUserRemoteActionStore store = store(url);
+        AuthorizationRequest request = new AuthorizationRequest(
+                "task-1", "trigger-ci-command", "pr-1",
+                SemanticAction.TRIGGER_CI_EMPTY_COMMIT,
+                ActionPayload.empty(), null);
+
+        Action action = store.authorize(request, NOW);
+
+        assertThat(action.worktreePath()).isNotBlank();
+        assertThat(action.expectedCodeFingerprint()).isNotBlank();
+        assertThat(jdbc(url).queryForObject("""
+                SELECT COUNT(*) FROM dispatch_ticket
+                WHERE operation_id = ? AND async_family = 'GITHUB_EFFECT'
+                  AND lane_mask = 48 AND exclusive_task = 1
+                  AND writer_required = 1
+                  AND expected_code_fingerprint = ?
+                  AND expected_head_sha = 'head-1'
+                  AND expected_base_sha = 'base-1'
+                """, Integer.class, action.operationId(),
+                action.expectedCodeFingerprint())).isOne();
+
+        Action claimed = store.claim(
+                action.id(), 0, ClaimMode.EXECUTE, "worker", NOW.plusMillis(1),
+                NOW.plusSeconds(30));
+        store.finishSucceeded(
+                action.id(), claimed.attemptCount(),
+                "ci-trigger-empty-commit:head-2", "exact empty commit proof",
+                NOW.plusMillis(2));
+
+        JdbcTemplate jdbc = jdbc(url);
+        assertThat(jdbc.queryForMap("""
+                SELECT source_kind, source_operation_id, code_fingerprint,
+                       head_sha, base_sha, revision
+                FROM remote_worktree_subject
+                WHERE source_operation_id = ?
+                """, action.operationId()))
+                .containsEntry("source_kind", "USER_CI_TRIGGER")
+                .containsEntry("code_fingerprint",
+                        action.expectedCodeFingerprint())
+                .containsEntry("head_sha", "head-2")
+                .containsEntry("base_sha", "base-1")
+                .containsEntry("revision", 1);
+        assertThat(jdbc.queryForObject("""
+                SELECT head_sha FROM task_current_code_subject_v230
+                WHERE task_id = 'task-1'
+                """, String.class)).isEqualTo("head-2");
+        assertThat(store(url).authorize(request, NOW.plusSeconds(1)).id())
+                .isEqualTo(action.id());
+    }
+
+    @Test
+    void titleAuthorizationRejectsTheLegacyUiOverflowLimit()
+            throws Exception
+    {
+        SqliteUserRemoteActionStore store = store(
+                upgradedDatabase("title-limit-user-actions.db"));
+
+        assertThatThrownBy(() -> store.authorize(new AuthorizationRequest(
+                "task-1", "long-title", "pr-1",
+                SemanticAction.UPDATE_TITLE, ActionPayload.value("x".repeat(257)),
+                null), NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("256");
+    }
+
     private String upgradedDatabase(String name)
+            throws Exception
+    {
+        String url = upgradedDatabaseAt270(name);
+        migrateSemanticActionProtocol(url);
+        return url;
+    }
+
+    private String upgradedDatabaseAt270(String name)
             throws Exception
     {
         String url = database(name);
@@ -366,9 +595,40 @@ class TestDevelopmentFlowUserRemoteActionMigration
         return url;
     }
 
+    private void migrateSemanticActionProtocol(String url)
+            throws Exception
+    {
+        Path migrations = tempDir.resolve("v282-v283-migrations");
+        Files.createDirectories(migrations);
+        for (String migration : List.of(
+                "V282__user_remote_action_semantic_identity.sql",
+                "V283__push_driven_ci_trigger.sql")) {
+            Path destination = migrations.resolve(migration);
+            if (!Files.exists(destination)) {
+                try (InputStream source = requireNonNull(
+                        getClass().getResourceAsStream(
+                                "/db/migration/" + migration))) {
+                    Files.copy(source, destination);
+                }
+            }
+        }
+        Flyway.configure()
+                .dataSource(url, null, null)
+                .locations("filesystem:" + migrations)
+                .validateOnMigrate(false)
+                .load()
+                .migrate();
+    }
+
     private static AuthorizationRequest commentRequest(String body)
     {
         return commentRequest("comment-command", body);
+    }
+
+    private static ParityCase parity(
+            SemanticAction action, ActionPayload payload)
+    {
+        return new ParityCase(action, payload);
     }
 
     private static AuthorizationRequest commentRequest(
@@ -409,4 +669,7 @@ class TestDevelopmentFlowUserRemoteActionMigration
         return "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
     }
+
+    private record ParityCase(
+            SemanticAction action, ActionPayload payload) {}
 }

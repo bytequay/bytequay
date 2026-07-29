@@ -53,7 +53,7 @@ class TestReviewAssignmentTurnUserWait
         ContinuationCandidate candidate = new ContinuationCandidate(
                 "review-turn-1", "review-operation-1", "round-1",
                 "assignment-1", "head-1", ReviewAssignmentTurnRuntime.INVESTIGATE,
-                "assignment-1", null, 2,
+                "assignment-1", null, 2, 500,
                 launch("review-turn-1", "review-operation-1"));
         when(store.userWaitCandidate(
                 "review-turn-1", "review-operation-1",
@@ -81,6 +81,7 @@ class TestReviewAssignmentTurnUserWait
         assertThat(continuation.subjectKey()).isEqualTo("assignment-1");
         assertThat(continuation.startCommit()).isEqualTo("head-1");
         assertThat(continuation.attempt()).isEqualTo(3);
+        assertThat(continuation.costCapUsdMilli()).isEqualTo(500);
         AgentTurnOperationHandler.LaunchInput launch = JSON.readValue(
                 continuation.launchInput(), AgentTurnOperationHandler.LaunchInput.class);
         assertThat(launch.prompt()).contains(

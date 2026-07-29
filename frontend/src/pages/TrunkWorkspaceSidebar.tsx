@@ -243,7 +243,7 @@ export function TrunkWorkspaceSidebar({
             <WorkspaceItem icon={<BacklogIcon />} label="Backlog" disabled
               disabledTitle="Backlog is managed inside each trunk"
               onClick={() => onNavigate?.('backlog')} />
-            <WorkspaceItem icon={<BranchIcon />} label="Branches"
+            <WorkspaceItem icon={<BranchIcon />} label="Branches" disabled
               onClick={() => onNavigate?.('branches')} />
             <WorkspaceItem icon={<CommitIcon />} label="Commits" onClick={() => onNavigate?.('commits')} />
             <WorkspaceItem icon={<HarnessIcon />} label="CI Harness"

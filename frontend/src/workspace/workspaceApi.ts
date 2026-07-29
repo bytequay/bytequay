@@ -33,6 +33,8 @@ export type WorkspaceSettingsDto = {
   sessionCapUsd: number;
   dailyCapUsd: number;
   pauseAtCap: boolean;
+  /** Null or absent inherits the application workspace ceiling. */
+  maxRunningTasks?: number | null;
   syncSeconds: number;
   brainBudgetChars: number;
   distillMinutes: number;

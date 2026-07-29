@@ -13,11 +13,20 @@
  */
 package com.bytequay.app.developmentflow.persistence;
 
+import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
+import com.bytequay.app.config.DevelopmentFlowExecutionConfig;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.SessionControlService;
+import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
+import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -32,12 +41,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.CLI;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.Denial.WORKSPACE_LIMIT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestSqliteCapacityLeaseStore
 {
@@ -169,6 +182,149 @@ class TestSqliteCapacityLeaseStore
     }
 
     @Test
+    void workspaceSettingSaveControlsSqliteAdmissionAndSignalsOnlyAfterCommit()
+            throws Exception
+    {
+        SqliteExecutionTestSupport.Database database = database(
+                "workspace-settings-capacity.db");
+        SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk-a");
+        SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk-b");
+        SqliteExecutionTestSupport.seedTask(database, "trunk-a", "task-a", 1);
+        SqliteExecutionTestSupport.seedTask(database, "trunk-b", "task-b", 1);
+        DispatchTicket firstTicket = SqliteExecutionTestSupport.requestedTaskTicket(
+                "ticket-a", "operation-a", "workspace", "trunk-a", "task-a",
+                NOW, VALIDATION, true, false);
+        DispatchTicket secondTicket = SqliteExecutionTestSupport.requestedTaskTicket(
+                "ticket-b", "operation-b", "workspace", "trunk-b", "task-b",
+                NOW, VALIDATION, true, false);
+        SqliteExecutionTestSupport.insertTicket(database, firstTicket);
+        SqliteExecutionTestSupport.insertTicket(database, secondTicket);
+
+        ObjectMapper mapper = new ObjectMapper();
+        SqliteCapacityLeaseStore store = new SqliteCapacityLeaseStore(
+                database.dataSource());
+        CapacityManager manager = manager(
+                store, policySource(mapper));
+        WorkspaceConfigurationService settings = workspaceSettings(
+                database, mapper, manager);
+        TransactionTemplate transactions = transactions(database);
+        AtomicInteger wakes = new AtomicInteger();
+        CountDownLatch committedWake = new CountDownLatch(1);
+        manager.onCapacityAvailable(() -> {
+            wakes.incrementAndGet();
+            committedWake.countDown();
+        });
+
+        transactions.executeWithoutResult(ignored -> {
+            settings.saveSettings("workspace", workspaceSettings(1));
+            assertThat(wakes).hasValue(0);
+        });
+        assertThat(committedWake.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(wakes).hasValue(1);
+
+        assertThat(manager.tryAcquireForTicket(
+                firstTicket.id(), firstTicket.envelope().capacityRequest(),
+                "worker-a").isAdmitted()).isTrue();
+        assertThat(manager.tryAcquireForTicket(
+                secondTicket.id(), secondTicket.envelope().capacityRequest(),
+                "worker-b").denial()).isEqualTo(WORKSPACE_LIMIT);
+
+        assertThatThrownBy(() -> transactions.executeWithoutResult(ignored -> {
+            settings.saveSettings("workspace", workspaceSettings(2));
+            assertThat(wakes).hasValue(1);
+            throw new IllegalStateException("rollback capacity settings");
+        }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("rollback capacity settings");
+        assertThat(wakes).hasValue(1);
+        assertThat(settings.settings("workspace").maxRunningTasks()).isEqualTo(1);
+        assertThat(manager.tryAcquireForTicket(
+                secondTicket.id(), secondTicket.envelope().capacityRequest(),
+                "worker-b").denial()).isEqualTo(WORKSPACE_LIMIT);
+    }
+
+    @Test
+    void loweringWorkspaceLimitBeforeAdmissionTransactionRejectsStalePolicy()
+            throws Exception
+    {
+        SqliteExecutionTestSupport.Database database = database(
+                "workspace-policy-lowering-race.db");
+        SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk-a");
+        SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk-b");
+        SqliteExecutionTestSupport.seedTask(database, "trunk-a", "task-a", 1);
+        SqliteExecutionTestSupport.seedTask(database, "trunk-b", "task-b", 1);
+        DispatchTicket firstTicket = SqliteExecutionTestSupport.requestedTaskTicket(
+                "ticket-a", "operation-a", "workspace", "trunk-a", "task-a",
+                NOW, VALIDATION, true, false);
+        DispatchTicket secondTicket = SqliteExecutionTestSupport.requestedTaskTicket(
+                "ticket-b", "operation-b", "workspace", "trunk-b", "task-b",
+                NOW, VALIDATION, true, false);
+        SqliteExecutionTestSupport.insertTicket(database, firstTicket);
+        SqliteExecutionTestSupport.insertTicket(database, secondTicket);
+
+        ObjectMapper mapper = new ObjectMapper();
+        CapacityManager.CapacityPolicySource policies = policySource(mapper);
+        SqliteCapacityLeaseStore firstStore = new SqliteCapacityLeaseStore(
+                database.dataSource());
+        CapacityManager first = manager(firstStore, policies);
+        WorkspaceConfigurationService settings = workspaceSettings(
+                database, mapper, first);
+        TransactionTemplate transactions = transactions(database);
+        transactions.executeWithoutResult(ignored ->
+                settings.saveSettings("workspace", workspaceSettings(2)));
+        assertThat(first.tryAcquireForTicket(
+                firstTicket.id(), firstTicket.envelope().capacityRequest(),
+                "worker-a").isAdmitted()).isTrue();
+
+        CountDownLatch beforeAdmissionTransaction = new CountDownLatch(1);
+        CountDownLatch continueAdmission = new CountDownLatch(1);
+        SqliteCapacityLeaseStore gatedStore = new SqliteCapacityLeaseStore(
+                SqliteExecutionTestSupport.dataSource(database.url()))
+        {
+            @Override
+            public <T> T inAdmissionTransaction(
+                    Function<CapacityManager.CapacityLeaseStore, T> work)
+            {
+                beforeAdmissionTransaction.countDown();
+                try {
+                    if (!continueAdmission.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException(
+                                "timed out waiting to continue admission");
+                    }
+                }
+                catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(
+                            "admission was interrupted", interrupted);
+                }
+                return super.inAdmissionTransaction(work);
+            }
+        };
+        CapacityManager second = manager(gatedStore, policies);
+        ExecutorService caller = Executors.newSingleThreadExecutor();
+        try {
+            Future<CapacityManager.Admission> admission = caller.submit(() ->
+                    second.tryAcquireForTicket(
+                            secondTicket.id(),
+                            secondTicket.envelope().capacityRequest(),
+                            "worker-b"));
+            assertThat(beforeAdmissionTransaction.await(2, TimeUnit.SECONDS)).isTrue();
+
+            transactions.executeWithoutResult(ignored ->
+                    settings.saveSettings("workspace", workspaceSettings(1)));
+            continueAdmission.countDown();
+
+            assertThat(admission.get(5, TimeUnit.SECONDS).denial())
+                    .isEqualTo(WORKSPACE_LIMIT);
+            assertThat(firstStore.listActive(NOW)).hasSize(1);
+        }
+        finally {
+            continueAdmission.countDown();
+            caller.shutdownNow();
+        }
+    }
+
+    @Test
     void reportsRouteAndEpochConstraintFailuresInsteadOfCapacityDenial()
     {
         SqliteExecutionTestSupport.Database database = database("capacity-fence.db");
@@ -206,6 +362,54 @@ class TestSqliteCapacityLeaseStore
                 () -> policy,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 Duration.ofSeconds(30));
+    }
+
+    private CapacityManager manager(
+            SqliteCapacityLeaseStore store,
+            CapacityManager.CapacityPolicySource policies)
+    {
+        return new CapacityManager(
+                store, policies, Clock.fixed(NOW, ZoneOffset.UTC),
+                Duration.ofSeconds(30));
+    }
+
+    private static CapacityManager.CapacityPolicySource policySource(
+            ObjectMapper mapper)
+    {
+        return new DevelopmentFlowExecutionConfig().developmentFlowCapacityPolicy(
+                mapper,
+                4, 4, 4, 6, 4, 6, 8, 2, 4);
+    }
+
+    private static WorkspaceConfigurationService workspaceSettings(
+            SqliteExecutionTestSupport.Database database,
+            ObjectMapper mapper,
+            CapacityManager manager)
+    {
+        return new WorkspaceConfigurationService(
+                database.jdbc(), mapper, mock(WorkspaceService.class),
+                mock(AgentRunService.class), mock(SessionControlService.class),
+                manager);
+    }
+
+    private static TransactionTemplate transactions(
+            SqliteExecutionTestSupport.Database database)
+    {
+        return new TransactionTemplate(
+                new DataSourceTransactionManager(database.dataSource()));
+    }
+
+    private static WorkspaceSettingsDto workspaceSettings(int maxRunningTasks)
+    {
+        WorkspaceSettingsDto defaults = WorkspaceSettingsDto.defaults();
+        return new WorkspaceSettingsDto(
+                defaults.sessionCapUsd(), defaults.dailyCapUsd(),
+                defaults.pauseAtCap(), defaults.syncSeconds(),
+                defaults.brainBudgetChars(), defaults.distillMinutes(),
+                List.copyOf(defaults.kbAudiences()), Map.copyOf(defaults.providers()),
+                defaults.notifyCi(), defaults.notifyCompletions(),
+                defaults.qualityScanEnabled(), defaults.remoteIssueIntakeEnabled(),
+                maxRunningTasks);
     }
 
     private static CapacityManager.CapacityPolicy policy(int validationLimit)

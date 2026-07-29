@@ -18,6 +18,8 @@ import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -34,24 +36,23 @@ import static java.util.Objects.requireNonNull;
  * the thread tightens or overrides one of the inherited values — a
  * fresh thread silently inherits ({@link EffectiveSettings#fromGlobal}).
  *
- * <p>For Phase 6 the workspace layer is a pass-through (Phase 9+ adds
- * a workspace-level settings row). The global defaults come from
- * Spring properties so an operator can lower the workspace ceiling
- * without touching code.
+ * <p>Workspace capacity is enforced separately by CapacityManager. This
+ * service resolves the Trunk override and the same configured Trunk default
+ * used by admission, so its API never presents a second concurrency policy.
  */
 @Service
 public class ThreadSettingsService
 {
     private final ThreadSettingsStore store;
-    private final int globalMaxRunningTasks;
+    private final int defaultTrunkMaxRunningTasks;
     private final int globalSoftCostUsdMilli;
     private final int globalHardCostUsdMilli;
     private final CapacityManager capacity;
 
     public ThreadSettingsService(
             ThreadSettingsStore store,
-            @Value("${bytequay.threads.settings.global-max-running-tasks:4}")
-            int globalMaxRunningTasks,
+            @Value("${bytequay.development-flow.capacity.default-trunk-running-tasks:4}")
+            int defaultTrunkMaxRunningTasks,
             @Value("${bytequay.threads.settings.global-soft-cost-usd-milli:5000}")
             int globalSoftCostUsdMilli,
             @Value("${bytequay.threads.settings.global-hard-cost-usd-milli:20000}")
@@ -59,7 +60,7 @@ public class ThreadSettingsService
             CapacityManager capacity)
     {
         this.store = requireNonNull(store, "store is null");
-        this.globalMaxRunningTasks = globalMaxRunningTasks;
+        this.defaultTrunkMaxRunningTasks = defaultTrunkMaxRunningTasks;
         this.globalSoftCostUsdMilli = globalSoftCostUsdMilli;
         this.globalHardCostUsdMilli = globalHardCostUsdMilli;
         this.capacity = requireNonNull(capacity, "capacity is null");
@@ -76,6 +77,13 @@ public class ThreadSettingsService
      *  the workspace / global defaults. */
     public ThreadSettings save(String threadId, ThreadSettings settings)
     {
+        requireNonNull(threadId, "threadId is null");
+        requireNonNull(settings, "settings is null");
+        if (settings.maxRunningTasks() != null
+                && settings.maxRunningTasks() < 1) {
+            throw new IllegalArgumentException(
+                    "thread max running tasks must be positive");
+        }
         ThreadSettings withId = new ThreadSettings(
                 threadId,
                 settings.maxRunningTasks(),
@@ -84,14 +92,14 @@ public class ThreadSettingsService
                 settings.promptAddendum(),
                 Instant.now());
         store.save(withId);
-        capacity.policyChanged();
+        signalCapacityPolicyChange();
         return withId;
     }
 
     public void clear(String threadId)
     {
         store.clear(threadId);
-        capacity.policyChanged();
+        signalCapacityPolicyChange();
     }
 
     /** Effective config the spawner / scheduler should consult.
@@ -100,13 +108,31 @@ public class ThreadSettingsService
     {
         Optional<ThreadSettings> overrides = store.find(threadId);
         int maxRunningTasks = overrides.flatMap(o -> Optional.ofNullable(o.maxRunningTasks()))
-                .orElse(globalMaxRunningTasks);
+                .orElse(defaultTrunkMaxRunningTasks);
         int softCost = overrides.flatMap(o -> Optional.ofNullable(o.softCostUsdMilli()))
                 .orElse(globalSoftCostUsdMilli);
         int hardCost = overrides.flatMap(o -> Optional.ofNullable(o.hardCostUsdMilli()))
                 .orElse(globalHardCostUsdMilli);
         String promptAddendum = overrides.map(ThreadSettings::promptAddendum).orElse(null);
         return new EffectiveSettings(maxRunningTasks, softCost, hardCost, promptAddendum);
+    }
+
+    private void signalCapacityPolicyChange()
+    {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            capacity.policyChanged();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization()
+                {
+                    @Override
+                    public void afterCommit()
+                    {
+                        TaskCommandExecutor.dispatchAfterCommit(
+                                capacity::policyChanged);
+                    }
+                });
     }
 
     /** Resolved view that the agent spawner / scheduler reads at run

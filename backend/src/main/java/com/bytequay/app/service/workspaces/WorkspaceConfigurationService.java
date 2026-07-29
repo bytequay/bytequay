@@ -15,14 +15,18 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.beans.workspace.WorkspaceOnboardingDto;
 import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
+import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionControlService;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.List;
@@ -43,19 +47,22 @@ public class WorkspaceConfigurationService
     private final WorkspaceService workspaces;
     private final AgentRunService runs;
     private final SessionControlService controls;
+    private final CapacityManager capacity;
 
     public WorkspaceConfigurationService(
             JdbcTemplate jdbc,
             ObjectMapper mapper,
             WorkspaceService workspaces,
             AgentRunService runs,
-            SessionControlService controls)
+            SessionControlService controls,
+            CapacityManager capacity)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.runs = requireNonNull(runs, "runs is null");
         this.controls = requireNonNull(controls, "controls is null");
+        this.capacity = requireNonNull(capacity, "capacity is null");
     }
 
     public WorkspaceSettingsDto settings(String workspaceId)
@@ -97,6 +104,7 @@ public class WorkspaceConfigurationService
                     workspaceId,
                     mapper.writeValueAsString(validated),
                     Instant.now().toEpochMilli());
+            signalCapacityPolicyChange();
             return validated;
         }
         catch (JsonProcessingException e) {
@@ -253,6 +261,10 @@ public class WorkspaceConfigurationService
                 || value.brainBudgetChars() < 1_000) {
             throw new IllegalArgumentException("workspace cadence or budget is too small");
         }
+        if (value.maxRunningTasks() != null && value.maxRunningTasks() < 1) {
+            throw new IllegalArgumentException(
+                    "workspace max running tasks must be positive");
+        }
         if (value.kbAudiences() == null
                 || !AUDIENCES.containsAll(value.kbAudiences())) {
             throw new IllegalArgumentException("invalid KB audience");
@@ -270,7 +282,26 @@ public class WorkspaceConfigurationService
                 value.notifyCi(),
                 value.notifyCompletions(),
                 value.qualityScanEnabled(),
-                value.remoteIssueIntakeEnabled());
+                value.remoteIssueIntakeEnabled(),
+                value.maxRunningTasks());
+    }
+
+    private void signalCapacityPolicyChange()
+    {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            capacity.policyChanged();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization()
+                {
+                    @Override
+                    public void afterCommit()
+                    {
+                        TaskCommandExecutor.dispatchAfterCommit(
+                                capacity::policyChanged);
+                    }
+                });
     }
 
     private static Long nullableLong(Object value)

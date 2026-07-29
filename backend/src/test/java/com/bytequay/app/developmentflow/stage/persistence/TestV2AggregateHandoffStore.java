@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.stage.persistence;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.ResultFence;
+import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.PlanStageManager;
 import com.bytequay.app.developmentflow.stage.ProvisionToPlanHandoff;
@@ -29,6 +30,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -162,11 +164,18 @@ class TestV2AggregateHandoffStore
 
     private static Stores stores(SQLiteDataSource dataSource)
     {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
         AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext();
-        context.registerBean(JdbcTemplate.class, () -> new JdbcTemplate(dataSource));
+        context.registerBean(JdbcTemplate.class, () -> jdbc);
         context.registerBean(DataSourceTransactionManager.class,
-                () -> new DataSourceTransactionManager(dataSource));
+                () -> transactionManager);
+        context.registerBean(TransactionTemplate.class,
+                () -> new TransactionTemplate(transactionManager));
+        context.registerBean(SqliteDispatchWakeStore.class,
+                () -> new SqliteDispatchWakeStore(jdbc));
         context.scan(
                 "com.bytequay.app.developmentflow.task.persistence",
                 "com.bytequay.app.developmentflow.stage.persistence");

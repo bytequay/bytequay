@@ -185,6 +185,113 @@ class TestDevelopmentFlowCanaryGuardsMigration
                 .containsExactlyInAnyOrder("workspace-1", "workspace-2");
     }
 
+    @Test
+    void reportsEveryLegacyRuntimeOwnerWithoutCountingV2ReviewArtifacts()
+            throws Exception
+    {
+        String url = url("legacy-runtime-drain.db");
+        migrate(url, "228");
+        try (Connection connection = DevelopmentFlowRemoteProtocolFixture.connect(url)) {
+            DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk(connection);
+            DevelopmentFlowRemoteProtocolFixture.seedLocalDevelopmentTask(connection, 1);
+        }
+        migrate(url);
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DevelopmentFlowInvariantAuditor auditor =
+                new DevelopmentFlowInvariantAuditor(jdbc);
+
+        jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, created_at_ms)
+                VALUES ('legacy-task', 'trunk-1', 2, 'COMPLETED',
+                    'IMPLEMENTING', 1)
+                """);
+        jdbc.update("""
+                INSERT INTO agent_run(
+                    id, task_id, kind, status, started_at_ms)
+                VALUES
+                    ('queued-run', 'legacy-task', 'ci_fix', 'queued', 2),
+                    ('running-run', 'legacy-task', 'ci_fix', 'running', 2),
+                    ('paused-run', 'legacy-task', 'ci_fix', 'paused', 2),
+                    ('gated-run', 'legacy-task', 'review_round',
+                        'awaiting_gate', 2),
+                    ('detached-review-run', NULL, 'panel_review', 'queued', 2),
+                    ('finished-run', 'legacy-task', 'ci_fix', 'succeeded', 2)
+                """);
+        jdbc.update("""
+                INSERT INTO review_session(
+                    id, repo_id, pr_id, base_commit, reviewed_head_commit,
+                    status, created_at_ms, updated_at_ms, workspace_id,
+                    owner_thread_id, owner_task_id)
+                VALUES ('v2-review', 'acme/widget', 'pr-1', 'base-1', 'head-1',
+                    'ACTIVE', 2, 2, 'workspace-1', 'trunk-1', 'task-1')
+                """);
+        jdbc.update("""
+                INSERT INTO agent_run(
+                    id, kind, review_round_id, status, started_at_ms)
+                VALUES
+                    ('v2-review-run', 'panel_review', 'v2-review-round',
+                        'running', 2),
+                    ('v2-verifier-run', 'panel_review', 'v2-review-round',
+                        'queued', 2)
+                """);
+        jdbc.update("""
+                INSERT INTO review_round(
+                    id, session_id, agent_run_id, trigger, scope, start_commit,
+                    status, budget_json, cost_cents, created_at_ms)
+                VALUES ('v2-review-round', 'v2-review', 'v2-review-run',
+                    'manual', 'full', 'head-1', 'RUNNING', '{}', 0, 2)
+                """);
+        jdbc.update("""
+                INSERT INTO validation_pass(
+                    task_id, started_at_ms, ended_at_ms, passed, claim_key,
+                    code_fingerprint, cancel_requested_at_ms, superseded_at_ms)
+                VALUES
+                    ('legacy-task', 2, NULL, NULL, 'validation-live',
+                        'fingerprint-1', NULL, NULL),
+                    ('legacy-task', 2, NULL, NULL, 'validation-canceling',
+                        'fingerprint-2', 3, NULL),
+                    ('legacy-task', 2, 3, 1, 'validation-finished',
+                        'fingerprint-3', NULL, NULL),
+                    ('legacy-task', 2, NULL, NULL, 'validation-superseded',
+                        'fingerprint-4', NULL, 3)
+                """);
+
+        DevelopmentFlowInvariantAuditor.DrainStatus live =
+                auditor.legacyDrainStatus();
+        assertThat(live.drained()).isFalse();
+        assertThat(live.nonterminalTasks()).isZero();
+        assertThat(live.liveRuns())
+                .as("V2-owned detached review runs are not legacy")
+                .isEqualTo(5);
+        assertThat(live.liveValidationClaims()).isEqualTo(2);
+
+        jdbc.update("""
+                UPDATE agent_run
+                SET status = 'succeeded', finished_at_ms = 4
+                WHERE id IN ('queued-run','running-run','paused-run',
+                    'gated-run','detached-review-run')
+                """);
+        jdbc.update("""
+                UPDATE validation_pass
+                SET ended_at_ms = 4, passed = 1
+                WHERE claim_key = 'validation-live'
+                """);
+        jdbc.update("""
+                UPDATE validation_pass
+                SET superseded_at_ms = 4
+                WHERE claim_key = 'validation-canceling'
+                """);
+
+        DevelopmentFlowInvariantAuditor.DrainStatus drained =
+                auditor.legacyDrainStatus();
+        assertThat(drained.liveRuns()).isZero();
+        assertThat(drained.liveValidationClaims()).isZero();
+        assertThat(drained.drained()).isTrue();
+    }
+
     private String migrated(String name)
     {
         String url = url(name);

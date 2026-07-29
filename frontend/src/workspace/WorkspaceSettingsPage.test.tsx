@@ -118,6 +118,7 @@ function installBridge(
         sessionCapUsd: 100,
         dailyCapUsd: 10,
         pauseAtCap: true,
+        maxRunningTasks: 2,
         syncSeconds: 60,
         brainBudgetChars: 8000,
         distillMinutes: 30,
@@ -274,6 +275,151 @@ describe('WorkspaceSettingsPage', () => {
       }),
     }));
   });
+
+  it('saves a workspace task limit and can restore inherited concurrency', async () => {
+    const workspaceApi = installBridge();
+    render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />);
+
+    const taskLimit = await screen.findByRole('textbox', { name: 'Max running tasks' });
+    await waitFor(() => expect((taskLimit as HTMLInputElement).value).toBe('2'));
+
+    fireEvent.change(taskLimit, { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
+      path: '/api/workspaces/w1/settings',
+      method: 'PUT',
+      body: expect.objectContaining({ maxRunningTasks: 3 }),
+    }));
+
+    workspaceApi.mockClear();
+    fireEvent.change(taskLimit, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
+      path: '/api/workspaces/w1/settings',
+      method: 'PUT',
+      body: expect.objectContaining({ maxRunningTasks: null }),
+    }));
+  });
+
+  it('ignores a stale save response after switching between inheriting workspaces', async () => {
+    const workspaceApi = installBridge();
+    const baseImplementation = workspaceApi.getMockImplementation();
+    if (baseImplementation === undefined) throw new Error('workspace API mock has no implementation');
+
+    let resolveSave!: (value: unknown) => void;
+    let savedBody: unknown;
+    const pendingSave = new Promise<unknown>(resolve => { resolveSave = resolve; });
+    workspaceApi.mockImplementation(async request => {
+      if (request.path === '/api/workspaces/w1/settings' && request.method === 'PUT') {
+        savedBody = request.body;
+        return pendingSave;
+      }
+      const workspaceTwo = request.path.startsWith('/api/workspaces/w2');
+      const mappedRequest = workspaceTwo
+        ? { ...request, path: request.path.replace('/api/workspaces/w2', '/api/workspaces/w1') }
+        : request;
+      const response = await baseImplementation(mappedRequest);
+      if (request.path.endsWith('/settings') && request.method === undefined) {
+        return {
+          ...(response as Record<string, unknown>),
+          dailyCapUsd: workspaceTwo ? 20 : 10,
+          maxRunningTasks: null,
+        };
+      }
+      return response;
+    });
+
+    const { rerender } = render(
+      <WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />,
+    );
+    await waitFor(() => {
+      const numbers = screen.getAllByRole('textbox') as HTMLInputElement[];
+      expect(numbers[1].value).toBe('10.00');
+      expect(numbers[2].value).toBe('');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith(expect.objectContaining({
+      path: '/api/workspaces/w1/settings',
+      method: 'PUT',
+    })));
+
+    const workspaceTwo = { ...workspace, id: 'w2', name: 'second-workspace' };
+    rerender(<WorkspaceSettingsPage workspace={workspaceTwo} workspaceId="w2" section="agents" />);
+    await waitFor(() => {
+      const numbers = screen.getAllByRole('textbox') as HTMLInputElement[];
+      expect(numbers[1].value).toBe('20.00');
+      expect(numbers[2].value).toBe('');
+    });
+
+    await act(async () => {
+      resolveSave(savedBody);
+      await pendingSave;
+    });
+    const currentNumbers = screen.getAllByRole('textbox') as HTMLInputElement[];
+    expect(currentNumbers[1].value).toBe('20.00');
+    expect(currentNumbers[2].value).toBe('');
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('ignores a stale save response after a newer same-workspace edit', async () => {
+    const workspaceApi = installBridge();
+    const baseImplementation = workspaceApi.getMockImplementation();
+    if (baseImplementation === undefined) throw new Error('workspace API mock has no implementation');
+
+    let resolveSave!: (value: unknown) => void;
+    let savedBody: unknown;
+    const pendingSave = new Promise<unknown>(resolve => { resolveSave = resolve; });
+    workspaceApi.mockImplementation(async request => {
+      if (request.path === '/api/workspaces/w1/settings' && request.method === 'PUT') {
+        savedBody = request.body;
+        return pendingSave;
+      }
+      return baseImplementation(request);
+    });
+
+    render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />);
+    await waitFor(() => {
+      const numbers = screen.getAllByRole('textbox') as HTMLInputElement[];
+      expect(numbers[1].value).toBe('10.00');
+      expect(numbers[2].value).toBe('2');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith(expect.objectContaining({
+      path: '/api/workspaces/w1/settings',
+      method: 'PUT',
+    })));
+
+    const dailyCap = (screen.getAllByRole('textbox') as HTMLInputElement[])[1];
+    fireEvent.change(dailyCap, { target: { value: '20.00' } });
+    await act(async () => {
+      resolveSave(savedBody);
+      await pendingSave;
+    });
+
+    expect(dailyCap.value).toBe('20.00');
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it.each(['0', '1.5', 'not-a-number'])(
+    'blocks saving an invalid workspace task limit (%s)',
+    async invalidValue => {
+      const workspaceApi = installBridge();
+      render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />);
+
+      const taskLimit = await screen.findByRole('textbox', { name: 'Max running tasks' });
+      await waitFor(() => expect((taskLimit as HTMLInputElement).value).toBe('2'));
+      workspaceApi.mockClear();
+      fireEvent.change(taskLimit, { target: { value: invalidValue } });
+
+      expect(screen.getByText('Enter a whole number greater than zero, or leave empty.')).toBeTruthy();
+      expect(screen.getByText('Max running tasks must be empty or a whole number greater than zero.')).toBeTruthy();
+      const saveButton = screen.getByRole('button', { name: 'Save changes' }) as HTMLButtonElement;
+      expect(saveButton.disabled).toBe(true);
+      fireEvent.click(saveButton);
+      expect(workspaceApi).not.toHaveBeenCalled();
+      expect(screen.queryByText('Saved')).toBeNull();
+    },
+  );
 
   it('shows memory status and opens the full Memory page', async () => {
     installBridge();

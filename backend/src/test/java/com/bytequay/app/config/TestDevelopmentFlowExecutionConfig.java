@@ -92,8 +92,6 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
-import com.bytequay.app.domain.Thread;
-import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -125,11 +123,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -468,16 +464,11 @@ class TestDevelopmentFlowExecutionConfig
     }
 
     @Test
-    void policyProjectsExplicitSettingsAndMigratedParallelSlots()
+    void policyProjectsWorkspaceSettingsAndMigratedTrunkLimits()
     {
-        ThreadStore threads = mock(ThreadStore.class);
-        ThreadSettingsStore settings = mock(ThreadSettingsStore.class);
-        Thread trunk = mock(Thread.class);
-        when(threads.findThreadById("trunk")).thenReturn(Optional.of(trunk));
-        when(trunk.parallelSlots()).thenReturn(3);
         DevelopmentFlowCapacityPolicySource source =
                 new DevelopmentFlowCapacityPolicySource(
-                        threads, settings, 4, 4,
+                        new ObjectMapper(), 4, 4,
                         Map.of(CapacityManager.CapacityLane.VALIDATION, 3));
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
                 "legacy",
@@ -488,12 +479,24 @@ class TestDevelopmentFlowExecutionConfig
                 false,
                 false);
 
-        assertThat(source.current(request).trunkLimit("trunk")).isEqualTo(3);
+        CapacityManager.CapacityPolicy inherited = source.current(
+                request, CapacityManager.CapacityPolicySnapshot.empty());
+        assertThat(inherited.workspaceLimit("workspace")).isEqualTo(4);
+        assertThat(inherited.trunkLimit("trunk")).isEqualTo(4);
 
-        when(settings.find("trunk")).thenReturn(Optional.of(new ThreadSettings(
-                "trunk", 2, null, null, null, Instant.EPOCH)));
-        assertThat(source.current(request).trunkLimit("trunk")).isEqualTo(2);
-        assertThat(source.current(request).laneLimits())
+        CapacityManager.CapacityPolicy configured = source.current(
+                request,
+                new CapacityManager.CapacityPolicySnapshot("""
+                        {"sessionCapUsd":100,"dailyCapUsd":500,"pauseAtCap":true,
+                         "syncSeconds":60,"brainBudgetChars":8000,"distillMinutes":30,
+                         "kbAudiences":["plan","dev","review","ci-fix"],
+                         "providers":{},"notifyCi":true,"notifyCompletions":false,
+                         "qualityScanEnabled":false,"remoteIssueIntakeEnabled":false,
+                         "maxRunningTasks":2}
+                        """, 3));
+        assertThat(configured.workspaceLimit("workspace")).isEqualTo(2);
+        assertThat(configured.trunkLimit("trunk")).isEqualTo(3);
+        assertThat(configured.laneLimits())
                 .containsEntry(CapacityManager.CapacityLane.CLI, 4)
                 .containsEntry(CapacityManager.CapacityLane.API, 6)
                 .containsEntry(CapacityManager.CapacityLane.VALIDATION, 3);

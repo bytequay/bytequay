@@ -68,7 +68,7 @@ export function HarnessSidebar({ workspaceName, repository, watches, selectedId,
           ))}
         </div>
       )}
-      <WorkspaceBottomNav onNavigate={onNavigateGlobal} />
+      <WorkspaceBottomNav onNavigate={onNavigateGlobal} workspaceMode />
     </aside>
   );
 }

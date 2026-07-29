@@ -78,6 +78,7 @@ import type {
   ThreadStreamEvent,
   ThreadTurnEventDto,
   ThreadTurnDto,
+  TrunkTraceEventDto,
   TypedPermissionRequestDto,
   TeamDto,
   TeamSummaryDto,
@@ -692,6 +693,10 @@ const bridge: Bridge = {
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ): Promise<ConvIndexPageDto> =>
     ipcRenderer.invoke('threads:index', { id, ...opts }),
+  getTrunkTraceEvents: (
+    id: string, requestMessageIds: string[],
+  ): Promise<TrunkTraceEventDto[]> =>
+    ipcRenderer.invoke('threads:traceEvents', { id, requestMessageIds }),
   listTasksForThread: (threadId: string): Promise<WorkUnitTaskDto[]> =>
     ipcRenderer.invoke('threads:tasks:list', threadId),
   jumpInThread: (threadId: string): Promise<ThreadDto> =>
@@ -972,7 +977,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:decide', {
       id, callId, decision, preApprove, expectedRevision,
     }),
-  interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:interrupt', id),
+  interruptTask: (id: string, turnId?: string): Promise<void> =>
+    ipcRenderer.invoke('threads:interrupt', id, turnId),
   interruptStage: (id: string): Promise<void> => ipcRenderer.invoke('stages:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),
   resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:resume', id),

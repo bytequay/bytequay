@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
+import com.bytequay.app.developmentflow.compatibility.V2TrunkRuntimeProjection;
 import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.domain.DiffFile;
@@ -30,6 +31,7 @@ import com.bytequay.app.domain.ThreadGroup;
 import com.bytequay.app.domain.ThreadGroupMembership;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
@@ -86,6 +88,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
@@ -156,6 +159,8 @@ public class ThreadService
     private V2ThreadControlService v2ThreadControls;
     /** Read-only adapter for V2-owned branch/worktree/PR facts. */
     private V2DevelopmentFlowProjection v2TaskProjection;
+    /** Read-only replacement for stale legacy Thread lifecycle fields. */
+    private V2TrunkRuntimeProjection v2TrunkRuntime;
     private TransactionTemplate legacyTaskTransactions;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
@@ -242,6 +247,13 @@ public class ThreadService
                 v2TaskProjection, "v2TaskProjection is null");
     }
 
+    @Autowired(required = false)
+    void setV2TrunkRuntime(V2TrunkRuntimeProjection v2TrunkRuntime)
+    {
+        this.v2TrunkRuntime = requireNonNull(
+                v2TrunkRuntime, "v2TrunkRuntime is null");
+    }
+
     @Override
     public void setApplicationEventPublisher(ApplicationEventPublisher publisher)
     {
@@ -253,7 +265,17 @@ public class ThreadService
         if (limit <= 0) {
             return List.of();
         }
-        return store.listTasksByStatus(status, limit);
+        if (v2TrunkRuntime == null) {
+            return store.listTasksByStatus(status, limit);
+        }
+        int storedLimit = expandedLimit(limit, v2TrunkRuntime.count(null));
+        List<Thread> rows = new ArrayList<>(
+                store.listTasksByStatus(status, storedLimit));
+        List<String> v2Ids = v2TrunkRuntime.listIds(status, null, limit);
+        rows.addAll(store.listTasksByIds(v2Ids));
+        return limitThreads(v2TrunkRuntime.projectAll(rows).stream()
+                .filter(thread -> thread.status() == status)
+                .toList(), limit);
     }
 
     /** Workspace-scoped variant of {@link #listByStatus}. The thread
@@ -265,7 +287,20 @@ public class ThreadService
         if (limit <= 0) {
             return List.of();
         }
-        return store.listTasksByWorkspaceAndStatus(workspaceId, status, limit);
+        if (v2TrunkRuntime == null) {
+            return store.listTasksByWorkspaceAndStatus(workspaceId, status, limit);
+        }
+        int storedLimit = expandedLimit(
+                limit, v2TrunkRuntime.count(workspaceId));
+        List<Thread> rows = new ArrayList<>(
+                store.listTasksByWorkspaceAndStatus(
+                        workspaceId, status, storedLimit));
+        List<String> v2Ids = v2TrunkRuntime.listIds(
+                status, workspaceId, limit);
+        rows.addAll(store.listTasksByIds(v2Ids));
+        return limitThreads(v2TrunkRuntime.projectAll(rows).stream()
+                .filter(thread -> thread.status() == status)
+                .toList(), limit);
     }
 
     public List<Thread> listByGroup(String groupId, int limit)
@@ -280,7 +315,29 @@ public class ThreadService
             return List.of();
         }
         List<Thread> rows = store.listTasksByIds(memberIds);
-        return rows.size() <= limit ? rows : rows.subList(0, limit);
+        if (v2TrunkRuntime != null) {
+            rows = v2TrunkRuntime.projectAll(rows);
+        }
+        return limitThreads(rows, limit);
+    }
+
+    private static int expandedLimit(int limit, int additional)
+    {
+        return additional > Integer.MAX_VALUE - limit
+                ? Integer.MAX_VALUE : limit + additional;
+    }
+
+    private static List<Thread> limitThreads(List<Thread> rows, int limit)
+    {
+        return rows.stream()
+                .collect(Collectors.toMap(
+                        Thread::id, thread -> thread, (left, right) -> left,
+                        LinkedHashMap::new))
+                .values().stream()
+                .sorted(Comparator.comparing(Thread::updatedAt)
+                        .thenComparing(Thread::id).reversed())
+                .limit(limit)
+                .toList();
     }
 
     public List<ThreadGroup> listGroups()
@@ -453,9 +510,11 @@ public class ThreadService
                 current.endedAt(), current.errorMessage(),
                 current.flow(),
                 current.workspaceId(),
-                current.workModel());
+                current.workModel(), current.parentReviewPassId(),
+                current.parallelSlots(), current.parentTaskId(),
+                current.prRef(), current.description());
         store.saveThread(next);
-        return store.findThreadById(threadId).orElse(next);
+        return projectTrunkRuntime(store.findThreadById(threadId).orElse(next));
     }
 
     /**
@@ -603,7 +662,7 @@ public class ThreadService
                     .replace(thread.id(), engineSnapshot);
         }
         if (v2TaskCreation != null && v2TaskCreation.routes(thread.workspaceId())) {
-            v2TaskCreation.prepareTrunk(thread.id(), thread.workspaceId());
+            v2TaskCreation.prepareNewTrunk(thread.id(), thread.workspaceId());
         }
         // initialPrompt — if present — feeds the title derivation
         // above but is NOT enqueued as a trunk turn. Treat it as
@@ -611,7 +670,8 @@ public class ThreadService
         // trunk page stages it in the composer so the user reviews
         // before pressing Send. Nothing reaches the planning agent
         // until they do.
-        return store.findThreadById(thread.id()).orElse(thread);
+        return projectTrunkRuntime(
+                store.findThreadById(thread.id()).orElse(thread));
     }
 
     private Map<String, WorkModel> freezeEngines(
@@ -667,7 +727,7 @@ public class ThreadService
     {
         requireNonNull(request, "request is null");
         Thread thread = requireTask(threadId);
-        if (isV2Trunk(thread.id())) {
+        if (isV2Trunk(thread.id()) || routesNewTaskToV2(thread.workspaceId())) {
             if (v2TaskCreation == null) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(503),
                         "V2 Task creation is not configured");
@@ -871,7 +931,12 @@ public class ThreadService
 
     public Optional<Thread> find(String threadId)
     {
-        return store.findThreadById(threadId);
+        return store.findThreadById(threadId).map(this::projectTrunkRuntime);
+    }
+
+    private Thread projectTrunkRuntime(Thread thread)
+    {
+        return v2TrunkRuntime == null ? thread : v2TrunkRuntime.project(thread);
     }
 
     public List<ThreadFile> files(String threadId)
@@ -882,7 +947,11 @@ public class ThreadService
     public List<ThreadMessage> history(String threadId)
     {
         if (isV2Trunk(threadId)) {
-            return requireV2ThreadControls().history(threadId);
+            return Stream.concat(
+                            store.listMessages(threadId).stream()
+                                    .filter(ThreadService::isRetainedTrunkMessage),
+                            requireV2ThreadControls().history(threadId).stream())
+                    .toList();
         }
         return store.listMessages(threadId);
     }
@@ -894,7 +963,7 @@ public class ThreadService
     {
         requireTask(threadId);
         if (isV2Trunk(threadId)) {
-            return !requireV2ThreadControls().history(threadId).isEmpty();
+            return !history(threadId).isEmpty();
         }
         return store.countUserMessages(threadId) > 0;
     }
@@ -904,7 +973,15 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         if (isV2Trunk(thread.id())) {
-            return requireV2ThreadControls().turns(thread.id(), TURN_HISTORY_LIMIT);
+            return Stream.concat(
+                            turnStore.listTurnsByTaskId(
+                                    thread.id(), TURN_HISTORY_LIMIT).stream(),
+                            requireV2ThreadControls().turns(
+                                    thread.id(), TURN_HISTORY_LIMIT).stream())
+                    .sorted(Comparator.comparing(ThreadTurn::createdAt)
+                            .thenComparing(ThreadTurn::id).reversed())
+                    .limit(TURN_HISTORY_LIMIT)
+                    .toList();
         }
         return turnStore.listTurnsByTaskId(thread.id(), TURN_HISTORY_LIMIT);
     }
@@ -914,7 +991,14 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         if (isV2Trunk(thread.id())) {
-            return requireV2ThreadControls().turnEvents(thread.id());
+            return Stream.concat(
+                            turnEventStore.listEventsByTaskId(
+                                    thread.id(), TURN_EVENT_HISTORY_LIMIT).stream(),
+                            requireV2ThreadControls().turnEvents(thread.id()).stream())
+                    .sorted(Comparator.comparing(ThreadTurnEvent::createdAt)
+                            .thenComparing(ThreadTurnEvent::id).reversed())
+                    .limit(TURN_EVENT_HISTORY_LIMIT)
+                    .toList();
         }
         return turnEventStore.listEventsByTaskId(thread.id(), TURN_EVENT_HISTORY_LIMIT);
     }
@@ -967,7 +1051,7 @@ public class ThreadService
     public String sendTrunk(String threadId, String input)
     {
         Thread thread = requireTask(threadId);
-        if (isV2Trunk(thread.id())) {
+        if (prepareV2TrunkIfRouted(thread)) {
             return requireV2ThreadControls().send(thread, input, TurnInitiator.user());
         }
         return scheduler.enqueueTrunkTurn(thread, input);
@@ -979,7 +1063,7 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         TurnInitiator initiator = TurnInitiator.unattended(source);
-        if (isV2Trunk(thread.id())) {
+        if (prepareV2TrunkIfRouted(thread)) {
             return requireV2ThreadControls().send(thread, input, initiator);
         }
         return scheduler.enqueueTrunkTurn(thread, input, initiator);
@@ -987,11 +1071,16 @@ public class ThreadService
 
     public void interruptTrunk(String threadId)
     {
+        interruptTrunk(threadId, null);
+    }
+
+    public void interruptTrunk(String threadId, String turnId)
+    {
         requireNonNull(threadId, "threadId is null");
         Thread thread = requireTask(threadId);
         requireTrunkThread(thread);
         if (isV2Trunk(thread.id())) {
-            requireV2ThreadControls().interrupt(thread.id());
+            requireV2ThreadControls().interrupt(thread.id(), turnId);
             return;
         }
         registry.findTrunk(threadId)
@@ -1242,6 +1331,44 @@ public class ThreadService
     private boolean isV2Trunk(String threadId)
     {
         return store.findTurnVersion(threadId).filter("V2"::equals).isPresent();
+    }
+
+    private static boolean isRetainedTrunkMessage(ThreadMessage message)
+    {
+        boolean trunkScope = message.scope() == ThreadScope.TRUNK
+                || message.scope() == null;
+        return trunkScope
+                && message.taskId() == null
+                && message.stageId() == null;
+    }
+
+    private boolean routesNewTaskToV2(String workspaceId)
+    {
+        return v2TaskCreation != null && v2TaskCreation.routes(workspaceId);
+    }
+
+    /** Move a quiescent pre-cutover Trunk onto typed turns before accepting
+     *  new conversation work. Existing LEGACY Task work keeps its immutable
+     *  route and continues to drain independently. */
+    private boolean prepareV2TrunkIfRouted(Thread thread)
+    {
+        if (isV2Trunk(thread.id())) {
+            requireV2ThreadControls();
+            if (v2TaskCreation != null) {
+                // Heal any sparse snapshot left by an earlier cutover build;
+                // a complete V2 snapshot is immutable and this is a no-op.
+                v2TaskCreation.prepareTrunk(thread.id(), thread.workspaceId());
+            }
+            return true;
+        }
+        if (!routesNewTaskToV2(thread.workspaceId())) {
+            return false;
+        }
+        // Do not persist the one-way route switch unless the typed runtime is
+        // actually wired to accept the turn immediately afterward.
+        requireV2ThreadControls();
+        v2TaskCreation.prepareTrunk(thread.id(), thread.workspaceId());
+        return true;
     }
 
     private V2ThreadControlService requireV2ThreadControls()
@@ -1798,8 +1925,15 @@ public class ThreadService
             throw new NoSuchElementException("permission call has no agent key");
         }
         if (isV2Trunk(threadId)) {
-            throw new NoSuchElementException(
-                    "V2 permission calls use the typed execution endpoint");
+            Task exactTask = taskStore.findTaskById(agentKey)
+                    .filter(task -> threadId.equals(task.threadId()))
+                    .filter(task -> taskStore.findWorkflowVersion(task.id())
+                            .filter("LEGACY"::equals).isPresent())
+                    .orElseThrow(() -> new NoSuchElementException(
+                            "V2 permission calls use the typed execution endpoint"));
+            return registry.findByAgentKey(threadId, exactTask.id())
+                    .orElseThrow(() -> new NoSuchElementException(
+                            "no live agent " + agentKey + " on thread " + threadId));
         }
         return registry.findByAgentKey(threadId, agentKey)
                 .orElseThrow(() -> new NoSuchElementException(

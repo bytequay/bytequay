@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.developmentflow.compatibility.V2TrunkRuntimeProjection;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -37,6 +38,7 @@ import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +47,7 @@ class TestWorkspaceInsightsService
     private static final Instant NOW = Instant.now();
 
     private ThreadStore threadStore;
+    private V2TrunkRuntimeProjection trunkRuntime;
     private TaskStore taskStore;
     private InvestigationReviewStore reviewStore;
     private AgentRunService runs;
@@ -54,6 +57,7 @@ class TestWorkspaceInsightsService
     void setUp()
     {
         threadStore = mock(ThreadStore.class);
+        trunkRuntime = mock(V2TrunkRuntimeProjection.class);
         taskStore = mock(TaskStore.class);
         reviewStore = mock(InvestigationReviewStore.class);
         runs = mock(AgentRunService.class);
@@ -61,12 +65,32 @@ class TestWorkspaceInsightsService
         when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of());
         when(reviewStore.reviewSpendSince(any())).thenReturn(List.of());
         when(reviewStore.reviewSpendSince(eq("ws-1"), any())).thenReturn(List.of());
+        when(trunkRuntime.projectAll(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         service = new WorkspaceInsightsService(
                 threadStore,
+                trunkRuntime,
                 taskStore,
                 reviewStore,
                 new GitHubRateLimitMonitor(),
                 runs);
+    }
+
+    @Test
+    void includesTypedActivityThatLegacyTimestampQueryMisses()
+    {
+        Thread stored = thread("v2", 0L);
+        Thread projected = thread("v2", 275L);
+        when(trunkRuntime.listIdsUpdatedSince(isNull(), any()))
+                .thenReturn(List.of("v2"));
+        when(threadStore.listTasksByIds(List.of("v2")))
+                .thenReturn(List.of(stored));
+        when(trunkRuntime.projectAll(List.of(stored)))
+                .thenReturn(List.of(projected));
+
+        WorkspaceInsightsService.Insights insights = service.get("7d");
+
+        assertThat(insights.spendInWindowMilli()).isEqualTo(275L);
     }
 
     @Test

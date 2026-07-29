@@ -25,6 +25,7 @@ import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -64,12 +65,16 @@ public class WorkspaceIssueService
         return repos.getIssueDetail(repo.owner(), repo.repo(), number);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public StartIssueResult start(
             String workspaceId,
             int number,
             String requestedThreadId)
     {
+        // V2 Trunk commands own their own serialized transaction. Resolve and
+        // link first (each write commits at its service/store boundary), then
+        // dispatch outside an ambient transaction so the command executor can
+        // acquire its Trunk stripe without nesting a SQLite transaction.
         Thread thread = resolveTrunk(workspaceId, number, requestedThreadId);
         link(workspaceId, number, thread.id());
         String turnId = threads.sendTrunk(

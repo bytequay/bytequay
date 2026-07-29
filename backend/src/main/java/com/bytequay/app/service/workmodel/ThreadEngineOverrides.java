@@ -71,12 +71,35 @@ public class ThreadEngineOverrides
                             WorkModel frozen = WorkModelJson.deserialise(
                                     mapper, rs.getString("work_model_json"));
                             return frozen != null
+                                    && frozen.model() != null
+                                    && !frozen.model().isBlank()
                                     ? frozen
                                     : WorkspaceEngineSettings.parseChoice(rs.getString("choice")).orElse(null);
                         }, threadId, audience)
                 .stream()
                 .filter(model -> model != null)
                 .findFirst();
+    }
+
+    /** Whether this audience row carries the immutable JSON snapshot rather
+     * than only a legacy compact picker choice. */
+    public boolean isFrozen(String threadId, String audience)
+    {
+        if (threadId == null || threadId.isBlank() || audience == null) {
+            return false;
+        }
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM thread_engines
+                WHERE thread_id = ? AND audience = ?
+                  AND CASE
+                      WHEN json_valid(work_model_json) = 1
+                      THEN NULLIF(TRIM(json_extract(
+                              work_model_json, '$.model')), '') IS NOT NULL
+                      ELSE 0
+                  END
+                """, Integer.class, threadId, audience);
+        return count != null && count == 1;
     }
 
     /** Every compact picker label on this trunk, keyed by audience. */

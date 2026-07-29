@@ -18,8 +18,10 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
+import com.bytequay.app.domain.TrunkTraceEvent;
 import com.bytequay.app.service.threads.CliStreamParser;
 import com.bytequay.app.service.threads.CodexJsonParser;
+import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.StreamJsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,11 +33,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -46,6 +52,8 @@ public class ThreadTurnProjection
     private static final int MAX_TURNS = 500;
     private static final int MAX_EVENTS = 200;
     private static final int MAX_LOG_ROWS = 100;
+    private static final int MAX_TRACE_REQUESTS = 100;
+    private static final long MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991L;
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
@@ -269,6 +277,94 @@ public class ThreadTurnProjection
         return List.copyOf(result);
     }
 
+    /**
+     * Durable provider trace for only the typed request messages in the
+     * caller's current conversation window. Trace rows retain their physical
+     * execution/log identity and never borrow a {@link ThreadMessage} seq.
+     */
+    public List<TrunkTraceEvent> traceEvents(
+            String trunkId, List<String> requestMessageIds)
+    {
+        requireText(trunkId, "trunkId");
+        requireNonNull(requestMessageIds, "requestMessageIds is null");
+        List<String> requested = requestMessageIds.stream().distinct().toList();
+        if (requested.isEmpty()) {
+            return List.of();
+        }
+        if (requested.size() > MAX_TRACE_REQUESTS) {
+            throw new IllegalArgumentException(
+                    "too many requestMessageIds: " + requested.size());
+        }
+        requested.forEach(id -> requireText(id, "requestMessageId"));
+
+        String projectedRequestId = planningRuntimeExists() ? """
+                CASE
+                  WHEN turn.planning_operation_id IS NOT NULL
+                    THEN turn.id || ':request'
+                  ELSE request_message.id END
+                """ : "request_message.id";
+        String placeholders = String.join(", ",
+                Collections.nCopies(requested.size(), "?"));
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(trunkId);
+        arguments.add(trunkId);
+        arguments.addAll(requested);
+        List<TraceLogFacts> rows = jdbc.query("""
+                SELECT turn.id AS turn_id,
+                       %s AS request_message_id,
+                       execution.id AS execution_id,
+                       log.seq AS log_seq,
+                       log.payload, log.created_at_ms, execution.provider,
+                       result.terminal_status,
+                       result.assistant_message_id
+                FROM agent_execution_log log
+                JOIN agent_execution execution
+                  ON execution.id = log.execution_id
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = execution.ticket_id
+                JOIN thread_turn turn
+                  ON turn.id = ticket.owner_id
+                 AND turn.operation_id = ticket.operation_id
+                JOIN trunk_thread_turn_request_receipt request
+                  ON request.turn_id = turn.id
+                JOIN thread_message request_message
+                  ON request_message.turn_id = turn.id
+                 AND request_message.seq = 1
+                LEFT JOIN trunk_thread_turn_result_receipt result
+                  ON result.turn_id = turn.id
+                WHERE ticket.owner_kind = 'THREAD_TURN'
+                  AND ticket.trunk_id = ?
+                  AND turn.trunk_id = ?
+                  AND %s IN (%s)
+                ORDER BY request.returned_trunk_version,
+                         execution.infrastructure_attempt,
+                         execution.id, log.seq
+                """.formatted(
+                        projectedRequestId, projectedRequestId, placeholders),
+                (rs, row) -> new TraceLogFacts(
+                        rs.getString("turn_id"),
+                        rs.getString("request_message_id"),
+                        rs.getString("execution_id"),
+                        rs.getLong("log_seq"),
+                        rs.getString("payload"),
+                        rs.getLong("created_at_ms"),
+                        rs.getString("provider"),
+                        rs.getString("terminal_status"),
+                        rs.getString("assistant_message_id")),
+                arguments.toArray());
+
+        List<TrunkTraceEvent> result = new ArrayList<>();
+        for (TraceLogFacts row : rows) {
+            List<StreamEvent> events = streamEvents(new LogFacts(
+                    1, row.payload(), row.createdAtMs(), row.provider()));
+            for (int eventIndex = 0; eventIndex < events.size(); eventIndex++) {
+                traceEvent(trunkId, row, eventIndex, events.get(eventIndex))
+                        .ifPresent(result::add);
+            }
+        }
+        return List.copyOf(result);
+    }
+
     public DeletionState deletionState(String trunkId)
     {
         requireText(trunkId, "trunkId");
@@ -320,6 +416,104 @@ public class ThreadTurnProjection
                       'CLAIMED', 'RUNNING')
                 ORDER BY request.returned_trunk_version
                 """, (rs, row) -> rs.getString("id"), trunkId);
+    }
+
+    /** Running exact Trunk Turn, otherwise newest work or pending launch. */
+    public Optional<String> latestCancelableTurnId(String trunkId)
+    {
+        requireText(trunkId, "trunkId");
+        String pendingPlanning = planningRuntimeExists() ? """
+                UNION ALL
+                SELECT operation.reserved_thread_turn_id AS turn_id,
+                       request.returned_trunk_version AS order_version,
+                       1 AS cancel_priority
+                FROM planning_base_refresh_operation operation
+                JOIN trunk_planning_base_request_receipt request
+                  ON request.planning_operation_id = operation.id
+                WHERE operation.trunk_id = ?
+                  AND operation.status IN ('REQUESTED', 'SUCCEEDED')
+                  AND operation.launch_disposition = 'PENDING'
+                  AND operation.launched_thread_turn_id IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM thread_turn turn
+                    WHERE turn.id = operation.reserved_thread_turn_id)
+                """ : "";
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(trunkId);
+        if (!pendingPlanning.isEmpty()) {
+            arguments.add(trunkId);
+        }
+        return jdbc.query("""
+                WITH candidates AS (
+                    SELECT turn.id AS turn_id,
+                           request.returned_trunk_version AS order_version,
+                           CASE WHEN ticket.status IN ('CLAIMED', 'RUNNING')
+                             THEN 0 ELSE 1 END AS cancel_priority
+                    FROM thread_turn turn
+                    JOIN trunk_thread_turn_request_receipt request
+                      ON request.turn_id = turn.id
+                    JOIN dispatch_ticket ticket
+                      ON ticket.owner_kind = 'THREAD_TURN'
+                     AND ticket.owner_id = turn.id
+                     AND ticket.operation_id = turn.operation_id
+                    WHERE turn.trunk_id = ?
+                      AND ticket.status IN (
+                        'REQUESTED', 'RETRY_WAIT', 'RECONCILE_WAIT',
+                        'CLAIMED', 'RUNNING')
+                    %s
+                )
+                SELECT turn_id
+                FROM candidates
+                ORDER BY cancel_priority, order_version DESC
+                LIMIT 1
+                """.formatted(pendingPlanning),
+                (rs, row) -> rs.getString("turn_id"), arguments.toArray())
+                .stream().findFirst();
+    }
+
+    /** Active DispatchTicket for one exact Trunk Turn, if it still has one. */
+    public Optional<String> cancelableTicketId(String trunkId, String turnId)
+    {
+        requireText(trunkId, "trunkId");
+        requireText(turnId, "turnId");
+        String pendingPlanning = planningRuntimeExists() ? """
+                UNION ALL
+                SELECT ticket.id
+                FROM planning_base_refresh_operation operation
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = operation.dispatch_ticket_id
+                WHERE operation.trunk_id = ?
+                  AND operation.reserved_thread_turn_id = ?
+                  AND operation.launched_thread_turn_id IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM thread_turn turn
+                    WHERE turn.id = operation.reserved_thread_turn_id)
+                  AND ticket.status IN (
+                    'REQUESTED', 'RETRY_WAIT', 'RECONCILE_WAIT',
+                    'CLAIMED', 'RUNNING')
+                """ : "";
+        List<Object> arguments = new ArrayList<>();
+        arguments.add(trunkId);
+        arguments.add(turnId);
+        if (!pendingPlanning.isEmpty()) {
+            arguments.add(trunkId);
+            arguments.add(turnId);
+        }
+        return jdbc.query("""
+                SELECT ticket.id
+                FROM dispatch_ticket ticket
+                JOIN thread_turn turn ON turn.id = ticket.owner_id
+                WHERE ticket.owner_kind = 'THREAD_TURN'
+                  AND ticket.operation_id = turn.operation_id
+                  AND turn.trunk_id = ? AND turn.id = ?
+                  AND ticket.status IN (
+                    'REQUESTED', 'RETRY_WAIT', 'RECONCILE_WAIT',
+                    'CLAIMED', 'RUNNING')
+                %s
+                LIMIT 1
+                """.formatted(pendingPlanning),
+                (rs, row) -> rs.getString("id"), arguments.toArray())
+                .stream().findFirst();
     }
 
     /** Tickets with an execution that a user interrupt can stop immediately. */
@@ -386,12 +580,18 @@ public class ThreadTurnProjection
         requireText(trunkId, "trunkId");
         List<Object> arguments = new ArrayList<>();
         arguments.add(trunkId);
+        arguments.add(trunkId);
+        boolean planningRuntime = planningRuntimeExists();
         String pendingPlanning = "";
-        if (planningRuntimeExists()) {
+        if (planningRuntime) {
             pendingPlanning = """
                     UNION ALL
-                    SELECT operation.id || ':request', 'user',
+                    SELECT operation.reserved_thread_turn_id || ':request', 'user',
                            json_extract(operation.launch_intent, '$.userMessage'),
+                           (SELECT json_group_array(
+                                 json_extract(image.value, '$.path'))
+                            FROM json_each(
+                              operation.launch_intent, '$.images') image),
                            'text', NULL, NULL, operation.requested_at_ms,
                            request.returned_trunk_version, 1
                     FROM planning_base_refresh_operation operation
@@ -413,6 +613,7 @@ public class ThreadTurnProjection
                                  THEN ': ' || operation.launch_disposition_reason
                                  ELSE '.' END
                                ELSE ': ' || operation.error_message END,
+                           NULL,
                            'text', NULL, NULL, operation.completed_at_ms,
                            result.returned_trunk_version, 2
                     FROM planning_base_refresh_operation operation
@@ -430,6 +631,23 @@ public class ThreadTurnProjection
             arguments.add(trunkId);
             arguments.add(trunkId);
         }
+        String planningRequestVersion = planningRuntime ? """
+                COALESCE(
+                  planning_request.returned_trunk_version,
+                  request.returned_trunk_version)
+                """ : "request.returned_trunk_version";
+        String projectedMessageId = planningRuntime ? """
+                CASE
+                  WHEN message.seq = 1
+                    AND turn.planning_operation_id IS NOT NULL
+                    THEN turn.id || ':request'
+                  ELSE message.id END
+                """ : "message.id";
+        String planningRequestJoin = planningRuntime ? """
+                LEFT JOIN trunk_planning_base_request_receipt planning_request
+                  ON planning_request.planning_operation_id =
+                     turn.planning_operation_id
+                """ : "";
         String taskOutcomes = "";
         if (taskOutcomeRuntimeExists()) {
             taskOutcomes = """
@@ -438,6 +656,7 @@ public class ThreadTurnProjection
                            CASE outcome.summary_state
                              WHEN 'BRAIN_GENERATED' THEN outcome.summary_text
                              ELSE inbox.fallback_summary_text END,
+                           NULL,
                            'task_summary', outcome.task_id, task.seq,
                            inbox.delivered_at_ms,
                            inbox.returned_trunk_version, 0
@@ -449,14 +668,26 @@ public class ThreadTurnProjection
                     """;
             arguments.add(trunkId);
         }
-        return jdbc.query("""
+        List<ThreadMessage> projected = jdbc.query("""
                 WITH projected AS (
-                    SELECT message.id, message.role, message.body,
+                    SELECT %s AS id,
+                           message.role, message.body,
+                           CASE WHEN message.seq = 1
+                             THEN (
+                               SELECT json_group_array(content_ref)
+                               FROM (
+                                 SELECT attachment.content_ref
+                                 FROM thread_attachment attachment
+                                 WHERE attachment.turn_id = turn.id
+                                 ORDER BY attachment.id
+                               )
+                             )
+                             ELSE NULL END AS images_json,
                            'text' AS message_type,
                            NULL AS task_id, NULL AS task_seq,
                            message.created_at_ms,
                            CASE message.seq
-                             WHEN 1 THEN request.returned_trunk_version
+                             WHEN 1 THEN %s
                              ELSE result.returned_trunk_version END
                                AS order_version,
                            message.seq AS item_seq
@@ -466,25 +697,75 @@ public class ThreadTurnProjection
                       ON request.turn_id = turn.id
                     LEFT JOIN trunk_thread_turn_result_receipt result
                       ON result.turn_id = turn.id
+                    %s
                     WHERE turn.trunk_id = ?
+                    UNION ALL
+                    SELECT turn.id || ':result', 'assistant',
+                           CASE result.terminal_status
+                             WHEN 'FAILED' THEN COALESCE(
+                               turn.error_message, 'Thread turn failed.')
+                             WHEN 'CANCELED' THEN 'Turn canceled.'
+                             WHEN 'SUPERSEDED' THEN 'Turn superseded.'
+                             ELSE 'Turn completed without a response.' END,
+                           NULL,
+                           CASE result.terminal_status
+                             WHEN 'FAILED' THEN 'error'
+                             ELSE 'text' END,
+                           NULL, NULL, result.recorded_at_ms,
+                           result.returned_trunk_version, 2
+                    FROM trunk_thread_turn_result_receipt result
+                    JOIN thread_turn turn ON turn.id = result.turn_id
+                    WHERE result.trunk_id = ?
+                      AND result.assistant_message_id IS NULL
                     %s
                     %s
                 )
-                SELECT id, role, body, message_type, task_id, task_seq,
-                       created_at_ms
+                SELECT id, role, body, images_json, message_type, task_id, task_seq,
+                       created_at_ms, order_version
                 FROM projected
                 ORDER BY order_version, item_seq, id
-                """.formatted(pendingPlanning, taskOutcomes),
+                """.formatted(
+                        projectedMessageId, planningRequestVersion,
+                        planningRequestJoin,
+                        pendingPlanning, taskOutcomes),
                 (rs, row) -> new ThreadMessage(
-                        rs.getString("id"), trunkId, null, row + 1L,
+                        rs.getString("id"), trunkId, null,
+                        compatibilitySeq(rs.getLong("order_version")),
                         rs.getString("role"), rs.getString("message_type"),
                         contentJson(
                                 rs.getString("message_type"),
                                 rs.getString("body"), rs.getString("task_id"),
-                                (Number) rs.getObject("task_seq")),
+                                (Number) rs.getObject("task_seq"),
+                                rs.getString("images_json")),
                         null, null, null, null,
                         Instant.ofEpochMilli(rs.getLong("created_at_ms")),
                         null, ThreadScope.TRUNK), arguments.toArray());
+        Set<Long> seen = new HashSet<>();
+        for (ThreadMessage message : projected) {
+            if (!seen.add(message.seq())) {
+                throw new IllegalStateException(
+                        "typed conversation version exposes multiple rows: %s"
+                                .formatted(-message.seq()));
+            }
+        }
+        return projected;
+    }
+
+    /**
+     * Compatibility readers merge retained LEGACY rows with typed rows.
+     * Keep the two physical sequence spaces disjoint without inventing a
+     * persisted mirror: LEGACY rows retain their positive thread seq while a
+     * typed row uses the negative of the durable Trunk aggregate version that
+     * made it visible. Callers order the positive partition first and the
+     * negative partition by absolute value.
+     */
+    private static long compatibilitySeq(long orderVersion)
+    {
+        if (orderVersion <= 0 || orderVersion > MAX_SAFE_JSON_INTEGER) {
+            throw new IllegalStateException(
+                    "typed conversation row has no JSON-safe positive Trunk version");
+        }
+        return -orderVersion;
     }
 
     private boolean planningRuntimeExists()
@@ -507,12 +788,14 @@ public class ThreadTurnProjection
     }
 
     private String contentJson(
-            String type, String text, String taskId, Number taskSeq)
+            String type, String text, String taskId, Number taskSeq,
+            String imagesJson)
     {
+        if (!"task_summary".equals(type)) {
+            return MessageAttachments.encodeMessage(
+                    json, text, imagePaths(imagesJson));
+        }
         try {
-            if (!"task_summary".equals(type)) {
-                return json.writeValueAsString(Map.of("text", text));
-            }
             return json.writeValueAsString(Map.of(
                     "text", text,
                     "taskId", taskId,
@@ -521,6 +804,27 @@ public class ThreadTurnProjection
         catch (JsonProcessingException e) {
             throw new IllegalStateException(
                     "could not project ThreadTurn message", e);
+        }
+    }
+
+    private List<String> imagePaths(String imagesJson)
+    {
+        if (imagesJson == null) {
+            return List.of();
+        }
+        try {
+            JsonNode images = json.readTree(imagesJson);
+            if (!images.isArray()) {
+                throw new IllegalStateException(
+                        "ThreadTurn attachment list is not an array");
+            }
+            List<String> paths = new ArrayList<>();
+            images.forEach(image -> paths.add(image.asText()));
+            return List.copyOf(paths);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "could not project ThreadTurn attachments", e);
         }
     }
 
@@ -634,6 +938,87 @@ public class ThreadTurnProjection
         return new StreamJsonParser(json);
     }
 
+    private Optional<TrunkTraceEvent> traceEvent(
+            String trunkId,
+            TraceLogFacts row,
+            int eventIndex,
+            StreamEvent event)
+    {
+        String type;
+        Map<String, Object> content = new LinkedHashMap<>();
+        if (event instanceof StreamEvent.ThinkingStarted thinking) {
+            if (thinking.summary() == null || thinking.summary().isBlank()) {
+                return Optional.empty();
+            }
+            type = "thinking";
+            content.put("text", thinking.summary());
+        }
+        else if (event instanceof StreamEvent.ThinkingTextDelta thinking) {
+            if (thinking.textChunk() == null || thinking.textChunk().isBlank()) {
+                return Optional.empty();
+            }
+            type = "thinking";
+            content.put("text", thinking.textChunk());
+        }
+        else if (event instanceof StreamEvent.ToolCallStarted tool) {
+            type = "tool_call";
+            content.put("callId", tool.callId());
+            content.put("toolName", tool.toolName());
+            content.put("input", jsonValue(tool.inputJson()));
+        }
+        else if (event instanceof StreamEvent.ToolCallDone tool) {
+            type = "tool_result";
+            content.put("callId", tool.callId());
+            content.put("output", jsonValue(tool.outputJson()));
+            content.put("isError", tool.isError());
+        }
+        else if (event instanceof StreamEvent.ErrorOccurred error) {
+            // A terminal failure/cancel/supersede already has one durable
+            // assistant row in history(). Do not echo the same terminal fact
+            // through the trace channel as well.
+            if (row.assistantMessageId() == null
+                    && ("FAILED".equals(row.terminalStatus())
+                    || "CANCELED".equals(row.terminalStatus())
+                    || "SUPERSEDED".equals(row.terminalStatus()))) {
+                return Optional.empty();
+            }
+            type = "error";
+            content.put("text", error.message());
+            content.put("recoverable", error.recoverable());
+        }
+        else {
+            // Assistant prose and terminal markers belong to history(); live
+            // usage/session events are not durable Trunk work rows.
+            return Optional.empty();
+        }
+        String id = "trace:" + row.executionId() + ":" + row.logSeq()
+                + ":" + eventIndex;
+        return Optional.of(new TrunkTraceEvent(
+                id, trunkId, row.turnId(), row.requestMessageId(),
+                row.executionId(), row.logSeq(), eventIndex, type,
+                traceJson(content), event.timestamp()));
+    }
+
+    private Object jsonValue(String value)
+    {
+        try {
+            return json.readTree(value);
+        }
+        catch (JsonProcessingException ignored) {
+            return value;
+        }
+    }
+
+    private String traceJson(Map<String, Object> content)
+    {
+        try {
+            return json.writeValueAsString(content);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("could not project Trunk trace", e);
+        }
+    }
+
     public record TurnView(
             String trunkId,
             String turnId,
@@ -717,5 +1102,17 @@ public class ThreadTurnProjection
 
     private record LogFacts(
             long rowId, String payload, long createdAtMs, String provider)
+    {}
+
+    private record TraceLogFacts(
+            String turnId,
+            String requestMessageId,
+            String executionId,
+            long logSeq,
+            String payload,
+            long createdAtMs,
+            String provider,
+            String terminalStatus,
+            String assistantMessageId)
     {}
 }

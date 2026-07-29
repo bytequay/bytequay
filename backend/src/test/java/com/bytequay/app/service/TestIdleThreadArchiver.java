@@ -25,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -86,6 +87,28 @@ class TestIdleThreadArchiver
         verify(threadStore, never()).listTasksByStatus(eq(ThreadStatus.RUNNING), anyInt());
         verify(threadStore, never()).listTasksByStatus(eq(ThreadStatus.AWAITING_REVIEW), anyInt());
         verify(threadStore, never()).listTasksByStatus(eq(ThreadStatus.NEEDS_ATTENTION), anyInt());
+    }
+
+    @Test
+    void leavesV2LifecycleToTheTrunkManager()
+    {
+        Instant now = Instant.parse("2026-05-22T12:00:00Z");
+        Thread v2 = thread("v2", ThreadStatus.IDLE, now.minus(Duration.ofDays(3)));
+        Thread legacy = thread(
+                "legacy", ThreadStatus.IDLE, now.minus(Duration.ofDays(3)));
+        when(behavior.get()).thenReturn(settings("1d"));
+        when(threadStore.listTasksByStatus(eq(ThreadStatus.IDLE), anyInt()))
+                .thenReturn(List.of(v2, legacy));
+        when(threadStore.findTurnVersion("v2"))
+                .thenReturn(Optional.of("V2"));
+        when(threadStore.findTurnVersion("legacy"))
+                .thenReturn(Optional.of("LEGACY"));
+
+        archiver.sweepOnce(now);
+
+        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
+        verify(threadStore).saveThread(saved.capture());
+        assertThat(saved.getValue().id()).isEqualTo("legacy");
     }
 
     private static Settings settings(String archiveAfter)

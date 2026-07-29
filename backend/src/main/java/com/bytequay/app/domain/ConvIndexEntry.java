@@ -23,10 +23,12 @@ package com.bytequay.app.domain;
  * line, and a hard 80-char ellipsis cap so the panel can render
  * rows in a fixed-width column without per-row measurement.
  *
- * <p>{@code seq} doubles as the click-to-scroll anchor: the
- * structured-conversation renderer tags each user message row with
- * {@code data-seq=<seq>}, and the index's click handler runs
- * {@code scrollIntoView()} on the matching element.
+ * <p>{@code seq} doubles as the stable cursor and click-to-scroll anchor.
+ * Retained LEGACY rows keep their positive thread sequence. Typed rows on a
+ * promoted Trunk use the negative durable Trunk version that exposed them;
+ * canonical readers order the positive partition first, then typed versions
+ * by absolute value. The structured-conversation renderer tags each user row
+ * with {@code data-seq=<seq>} and the index scrolls to that exact value.
  */
 public record ConvIndexEntry(
         long seq,

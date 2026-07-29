@@ -12,7 +12,9 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
-import type { DiffFileDto, ThreadCommitDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import type {
+  DiffFileDto, ThreadCommitDto, ThreadMessageDto, TrunkTraceEventDto, WorkUnitTaskDto,
+} from '../types';
 import { TaskChangedFilesCard } from '../pages/TaskChangedFilesCard';
 import {
   ActivityStrip, EventTimestamp, Headline, Round, Spine, SpineBreak, TaskCutNode, TaskFold, UserTurn, WorkFold,
@@ -131,10 +133,104 @@ function renderWork(
   return out;
 }
 
-function workedFor(work: ThreadMessageDto[], headline: ThreadMessageDto | null): string {
+function parseTraceResult(contentJson: string): { callId: string; isError: boolean; text: string } {
+  try {
+    const content = JSON.parse(contentJson) as Record<string, unknown>;
+    const output = content.output;
+    let text = '';
+    if (typeof output === 'string') text = output;
+    else if (output !== undefined) text = JSON.stringify(output);
+    return {
+      callId: typeof content.callId === 'string' ? content.callId : '',
+      isError: content.isError === true,
+      text,
+    };
+  }
+  catch {
+    return { callId: '', isError: false, text: '' };
+  }
+}
+
+/** Render provider logs without converting them into conversation rows. */
+function renderTrace(rows: TrunkTraceEventDto[], full: boolean): ReactNode[] {
+  const out: ReactNode[] = [];
+  const results = new Map(rows
+    .filter(row => row.type === 'tool_result')
+    .map(row => {
+      const result = parseTraceResult(row.contentJson);
+      return [result.callId, result] as const;
+    })
+    .filter(([callId]) => callId.length > 0));
+  let toolBatch: TrunkTraceEventDto[] = [];
+  const flushTools = () => {
+    if (toolBatch.length === 0) return;
+    const byName = new Map<string, { label: string }[]>();
+    for (const row of toolBatch) {
+      const { name, summary } = parseToolCall(row.contentJson);
+      let callId = '';
+      try {
+        const content = JSON.parse(row.contentJson) as Record<string, unknown>;
+        callId = typeof content.callId === 'string' ? content.callId : '';
+      }
+      catch { /* malformed trace envelope */ }
+      const failed = results.get(callId)?.isError === true;
+      const detail = summary.length > 0 ? ` — ${summary}` : '';
+      const list = byName.get(name) ?? [];
+      list.push({ label: `${name}${detail}${failed ? ' · failed' : ''}` });
+      byName.set(name, list);
+    }
+    const groups: ToolGroup[] = [...byName.entries()].map(([kind, grouped]) => ({ kind, rows: grouped }));
+    out.push(<ActivityStrip key={`trace-act-${toolBatch[0].id}`} groups={groups} forceOpen={full} />);
+    toolBatch = [];
+  };
+  for (const row of rows) {
+    if (row.type === 'tool_call') {
+      toolBatch.push(row);
+      continue;
+    }
+    if (row.type === 'tool_result') {
+      const result = parseTraceResult(row.contentJson);
+      if (!result.isError) continue;
+      flushTools();
+      out.push(
+        <div className="sp-submsg sp-submsg--error" key={row.id} role="alert">
+          <div className="sp-submsg__tx">
+            <MarkdownProse text={result.text.length > 0 ? result.text : 'Tool call failed.'} />
+          </div>
+        </div>,
+      );
+      continue;
+    }
+    flushTools();
+    const text = extractText(row.contentJson);
+    if (text.trim().length === 0) continue;
+    const error = row.type === 'error';
+    out.push(
+      <div
+        className={`sp-submsg${row.type === 'thinking' ? ' sp-submsg--think' : ''}${error ? ' sp-submsg--error' : ''}`}
+        key={row.id}
+        role={error ? 'alert' : undefined}
+      >
+        <div className="sp-submsg__tx"><MarkdownProse text={text} /></div>
+      </div>,
+    );
+  }
+  flushTools();
+  return out;
+}
+
+function traceFailure(row: TrunkTraceEventDto): boolean {
+  return row.type === 'error'
+    || (row.type === 'tool_result' && parseTraceResult(row.contentJson).isError);
+}
+
+function workedFor(
+  work: ThreadMessageDto[], headline: ThreadMessageDto | null, trace: TrunkTraceEventDto[] = [],
+): string {
   const measuredMs = work.reduce((sum, row) => sum + Math.max(0, row.durationMs ?? 0), 0);
-  const first = Date.parse(work[0]?.ts ?? '');
-  const last = Date.parse(headline?.ts ?? work[work.length - 1]?.ts ?? '');
+  const first = Math.min(...[...work, ...trace]
+    .map(row => Date.parse(row.ts)).filter(Number.isFinite));
+  const last = Date.parse(headline?.ts ?? work[work.length - 1]?.ts ?? trace[trace.length - 1]?.ts ?? '');
   const elapsedMs = Number.isNaN(first) || Number.isNaN(last) ? 0 : Math.max(0, last - first);
   return `Worked for ${formatDuration(Math.max(measuredMs, elapsedMs) / 1000)}`;
 }
@@ -237,7 +333,7 @@ function TaskArtifactTrace({ artifacts }: { artifacts: TrunkTaskArtifacts }) {
  */
 export function TrunkFeed({
   messages, tasks, density, onOpenTask, trailer, mergeReadyIds, onAnswerQuestion, onDecidePermission,
-  artifactsByTaskId,
+  artifactsByTaskId, tracesByRequestMessageId,
 }: {
   messages: ThreadMessageDto[];
   tasks: WorkUnitTaskDto[];
@@ -255,6 +351,9 @@ export function TrunkFeed({
    *  timeout) an actual clickable card. */
   onDecidePermission?: PermissionDecideHandler;
   artifactsByTaskId?: ReadonlyMap<string, TrunkTaskArtifacts>;
+  /** Provider trace remains a separate projection, joined only for display
+   * by the stable typed request-message id. */
+  tracesByRequestMessageId?: ReadonlyMap<string, TrunkTraceEventDto[]>;
 }) {
   const full = density === 'full';
   const items = buildTrunkTimeline(messages, tasks);
@@ -278,12 +377,16 @@ export function TrunkFeed({
   const renderRound = (round: TrunkRound): ReactNode => {
     const tag = round.userTurn === null ? `R${(autonomous += 1)}` : undefined;
     const work = trunkWork(round);
+    const trace = round.userTurn === null
+      ? []
+      : tracesByRequestMessageId?.get(round.userTurn.id) ?? [];
     const headline = trunkHeadline(round);
     // A question — or a permission prompt — awaiting the user must be
     // visible without un-folding.
     const holdsPendingAsk = ask.pendingId !== null && work.some(m => m.id === ask.pendingId);
     const holdsPendingPermission = work.some(m => m.type === 'permission_request');
-    const failures = work.filter(m => m.type === 'error').length;
+    const failures = work.filter(m => m.type === 'error').length
+      + trace.filter(traceFailure).length;
     return (
       <Round key={round.id} tag={tag}>
         {round.userTurn !== null && (
@@ -297,12 +400,13 @@ export function TrunkFeed({
             messageSeq={round.userTurn.seq}
           />
         )}
-        {work.length > 0 && (
+        {(work.length > 0 || trace.length > 0) && (
           <WorkFold
-            label={workedFor(work, headline)}
+            label={workedFor(work, headline, trace)}
             failed={failures}
             forceOpen={full || holdsPendingAsk || holdsPendingPermission || failures > 0}
           >
+            {renderTrace(trace, full)}
             {renderWork(work, full, ask, onDecidePermission)}
           </WorkFold>
         )}

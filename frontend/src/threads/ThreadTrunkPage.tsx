@@ -34,6 +34,7 @@ import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { WorkModelPill } from '../workspace/WorkModelPill';
+import { compareConversationSeq } from './conversationSeq';
 
 type Props = {
   threadId: string;
@@ -68,7 +69,12 @@ function mergeMessages(
   const bySeq = new Map<number, ThreadMessageDto>();
   for (const m of older) bySeq.set(m.seq, m);
   for (const m of newer) bySeq.set(m.seq, m);
-  return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+  return Array.from(bySeq.values()).sort(
+    (a, b) => compareConversationSeq(a.seq, b.seq));
+}
+
+function countUserPrompts(messages: ThreadMessageDto[]): number {
+  return messages.filter(m => m.role === 'user' && m.type === 'text').length;
 }
 
 /**
@@ -95,10 +101,11 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const { tasks, error: tasksError, refresh: refreshTasks } = useThreadTasks(threadId);
   const [turns, setTurns] = useState<ThreadTurnDto[] | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
+  const messagesRef = useRef<ThreadMessageDto[]>([]);
   const [typedPermissions, setTypedPermissions] =
     useState<TypedPermissionRequestDto[]>([]);
-  // Pagination cursor for the transcript — tracks the smallest seq
-  // currently loaded. The chat starts with a tail window and the
+  // Pagination cursor for the transcript — tracks the earliest canonical
+  // seq currently loaded. The chat starts with a tail window and the
   // user expands the history via the "Load earlier" button.
   const [loadedFromSeq, setLoadedFromSeq] = useState<number | null>(null);
   const [canLoadOlder, setCanLoadOlder] = useState(false);
@@ -201,6 +208,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     // Reset pagination state on thread switch so stale rows from the
     // previous thread can't briefly render against the new one.
     setMessages(null);
+    messagesRef.current = [];
     setLoadedFromSeq(null);
     setCanLoadOlder(false);
     void (async () => {
@@ -211,8 +219,10 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
         });
         if (cancelled) return;
         setMessages(page.messages);
+        messagesRef.current = page.messages;
         setLoadedFromSeq(page.loadedFromSeq);
-        setCanLoadOlder(page.loadedFromSeq !== null && page.loadedFromSeq > 1);
+        setCanLoadOlder(
+          countUserPrompts(page.messages) < page.totalUserMessages);
       }
       catch {
         if (!cancelled) setMessages([]);
@@ -311,7 +321,18 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
         direction: 'initial',
         limit: TRUNK_INITIAL_LIMIT,
       });
-      setMessages(prev => mergeMessages(prev ?? [], page.messages));
+      const merged = mergeMessages(messagesRef.current, page.messages);
+      messagesRef.current = merged;
+      setMessages(merged);
+      const missingPrompts = countUserPrompts(merged) < page.totalUserMessages;
+      const incoming = page.loadedFromSeq;
+      setCanLoadOlder(missingPrompts);
+      if (missingPrompts && incoming !== null) {
+        // A LEGACY child can append inside the positive prefix after this
+        // Trunk is promoted. Restart from the canonical tail so that a row
+        // inserted after an old fully-backfilled cursor remains reachable.
+        setLoadedFromSeq(incoming);
+      }
     }
     catch { /* keep last good list */ }
   }, [threadId]);
@@ -360,9 +381,12 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
         cursor: loadedFromSeq,
         limit: TRUNK_INITIAL_LIMIT,
       });
-      setMessages(prev => mergeMessages(page.messages, prev ?? []));
+      const merged = mergeMessages(page.messages, messagesRef.current);
+      messagesRef.current = merged;
+      setMessages(merged);
       setLoadedFromSeq(page.loadedFromSeq);
-      setCanLoadOlder(page.nextCursor !== null);
+      setCanLoadOlder(
+        countUserPrompts(merged) < page.totalUserMessages);
     }
     catch { /* keep last good list */ }
     finally {
@@ -415,10 +439,11 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   // split the composer shows a perpetual "working…" the instant any
   // task starts running, even though the planning turn already finished.
   // The poll below still watches every turn so task cards keep refreshing.
-  const trunkInFlight = useMemo(
-    () => (turns ?? []).some(
+  const trunkInFlightTurn = useMemo(
+    () => (turns ?? []).find(
       t => (t.status === 'QUEUED' || t.status === 'RUNNING') && t.taskId === null),
     [turns]);
+  const trunkInFlight = trunkInFlightTurn !== undefined;
   useEffect(() => {
     if (!hasInFlight && !sending) return;
     const handle = window.setInterval(() => {
@@ -441,7 +466,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     setInterrupting(true);
     setSendError(null);
     try {
-      await window.bridge.interruptTask(threadId);
+      await window.bridge.interruptTask(threadId, trunkInFlightTurn?.id);
       // The interrupt is asynchronous on the backend — the agent
       // process gets SIGINT and the turn flips to a terminal state
       // soon after. Pull the latest turn+message lists so the
@@ -454,7 +479,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     finally {
       setInterrupting(false);
     }
-  }, [interrupting, threadId, refreshMessages, refreshTurns, loadThread]);
+  }, [interrupting, threadId, trunkInFlightTurn?.id,
+    refreshMessages, refreshTurns, loadThread]);
 
   const onSendTrunk = useCallback(async () => {
     const text = composerInput.trim();

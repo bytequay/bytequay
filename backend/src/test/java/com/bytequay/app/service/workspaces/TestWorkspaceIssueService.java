@@ -27,6 +27,8 @@ import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -40,6 +42,17 @@ import static org.mockito.Mockito.when;
 
 class TestWorkspaceIssueService
 {
+    @Test
+    void startLeavesTrunkDispatchOutsideTheLinkTransaction()
+            throws Exception
+    {
+        Transactional boundary = WorkspaceIssueService.class
+                .getMethod("start", String.class, int.class, String.class)
+                .getAnnotation(Transactional.class);
+        assertThat(boundary).isNotNull();
+        assertThat(boundary.propagation()).isEqualTo(Propagation.NOT_SUPPORTED);
+    }
+
     @Test
     void startSchedulesOnlyTheExactIssueReferencePrompt()
     {

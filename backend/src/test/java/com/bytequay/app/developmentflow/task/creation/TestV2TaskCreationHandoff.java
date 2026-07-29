@@ -34,6 +34,11 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.COMMAND_ID_CONFLICT;
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
@@ -367,6 +372,50 @@ class TestV2TaskCreationHandoff
                 .isEqualTo(2);
     }
 
+    @Test
+    void concurrentFactoriesSnapshotDistinctPolicyAndTrunkVersionsUnderTheStripe()
+            throws Exception
+    {
+        Path repositoryRoot = tempDir.resolve("concurrent-repo").toAbsolutePath();
+        SQLiteDataSource dataSource = database("concurrent.db");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc, repositoryRoot);
+        CreationRuntime runtime = runtime(dataSource);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService workers = Executors.newFixedThreadPool(2)) {
+            Future<TaskCreationHandoff.Result> first = workers.submit(() -> {
+                ready.countDown();
+                start.await();
+                return runtime.handoff().create(
+                        TRUNK,
+                        () -> concurrentCommand(jdbc, "first", repositoryRoot));
+            });
+            Future<TaskCreationHandoff.Result> second = workers.submit(() -> {
+                ready.countDown();
+                start.await();
+                return runtime.handoff().create(
+                        TRUNK,
+                        () -> concurrentCommand(jdbc, "second", repositoryRoot));
+            });
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(List.of(
+                    first.get(10, TimeUnit.SECONDS).task().receipt().taskSequence(),
+                    second.get(10, TimeUnit.SECONDS).task().receipt().taskSequence()))
+                    .containsExactlyInAnyOrder(1L, 2L);
+        }
+
+        assertThat(jdbc.queryForList("""
+                SELECT revision FROM task_policy_revision ORDER BY revision
+                """, Integer.class)).containsExactly(1, 2);
+        assertThat(number(jdbc,
+                "SELECT aggregate_version FROM threads WHERE id = ?", TRUNK))
+                .isEqualTo(2);
+        assertThat(count(jdbc, "tasks")).isEqualTo(2);
+    }
+
     private SQLiteDataSource database(String name)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
@@ -472,6 +521,35 @@ class TestV2TaskCreationHandoff
                 new TrunkManager.TaskCreationCommand(
                         commandId, "user", expectedVersion, input),
                 repositoryRoot);
+    }
+
+    private static TaskCreationHandoff.Command concurrentCommand(
+            JdbcTemplate jdbc, String suffix, Path repositoryRoot)
+    {
+        int policyRevision = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(revision), 0) + 1
+                FROM task_policy_revision WHERE trunk_id = ?
+                """, Integer.class, TRUNK);
+        long trunkVersion = number(
+                jdbc,
+                "SELECT aggregate_version FROM threads WHERE id = ?", TRUNK);
+        TaskAssignment.Identity identity = new TaskAssignment.Identity(
+                "assignment-" + suffix, TRUNK, "authorization-" + suffix,
+                "user", NOW);
+        TaskCreationInput input = new TaskCreationInput(
+                WORKSPACE,
+                new TaskAssignment.Automation(
+                        identity, "test", "concurrent " + suffix),
+                new TaskCreationInput.TaskPolicy(
+                        "policy-" + suffix, TRUNK, policyRevision,
+                        "TRUNK", true, false, 1, 3, 3, true,
+                        Optional.of("permissions-1"), "user", NOW),
+                fresh(),
+                new TaskCreationInput.EngineSnapshot(
+                        "openai", "review-model", "engine-v1"),
+                new TaskCreationInput.WorkModelSnapshot("work-model-v1"), NOW);
+        return command(
+                "concurrent-" + suffix, trunkVersion, input, repositoryRoot);
     }
 
     private static List<TaskCreationInput> allInputs()

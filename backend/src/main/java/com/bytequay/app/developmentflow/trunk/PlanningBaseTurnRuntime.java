@@ -19,7 +19,9 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -88,11 +91,18 @@ public final class PlanningBaseTurnRuntime
                 "launch", request.trunkId(), request.commandId());
         String turnId = ThreadTurnHandoff.turnIdFor(
                 request.trunkId(), launchCommandId);
+        MessageAttachments.Decoded user = MessageAttachments.decode(
+                json, request.userMessage());
+        MessageAttachments.Decoded prompt = MessageAttachments.decode(
+                json, request.prompt());
+        List<AgentTurnProviderSession.ImageAttachment> images =
+                ThreadTurnHandoff.freezeImages(
+                        attachments(user.images(), prompt.images()));
         LaunchIntent intent = new LaunchIntent(
                 1, request.purpose(), request.transport(), request.provider(),
                 request.credentialAccount(), request.model(),
                 request.reasoningEffort(), request.systemPrompt(),
-                request.userMessage(), request.prompt());
+                user.text(), prompt.text(), images);
         String frozen = write(intent);
         Optional<TrunkManager.PlanningBaseRequestReceipt> existing =
                 trunkStore.findPlanningBaseRequest(
@@ -212,6 +222,12 @@ public final class PlanningBaseTurnRuntime
         return trunks.suppressPlanningLaunches(trunkId, reason, clock.instant());
     }
 
+    public int suppressPending(String trunkId, String turnId, String reason)
+    {
+        return trunks.suppressPlanningLaunch(
+                trunkId, turnId, reason, clock.instant());
+    }
+
     private void launchReady(String operationId)
     {
         SqlitePlanningBaseTurnStore.LaunchCandidate candidate =
@@ -221,9 +237,18 @@ public final class PlanningBaseTurnRuntime
         }
         if (!ThreadTurnHandoff.digest(candidate.launchIntent())
                 .equals(candidate.launchIntentDigest())) {
-            throw new IllegalStateException("planning launch intent digest changed");
+            suppressInvalidLaunch(
+                    candidate, "planning launch intent digest changed");
+            return;
         }
-        LaunchIntent intent = readIntent(candidate.launchIntent());
+        LaunchIntent intent;
+        try {
+            intent = readIntent(candidate.launchIntent());
+        }
+        catch (IllegalStateException e) {
+            suppressInvalidLaunch(candidate, detail(e));
+            return;
+        }
         TrunkManager.ThreadTurnRequestReceipt existing =
                 trunkStore.findThreadTurnRequest(
                         candidate.trunkId(), candidate.launchCommandId())
@@ -238,15 +263,22 @@ public final class PlanningBaseTurnRuntime
                             "V2 Trunk disappeared before launch"));
             String prompt = movement(candidate.previousBaseSha(), candidate.baseSha())
                     + intent.prompt();
-            TrunkManager.ThreadTurnCommand command = turns.prepare(
-                    new ThreadTurnHandoff.Request(
-                    candidate.launchCommandId(), candidate.actor(),
-                    candidate.trunkId(), candidate.workspaceId(), current.version(),
-                    intent.purpose(), intent.transport(), intent.provider(),
-                    intent.credentialAccount(), intent.model(),
-                    intent.reasoningEffort(), Path.of(candidate.worktreePath()),
-                    intent.systemPrompt(), intent.userMessage(), prompt,
-                    candidate.planningOperationId(), candidate.baseSha()));
+            TrunkManager.ThreadTurnCommand command;
+            try {
+                command = turns.prepare(new ThreadTurnHandoff.Request(
+                        candidate.launchCommandId(), candidate.actor(),
+                        candidate.trunkId(), candidate.workspaceId(),
+                        current.version(), intent.purpose(), intent.transport(),
+                        intent.provider(), intent.credentialAccount(), intent.model(),
+                        intent.reasoningEffort(), Path.of(candidate.worktreePath()),
+                        intent.systemPrompt(), intent.userMessage(), prompt,
+                        intent.images(), candidate.planningOperationId(),
+                        candidate.baseSha()));
+            }
+            catch (ThreadTurnHandoff.InvalidFrozenAttachmentException e) {
+                suppressInvalidLaunch(candidate, detail(e));
+                return;
+            }
             Optional<CommandResult<TrunkManager.ThreadTurnRequestReceipt>> launched =
                     trunks.launchPlanningTurn(
                             candidate.planningOperationId(), command);
@@ -264,6 +296,33 @@ public final class PlanningBaseTurnRuntime
             // two-step handoff. New launches commit both records atomically.
             store.markLaunched(candidate, turnId, clock.instant());
         }
+    }
+
+    private void suppressInvalidLaunch(
+            SqlitePlanningBaseTurnStore.LaunchCandidate candidate,
+            String detail)
+    {
+        trunks.suppressPlanningLaunch(
+                candidate.trunkId(), candidate.reservedThreadTurnId(),
+                "Planning turn could not start because its frozen input is invalid: "
+                        + detail,
+                clock.instant());
+    }
+
+    private static String detail(Throwable failure)
+    {
+        String summary = failure.getMessage();
+        Throwable cause = failure;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        String root = cause.getMessage();
+        if (root == null || root.isBlank()) {
+            return summary == null || summary.isBlank()
+                    ? failure.getClass().getSimpleName() : summary;
+        }
+        return summary == null || summary.isBlank() || summary.equals(root)
+                ? root : summary + ": " + root;
     }
 
     private Path repositoryRoot(String workspaceId)
@@ -329,6 +388,17 @@ public final class PlanningBaseTurnRuntime
         return "[Planning base updated " + shortSha(previous) + " -> "
                 + shortSha(current)
                 + ": re-verify earlier file and line assumptions.]\n\n";
+    }
+
+    private static List<String> attachments(
+            List<String> userImages, List<String> promptImages)
+    {
+        if (!userImages.isEmpty() && !promptImages.isEmpty()
+                && !userImages.equals(promptImages)) {
+            throw new IllegalArgumentException(
+                    "planning user message and prompt carry different images");
+        }
+        return userImages.isEmpty() ? promptImages : userImages;
     }
 
     private static String shortSha(String sha)
@@ -406,7 +476,9 @@ public final class PlanningBaseTurnRuntime
             String reasoningEffort,
             String systemPrompt,
             String userMessage,
-            String prompt)
+            String prompt,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY)
+                    List<AgentTurnProviderSession.ImageAttachment> images)
     {
         private LaunchIntent
         {
@@ -420,6 +492,7 @@ public final class PlanningBaseTurnRuntime
             requireText(model, "model");
             requireText(userMessage, "userMessage");
             requireText(prompt, "prompt");
+            images = images == null ? List.of() : List.copyOf(images);
         }
     }
 

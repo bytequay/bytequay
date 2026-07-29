@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -86,7 +87,9 @@ public final class ExecutionDispatcher
             new ConcurrentHashMap<>();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean maintaining = new AtomicBoolean();
+    private final AtomicBoolean capacityWakeQueued = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private CapacityManager.AvailabilityRegistration capacityAvailability = () -> {};
     private ExecutionPorts.TicketScanCursor eligibleCursor;
 
     public ExecutionDispatcher(
@@ -273,12 +276,34 @@ public final class ExecutionDispatcher
         if (!started.compareAndSet(false, true)) {
             return;
         }
+        capacityAvailability = capacityManager.onCapacityAvailable(
+                this::scheduleCapacityMaintenance);
         long delayMillis = config.maintenanceInterval().toMillis();
         maintenanceExecutor.scheduleWithFixedDelay(
                 this::runMaintenanceSafely,
                 0,
                 delayMillis,
                 TimeUnit.MILLISECONDS);
+    }
+
+    /** Queues, and coalesces, an immediate V2 retry on the owned scheduler. */
+    private void scheduleCapacityMaintenance()
+    {
+        if (closed.get() || !started.get()
+                || !capacityWakeQueued.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            maintenanceExecutor.execute(() -> {
+                // Clear before the scan so a release racing the scan queues the
+                // next pass instead of waiting for the periodic backstop.
+                capacityWakeQueued.set(false);
+                runMaintenanceSafely();
+            });
+        }
+        catch (RejectedExecutionException ignored) {
+            capacityWakeQueued.set(false);
+        }
     }
 
     /** Deterministic entry point used by the scheduler and fault tests. */
@@ -1168,6 +1193,7 @@ public final class ExecutionDispatcher
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        capacityAvailability.close();
         maintenanceExecutor.shutdownNow();
         try {
             active.forEach(this::abandonForShutdown);

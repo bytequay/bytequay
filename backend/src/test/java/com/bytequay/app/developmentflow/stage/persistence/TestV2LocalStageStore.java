@@ -56,7 +56,7 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).target("237").load().migrate();
+        Flyway.configure().dataSource(dataSource).target("266").load().migrate();
         ResultFence source = new ResultFence(
                 1, "local-stage", 1, "implementation-operation", 1,
                 "fingerprint-old", "head-old", "head-old");
@@ -123,7 +123,7 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).target("237").load().migrate();
+        Flyway.configure().dataSource(dataSource).target("266").load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =
@@ -207,7 +207,7 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).target("237").load().migrate();
+        Flyway.configure().dataSource(dataSource).target("266").load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =
@@ -289,7 +289,7 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).target("237").load().migrate();
+        Flyway.configure().dataSource(dataSource).target("266").load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =

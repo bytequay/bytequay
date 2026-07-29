@@ -391,6 +391,17 @@ Acceptance gate:
 - queued cancellation never launches
 - late success after cancellation is delivered and superseded
 - Workspace/Trunk caps and sibling Task parallelism work
+- a Workspace or Trunk limit committed concurrently with admission is resolved
+  inside the serialized admission boundary; no stale-policy admission may land
+  after the lower ceiling commits
+- settings commit wakes capacity waiters, while settings rollback emits no wake
+- ExecutionDispatcher schedules the V2 retry on its owned maintenance executor;
+  the settings completion callback never re-enters the database connection
+- Workspace and Trunk settings reject zero or negative Task ceilings before
+  persistence and publish no policy wake for the rejected command
+- V275 projects valid legacy `parallel_slots > 1` values once into
+  `thread_settings.max_running_tasks`, normalizes invalid historical values to
+  inheritance, and leaves no second Trunk admission-policy read path
 - saturated worker lanes cannot block Trunk control
 - waiting tickets consume no worker or executing-Task lease
 - validation, review and legacy admission cannot bypass the shared ceilings
@@ -678,7 +689,13 @@ Preconditions:
 
 - V2 creation enabled for all intended Workspaces
 - zero nonterminal LEGACY Tasks
-- zero queued/running/claimed LEGACY Turns and effects
+- zero queued/running LEGACY Turns
+- zero queued/running/paused/awaiting-gate legacy AgentRuns, including
+  standalone detached review runs; detached artifacts whose exact review
+  session owns a V2 Task are V2 work and do not block legacy retirement
+- zero unfinished, unsuperseded LEGACY validation claims; a cancellation
+  request remains open until stop is proven
+- zero unconsumed LEGACY push and round-gate effects
 - retention window completed
 - historical read compatibility proven
 
@@ -801,6 +818,30 @@ another cross-cutting migration with no safe rollback.
 
 ## Cutover record and operator runbook
 
+Before upgrading an existing installation, rehearse against an online SQLite
+backup. Do not copy a running database file directly because committed data may
+still be in its WAL. Keep one immutable source backup, migrate a second copy,
+and compare the source hash afterward:
+
+~~~bash
+sqlite3 "/absolute/path/to/bytequay.db" \
+  ".timeout 30000" \
+  ".backup '/private/tmp/bytequay-pre-v275.db'"
+cp -p /private/tmp/bytequay-pre-v275.db /private/tmp/bytequay-v275.db
+chmod 0444 /private/tmp/bytequay-pre-v275.db
+shasum -a 256 /private/tmp/bytequay-pre-v275.db
+cd backend
+mvn -q -Dtest=TestDevelopmentFlowBackupAudit \
+  -Dbytequay.audit.db=/private/tmp/bytequay-v275.db test
+shasum -a 256 /private/tmp/bytequay-pre-v275.db
+~~~
+
+The audit runner refuses the standard live-database path, targets exactly
+V275, checks SQLite integrity and foreign keys before and after migration, and
+requires the development-flow invariant audit to be healthy. A non-zero legacy
+drain is reported separately: it blocks legacy-code retirement but does not
+make the schema upgrade invalid.
+
 The V2 creation cutover is complete. The shipped defaults route every new
 Workspace Task to V2 and enable V2 dispatch:
 
@@ -834,7 +875,8 @@ sidecar when an operator action is required:
 2. Inspect `GET /api/development-flow/diagnostics`; do not expand or declare a
    canary healthy unless `healthy` is true and `findings` is empty.
 3. Inspect `GET /api/development-flow/legacy-drain`; legacy retirement requires
-   `drained=true` and all four counters to be zero.
+   `drained=true` and all five counters to be zero. `liveValidationClaims`
+   includes cancellation-requested claims until completion or supersession.
 4. To stop creating additional V2 Tasks, clear
    `bytequay.development-flow.v2-workspace-allow-list` and restart. Existing V2
    Tasks remain V2 and must be fixed forward; they are never downgraded.

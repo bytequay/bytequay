@@ -54,6 +54,45 @@ public class SqliteCapacityLeaseStore
     }
 
     @Override
+    public CapacityManager.CapacityPolicySnapshot policySnapshot(
+            CapacityManager.CapacityScope scope)
+    {
+        requireNonNull(scope, "scope is null");
+        Connection connection = admissionConnection.get();
+        if (connection == null) {
+            throw new IllegalStateException(
+                    "capacity policy snapshot requires an admission transaction");
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT workspace.settings_json,
+                       trunk_settings.max_running_tasks
+                FROM (SELECT 1) seed
+                LEFT JOIN workspace_settings workspace
+                  ON workspace.workspace_id = ?
+                LEFT JOIN threads trunk
+                  ON trunk.id = ? AND trunk.workspace_id = ?
+                LEFT JOIN thread_settings trunk_settings
+                  ON trunk_settings.thread_id = trunk.id
+                """)) {
+            statement.setString(1, scope.workspaceId());
+            statement.setString(2, scope.trunkId());
+            statement.setString(3, scope.workspaceId());
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException(
+                            "capacity policy snapshot query returned no row");
+                }
+                return new CapacityManager.CapacityPolicySnapshot(
+                        result.getString("settings_json"),
+                        nullableInt(result, "max_running_tasks"));
+            }
+        }
+        catch (SQLException e) {
+            throw SqliteTransactions.failure("Capacity policy snapshot failed", e);
+        }
+    }
+
+    @Override
     public List<CapacityManager.CapacityLease> listActive(Instant now)
     {
         requireNonNull(now, "now is null");
@@ -352,6 +391,13 @@ public class SqliteCapacityLeaseStore
             throws SQLException
     {
         long value = result.getLong(column);
+        return result.wasNull() ? null : value;
+    }
+
+    private static Integer nullableInt(ResultSet result, String column)
+            throws SQLException
+    {
+        int value = result.getInt(column);
         return result.wasNull() ? null : value;
     }
 

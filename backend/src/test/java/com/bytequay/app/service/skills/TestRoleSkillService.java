@@ -141,7 +141,7 @@ class TestRoleSkillService
         assertThat(body).contains("`trunk` — The long-lived assistant thread");
         assertThat(body).contains("`pr` — A GitHub pull request");
         assertThat(body).contains("`ship` — Finalise the current task");
-        assertThat(body).contains("`next` — Park the current task at AWAITING_REVIEW");
+        assertThat(body).contains("`next` — Return control to Trunk planning");
         assertThat(body).contains("`awaiting_review` — A task whose agent finished");
     }
 

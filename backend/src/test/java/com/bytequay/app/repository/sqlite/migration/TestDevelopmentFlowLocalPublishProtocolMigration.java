@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteMergeRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Files;
@@ -1842,9 +1844,16 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
 
     private static StageStores stageStores(SQLiteDataSource dataSource)
     {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
         AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext();
-        context.registerBean(JdbcTemplate.class, () -> new JdbcTemplate(dataSource));
+        context.registerBean(JdbcTemplate.class, () -> jdbc);
+        context.registerBean(TransactionTemplate.class,
+                () -> new TransactionTemplate(transactionManager));
+        context.registerBean(SqliteDispatchWakeStore.class,
+                () -> new SqliteDispatchWakeStore(jdbc));
         context.scan("com.bytequay.app.developmentflow.stage.persistence");
         context.refresh();
         return new StageStores(

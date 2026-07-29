@@ -13,34 +13,31 @@
  */
 package com.bytequay.app.config;
 
+import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
-import com.bytequay.app.domain.ThreadSettings;
-import com.bytequay.app.repository.ThreadSettingsStore;
-import com.bytequay.app.repository.ThreadStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 
-/** Projects legacy Trunk concurrency settings into the shared capacity policy. */
+/** Resolves persisted Workspace and Trunk settings captured by admission. */
 final class DevelopmentFlowCapacityPolicySource
         implements CapacityManager.CapacityPolicySource
 {
-    private final ThreadStore threads;
-    private final ThreadSettingsStore settings;
+    private final ObjectMapper mapper;
     private final int defaultWorkspaceLimit;
     private final int defaultTrunkLimit;
     private final Map<CapacityManager.CapacityLane, Integer> laneLimits;
 
     DevelopmentFlowCapacityPolicySource(
-            ThreadStore threads,
-            ThreadSettingsStore settings,
+            ObjectMapper mapper,
             int defaultWorkspaceLimit,
             int defaultTrunkLimit,
             Map<CapacityManager.CapacityLane, Integer> laneLimits)
     {
-        this.threads = requireNonNull(threads, "threads is null");
-        this.settings = requireNonNull(settings, "settings is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
         this.defaultWorkspaceLimit = positive(
                 defaultWorkspaceLimit, "defaultWorkspaceLimit");
         this.defaultTrunkLimit = positive(defaultTrunkLimit, "defaultTrunkLimit");
@@ -56,30 +53,45 @@ final class DevelopmentFlowCapacityPolicySource
 
     @Override
     public CapacityManager.CapacityPolicy current(
-            CapacityManager.CapacityRequest request)
+            CapacityManager.CapacityRequest request,
+            CapacityManager.CapacityPolicySnapshot snapshot)
     {
         requireNonNull(request, "request is null");
+        requireNonNull(snapshot, "snapshot is null");
+        String workspaceId = request.scope().workspaceId();
         String trunkId = request.scope().trunkId();
-        if (trunkId == null) {
+        if (workspaceId == null && trunkId == null) {
             return current();
         }
-        int trunkLimit = settings.find(trunkId)
-                .map(ThreadSettings::maxRunningTasks)
-                .filter(value -> value != null)
-                .orElseGet(() -> threads.findThreadById(trunkId)
-                        // parallel_slots=1 was the legacy sequential default;
-                        // values above one were explicit and remain policy.
-                        .filter(thread -> thread.parallelSlots() > 1)
-                        .map(thread -> thread.parallelSlots())
-                        .orElse(defaultTrunkLimit));
+        int workspaceLimit = workspaceLimit(snapshot.workspaceSettingsJson());
+        int trunkLimit = snapshot.trunkMaxRunningTasks() != null
+                ? positive(snapshot.trunkMaxRunningTasks(), "Trunk maxRunningTasks")
+                : defaultTrunkLimit;
         CapacityManager.CapacityPolicy base = current();
         return new CapacityManager.CapacityPolicy(
                 base.laneLimits(),
                 base.reservedTrunkControl(),
                 defaultWorkspaceLimit,
                 defaultTrunkLimit,
-                Map.of(),
-                Map.of(trunkId, trunkLimit));
+                workspaceId == null ? Map.of() : Map.of(workspaceId, workspaceLimit),
+                trunkId == null ? Map.of() : Map.of(trunkId, trunkLimit));
+    }
+
+    private int workspaceLimit(String settingsJson)
+    {
+        if (settingsJson == null) {
+            return defaultWorkspaceLimit;
+        }
+        try {
+            Integer configured = mapper.readValue(
+                    settingsJson, WorkspaceSettingsDto.class).maxRunningTasks();
+            return configured == null
+                    ? defaultWorkspaceLimit
+                    : positive(configured, "Workspace maxRunningTasks");
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("invalid Workspace settings", e);
+        }
     }
 
     private static int positive(int value, String name)

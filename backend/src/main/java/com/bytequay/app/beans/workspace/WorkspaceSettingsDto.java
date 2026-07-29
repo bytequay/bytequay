@@ -29,7 +29,8 @@ public record WorkspaceSettingsDto(
         boolean notifyCi,
         boolean notifyCompletions,
         boolean qualityScanEnabled,
-        boolean remoteIssueIntakeEnabled)
+        boolean remoteIssueIntakeEnabled,
+        Integer maxRunningTasks)
 {
     public static WorkspaceSettingsDto defaults()
     {
@@ -45,6 +46,7 @@ public record WorkspaceSettingsDto(
                 true,
                 false,
                 false,
-                false);
+                false,
+                null);
     }
 }

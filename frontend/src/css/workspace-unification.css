@@ -6193,8 +6193,8 @@ button.workspace-redesign .wu-table-row,
 }
 
 .workspace-redesign .wu-commit-history .wu-page-header {
-  min-height: 51px;
-  padding: 11px 20px;
+  min-height: 40px;
+  padding: 6px 20px;
 }
 
 .workspace-redesign .wu-commit-history .wu-page-heading h1 { font-size: 15px; }

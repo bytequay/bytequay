@@ -125,10 +125,11 @@ it('inherits the workspace agents and pins only the kind the user swaps', async 
   const { createTask } = installBridge(options(true, true));
   renderDialog();
 
-  expect(screen.getByRole('heading', { name: "What's a trunk?" })).toBeTruthy();
-  expect(screen.getByText(/focused, long-lived workspace/)).toBeTruthy();
-  expect(screen.getByText(/Core engine or Iceberg connector/)).toBeTruthy();
-  await screen.findByText('chenjian2664/ByteQuay');
+  // The blurb is a <details> that starts folded.
+  const blurb = screen.getByText("What's a trunk?").closest('details') as HTMLDetailsElement;
+  expect(blurb.open).toBe(false);
+  expect(screen.getByText(/focused, long-lived work area/)).toBeTruthy();
+  expect(screen.getByText(/Core engine, a specific backend service/)).toBeTruthy();
   await waitFor(() => expect(screen.getByText('inheriting bytequay-v3-test defaults')).toBeTruthy());
   // ci-fix has its own workspace pick; the other three take the default.
   expect(screen.getAllByText('Claude CLI')).toHaveLength(3);
@@ -157,7 +158,7 @@ it('requires a trunk name of at most seven words', async () => {
   installBridge(options(true, true));
   renderDialog();
 
-  await screen.findByText('chenjian2664/ByteQuay');
+  await screen.findByText('inheriting bytequay-v3-test defaults');
   const create = screen.getByRole('button', { name: /Create trunk/ });
   expect((create as HTMLButtonElement).disabled).toBe(true);
 
@@ -186,7 +187,8 @@ it('defaults to the entire repository without assigning a code area', async () =
   const entireRepo = await screen.findByText('Entire repository');
   expect(entireRepo.closest('button')?.getAttribute('aria-pressed')).toBe('true');
   expect(screen.getByText('modules/core')).toBeTruthy();
-  expect(document.body.textContent).not.toMatch(/trunk directory/i);
+  // The code-area section never calls the scope a "trunk directory".
+  expect(entireRepo.closest('section')?.textContent).not.toMatch(/trunk directory/i);
 
   enterName();
   fireEvent.click(screen.getByText(/Create trunk/));
@@ -223,7 +225,7 @@ it('keeps trunk creation available when code-area suggestions fail to load', asy
   const { createTask } = installBridge(options(true, true), new Error('learning unavailable'));
   renderDialog();
 
-  await screen.findByText('chenjian2664/ByteQuay');
+  await screen.findByText('inheriting bytequay-v3-test defaults');
   expect(screen.queryByText('CODE AREA')).toBeNull();
   enterName();
   fireEvent.click(screen.getByText(/Create trunk/));

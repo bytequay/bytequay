@@ -19,7 +19,6 @@ import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles
 import { type AgentChoice, choiceGlyph, choiceText, choicesFrom, normalizeChoice } from './agentChoices';
 import {
   type DirectoryScopeOverviewDto,
-  type WorkspaceRepositoryDto,
   type WorkspaceSettingsDto,
   workspaceApi,
 } from './workspaceApi';
@@ -74,7 +73,6 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
   const wsLabel = workspaceName.length > 0 ? workspaceName : 'Workspace';
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [repoName, setRepoName] = useState<string | null>(null);
   const [providers, setProviders] = useState<Record<string, string> | null>(null);
   const [options, setOptions] = useState<WorkModelOptionsDto | null>(null);
   const [localAi, setLocalAi] = useState<Ds4StateDto | null>(null);
@@ -91,16 +89,14 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
-      workspaceApi.repository(workspaceId).catch((): WorkspaceRepositoryDto | null => null),
       workspaceApi.settings(workspaceId).catch((): WorkspaceSettingsDto | null => null),
       workspaceApi.workModelOptions(),
       window.bridge.getDs4Status(),
       workspaceApi.directoryScopeSuggestions(workspaceId)
         .catch((): DirectoryScopeOverviewDto | null => null),
     ])
-      .then(([repository, settings, modelOptions, ds4, scopes]) => {
+      .then(([settings, modelOptions, ds4, scopes]) => {
         if (cancelled) return;
-        setRepoName(repository?.fullName ?? null);
         setProviders(settings?.providers ?? {});
         setOptions(modelOptions);
         setLocalAi(ds4.state);
@@ -233,9 +229,9 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
         onClick={e => e.stopPropagation()}
       >
         <header style={dialogStyles.header}>
-          <h2 id="new-thread-title" style={dialogStyles.title}>
-            New trunk
-            <span style={{ ...dialogStyles.workspaceChip, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <h2 id="new-thread-title" style={{ ...dialogStyles.title, fontWeight: 400 }}>
+            New Trunk directory
+            <span style={{ ...dialogStyles.workspaceChip, fontWeight: 400, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Logo initials={monogram(wsLabel).toUpperCase()} color={logoColorFor(wsLabel)} size="sm" />
               {wsLabel}
             </span>
@@ -250,28 +246,21 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           </button>
         </header>
 
-        <section style={trunkDefinitionStyle} aria-labelledby="trunk-definition-title">
-          <h3 id="trunk-definition-title" style={trunkDefinitionTitleStyle}>
-            What&apos;s a trunk?
-          </h3>
+        {/* ponytail: native <details> — folded by default, no state to manage. */}
+        <details style={trunkDefinitionStyle}>
+          <summary style={trunkDefinitionTitleStyle}>What&apos;s a trunk?</summary>
           <p style={trunkDefinitionBodyStyle}>
-            A trunk is a focused, long-lived workspace for developing one component or system.
+            A trunk is a focused, long-lived work area for developing one component or service.
             Keep it scoped instead of mixing unrelated development.
           </p>
           <p style={trunkDefinitionFutureStyle}>
-            Map it to a stable area—such as Core engine or Iceberg connector. Each trunk will
-            have its own memory and decision markers in the future.
+            Map it to a stable area—such as Core engine, a specific backend service etc. Each
+            trunk will have its own memory in the future.
           </p>
-        </section>
-
-        <div style={repoLineStyle}>
-          <span aria-hidden>📕</span>
-          <span>{repoName ?? '—'}</span>
-          <span style={repoLineMutedStyle}>· set by the workspace</span>
-        </div>
+        </details>
 
         <div style={dialogStyles.field}>
-          <label htmlFor="trunk-name" style={dialogStyles.fieldLabel}>Trunk name</label>
+          <label htmlFor="trunk-name" style={{ ...dialogStyles.fieldLabel, fontWeight: 400 }}>Trunk name</label>
           <input
             id="trunk-name"
             value={name}
@@ -285,7 +274,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
             aria-describedby="trunk-name-help"
           />
           <div id="trunk-name-help" style={fieldHelpStyle(nameWordCount > 7)}>
-            <span>{nameWordCount > 7 ? 'Use 7 words or fewer.' : 'Required · 7 words maximum'}</span>
+            <span>{nameWordCount > 7 ? 'Use 7 words or fewer.' : ''}</span>
             <span>{nameWordCount}/7 words</span>
           </div>
         </div>
@@ -294,13 +283,6 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           <section style={codeAreaSectionStyle} aria-labelledby="code-area-label">
             <div style={codeAreaHeadingStyle}>
               <span id="code-area-label">CODE AREA <span style={codeAreaOptionalStyle}>(optional)</span></span>
-              {!codeAreas.historyReady && (
-                <span style={codeAreaProgressStyle}>
-                  {codeAreas.requiredAnalyzedPrCount === 0
-                    ? 'Learning project history'
-                    : `Learning · ${codeAreas.analyzedPrCount}/${codeAreas.requiredAnalyzedPrCount} analyzed PRs`}
-                </span>
-              )}
             </div>
             <div style={codeAreaChoicesStyle}>
               <button
@@ -351,7 +333,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
         )}
 
         <div style={dialogStyles.field}>
-          <label htmlFor="trunk-description" style={dialogStyles.fieldLabel}>
+          <label htmlFor="trunk-description" style={{ ...dialogStyles.fieldLabel, fontWeight: 400 }}>
             Description <span style={codeAreaOptionalStyle}>(optional)</span>
           </label>
           <textarea
@@ -361,13 +343,6 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
             placeholder="Add a remark about this trunk"
             style={dialogStyles.textarea}
           />
-          <div style={fieldHelpStyle(false)}>Shown when the trunk name is hovered.</div>
-        </div>
-
-        <div style={dialogStyles.chipRow}>
-          <button type="button" style={dialogStyles.chip} disabled>📎 Add files</button>
-          <button type="button" style={dialogStyles.chip} disabled>↗ Reference a PR</button>
-          <button type="button" style={dialogStyles.chip} disabled>✦ Skills</button>
         </div>
 
         <div style={trunkHintRowStyle}>
@@ -464,10 +439,8 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
         )}
 
         <footer style={dialogStyles.footer}>
-          <div style={{ ...dialogStyles.footerNote, color: blocked ? '#cf222e' : undefined }}>
-            {blocked
-              ? "Can't create — no agent to run the first session."
-              : <>Lands on the trunk · inherits {wsLabel}&apos;s memory &amp; skills</>}
+          <div style={{ ...dialogStyles.footerNote, color: '#cf222e' }}>
+            {blocked ? "Can't create — no agent to run the first session." : null}
           </div>
           <div style={dialogStyles.footerButtons}>
             <button type="button" style={dialogStyles.secondaryBtn} onClick={onClose}>
@@ -475,7 +448,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
             </button>
             <button
               type="button"
-              style={dialogStyles.primaryBtn}
+              style={{ ...dialogStyles.primaryBtn, fontWeight: 400 }}
               onClick={() => { void handleSubmit(); }}
               disabled={submitting || loading || blocked || approvingCodeArea !== null || nameInvalid}
               title={blocked
@@ -602,14 +575,6 @@ function AgentRow({
   );
 }
 
-const repoLineStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  fontSize: 11,
-  color: 'var(--ws-text-3)',
-};
-
 const trunkDefinitionStyle: React.CSSProperties = {
   marginBottom: 12,
   padding: '10px 12px',
@@ -622,7 +587,8 @@ const trunkDefinitionTitleStyle: React.CSSProperties = {
   margin: 0,
   color: 'var(--ws-text-1)',
   fontSize: 12,
-  fontWeight: 700,
+  fontWeight: 400,
+  cursor: 'pointer',
 };
 
 const trunkDefinitionBodyStyle: React.CSSProperties = {
@@ -637,10 +603,6 @@ const trunkDefinitionFutureStyle: React.CSSProperties = {
   color: 'var(--ws-text-3)',
   fontSize: 10.5,
   lineHeight: 1.45,
-};
-
-const repoLineMutedStyle: React.CSSProperties = {
-  color: 'var(--ws-text-4)',
 };
 
 function fieldHelpStyle(error: boolean): React.CSSProperties {
@@ -668,12 +630,6 @@ const codeAreaHeadingStyle: React.CSSProperties = {
 };
 
 const codeAreaOptionalStyle: React.CSSProperties = {
-  letterSpacing: 0,
-  color: 'var(--ws-text-4)',
-};
-
-const codeAreaProgressStyle: React.CSSProperties = {
-  marginLeft: 'auto',
   letterSpacing: 0,
   color: 'var(--ws-text-4)',
 };
@@ -719,7 +675,7 @@ function codeAreaRadioStyle(selected: boolean): React.CSSProperties {
 const codeAreaNameStyle: React.CSSProperties = {
   display: 'block',
   fontSize: 11,
-  fontWeight: 600,
+  fontWeight: 400,
 };
 
 const codeAreaDetailStyle: React.CSSProperties = {

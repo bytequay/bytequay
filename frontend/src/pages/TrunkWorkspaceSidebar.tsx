@@ -176,8 +176,7 @@ export function TrunkWorkspaceSidebar({
       </div>
 
       <div className="trunk-page-v2-nav__section-head">
-        <strong>TRUNKS</strong>
-        <span>{threads.length}</span>
+        <strong>Trunks</strong>
         <button type="button" aria-label="New trunk" title="New trunk" onClick={onNewThread}>
           <PlusIcon />
         </button>

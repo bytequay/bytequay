@@ -59,8 +59,9 @@ class TestV2LocalStageStore
     {
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-        seedLocalOwner(jdbc);
+        seedLocalOwner(jdbc, "legacy-wrong");
         Flyway.configure().dataSource(dataSource).target("266").load().migrate();
+        freezeContextBaseForMigratedFixture(jdbc, "master");
         seedImplementationRequest(jdbc);
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);
@@ -89,7 +90,51 @@ class TestV2LocalStageStore
         assertThat(receipt.acceptance())
                 .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
         verify(prs).createForTaskInCommand(
-                "task-1", "dev/task-1", "main", "dev/task-1", "");
+                "task-1", "dev/task-1", "master", "dev/task-1", "");
+    }
+
+    @Test
+    void missingFrozenBaseFailsBeforePrOrStageMutation()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database();
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedLocalOwner(jdbc, null);
+        Flyway.configure().dataSource(dataSource).target("266").load().migrate();
+        seedImplementationRequest(jdbc);
+
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2StageStore stageStore = new V2StageStore(jdbc);
+        LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
+                commands, stageStore, stageStore);
+        ResultFence fence = implementationFence();
+        commands.execute("task-1", () -> local.requestImplementationInCommand(
+                new StageManager.Command(
+                        "request-implementation", "runtime", "task-1",
+                        1, "local-stage", 1, 0),
+                fence, "implementation-request"));
+        markSucceededResultPending(jdbc, "implementation-ticket", fence);
+        PRService prs = mock(PRService.class);
+
+        assertThatThrownBy(() -> runtime(
+                commands,
+                new TaskManager(commands, taskStore(jdbc, transactions)),
+                local, new SqliteLocalDevelopmentRuntimeStore(jdbc),
+                new ObjectMapper(), prs)
+                .deliverStageTurn(stageDelivery(
+                        new ObjectMapper(), fence, true, "head-new")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no frozen Task base branch");
+
+        verify(prs, never()).createForTaskInCommand(
+                anyString(), anyString(), anyString(), anyString(), anyString());
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dev_report", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT checkpoint FROM stage WHERE id = 'local-stage'",
+                String.class)).isEqualTo("IMPLEMENTING");
     }
 
     @Test
@@ -646,6 +691,11 @@ class TestV2LocalStageStore
 
     private static void seedLocalOwner(JdbcTemplate jdbc)
     {
+        seedLocalOwner(jdbc, "master");
+    }
+
+    private static void seedLocalOwner(JdbcTemplate jdbc, String legacyBaseBranch)
+    {
         jdbc.update("""
                 INSERT INTO workspaces(
                     id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
@@ -677,10 +727,11 @@ class TestV2LocalStageStore
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, epoch, aggregate_version, lifecycle_state,
-                    assignment_id, policy_revision_id)
+                    assignment_id, policy_revision_id, base_branch)
                 VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 1, 0, 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
+                    'V2', 1, 0, 'PROVISIONING', 'assignment-1', 'policy-1',
+                    ?)
+                """, legacyBaseBranch);
         jdbc.update("""
                 INSERT INTO task_creation_context(
                     task_id, assignment_id, policy_revision_id, provenance,
@@ -780,6 +831,34 @@ class TestV2LocalStageStore
                     'fingerprint-old', 3, 3)
                 """);
         jdbc.update("DELETE FROM dispatch_ticket WHERE id = 'provision-ticket'");
+    }
+
+    /**
+     * This suite seeds its owner at V228 and migrates it forward. New V2 Tasks
+     * already freeze this value during creation; normalize the historical test
+     * fixture so the Local lookup exercises that modern source of truth.
+     */
+    private static void freezeContextBaseForMigratedFixture(
+            JdbcTemplate jdbc, String baseRef)
+    {
+        jdbc.execute("DROP TRIGGER task_creation_context_immutable");
+        try {
+            jdbc.update("""
+                    UPDATE task_creation_context
+                    SET base_source = 'PLANNING_SNAPSHOT',
+                        base_repository_id = repository_id,
+                        base_ref = ?
+                    WHERE task_id = 'task-1'
+                    """, baseRef);
+        }
+        finally {
+            jdbc.execute("""
+                    CREATE TRIGGER task_creation_context_immutable
+                    BEFORE UPDATE ON task_creation_context
+                    BEGIN SELECT RAISE(ABORT,
+                        'Task creation context is immutable'); END
+                    """);
+        }
     }
 
     private static TaskManager.Store taskStore(

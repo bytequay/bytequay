@@ -27,6 +27,7 @@ import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.WorkspaceStore.WorkspaceStats;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.review.ReviewSessionPurge;
 import com.bytequay.app.service.threads.ThreadService;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -57,6 +59,7 @@ class TestWorkspaceService
     private final WorkspaceStore store = mock(WorkspaceStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
+    private final GitRunner git = mock(GitRunner.class);
     private final ThreadService threadService = mock(ThreadService.class);
     private final InvestigationReviewService investigationReviews =
             mock(InvestigationReviewService.class);
@@ -68,6 +71,7 @@ class TestWorkspaceService
             new ConceptRegistry(),
             threadStore,
             watchedRepos,
+            git,
             threadService,
             investigationReviews,
             reviewSessionPurge,
@@ -75,7 +79,10 @@ class TestWorkspaceService
 
     @BeforeEach
     void runReviewPurgeCallback()
+            throws Exception
     {
+        when(git.defaultBranch(any(Path.class), eq("origin")))
+                .thenReturn(Optional.of("main"));
         doAnswer(invocation -> {
             invocation.<Runnable>getArgument(1).run();
             return null;
@@ -307,6 +314,54 @@ class TestWorkspaceService
         ArgumentCaptor<WorkspaceRepo> repo = ArgumentCaptor.forClass(WorkspaceRepo.class);
         verify(store).addRepo(repo.capture());
         assertThat(repo.getValue().repoFullName()).isEqualTo("acme/widgets");
+        assertThat(repo.getValue().defaultBaseBranch()).isEqualTo("main");
+    }
+
+    @Test
+    void startupRepairsOnlyMissingBaseBranchesFromVerifiedClones()
+            throws Exception
+    {
+        Workspace workspace = workspace("ws-widgets", "Widgets");
+        Instant addedAt = Instant.parse("2026-07-30T00:00:00Z");
+        WatchedRepo watched = new WatchedRepo(1, "acme", "widgets", 0,
+                System.getProperty("java.io.tmpdir"), null, null);
+        when(store.listWorkspaces()).thenReturn(List.of(workspace));
+        when(store.listRepos(workspace.id())).thenReturn(List.of(
+                new WorkspaceRepo(
+                        workspace.id(), "acme/widgets", null, true, addedAt)));
+        when(watchedRepos.find("acme", "widgets"))
+                .thenReturn(Optional.of(watched));
+        when(git.defaultBranch(any(Path.class), eq("origin")))
+                .thenReturn(Optional.of("master"));
+
+        service.repairMissingDefaultBaseBranches();
+
+        ArgumentCaptor<WorkspaceRepo> repaired =
+                ArgumentCaptor.forClass(WorkspaceRepo.class);
+        verify(store).addRepo(repaired.capture());
+        assertThat(repaired.getValue()).isEqualTo(new WorkspaceRepo(
+                workspace.id(), "acme/widgets", "master", true, addedAt));
+    }
+
+    @Test
+    void createFailsBeforePersistingWhenOriginHeadHasNoDefaultBranch()
+            throws Exception
+    {
+        WatchedRepo watched = new WatchedRepo(1, "acme", "widgets", 0,
+                System.getProperty("java.io.tmpdir"), null, null);
+        when(watchedRepos.find("acme", "widgets"))
+                .thenReturn(Optional.of(watched));
+        when(git.defaultBranch(any(Path.class), eq("origin")))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.create(
+                new WorkspaceService.NewWorkspaceRequest(
+                        "Widgets", null, false, "", List.of("acme/widgets"))))
+                .hasMessageContaining("default branch")
+                .hasMessageContaining("origin/HEAD");
+
+        verify(store, never()).saveWorkspace(any());
+        verify(store, never()).addRepo(any());
     }
 
     @Test

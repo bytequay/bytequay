@@ -213,7 +213,25 @@ public class SqliteLocalDevelopmentRuntimeStore
                        ticket.status AS ticket_status,
                        trunk.workspace_id, task.thread_id AS trunk_id,
                        identity.branch_name,
-                       COALESCE(NULLIF(task.base_branch, ''), 'main') AS base_branch,
+                       CASE
+                           WHEN context.base_source IS NULL
+                               THEN NULLIF(task.base_branch, '')
+                           WHEN context.base_source = 'EXISTING_PR_HEAD'
+                               THEN COALESCE(
+                                   NULLIF(context.base_ref, ''),
+                                   CASE WHEN json_valid(provision.result_evidence)
+                                       AND json_extract(
+                                           provision.result_evidence, '$.schema')
+                                           = 'PROVISION_TASK_V2'
+                                       AND json_extract(
+                                           provision.result_evidence, '$.baseSource')
+                                           = 'EXISTING_PR_HEAD'
+                                       THEN NULLIF(json_extract(
+                                           provision.result_evidence,
+                                           '$.pullRequest.baseRef'), '')
+                                   END)
+                           ELSE NULLIF(context.base_ref, '')
+                       END AS base_branch,
                        COALESCE(NULLIF(task.name, ''), identity.branch_name) AS task_name
                 FROM stage_turn turn
                 JOIN local_stage_turn_request request
@@ -224,6 +242,10 @@ public class SqliteLocalDevelopmentRuntimeStore
                 LEFT JOIN task_current_stage current ON current.task_id = task.id
                 LEFT JOIN task_current_code_subject_v230 code ON code.task_id = task.id
                 JOIN task_code_identity identity ON identity.task_id = task.id
+                JOIN task_creation_context context ON context.task_id = task.id
+                JOIN provision_task_operation provision
+                  ON provision.id = identity.provision_operation_id
+                 AND provision.status = 'ACCEPTED'
                 JOIN dispatch_ticket ticket ON ticket.operation_id = turn.operation_id
                 WHERE turn.id = ? AND turn.operation_id = ?
                   AND ticket.owner_kind = 'STAGE_TURN'
@@ -889,7 +911,18 @@ public class SqliteLocalDevelopmentRuntimeStore
                 rs.getString("worktree_path"), rs.getString("ticket_id"),
                 rs.getString("ticket_status"), rs.getString("workspace_id"),
                 rs.getString("trunk_id"), rs.getString("branch_name"),
-                rs.getString("base_branch"), rs.getString("task_name"));
+                requiredBaseBranch(rs), rs.getString("task_name"));
+    }
+
+    private static String requiredBaseBranch(ResultSet rs)
+            throws SQLException
+    {
+        String baseBranch = rs.getString("base_branch");
+        if (baseBranch == null || baseBranch.isBlank()) {
+            throw new IllegalStateException(
+                    "Local StageTurn has no frozen Task base branch");
+        }
+        return baseBranch;
     }
 
     private static StageTurnDeliveryReceipt stageTurnReceipt(ResultSet rs)

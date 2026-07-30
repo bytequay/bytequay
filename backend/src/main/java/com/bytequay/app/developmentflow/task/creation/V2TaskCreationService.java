@@ -492,11 +492,18 @@ public final class V2TaskCreationService
 
     private String baseRef(String workspaceId)
     {
-        return relations.find(workspaceId)
+        String baseRef = relations.find(workspaceId)
                 .map(ignored -> relations.requireResolved(workspaceId)
                         .upstream().defaultBaseBranch())
                 .orElseGet(() -> repositories.resolve(workspaceId)
                         .defaultBaseBranch());
+        if (baseRef == null || baseRef.isBlank()) {
+            throw new IllegalStateException(
+                    "Workspace " + workspaceId
+                            + " has no configured base branch; configure its repository "
+                            + "default base branch before cutting a Task");
+        }
+        return baseRef.strip();
     }
 
     private long requireTrunkVersion(String trunkId)

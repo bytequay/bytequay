@@ -17,11 +17,12 @@ import java.time.Instant;
 
 /**
  * One repo attached to a {@link Workspace}. The
- * {@code defaultBaseBranch} carries the per-repo merge-target so
- * ship-and-continue cuts the next task's branch from the right base
- * — e.g. {@code upstream/master} for a fork of trino, {@code main}
- * for an owned repo. Null falls back to the local clone's default
- * branch as discovered by git.
+ * {@code defaultBaseBranch} carries the bare merge-target branch so
+ * task creation and eventual PR publication use the right base — e.g.
+ * {@code master} for Trino or {@code main} for an owned repo. A planning
+ * operation separately records the remote-qualified tracking ref and exact
+ * SHA. Null is retained only for historical rows awaiting startup repair;
+ * V2 Task creation fails closed instead of guessing.
  *
  * @param repoFullName GitHub's owner/repo form, e.g. "trinodb/trino".
  */

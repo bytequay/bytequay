@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.remote.ReviewBuildCommentOperationHandler.CommentAction;
 import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.Projection;
+import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.UnwatchedRepositoryException;
 import com.bytequay.app.developmentflow.execution.remote.SqliteReviewBuildCommentStore.ProposalView;
 import com.bytequay.app.developmentflow.execution.remote.SqliteReviewPassPublicationStore.PublicationView;
 import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore.AuthorizationRequest;
@@ -284,6 +285,13 @@ public final class V2UserRemoteActionRuntime
                             handledAction),
                     clock.instant());
         }
+        catch (UnwatchedRepositoryException failure) {
+            // Not a stale subject: the repository was never watched, so the
+            // user can fix it. Keep the store's own wording — the UI reads it
+            // to offer watching the repository.
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, failure.getMessage(), failure);
+        }
         catch (DataAccessException | IllegalArgumentException |
                 IllegalStateException failure) {
             throw new ResponseStatusException(
@@ -504,6 +512,36 @@ public final class V2UserRemoteActionRuntime
                 ActionPayload.inlineComment(
                         body, filePath, lineNumber, resolvedSide,
                         resolvedStartLine, resolvedStartSide), null);
+    }
+
+    /**
+     * Commits a review suggestion over the lines it was written against.
+     * Suggestions only ever rewrite the head side, so the side is fixed at
+     * RIGHT rather than taken from the caller.
+     */
+    public Action applySuggestion(
+            String commandId,
+            String taskId,
+            String prId,
+            String suggestion,
+            String filePath,
+            int lineNumber,
+            Integer startLine)
+    {
+        return authorize(commandId, taskId, prId,
+                SemanticAction.APPLY_SUGGESTION,
+                suggestionPayload(suggestion, filePath, lineNumber, startLine),
+                null);
+    }
+
+    public static ActionPayload suggestionPayload(
+            String suggestion, String filePath, int lineNumber, Integer startLine)
+    {
+        Integer resolvedStartLine = startLine != null && startLine != lineNumber
+                ? startLine : null;
+        return ActionPayload.inlineComment(
+                suggestion, filePath, lineNumber, "RIGHT",
+                resolvedStartLine, null);
     }
 
     public Action addPullRequestReaction(

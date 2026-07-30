@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import { parseUnifiedDiff } from '../diffParse';
 import { highlightToHtml, languageForPath } from '../highlight';
 import { MarkdownWithPermalinks } from './GithubPermalinkCard';
@@ -45,18 +46,23 @@ export function DiffHunk({ hunk, range, contextFilePath }: {
     const language = languageForPath(contextFilePath);
     return (
       <div className="prc-review-thread__context-hunk">
-        {parseUnifiedDiff(hunk).flatMap(diff => diff.rows
-          .filter(row => row.kind !== 'hunk-header')
-          .map((row, index) => (
-            <div key={`${diff.header}:${index}`} className={`diff-row diff-row--${row.kind}`}>
-              <span className="diff-row__gutter">{row.oldLine ?? ''}</span>
-              <span className="diff-row__gutter">{row.newLine ?? ''}</span>
-              <span className="diff-row__content">
-                <span className="diff-row__sigil">{row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '}</span>
-                <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(row.content, language) }} />
-              </span>
-            </div>
-          ))) }
+        {/* Inner wrapper sized to max(100%, longest line) so every row's
+            +/− background paints to the same right edge — see the
+            .prc-review-thread__hunk-inner comment in pr-detail.css. */}
+        <div className="prc-review-thread__hunk-inner">
+          {parseUnifiedDiff(hunk).flatMap(diff => diff.rows
+            .filter(row => row.kind !== 'hunk-header')
+            .map((row, index) => (
+              <div key={`${diff.header}:${index}`} className={`diff-row diff-row--${row.kind}`}>
+                <span className="diff-row__gutter">{row.oldLine ?? ''}</span>
+                <span className="diff-row__gutter">{row.newLine ?? ''}</span>
+                <span className="diff-row__content">
+                  <span className="diff-row__sigil">{row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '}</span>
+                  <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(row.content, language) }} />
+                </span>
+              </div>
+            ))) }
+        </div>
       </div>
     );
   }
@@ -173,12 +179,50 @@ export function sliceHunkToRange(hunk: string, range: Range): SlicedRow[] {
 }
 
 /**
+ * Footer of a suggestion block: the button that commits it to the PR's
+ * head branch. The commit moves the head, so the caller refreshes the PR
+ * afterwards; a failure (fork without maintainer edits, head moved since
+ * the comment) surfaces inline rather than as a toast, next to the
+ * suggestion it belongs to.
+ */
+function ApplySuggestionBar({ onApply }: { onApply: () => Promise<void> }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="prc-suggestion__actions">
+      <button
+        type="button"
+        className="prc-suggestion__apply"
+        disabled={pending}
+        onClick={() => {
+          setPending(true);
+          setError(null);
+          onApply()
+            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+            .finally(() => setPending(false));
+        }}
+      >
+        {pending ? 'Applying…' : 'Apply suggestion'}
+      </button>
+      {error && <span className="prc-suggestion__error">{error}</span>}
+    </div>
+  );
+}
+
+/**
  * Renders a comment body, replacing GitHub `\`\`\`suggestion ... \`\`\``
  * blocks with a mini-diff that shows the original line as `-` and the
  * suggestion as `+`, GitHub-style. Non-suggestion content renders as
  * normal markdown.
  */
-export function CommentBodyWithSuggestions({ body, hunk }: { body: string; hunk: string | null }) {
+export function CommentBodyWithSuggestions({ body, hunk, onApplySuggestion }: {
+  body: string;
+  hunk: string | null;
+  /** Commits the suggestion to the PR's head branch. Omitted when the
+   *  thread can't be applied — outdated, LEFT-side, or a closed PR — in
+   *  which case the block renders read-only, same as github.com. */
+  onApplySuggestion?: (suggestion: string) => Promise<void>;
+}) {
   // Split the body around suggestion blocks: capturing group keeps the
   // suggestion content so we can render it specially. Markdown outside
   // suggestion blocks goes through marked() unchanged.
@@ -205,11 +249,18 @@ export function CommentBodyWithSuggestions({ body, hunk }: { body: string; hunk:
           <div key={i} className="prc-suggestion">
             <div className="prc-suggestion__head">Suggested change</div>
             <pre className="prc-suggestion__diff">
-              {oldLine ? <div className="diff-hunk-line diff-hunk-line--del">-{oldLine}</div> : null}
-              {p.content.split('\n').map((line, j) => (
-                <div key={j} className="diff-hunk-line diff-hunk-line--add">+{line || ' '}</div>
-              ))}
+              <div className="prc-review-thread__hunk-inner">
+                {oldLine ? <div className="diff-hunk-line diff-hunk-line--del">-{oldLine}</div> : null}
+                {p.content.split('\n').map((line, j) => (
+                  <div key={j} className="diff-hunk-line diff-hunk-line--add">+{line || ' '}</div>
+                ))}
+              </div>
             </pre>
+            {onApplySuggestion && (
+              <ApplySuggestionBar
+                onApply={() => onApplySuggestion(p.content)}
+              />
+            )}
           </div>
         );
       })}

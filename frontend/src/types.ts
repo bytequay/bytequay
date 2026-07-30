@@ -304,6 +304,27 @@ export type ActivityItemDto = {
   crossRefIsPullRequest: boolean;
 };
 
+/** One entry from a check run's GitHub "Annotations" list. `title` is the
+ *  workflow step that emitted it ("Upload test results"), `message` the text
+ *  underneath ("Expecting actual: 1L to be less than: 1L"), and
+ *  `path`/`startLine` the source location — null for annotations GitHub
+ *  attaches to the workflow file rather than to code. */
+export type CheckAnnotationDto = {
+  title: string | null;
+  message: string | null;
+  path: string | null;
+  startLine: number | null;
+};
+
+/** Failure detail for one check run. `annotations` wins when non-empty; `log`
+ *  is the fallback excerpt for the many jobs whose only annotation is the
+ *  contentless "Process completed with exit code 1.". Both empty means GitHub
+ *  exposed nothing to show. */
+export type CheckFailureDto = {
+  annotations: CheckAnnotationDto[];
+  log: string;
+};
+
 export type CheckRunDto = {
   /** Stable check-run id from GitHub. Used by /prs/checkLog to fetch
    *  the raw Actions log inline. Null for legacy cached rows. */
@@ -3119,6 +3140,11 @@ export type Bridge = {
    *  doesn't expose a log (external CI / expired / scope). Lazy-loaded
    *  by the merge bar's failure cards on user click. */
   fetchCheckLog: (repo: string, checkRunId: number) => Promise<{ log: string }>;
+  /** Best failure text for one check-run, lazy-loaded when the user unfolds a
+   *  failing row in the checks card: annotations when GitHub published a
+   *  source-located one, otherwise a log excerpt. Both empty means GitHub
+   *  exposed nothing (external CI, or an expired log). */
+  fetchCheckFailure: (repo: string, checkRunId: number) => Promise<CheckFailureDto>;
   /** Toggle a PR between draft and ready-for-review. true = convert
    *  to draft, false = mark as ready. Routes through GitHub GraphQL. */
   setPrDraft: (repo: string, number: number, draft: boolean) => Promise<{ result: string }>;
@@ -3221,6 +3247,18 @@ export type Bridge = {
      *  startLine through line on the matching side. */
     startLine?: number | null,
     startSide?: 'LEFT' | 'RIGHT' | null,
+  ) => Promise<void>;
+  /** Commits a review suggestion over lines startLine..line of `path` on
+   *  the PR's head branch — the "Apply suggestion" affordance. Rejects
+   *  when the head has moved since the comment was written, or when a
+   *  fork PR hasn't allowed maintainer edits. */
+  applySuggestion: (
+    repo: string,
+    number: number,
+    suggestion: string,
+    path: string,
+    line: number,
+    startLine?: number | null,
   ) => Promise<void>;
   updatePrBody: (repo: string, number: number, body: string) => Promise<void>;
   // Phase 2

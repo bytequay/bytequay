@@ -1795,6 +1795,18 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:prCheckFailure', async (_event, repo: string, checkRunId: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/checkFailure`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('checkRunId', String(checkRunId));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/checkFailure returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:setPrDraft', async (_event, repo: string, number: number, draft: boolean) => {
     const url = new URL(`${BACKEND_BASE}/prs/draft`);
     url.searchParams.set('repo', repo);
@@ -2261,6 +2273,34 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Inline review comment failed (${res.status}): ${text}`);
+    }
+  });
+
+  ipcMain.handle('backend:applySuggestion', async (
+    _event,
+    repo: string,
+    number: number,
+    suggestion: string,
+    path: string,
+    line: number,
+    startLine: number | null,
+  ) => {
+    const url = new URL(`${BACKEND_BASE}/prs/suggestions/apply`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const payload = JSON.stringify({ suggestion, path, line, startLine });
+    const res = await runPrRemoteCommand(
+      `apply-suggestion:${repo}#${number}:${payload}`,
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Apply suggestion failed (${res.status}): ${text}`);
     }
   });
 

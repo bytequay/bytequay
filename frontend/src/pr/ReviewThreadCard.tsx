@@ -39,6 +39,7 @@ export function ReviewThreadCard({
   onReply,
   onReact,
   onSetResolved,
+  onApplySuggestion,
   onEditMessage,
   onDeleteMessage,
   canDeleteMessage,
@@ -67,6 +68,14 @@ export function ReviewThreadCard({
   /** Toggle the thread's resolved state. Optional — omitted when the
    *  GraphQL node id isn't available yet (resolved == null). */
   onSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
+  /** Commits a `suggestion` block from this thread onto the PR's head
+   *  branch. Omitted on surfaces that can't publish (local-only threads). */
+  onApplySuggestion?: (
+    path: string,
+    line: number,
+    startLine: number | null,
+    suggestion: string,
+  ) => Promise<void>;
   /** Edit one of this thread's messages (only the message author can
    *  use this). The parent owns the bridge call + local-state patch. */
   onEditMessage?: (commentGithubId: number, newBody: string) => Promise<void>;
@@ -124,6 +133,16 @@ export function ReviewThreadCard({
   // explicitly expanded.
   const [foldOverride, setFoldOverride] = useState<boolean | null>(null);
   const folded = foldOverride ?? (thread.resolved === true);
+  // github.com hides "Apply suggestion" on outdated threads and on the
+  // LEFT (deleted) side: in both cases the recorded line range no longer
+  // identifies code on the head branch, so applying would rewrite
+  // whatever happens to sit there now. Mirror that instead of letting the
+  // commit fail after the fact.
+  const applySuggestion = onApplySuggestion && !thread.outdated
+      && thread.side !== 'LEFT' && thread.filePath !== null && thread.line !== null
+    ? (suggestion: string) => onApplySuggestion(
+        thread.filePath!, thread.line!, thread.startLine, suggestion)
+    : undefined;
   const visibleFolded = folded;
 
   const submit = async () => {
@@ -356,7 +375,13 @@ export function ReviewThreadCard({
                       onSave={(newBody) => onEditMessage!(msg.githubId, newBody)}
                       editing={editingMsgId === msg.githubId}
                       onEditingChange={(v) => setEditingMsgId(v ? msg.githubId : null)}
-                      renderViewSlot={(b) => <CommentBodyWithSuggestions body={b} hunk={thread.diffHunk} />}
+                      renderViewSlot={(b) => (
+                        <CommentBodyWithSuggestions
+                          body={b}
+                          hunk={thread.diffHunk}
+                          onApplySuggestion={applySuggestion}
+                        />
+                      )}
                       repoContext={repoContext}
                     />
                   )}

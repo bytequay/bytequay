@@ -313,6 +313,20 @@ public class PullRequestController
     }
 
     /**
+     * Returns the best failure text for a single check-run so a failing row in
+     * the checks card can unfold it: the annotated assertion with its file and
+     * line when GitHub published one, otherwise an excerpt of the job log.
+     * GET /prs/checkFailure?repo=&checkRunId=
+     */
+    @GetMapping("/prs/checkFailure")
+    public PullRequestService.CheckRunFailure checkFailure(
+            @RequestParam("repo") String repo,
+            @RequestParam("checkRunId") long checkRunId)
+    {
+        return pullRequestService.getCheckRunFailure(repo, checkRunId);
+    }
+
+    /**
      * Toggles a PR between draft and ready-for-review. Body
      * {@code {"draft": true}} converts the PR to a draft; false marks
      * it as ready for review. POST /prs/draft?repo=&number=
@@ -844,6 +858,41 @@ public class PullRequestController
                         req.body(), req.path(), req.line(), req.side(),
                         req.startLine(), req.startSide()));
         return ImmutableMap.of("result", "commented");
+    }
+
+    public record ApplySuggestionRequest(
+            String suggestion, String path, int line, Integer startLine) {}
+
+    /**
+     * Commits a review suggestion over the lines it was written against —
+     * the "Apply suggestion" affordance on a review thread. The commit
+     * lands on the pull request's head branch, which for a fork PR is the
+     * contributor's branch (GitHub rejects the write when the fork hasn't
+     * allowed maintainer edits).
+     * POST /prs/suggestions/apply?repo=&number=
+     */
+    @PostMapping("/prs/suggestions/apply")
+    public Map<String, String> applySuggestion(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
+            @RequestBody ApplySuggestionRequest req)
+    {
+        Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
+        if (v2Pr.isPresent()) {
+            PR pr = v2Pr.orElseThrow();
+            v2UserRemoteActions.applySuggestion(
+                    requireV2CommandId(commandId), pr.taskId(), pr.id(),
+                    req.suggestion(), req.path(), req.line(), req.startLine());
+            return ImmutableMap.of("result", "applied");
+        }
+        PR pr = requireExternalPullRequest(repo, number);
+        v2UserRemoteActions.authorizeExternal(
+                requireV2CommandId(commandId), pr.id(),
+                SemanticAction.APPLY_SUGGESTION,
+                V2UserRemoteActionRuntime.suggestionPayload(
+                        req.suggestion(), req.path(), req.line(), req.startLine()));
+        return ImmutableMap.of("result", "applied");
     }
 
     public record AddReactionRequest(String content) {}

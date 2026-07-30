@@ -617,6 +617,76 @@ public class GitHubClient
         }
     }
 
+    @Override
+    public Optional<FileBlob> fetchFileBlob(String pat, RepoRef repo, String path, String ref)
+    {
+        try {
+            GitHubFileContent content = gitHubRestClient.get()
+                    .uri(builder -> builder.path("/repos/{owner}/{repo}/contents/{+path}")
+                            .queryParam("ref", ref)
+                            .build(repo.owner(), repo.repo(), path))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubFileContent.class);
+            if (content == null || content.content() == null || content.sha() == null) {
+                return Optional.empty();
+            }
+            String cleaned = content.content().replace("\n", "").replace("\r", "");
+            byte[] decoded = Base64.getDecoder().decode(cleaned);
+            return Optional.of(new FileBlob(
+                    content.sha(), new String(decoded, StandardCharsets.UTF_8)));
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public String commitFileText(
+            String pat,
+            RepoRef repo,
+            String path,
+            String branch,
+            String blobSha,
+            String text,
+            String message)
+    {
+        try {
+            GitHubContentCommitResponse response = gitHubRestClient.put()
+                    .uri(builder -> builder.path("/repos/{owner}/{repo}/contents/{+path}")
+                            .build(repo.owner(), repo.repo(), path))
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of(
+                            "message", message,
+                            "content", Base64.getEncoder().encodeToString(
+                                    text.getBytes(StandardCharsets.UTF_8)),
+                            "sha", blobSha,
+                            "branch", branch))
+                    .retrieve()
+                    .body(GitHubContentCommitResponse.class);
+            if (response == null || response.commit() == null
+                    || response.commit().sha() == null) {
+                throw new IllegalStateException(
+                        "GitHub accepted the content write but returned no commit");
+            }
+            return response.commit().sha();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitHubContentCommitResponse(GitHubContentCommit commit)
+    {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        record GitHubContentCommit(String sha) {}
+    }
+
     private static List<String> extractLinesFromBytes(byte[] decoded)
     {
         String text = new String(decoded, StandardCharsets.UTF_8);
@@ -3644,6 +3714,64 @@ public class GitHubClient
             }
             throw toReadableException(e);
         }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubCheckRunAnnotation(
+            @JsonProperty("path") String path,
+            @JsonProperty("start_line") Integer startLine,
+            @JsonProperty("annotation_level") String annotationLevel,
+            @JsonProperty("title") String title,
+            @JsonProperty("message") String message) {}
+
+    /** Annotations GitHub attaches to the workflow file instead of to source
+     *  carry no information: "Process completed with exit code 1." is the
+     *  canonical example, emitted by every failing Actions job. They're
+     *  dropped rather than ranked last — a check whose only annotation is
+     *  that boilerplate is treated as having none, so the caller falls back
+     *  to the log, where the real error actually lives. */
+    private static boolean hasSourceLocation(PullRequestRepository.CheckRunAnnotation annotation)
+    {
+        // GitHub reports the workflow-file location as a bare ".github" as
+        // well as ".github/workflows/…", and pairs it with a line number that
+        // points into the workflow — so the line alone can't be trusted.
+        return annotation.startLine() != null
+                && annotation.path() != null
+                && !annotation.path().isBlank()
+                && !annotation.path().equals(".github")
+                && !annotation.path().startsWith(".github/");
+    }
+
+    @Override
+    public List<PullRequestRepository.CheckRunAnnotation> fetchCheckRunAnnotations(
+            String pat, RepoRef repo, long checkRunId)
+    {
+        List<GitHubCheckRunAnnotation> body;
+        try {
+            body = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/check-runs/{id}/annotations")
+                            .queryParam("per_page", 100)
+                            .build(repo.owner(), repo.repo(), checkRunId))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                // Check run vanished (rerun rotation?) — nothing to show.
+                return ImmutableList.of();
+            }
+            throw toReadableException(e);
+        }
+        if (body == null) {
+            return ImmutableList.of();
+        }
+        return body.stream()
+                .filter(annotation -> "failure".equals(annotation.annotationLevel()))
+                .map(annotation -> new PullRequestRepository.CheckRunAnnotation(
+                        annotation.title(), annotation.message(), annotation.path(), annotation.startLine()))
+                .filter(GitHubClient::hasSourceLocation)
+                .collect(toImmutableList());
     }
 
     private static Long extractActionsJobId(String url)

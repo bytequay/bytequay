@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { describe, it, expect } from 'vitest';
-import { sliceHunkToRange } from './CommentBody';
+import { render } from '@testing-library/react';
+import { CommentBodyWithSuggestions, DiffHunk, sliceHunkToRange } from './CommentBody';
 
 describe('sliceHunkToRange', () => {
   it('slices a multi-line + range to just the commented lines', () => {
@@ -96,5 +97,23 @@ describe('sliceHunkToRange', () => {
     ].join('\n');
     const sliced = sliceHunkToRange(hunk, { startLine: 5, endLine: 5, side: 'RIGHT' });
     expect(sliced).toEqual([{ kind: 'add', lineNo: 5, text: 'new' }]);
+  });
+});
+
+// Every horizontally scrollable code surface puts its rows inside a
+// max-content inner wrapper, otherwise each row sizes itself to its own
+// text and the +/− background stops mid-row on short lines. Dropping the
+// wrapper is a silent visual regression, so assert the structure.
+describe('scrollable code surfaces keep their max-content inner wrapper', () => {
+  const hunk = ['@@ -1,2 +1,2 @@ class Foo', '-short', '+a much, much longer replacement line'].join('\n');
+
+  it('wraps the context-hunk rows', () => {
+    const { container } = render(<DiffHunk hunk={hunk} contextFilePath="Foo.java" />);
+    expect(container.querySelectorAll('.prc-review-thread__context-hunk > .prc-review-thread__hunk-inner > .diff-row')).toHaveLength(2);
+  });
+
+  it('wraps the suggested-change rows', () => {
+    const { container } = render(<CommentBodyWithSuggestions body={'```suggestion\nnew line\n```'} hunk={hunk} />);
+    expect(container.querySelectorAll('.prc-suggestion__diff > .prc-review-thread__hunk-inner > .diff-hunk-line')).toHaveLength(2);
   });
 });

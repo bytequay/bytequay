@@ -61,7 +61,6 @@ export function ReactionAddButton({ onPick, disabled, icon }: {
         aria-expanded={open}
       >
         <span aria-hidden="true">{icon ?? '😀'}</span>
-        <span className="reaction-add__plus" aria-hidden="true">+</span>
       </button>
       {open && (
         <div className="reaction-add__picker" role="menu">

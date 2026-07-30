@@ -55,6 +55,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Thin GitHub API client interface.  Each method maps to a single API call and returns raw data;
  * no business logic (deduplication, parallel orchestration, aggregation, filtering) lives here.
@@ -242,6 +244,49 @@ public interface PullRequestRepository
     default List<String> fetchFileBlobLines(String pat, RepoRef repo, String path, String sha)
     {
         throw new UnsupportedOperationException("fetchFileBlobLines not implemented");
+    }
+
+    /** A file's blob at a ref: GitHub's blob sha plus the decoded text. */
+    record FileBlob(String sha, String text)
+    {
+        public FileBlob
+        {
+            requireNonNull(sha, "sha is null");
+            requireNonNull(text, "text is null");
+        }
+    }
+
+    /**
+     * Fetches a file's exact bytes at a ref, keeping the blob sha the
+     * Contents API needs to write it back. Unlike {@link #fetchFileBlobLines}
+     * this preserves the file verbatim (including its trailing-newline
+     * state), so a caller can splice a few lines and commit the rest
+     * byte-for-byte. Empty when the path doesn't exist at that ref.
+     * Maps to: GET /repos/{owner}/{repo}/contents/{path}?ref={ref}
+     */
+    default Optional<FileBlob> fetchFileBlob(String pat, RepoRef repo, String path, String ref)
+    {
+        throw new UnsupportedOperationException("fetchFileBlob not implemented");
+    }
+
+    /**
+     * Commits {@code text} over {@code path} on {@code branch}, returning
+     * the new commit sha. {@code blobSha} is the sha the caller read the
+     * file at — GitHub rejects the write when the blob has moved since,
+     * which is the concurrency guard that keeps a stale line range from
+     * clobbering someone else's push.
+     * Maps to: PUT /repos/{owner}/{repo}/contents/{path}
+     */
+    default String commitFileText(
+            String pat,
+            RepoRef repo,
+            String path,
+            String branch,
+            String blobSha,
+            String text,
+            String message)
+    {
+        throw new UnsupportedOperationException("commitFileText not implemented");
     }
 
     /**
@@ -1135,6 +1180,31 @@ public interface PullRequestRepository
     default Optional<String> fetchCheckRunLog(String pat, RepoRef repo, long checkRunId)
     {
         return Optional.empty();
+    }
+
+    /**
+     * One entry from a check run's "Annotations" list. {@code title} is the
+     * workflow step that emitted it ("Upload test results"), {@code message}
+     * the text underneath ("Expecting actual: 1L to be less than: 1L"), and
+     * {@code path}/{@code startLine} the source location — null for
+     * annotations GitHub attaches to the workflow file rather than to code.
+     */
+    record CheckRunAnnotation(String title, String message, String path, Integer startLine) {}
+
+    /**
+     * Fetches the failure annotations GitHub published for a check run
+     * ({@code GET /repos/{owner}/{repo}/check-runs/{id}/annotations}), keeping
+     * only those that point at real source. This is the only structured
+     * failure text an Actions-generated check run exposes:
+     * {@code output.title} / {@code output.summary} are left null by Actions
+     * and only ever populated by apps that drive the Checks API themselves
+     * (CodeQL, Codecov, Sonar). Empty for the many jobs whose sole annotation
+     * is the contentless "Process completed with exit code 1." — for those the
+     * failure text has to come from the log instead.
+     */
+    default List<CheckRunAnnotation> fetchCheckRunAnnotations(String pat, RepoRef repo, long checkRunId)
+    {
+        return List.of();
     }
 
     /**

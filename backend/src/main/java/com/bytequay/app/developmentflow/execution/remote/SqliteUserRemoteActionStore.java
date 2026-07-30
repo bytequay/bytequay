@@ -593,7 +593,7 @@ public class SqliteUserRemoteActionStore
                     CREATE_INLINE_COMMENT, REACT_PULL_REQUEST,
                     REACT_REVIEW_COMMENT, REACT_ISSUE_COMMENT,
                     SET_THREAD_RESOLUTION, MERGE, ENABLE_AUTO_MERGE,
-                    DISABLE_AUTO_MERGE -> """
+                    DISABLE_AUTO_MERGE, APPLY_SUGGESTION -> """
                     AND task.lifecycle_state = 'ACTIVE'
                     AND current.stage_id = remote.stage_id
                     AND current.stage_generation = remote.generation
@@ -792,6 +792,7 @@ public class SqliteUserRemoteActionStore
                 requireOnly(payload, false, false, true, true, false);
             }
             case CREATE_INLINE_COMMENT -> validateInline(payload);
+            case APPLY_SUGGESTION -> validateSuggestion(payload);
             case REACT_PULL_REQUEST -> {
                 requireReaction(payload.value());
                 requireOnly(payload, false, false, true, false, false);
@@ -894,6 +895,34 @@ public class SqliteUserRemoteActionStore
                                 .toUpperCase(Locale.ROOT))) {
             throw new IllegalArgumentException(
                     "inline comment coordinates are invalid");
+        }
+        requireOnly(payload, true, false, false, false, true);
+    }
+
+    /**
+     * A suggestion carries the same coordinates as an inline comment, with
+     * two differences: the body may be empty (GitHub reads an empty
+     * {@code ```suggestion} fence as "delete these lines"), and it only
+     * ever targets the RIGHT side — there is nothing to rewrite on a
+     * deleted line, which is why github.com greys the button out there.
+     */
+    private static void validateSuggestion(ActionPayload payload)
+    {
+        if (payload.body() == null) {
+            throw new IllegalArgumentException("suggestion body is null");
+        }
+        requireText(payload.filePath(), "filePath");
+        if (payload.lineNumber() == null || payload.lineNumber() < 1) {
+            throw new IllegalArgumentException("lineNumber must be positive");
+        }
+        if (!"RIGHT".equals(requireText(payload.side(), "side")
+                        .toUpperCase(Locale.ROOT))
+                || payload.startSide() != null
+                || payload.startLine() != null
+                        && (payload.startLine() < 1
+                        || payload.startLine() > payload.lineNumber())) {
+            throw new IllegalArgumentException(
+                    "suggestion coordinates are invalid");
         }
         requireOnly(payload, true, false, false, false, true);
     }

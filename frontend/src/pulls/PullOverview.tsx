@@ -228,6 +228,14 @@ export default function PullOverview({
                 );
                 refreshGitHubFeed(true);
               }}
+              onApplySuggestion={remotePrNumber === null ? undefined : async (path, line, startLine, suggestion) => {
+                await window.bridge.applySuggestion(
+                  row.repo, remotePrNumber, suggestion, path, line, startLine,
+                );
+                // The apply lands a commit, so the head moves — refresh
+                // rather than patching the thread in place.
+                refreshGitHubFeed(true);
+              }}
               localPr={bundle?.pr}
               onLocalReply={onLocalReply}
               onLocalResolve={onLocalResolve}
@@ -236,7 +244,7 @@ export default function PullOverview({
               onOpenCommentLocation={onOpenCommentLocation}
               onOpenCommit={onOpenCommit}
             />
-            {checks !== null && <PullChecksCard model={checks} />}
+            {checks !== null && <PullChecksCard model={checks} repo={row.repo} />}
           </>
         )}
       </div>

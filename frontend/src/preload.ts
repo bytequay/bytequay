@@ -440,10 +440,20 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:setWorkModel', { workspaceId, model }),
   getThreadWorkModel: (threadId: string): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:getWorkModel', { threadId }),
+  setThreadWorkModel: (threadId: string, model: WorkModelDto | null): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:setWorkModel', { threadId, model }),
   getTaskWorkModel: (threadId: string, taskId: string): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:getTaskWorkModel', { threadId, taskId }),
+  setTaskWorkModel: (
+    threadId: string,
+    taskId: string,
+    model: WorkModelDto | null,
+  ): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:setTaskWorkModel', { threadId, taskId, model }),
   getStageWorkModel: (stageId: string): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:getStageWorkModel', { stageId }),
+  setStageWorkModel: (stageId: string, model: WorkModelDto | null): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:setStageWorkModel', { stageId, model }),
   getDs4Status: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:status'),
   startDs4: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:start'),
   stopDs4: (confirm = false): Promise<Ds4StopResponseDto> =>

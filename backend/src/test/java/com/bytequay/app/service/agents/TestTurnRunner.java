@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.agents;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -295,6 +296,39 @@ class TestTurnRunner
                 "wrap-up round must not offer tools: " + requestBodies.get(2));
     }
 
+    @Test
+    void sendsAnthropicEffortInOutputConfig()
+            throws Exception
+    {
+        runner.runTurn(specWithEffort(
+                        TurnSpec.Transport.ANTHROPIC, "max"),
+                call -> ToolExecutor.ToolCallResult.ok("unused"),
+                TurnHooks.NONE);
+
+        JsonNode body = mapper.readTree(requestBodies.getFirst());
+        assertEquals("max", body.path("output_config").path("effort").asText());
+        assertFalse(body.has("reasoning_effort"));
+    }
+
+    @Test
+    void sendsOpenAiEffortAtTheTopLevel()
+            throws Exception
+    {
+        responses.add("""
+                data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1}}
+
+                data: [DONE]
+                """);
+        runner.runTurn(specWithEffort(
+                        TurnSpec.Transport.OPENAI_COMPAT, "high"),
+                call -> ToolExecutor.ToolCallResult.ok("unused"),
+                TurnHooks.NONE);
+
+        JsonNode body = mapper.readTree(requestBodies.getFirst());
+        assertEquals("high", body.path("reasoning_effort").asText());
+        assertFalse(body.has("output_config"));
+    }
+
     private TurnSpec spec(int maxIterations)
     {
         return spec(maxIterations, /* tools */ null);
@@ -328,6 +362,28 @@ class TestTurnRunner
                 tools,
                 1024,
                 maxIterations);
+    }
+
+    private TurnSpec specWithEffort(
+            TurnSpec.Transport transport, String effort)
+    {
+        ArrayNode messages = mapper.createArrayNode();
+        messages.add(mapper.createObjectNode()
+                .put("role", "user")
+                .put("content", "go"));
+        return new TurnSpec(
+                transport,
+                "https://provider.test/v1/messages",
+                "test-key",
+                transport == TurnSpec.Transport.ANTHROPIC
+                        ? "claude-opus-4-8" : "gpt-5",
+                effort,
+                transport == TurnSpec.Transport.ANTHROPIC
+                        ? "system prompt" : null,
+                messages,
+                null,
+                1024,
+                1);
     }
 
     private static String requestBody(HttpRequest request)

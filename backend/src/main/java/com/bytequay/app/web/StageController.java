@@ -32,6 +32,7 @@ import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
@@ -72,6 +73,7 @@ public class StageController
     private V2ControlRouteStore v2Routes;
     private V2PlanControlService v2PlanControls;
     private V2StageApiService v2Stages;
+    private ReasoningEffortService reasoningEfforts;
 
     public StageController(
             StageService service,
@@ -110,6 +112,13 @@ public class StageController
     {
         this.v2Routes = requireNonNull(v2Routes, "v2Routes is null");
         this.v2Stages = requireNonNull(v2Stages, "v2Stages is null");
+    }
+
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     @GetMapping("/api/tasks/{taskId}/brain")
@@ -295,6 +304,24 @@ public class StageController
     public ResolvedWorkModelResponse getWorkModel(@PathVariable String stageId)
     {
         UUID id = parseStageId(stageId);
+        String v2TaskId = v2TaskForStage(id);
+        if (v2TaskId != null) {
+            Task task = taskStore.findTaskById(v2TaskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + v2TaskId));
+            WorkModel effective = requireReasoningEfforts().resolveStageEngine(
+                    task.threadId(), task.id(), stageId);
+            WorkModel stageOverride = requireReasoningEfforts().stageOverride(
+                    task.threadId(), task.id(), stageId, effective);
+            return new ResolvedWorkModelResponse(
+                    stageOverride,
+                    effective,
+                    new WorkModelResolver.Provenance(
+                            WorkModelResolver.Source.THREAD,
+                            task.threadId(),
+                            "this trunk · stage"),
+                    !threadStore.listStageMessages(stageId).isEmpty());
+        }
         StageInstance stage = requireStage(id);
         Task task = requireTaskForStage(stage);
         WorkModelResolver.Resolved resolved =
@@ -307,25 +334,45 @@ public class StageController
     public record WorkModelBody(WorkModel workModel) {}
 
     /** PUT /api/stages/{stageId}/work-model — set (or clear) the stage's
-     *  reasoning-effort override. The engine is the workspace's call, so
-     *  engine fields in the body are ignored. A stage's agent session is
-     *  built once and reused across every iteration within it, so this is
-     *  a stage-open-time choice: it has no effect on a session already
-     *  running under this stage, only on the next one built for it. */
+     *  reasoning-effort override. Engine fields in the body are ignored.
+     *  Already-admitted Turns keep their durable launch input; the next new
+     *  Turn owned by this exact current Stage sees the updated effort. */
     @PutMapping("/api/stages/{stageId}/work-model")
     public ResolvedWorkModelResponse setWorkModel(
             @PathVariable String stageId,
             @RequestBody(required = false) WorkModelBody body)
     {
         UUID id = parseStageId(stageId);
-        StageInstance stage = requireStage(id);
-        Task task = requireTaskForStage(stage);
-        if (taskStore.isV2Task(task.id())) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(409),
-                    "V2 Stage engines are frozen at creation");
+        String v2TaskId = v2TaskForStage(id);
+        if (v2TaskId != null) {
+            try {
+                requireReasoningEfforts().setStage(
+                        v2TaskId,
+                        stageId,
+                        ReasoningEffortService.requested(
+                                body == null ? null : body.workModel()));
+            }
+            catch (IllegalArgumentException failure) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(400), failure.getMessage(), failure);
+            }
+            catch (IllegalStateException failure) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(409), failure.getMessage(), failure);
+            }
+            return getWorkModel(stageId);
         }
         throw legacyStageMutationRetired(id.toString());
+    }
+
+    private ReasoningEffortService requireReasoningEfforts()
+    {
+        if (reasoningEfforts == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "Reasoning effort controls are not configured");
+        }
+        return reasoningEfforts;
     }
 
     private StageInstance requireStage(UUID stageId)

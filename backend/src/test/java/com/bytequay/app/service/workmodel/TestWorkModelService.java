@@ -109,6 +109,39 @@ class TestWorkModelService
     }
 
     @Test
+    void exposesEffortChoicesForClaudeAndApiReasoningModels()
+    {
+        CredentialService credentials = Mockito.mock(CredentialService.class);
+        when(credentials.listByTypeAndName(any(), any())).thenReturn(List.of());
+        Instant now = Instant.parse("2026-05-22T00:00:00Z");
+        when(credentials.listByTypeAndName(eq(CredentialType.AI), eq("anthropic")))
+                .thenReturn(List.of(credential(
+                        1, "anthropic", "personal", true, now)));
+        when(credentials.listByTypeAndName(eq(CredentialType.AI), eq("openai")))
+                .thenReturn(List.of(credential(
+                        2, "openai", "personal", true, now)));
+
+        WorkModelOptions options = service(credentials).options();
+
+        assertThat(options.cliAgents().stream()
+                .filter(agent -> agent.id().equals("claude-code"))
+                .findFirst().orElseThrow().models().getFirst()
+                .supportedReasoningEfforts())
+                .extracting(WorkModelOptions.WorkModelReasoningEffort::id)
+                .contains("low", "medium", "high", "max");
+        assertThat(options.apiProviders().stream()
+                .filter(provider -> provider.id().equals("anthropic"))
+                .findFirst().orElseThrow().models().getFirst()
+                .supportedReasoningEfforts()).isNotEmpty();
+        assertThat(options.apiProviders().stream()
+                .filter(provider -> provider.id().equals("openai"))
+                .findFirst().orElseThrow().models().getFirst()
+                .supportedReasoningEfforts())
+                .extracting(WorkModelOptions.WorkModelReasoningEffort::id)
+                .containsExactly("minimal", "low", "medium", "high");
+    }
+
+    @Test
     void freezingACodexPickerChoiceCapturesTheLiveDefaultModel()
     {
         CredentialService credentials = Mockito.mock(CredentialService.class);

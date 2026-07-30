@@ -28,9 +28,11 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.agents.AgentContextCompiler;
 import com.bytequay.app.service.skills.RoleRegistry;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.util.List;
@@ -58,6 +60,7 @@ public final class V2ThreadControlService
     private final ThreadEngineOverrides engines;
     private final RoleRegistry roles;
     private final SessionKnowledgeProvider knowledge;
+    private ReasoningEffortService reasoningEfforts;
 
     public V2ThreadControlService(
             PlanningBaseTurnRuntime planning,
@@ -77,6 +80,13 @@ public final class V2ThreadControlService
         this.engines = requireNonNull(engines, "engines is null");
         this.roles = requireNonNull(roles, "roles is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
+    }
+
+    @Autowired
+    public void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     public String send(Thread thread, String input, TurnInitiator initiator)
@@ -115,6 +125,9 @@ public final class V2ThreadControlService
         WorkModel engine = engines.forAudience(thread.id(), audience)
                 .orElseThrow(() -> new IllegalStateException(
                         "V2 Trunk has no frozen " + audience + " engine: " + thread.id()));
+        if (reasoningEfforts != null) {
+            engine = reasoningEfforts.forTrunk(thread.id(), engine);
+        }
         requireEngine(engine, thread.id());
         String memory = knowledge.renderForThread(
                 thread.workspaceId(), thread.id(), audience, thread.title());

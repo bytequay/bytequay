@@ -32,6 +32,27 @@ describe('Composer', () => {
     expect(onSubmit).toHaveBeenCalled();
   });
 
+  it('treats /model as ordinary message text', () => {
+    const onSubmit = vi.fn();
+
+    function Harness() {
+      const [value, setValue] = useState('');
+      return (
+        <Composer value={value} onChange={setValue} onSubmit={onSubmit}
+          modePill={<button type="button">GPT-5.6 Sol</button>} />
+      );
+    }
+
+    render(<Harness />);
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: '/model' } });
+
+    expect(box.value).toBe('/model');
+    expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it('sends a suggested reply directly on Enter', () => {
     const onSubmit = vi.fn();
     render(

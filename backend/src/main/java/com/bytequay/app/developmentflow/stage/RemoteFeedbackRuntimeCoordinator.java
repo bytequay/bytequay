@@ -39,6 +39,7 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -82,6 +83,7 @@ public final class RemoteFeedbackRuntimeCoordinator
     private final Clock clock;
     private final int serverPort;
     private SqliteStageSteeringStore steering;
+    private ReasoningEffortService reasoningEfforts;
 
     public RemoteFeedbackRuntimeCoordinator(
             TaskCommandExecutor commands,
@@ -115,6 +117,13 @@ public final class RemoteFeedbackRuntimeCoordinator
     void setSteeringStore(SqliteStageSteeringStore steering)
     {
         this.steering = requireNonNull(steering, "steering is null");
+    }
+
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     public TurnRequest admitSteeringInCommand(Request request)
@@ -478,6 +487,11 @@ public final class RemoteFeedbackRuntimeCoordinator
         String ticketId = id("remote-feedback-ticket",
                 context.batchId() + ":" + attempt);
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
+        if (reasoningEfforts != null) {
+            model = reasoningEfforts.forStage(
+                    context.trunkId(), context.taskId(),
+                    context.stageId(), model);
+        }
         requireEngine(context, model);
         String lane = model.kind().name();
         int laneMask = model.kind() == WorkModelKind.CLI ? 1 : 2;
@@ -523,6 +537,10 @@ public final class RemoteFeedbackRuntimeCoordinator
                 "remote-feedback-brain-operation", validation.operationId());
         String ticketId = id("remote-feedback-brain-ticket", validation.operationId());
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
+        if (reasoningEfforts != null) {
+            model = reasoningEfforts.forTask(
+                    context.trunkId(), context.taskId(), model);
+        }
         requireEngine(context, model);
         String lane = model.kind().name();
         int laneMask = model.kind() == WorkModelKind.CLI ? 1 : 2;

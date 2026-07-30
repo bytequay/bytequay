@@ -23,213 +23,180 @@ afterEach(() => {
   delete (window as unknown as { bridge?: unknown }).bridge;
 });
 
-const INHERITED: ResolvedWorkModelDto = {
-  override: null,
-  effective: {
-    kind: 'CLI',
-    agentOrProvider: 'claude-code',
-    model: 'claude-sonnet-4-6',
-    account: null,
-  },
-  provenance: {
-    source: 'WORKSPACE',
-    scopeId: 'ws-default',
-    scopeLabel: 'workspace ByteQuay',
-  },
-  agentLocked: false,
-};
-
-const CODEX: ResolvedWorkModelDto = {
-  override: {
-    kind: 'CLI',
-    agentOrProvider: 'codex',
-    model: 'gpt-5.6-sol',
-    account: null,
-    reasoningEffort: null,
-  },
-  effective: {
-    kind: 'CLI',
-    agentOrProvider: 'codex',
-    model: 'gpt-5.6-sol',
-    account: null,
-    reasoningEffort: null,
-  },
-  provenance: {
-    source: 'THREAD',
-    scopeId: 'thread-1',
-    scopeLabel: 'thread thread-1',
-  },
-  agentLocked: false,
-};
+const CODEX: ResolvedWorkModelDto = resolvedModel('CLI', 'codex', 'gpt-5.6-sol', 'low');
+const CLAUDE: ResolvedWorkModelDto = resolvedModel(
+  'CLI', 'claude-code', 'claude-sonnet-4-6', 'medium', 'TASK',
+);
+const ANTHROPIC: ResolvedWorkModelDto = resolvedModel(
+  'API', 'anthropic', 'claude-opus-4-8', 'high', 'STAGE',
+);
 
 const OPTIONS: WorkModelOptionsDto = {
   cliAgents: [
-    {
-      id: 'claude-code', displayName: 'Claude Code', installed: true, authed: true,
-      defaultModel: 'claude-opus-4-8',
-      models: [
-        { id: 'claude-opus-4-8', displayName: 'Claude Opus 4.8', isDefault: true },
-        { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', isDefault: false },
-      ],
-    },
     {
       id: 'codex', displayName: 'Codex', installed: true, authed: true,
       defaultModel: 'gpt-5.6-sol',
       models: [{
         id: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', isDefault: true,
-        description: 'Frontier coding model',
         defaultReasoningEffort: 'low',
-        supportedReasoningEfforts: [
-          { id: 'low', description: 'Fast answers' },
-          { id: 'max', description: 'Maximum reasoning depth' },
-        ],
+        supportedReasoningEfforts: [{ id: 'low' }, { id: 'max' }],
       }],
+    },
+    {
+      id: 'claude-code', displayName: 'Claude Code', installed: true, authed: true,
+      defaultModel: 'claude-sonnet-4-6',
+      models: [{
+        id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', isDefault: true,
+        defaultReasoningEffort: 'high',
+        supportedReasoningEfforts: [{ id: 'medium' }, { id: 'high' }],
+      }],
+    },
+    {
+      id: 'plain-agent', displayName: 'Plain Agent', installed: true, authed: true,
+      defaultModel: 'plain-model',
+      models: [{ id: 'plain-model', displayName: 'Plain Model', isDefault: true }],
     },
   ],
   apiProviders: [{
     id: 'anthropic', displayName: 'Anthropic', defaultModel: 'claude-opus-4-8',
-    models: [
-      { id: 'claude-opus-4-8', displayName: 'Claude Opus 4.8', isDefault: true },
-      { id: 'claude-opus-4-7', displayName: 'Claude Opus 4.7', isDefault: false },
-    ],
+    models: [{
+      id: 'claude-opus-4-8', displayName: 'Claude Opus 4.8', isDefault: true,
+      defaultReasoningEffort: 'high',
+      supportedReasoningEfforts: [{ id: 'low' }, { id: 'high' }, { id: 'max' }],
+    }],
     accounts: [{ name: 'team', isDefault: true, valid: true }],
   }],
 };
 
 describe('WorkModelPill', () => {
-  it('resolves the effective model id to its catalog display name for the pill label', async () => {
-    const getThreadWorkModel = vi.fn(async () => INHERITED);
-    installBridge({ getThreadWorkModel });
+  it('updates a trunk effort and refreshes from the setter response', async () => {
+    const updated = withEffort(CODEX, 'max');
+    const setThreadWorkModel = vi.fn(async () => updated);
+    const onChange = vi.fn();
+    installBridge({ getThreadWorkModel: vi.fn(async () => CODEX), setThreadWorkModel });
 
-    const { container } = render(
-      <WorkModelPill variant="workspace-v2" scope={{ kind: 'thread', threadId: 'thread-1' }} />,
+    render(
+      <WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} onChange={onChange} />,
     );
+    await openPill();
 
-    // The pill shows the human model name alone — no agent id, no "· CLI".
-    await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('Claude Sonnet 4.6');
+    expect(screen.getByRole('dialog').textContent).toContain('not-yet-admitted turns');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Max' })); });
+
+    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
+      ...CODEX.effective,
+      reasoningEffort: 'max',
     });
-    expect(getThreadWorkModel).toHaveBeenCalledWith('thread-1');
-    expect(screen.getByRole('button').textContent).not.toContain('claude-code');
-    expect(container.querySelector('.workspace-work-model-pill svg')).toBeNull();
+    expect(onChange).toHaveBeenCalledWith(updated);
+    await waitFor(() => expect(screen.getByRole('button').textContent).toContain('Max'));
   });
 
-  it('opens the picker popover on click and shows the inheritance hint', async () => {
-    installBridge({ getThreadWorkModel: vi.fn(async () => INHERITED) });
-
-    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitForLoadedPill();
-
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
-
-    await waitFor(() => {
-      expect(screen.getByRole('dialog').textContent).toContain('workspace ByteQuay');
-    });
-  });
-
-  it('closes the popover when Esc is pressed', async () => {
-    installBridge({ getThreadWorkModel: vi.fn(async () => INHERITED) });
-
-    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitForLoadedPill();
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    await waitFor(() => screen.getByRole('dialog'));
-
-    await act(async () => {
-      fireEvent.keyDown(document, { key: 'Escape' });
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull();
-    });
-  });
-
-  it('shows the frozen engine and effort without exposing mutation controls', async () => {
-    installBridge({ getThreadWorkModel: vi.fn(async () => INHERITED) });
-
-    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitForLoadedPill();
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
-
-    const dialog = await waitFor(() => screen.getByRole('dialog'));
-    expect(dialog.textContent).toContain('Workspace settings');
-    expect(dialog.textContent).toContain('Reasoning effort');
-    expect(dialog.textContent).toContain('fixed when this thread was created');
-    expect(dialog.querySelector('button')).toBeNull();
-    expect('setThreadWorkModel' in window.bridge).toBe(false);
-  });
-
-  it('reads a frozen Task snapshot', async () => {
-    const getTaskWorkModel = vi.fn(async () => CODEX);
-    installBridge({ getTaskWorkModel });
+  it('updates Claude Code effort through the task bridge', async () => {
+    const setTaskWorkModel = vi.fn(async () => withEffort(CLAUDE, 'high'));
+    installBridge({ getTaskWorkModel: vi.fn(async () => CLAUDE), setTaskWorkModel });
 
     render(<WorkModelPill scope={{ kind: 'task', threadId: 'thread-1', taskId: 'task-1' }} />);
+    await openPill();
+    expect(screen.getByRole('dialog').textContent).toContain('engine is fixed for this task');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'High' })); });
 
-    await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('GPT-5.6 Sol');
+    expect(setTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1', {
+      ...CLAUDE.effective,
+      reasoningEffort: 'high',
     });
-    expect(getTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1');
-
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    const dialog = await waitFor(() => screen.getByRole('dialog'));
-    expect(dialog.textContent).toContain('Reasoning effort');
-    expect(dialog.textContent).toContain('Low');
   });
 
-  it('reads a frozen Stage snapshot', async () => {
-    const getStageWorkModel = vi.fn(async () => CODEX);
-    installBridge({ getStageWorkModel });
+  it('updates API effort through the stage bridge', async () => {
+    const setStageWorkModel = vi.fn(async () => withEffort(ANTHROPIC, 'max'));
+    installBridge({ getStageWorkModel: vi.fn(async () => ANTHROPIC), setStageWorkModel });
 
     render(<WorkModelPill scope={{ kind: 'stage', stageId: 'stage-1' }} />);
+    await openPill();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Max' })); });
 
-    await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('GPT-5.6 Sol');
+    expect(setStageWorkModel).toHaveBeenCalledWith('stage-1', {
+      ...ANTHROPIC.effective,
+      reasoningEffort: 'max',
     });
-    expect(getStageWorkModel).toHaveBeenCalledWith('stage-1');
-
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    const dialog = await waitFor(() => screen.getByRole('dialog'));
-
-    expect(dialog.textContent).toContain('fixed when this stage was created');
   });
 
-  it('shows the effort the scope currently runs at', async () => {
+  it('clears the scope effort to use the inherited or model default', async () => {
+    const inherited: ResolvedWorkModelDto = {
+      ...CODEX,
+      override: null,
+      effective: { ...CODEX.effective, reasoningEffort: 'low' },
+    };
+    const setThreadWorkModel = vi.fn(async () => inherited);
     installBridge({
-      getThreadWorkModel: vi.fn(async () => ({
-        ...CODEX,
-        effective: { ...CODEX.effective, reasoningEffort: 'max' },
-      })),
+      getThreadWorkModel: vi.fn(async () => withEffort(CODEX, 'max')),
+      setThreadWorkModel,
     });
 
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitForLoadedPill();
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
+    await openPill();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Use inherited\/default/ }));
+    });
 
-    const dialog = await waitFor(() => screen.getByRole('dialog'));
-    expect(dialog.textContent).toContain('Max');
-    expect(dialog.querySelector('button')).toBeNull();
+    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', null);
+    await waitFor(() => expect(screen.getByRole('button').textContent).toContain('Low'));
+  });
+
+  it('keeps unsupported models read-only', async () => {
+    const unsupported = resolvedModel('CLI', 'plain-agent', 'plain-model', null);
+    const setThreadWorkModel = vi.fn(async () => unsupported);
+    installBridge({ getThreadWorkModel: vi.fn(async () => unsupported), setThreadWorkModel });
+
+    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
+    await openPill();
+
+    expect(screen.getByRole('dialog').textContent).toContain('does not expose reasoning-effort controls');
+    expect(screen.queryByRole('group', { name: 'Reasoning effort' })).toBeNull();
+    expect(setThreadWorkModel).not.toHaveBeenCalled();
   });
 });
 
-/** Wait until the pill has finished its async load. The first render is a
- *  disabled "Model…" button; clicking that no-ops, so opening the popover
- *  before the resolved model lands would race. Block on the button
- *  becoming enabled. */
-async function waitForLoadedPill() {
+async function openPill() {
   await waitFor(() => {
     const button = screen.getByRole('button') as HTMLButtonElement;
-    if (button.disabled) {
-      throw new Error('pill is still loading');
-    }
+    expect(button.disabled).toBe(false);
   });
+  await act(async () => { fireEvent.click(screen.getByRole('button')); });
+  await waitFor(() => screen.getByRole('dialog'));
+}
+
+function resolvedModel(
+  kind: 'CLI' | 'API',
+  agentOrProvider: string,
+  model: string,
+  reasoningEffort: string | null,
+  source: 'THREAD' | 'TASK' | 'STAGE' = 'THREAD',
+): ResolvedWorkModelDto {
+  const workModel = { kind, agentOrProvider, model, account: kind === 'API' ? 'team' : null, reasoningEffort };
+  return {
+    override: workModel,
+    effective: workModel,
+    provenance: { source, scopeId: 'scope-1', scopeLabel: 'scope scope-1' },
+    agentLocked: false,
+  };
+}
+
+function withEffort(model: ResolvedWorkModelDto, reasoningEffort: string): ResolvedWorkModelDto {
+  return {
+    ...model,
+    override: { ...model.effective, reasoningEffort },
+    effective: { ...model.effective, reasoningEffort },
+  };
 }
 
 function installBridge(overrides: Partial<Bridge>) {
   (window as unknown as { bridge: Partial<Bridge> }).bridge = {
-    getThreadWorkModel: vi.fn(async () => INHERITED),
-    getTaskWorkModel: vi.fn(async () => INHERITED),
-    getStageWorkModel: vi.fn(async () => INHERITED),
-    // The pill reads options on mount for the label and the picker list.
+    getThreadWorkModel: vi.fn(async () => CODEX),
+    setThreadWorkModel: vi.fn(async () => CODEX),
+    getTaskWorkModel: vi.fn(async () => CODEX),
+    setTaskWorkModel: vi.fn(async () => CODEX),
+    getStageWorkModel: vi.fn(async () => CODEX),
+    setStageWorkModel: vi.fn(async () => CODEX),
     getWorkModelOptions: vi.fn(async () => OPTIONS),
     refreshWorkModelOptions: vi.fn(async () => OPTIONS),
     ...overrides,

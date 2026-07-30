@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ResolvedWorkModelDto, WorkModelOptionsDto } from '../types';
+import type { ResolvedWorkModelDto, WorkModelDto, WorkModelOptionsDto } from '../types';
 
 /** Fixed popover width — used both for the box and for clamping it
  *  inside the viewport when the pill sits near the right edge (the
@@ -25,11 +25,6 @@ const POPOVER_WIDTH = 380;
  *  drives the flip-up decision when the trigger is near the viewport bottom. */
 const POPOVER_MAX_H = 380;
 
-/** Window event that opens the pill's picker — dispatched by the composer's
- *  "/model" slash command. ponytail: global event, one pill per composer in
- *  the live shell; scope by composer node if two pills ever coexist. */
-export const OPEN_WORK_MODEL_EVENT = 'bytequay:open-work-model';
-
 type Scope =
   | { kind: 'thread'; threadId: string }
   | { kind: 'task'; threadId: string; taskId: string }
@@ -37,24 +32,25 @@ type Scope =
 
 type Props = {
   scope: Scope;
+  onChange?: (resolved: ResolvedWorkModelDto) => void;
   variant?: 'default' | 'workspace-v2';
 };
 
 /**
- * Compact read-only "current work model" chip.
+ * Compact work-model chip with an effort-only editor.
  *
  * <p>Reads {@code ResolvedWorkModelDto} from the matching bridge
  * method (thread or task) and renders both the effective label and a
- * subtle inheritance hint (e.g. "Inherited from workspace ByteQuay").
- * V2 freezes engine and reasoning effort when the owning Trunk, Task, or
- * Stage is created, so this component deliberately exposes no mutation.
+ * subtle inheritance hint (e.g. "Inherited from workspace ByteQuay"). The
+ * engine is immutable for an existing scope; only request-level reasoning
+ * effort can be changed for future, not-yet-admitted turns.
  *
  * <p>Esc + outside-click dismiss; focus returns to the pill. The
  * workspace settings page remains the place to change defaults for future
  * work.
  */
 export function WorkModelPill({
-  scope, variant = 'default',
+  scope, onChange, variant = 'default',
 }: Props) {
   const workspaceVariant = variant === 'workspace-v2';
   const [resolved, setResolved] = useState<ResolvedWorkModelDto | null>(null);
@@ -117,14 +113,6 @@ export function WorkModelPill({
       .catch(() => { /* label falls back to the raw id */ });
   }, []);
 
-  // Open when the composer's "/model" command fires. place() reads the
-  // trigger rect, so run it before flipping open (same order as onClick).
-  useEffect(() => {
-    const onOpen = () => { place(); setOpen(true); };
-    window.addEventListener(OPEN_WORK_MODEL_EVENT, onOpen);
-    return () => window.removeEventListener(OPEN_WORK_MODEL_EVENT, onOpen);
-  }, [place]);
-
   // Keep the fixed popover glued to the trigger while it's open: the
   // rail scrolls and the window can resize under it. Capture-phase
   // scroll catches the rail's own scroll container, not just window.
@@ -165,12 +153,35 @@ export function WorkModelPill({
     };
   }, [open]);
 
-  const label = useMemo(() => formatLabel(resolved, options), [resolved, options]);
+  const commit = useCallback(async (next: WorkModelDto | null) => {
+    try {
+      const updated = scope.kind === 'thread'
+        ? await window.bridge.setThreadWorkModel(scope.threadId, next)
+        : scope.kind === 'task'
+          ? await window.bridge.setTaskWorkModel(scope.threadId, scope.taskId, next)
+          : await window.bridge.setStageWorkModel(scope.stageId, next);
+      setResolved(updated);
+      onChange?.(updated);
+      setError(null);
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [scope, onChange]);
+
+  const engineLabel = useMemo(() => formatLabel(resolved, options), [resolved, options]);
   const hint = useMemo(() => formatHint(resolved), [resolved]);
   const modelEntry = useMemo(() => findModelEntry(resolved, options), [resolved, options]);
+  const efforts = modelEntry?.supportedReasoningEfforts ?? [];
+  const explicitEffort = resolved?.override?.reasoningEffort ?? null;
   const selectedEffort = resolved?.effective.reasoningEffort
     ?? modelEntry?.defaultReasoningEffort
-    ?? 'default';
+    ?? '';
+  const label = selectedEffort.length === 0
+    ? engineLabel
+    : `${engineLabel} · ${displayEffort(selectedEffort)}`;
 
   if (resolved === null && error === null) {
     return (
@@ -208,7 +219,7 @@ export function WorkModelPill({
           if (!open) place();
           setOpen((prev) => !prev);
         }}
-        title={hint ?? 'View the frozen work model'}
+        title={hint ?? 'Change reasoning effort'}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
@@ -227,15 +238,48 @@ export function WorkModelPill({
             : (
               <>
                 <div style={engineRowStyle}>
-                  <span style={engineNameStyle}>{label}</span>
+                  <span style={engineNameStyle}>{engineLabel}</span>
                   <span style={engineNoteStyle}>
-                    Engine and effort were fixed when this {scope.kind} was created.
-                    Change Workspace settings → Agents for future work.
+                    The engine is fixed for this {scopeName(scope)}. Reasoning effort
+                    can change for future turns.
                   </span>
                 </div>
-                <div style={frozenValueStyle}>
-                  <span>Reasoning effort</span>
-                  <strong>{displayEffort(selectedEffort)}</strong>
+                {efforts.length === 0
+                  ? <div style={loadingStyle}>This model does not expose reasoning-effort controls.</div>
+                  : (
+                    <div role="group" aria-label="Reasoning effort">
+                      <button
+                        type="button"
+                        style={effortRowStyle(explicitEffort === null)}
+                        onClick={() => { void commit(null); }}
+                      >
+                        <span aria-hidden style={inheritanceGlyphStyle}>
+                          {explicitEffort === null ? '●' : '○'}
+                        </span>
+                        Use inherited/default
+                        {selectedEffort.length > 0 && ` (${displayEffort(selectedEffort)})`}
+                      </button>
+                      {efforts.map(effort => (
+                        <button
+                          key={effort.id}
+                          type="button"
+                          style={effortRowStyle(explicitEffort === effort.id)}
+                          title={effort.description ?? undefined}
+                          onClick={() => {
+                            void commit({ ...resolved.effective, reasoningEffort: effort.id });
+                          }}
+                        >
+                          <span aria-hidden style={inheritanceGlyphStyle}>
+                            {explicitEffort === effort.id ? '●' : '○'}
+                          </span>
+                          {displayEffort(effort.id)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                <div style={futureTurnNoteStyle}>
+                  Changes apply only to future, not-yet-admitted turns. Already
+                  queued or running turns keep their current effort.
                 </div>
               </>
             )}
@@ -286,6 +330,10 @@ function displayEffort(effort: string): string {
   return effort.length === 0 ? effort : effort[0].toUpperCase() + effort.slice(1);
 }
 
+function scopeName(scope: Scope): string {
+  return scope.kind === 'thread' ? 'trunk' : scope.kind;
+}
+
 function formatHint(resolved: ResolvedWorkModelDto | null): string | null {
   if (resolved === null) return null;
   switch (resolved.provenance.source) {
@@ -330,15 +378,31 @@ const engineNoteStyle: React.CSSProperties = {
   lineHeight: 1.4,
 };
 
-const frozenValueStyle: React.CSSProperties = {
+function effortRowStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '7px 10px',
+    border: 'none',
+    background: active ? 'rgba(0,0,0,0.06)' : 'transparent',
+    borderRadius: 7,
+    cursor: 'pointer',
+    font: 'inherit',
+    fontSize: 12.5,
+    textAlign: 'left',
+  };
+}
+
+const futureTurnNoteStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 8,
   padding: '7px 10px',
-  background: 'rgba(0,0,0,0.04)',
+  background: 'var(--bg-elevated)',
   borderRadius: 7,
-  fontSize: 12.5,
+  color: 'var(--text-3)',
+  fontSize: 11,
+  lineHeight: 1.4,
 };
 
 function pillStyle(active: boolean, workspaceVariant = false): React.CSSProperties {

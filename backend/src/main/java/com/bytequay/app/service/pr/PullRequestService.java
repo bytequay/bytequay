@@ -52,6 +52,7 @@ import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -684,6 +685,37 @@ public class PullRequestService
     }
 
     /**
+     * The best failure text available for one check run. Prefers GitHub's
+     * source-located annotations (an assertion with its file and line);
+     * falls back to an excerpt of the job log for the many jobs whose only
+     * annotation is the contentless "Process completed with exit code 1.".
+     * Both empty means GitHub exposed nothing — external CI, or an expired log.
+     *
+     * @param annotations source-located failure annotations, empty when none
+     * @param log         log excerpt, populated only when {@code annotations}
+     *                    is empty so a check with real annotations costs no
+     *                    extra GitHub round-trip
+     */
+    public record CheckRunFailure(List<PullRequestRepository.CheckRunAnnotation> annotations, String log) {}
+
+    public CheckRunFailure getCheckRunFailure(String repo, long checkRunId)
+    {
+        String pat = patResolver.resolve(repo);
+        PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
+        RepoRef repoRef = RepoRef.of(refOrNull.owner(), refOrNull.repo());
+        List<PullRequestRepository.CheckRunAnnotation> annotations =
+                gitHub.fetchCheckRunAnnotations(pat, repoRef, checkRunId);
+        if (!annotations.isEmpty()) {
+            return new CheckRunFailure(annotations, "");
+        }
+        return new CheckRunFailure(
+                annotations,
+                gitHub.fetchCheckRunLog(pat, repoRef, checkRunId)
+                        .map(PullRequestService::trimLogToError)
+                        .orElse(""));
+    }
+
+    /**
      * Re-runs the failed CI jobs on the PR's head commit — GitHub's
      * built-in flaky-failure fix. Returns how many workflow runs were
      * re-triggered (0 when nothing on the head had failed). One PR fetch
@@ -696,6 +728,37 @@ public class PullRequestService
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
         String headSha = raw == null ? null : raw.headSha();
         return gitHub.rerunFailedChecks(pat, RepoRef.of(ref.owner(), ref.repo()), headSha);
+    }
+
+    /** Lines of log to show before the failure marker. Enough for a stack
+     *  trace or a Maven error block, short enough to read inside a card. */
+    private static final int ERROR_WINDOW_LINES = 40;
+
+    /** The tail of an Actions log is post-job cleanup — unsetting git config,
+     *  removing credentials, reaping orphans — not the failure. The runner
+     *  marks the real thing with {@code ##[error]}, so the useful excerpt is
+     *  the window *ending* at the last such marker; a Trino job typically
+     *  buries it ~290 lines from the end. Falls back to the tail for logs with
+     *  no marker at all. Strips each line's 28-char ISO timestamp and any ANSI
+     *  colour codes, which otherwise crowd the message out of a narrow card.
+     */
+    @VisibleForTesting
+    static String trimLogToError(String full)
+    {
+        List<String> lines = full.lines()
+                .map(line -> line.replaceFirst("^\\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z ", "")
+                        .replaceAll("\\x1B?\\[[0-9;]*m", ""))
+                .collect(toImmutableList());
+        int marker = -1;
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            if (lines.get(i).contains("##[error]")) {
+                marker = i;
+                break;
+            }
+        }
+        int end = marker >= 0 ? marker + 1 : lines.size();
+        int start = Math.max(0, end - ERROR_WINDOW_LINES);
+        return String.join("\n", lines.subList(start, end)).strip();
     }
 
     /** Logs from CI runs are appended chronologically; the *end* of the

@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment, LocalPRTimelineEvent } from '../types/localPr';
-import { buildChecks, buildTimeline, isBotActor, statePill } from './detailModel';
+import { buildChecks, buildTimeline, isBotActor, isCiErrorLine, statePill } from './detailModel';
 
 function check(overrides: Partial<LocalPRCheck>): LocalPRCheck {
   return {
@@ -94,6 +94,34 @@ describe('buildChecks', () => {
     const prog = buildChecks([check({ id: '1', status: 'pending' }), check({ id: '2', name: 'x' })]);
     expect(prog?.title).toBe("Some checks haven't completed yet");
     expect(prog?.sub).toBe('1 in progress, 1 successful');
+  });
+
+  it('exposes a check-run id only for remote checks whose run id is a GitHub id', () => {
+    const model = buildChecks([
+      check({ id: '1', status: 'failed', name: 'remote-numeric', runId: '90465481459' }),
+      check({ id: '2', status: 'failed', name: 'remote-no-run-id', runId: null }),
+      check({ id: '3', status: 'failed', name: 'remote-opaque', runId: 'run-abc' }),
+      check({ id: '4', status: 'failed', name: 'local-run', kind: 'local', runId: '90465481459' }),
+    ]);
+    const ids = new Map(model?.groups[0].rows.map(r => [r.name, r.checkRunId]));
+    expect(ids.get('remote-numeric')).toBe(90465481459);
+    expect(ids.get('remote-no-run-id')).toBeNull();
+    expect(ids.get('remote-opaque')).toBeNull();
+    expect(ids.get('local-run')).toBeNull();
+  });
+});
+
+describe('isCiErrorLine', () => {
+  it('picks out the error and root-cause lines, leaving build chatter alone', () => {
+    // Verbatim lines from a failing trinodb/trino delta-lake job.
+    expect(isCiErrorLine('[ERROR] Error executing Maven.')).toBe(true);
+    expect(isCiErrorLine('[ERROR] Caused by: Plugin foo:0.2.0 could not be resolved:')).toBe(true);
+    expect(isCiErrorLine('##[error]Process completed with exit code 1.')).toBe(true);
+    expect(isCiErrorLine('Caused by: java.lang.IllegalStateException')).toBe(true);
+    expect(isCiErrorLine('Apache Maven 3.9.16')).toBe(false);
+    expect(isCiErrorLine('\tFailed to read artifact descriptor for foo')).toBe(false);
+    expect(isCiErrorLine('[INFO] Building Trino')).toBe(false);
+    expect(isCiErrorLine('')).toBe(false);
   });
 });
 

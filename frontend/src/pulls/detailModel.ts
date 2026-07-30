@@ -402,14 +402,25 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   return items;
 }
 
+/** The lines worth picking out of a CI log excerpt: Maven prefixes its
+ *  failures with `[ERROR]`, the Actions runner writes `##[error]`, and a Java
+ *  stack trace chains its root cause with `Caused by:`. Everything else in the
+ *  excerpt is surrounding context. */
+export function isCiErrorLine(line: string): boolean {
+  return line.includes('[ERROR]') || line.includes('##[error]') || line.includes('Caused by:');
+}
+
 export type CheckRowState = 'fail' | 'prog' | 'ok' | 'skip';
 export type ChecksGroup = {
   key: string;
   label: string;
   defaultOpen: boolean;
   /** `time` is the last-run label ("3h ago"), empty for never-run/skipped
-   *  checks; `title` is the absolute timestamp shown on hover. */
-  rows: { name: string; note: string; time: string; title: string; state: CheckRowState }[];
+   *  checks; `title` is the absolute timestamp shown on hover. `checkRunId`
+   *  is the GitHub check-run id, the key the annotations fetch needs — null
+   *  for local checks and for remote rows recorded without one (the agent's
+   *  own record-check tool passes no run id), which simply don't unfold. */
+  rows: { name: string; note: string; time: string; title: string; state: CheckRowState; checkRunId: number | null }[];
 };
 export type ChecksModel = { state: 'fail' | 'prog' | 'ok'; title: string; sub: string; groups: ChecksGroup[] };
 
@@ -425,6 +436,9 @@ export function buildChecks(checks: LocalPRCheck[]): ChecksModel | null {
       note: state === 'skip' ? 'skipped' : c.kind === 'local' ? 'local' : 'ci',
       time: state === 'skip' ? '' : agoLabel(ranAt),
       title: state === 'skip' ? '' : new Date(ranAt).toLocaleString(),
+      checkRunId: c.kind === 'remote' && c.runId !== null && /^\d+$/.test(c.runId)
+        ? Number(c.runId)
+        : null,
     };
   };
   const failing = checks.filter(c => c.status === 'failed');

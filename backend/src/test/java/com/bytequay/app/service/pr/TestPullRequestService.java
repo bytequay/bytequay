@@ -1943,6 +1943,40 @@ class TestPullRequestService
                         .isEqualTo(BAD_GATEWAY.value()));
     }
 
+    @Test
+    void logExcerptEndsAtTheFailureMarkerNotAtTheCleanupThatFollowsIt()
+    {
+        // Real Actions shape: ISO timestamp per line, ANSI colour on the
+        // command echo, the error, then ~4 lines of post-job cleanup that a
+        // naive tail would show instead of the failure.
+        String log = """
+                2026-07-29T18:00:11.1Z [ERROR] Error executing Maven.
+                2026-07-29T18:00:11.2Z [ERROR] Extension foo:0.2.0 could not be resolved
+                2026-07-29T18:00:11.3Z ##[error]Process completed with exit code 1.
+                2026-07-29T18:00:45.2Z ##[group]Run .github/bin/cleanup.sh
+                2026-07-29T18:00:45.3Z [36;1m.github/bin/cleanup.sh[0m
+                2026-07-29T18:00:45.4Z Removing credentials config
+                2026-07-29T18:00:45.5Z Cleaning up orphan processes
+                """;
+
+        String excerpt = PullRequestService.trimLogToError(log);
+
+        assertThat(excerpt).endsWith("##[error]Process completed with exit code 1.");
+        assertThat(excerpt).contains("[ERROR] Extension foo:0.2.0 could not be resolved");
+        assertThat(excerpt).doesNotContain("Cleaning up orphan processes");
+        // Timestamps and ANSI codes are stripped so the message isn't crowded out.
+        assertThat(excerpt).doesNotContain("2026-07-29T18:00:11");
+        assertThat(excerpt).doesNotContain("36;1m");
+    }
+
+    @Test
+    void logExcerptFallsBackToTheTailWhenNothingMarksTheFailure()
+    {
+        String log = "2026-07-29T18:00:11.1Z only line, no marker\n";
+
+        assertThat(PullRequestService.trimLogToError(log)).isEqualTo("only line, no marker");
+    }
+
     private static PullRequest prWithTitle(String title)
     {
         return new PullRequest(7L, "owner/repo", 42, title, "alice", "url",

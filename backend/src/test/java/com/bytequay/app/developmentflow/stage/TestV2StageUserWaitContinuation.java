@@ -13,32 +13,49 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator.SteeringAdmission;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurnStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Attachment;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.CliContinuation;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalTurn;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Predecessor;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
+import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -79,6 +96,198 @@ class TestV2StageUserWaitContinuation
                 .admitUserWaitContinuationInCommand(any(), anyLong());
         verify(harness.store()).insertUserWaitLink(
                 anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void cliSessionIsReusedForDurableUserWaitButNotExplicitReplacement()
+            throws Exception
+    {
+        ObjectMapper json = new ObjectMapper();
+        SqliteStageSteeringStore store = mock(SqliteStageSteeringStore.class);
+        LocalDevelopmentStageManager local =
+                mock(LocalDevelopmentStageManager.class);
+        LocalContext context = new LocalContext(
+                "task-1", "trunk-1", "workspace-1", 3,
+                "stage-1", 2, 7, StageCheckpoint.IMPLEMENTING,
+                "code-1", "head-1", "base-1", "/tmp/task-1",
+                "{\"kind\":\"CLI\",\"agentOrProvider\":\"codex\","
+                        + "\"model\":\"gpt-5.6\",\"account\":null,"
+                        + "\"reasoningEffort\":null}",
+                "codex", "gpt-5.6", null);
+        Attachment repeated = new Attachment(
+                1, "image/png", "/tmp/source.png", "a".repeat(64));
+        Attachment current = new Attachment(
+                2, "image/jpeg", "/tmp/current.jpg", "b".repeat(64));
+        var predecessorLaunch = json.createObjectNode();
+        predecessorLaunch.put("prompt", "original instruction");
+        var predecessorImages = predecessorLaunch.putArray("images");
+        predecessorImages.addObject()
+                .put("path", repeated.contentRef())
+                .put("mediaType", repeated.mediaType())
+                .put("digest", repeated.contentDigest());
+        when(store.requireLocalContext(any(), eq(7L))).thenReturn(context);
+        when(store.attachments(anyString()))
+                .thenReturn(List.of(repeated, current));
+        when(store.isUserWaitContinuation("wait-request")).thenReturn(true);
+        when(store.cliContinuation(
+                any(Request.class), anyString(), anyLong(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Optional.of(new CliContinuation(
+                        predecessorLaunch.toString(),
+                        "execution-1", "session-1")));
+        when(store.executionLog("execution-1"))
+                .thenReturn(List.of("assistant asked a question"));
+        when(local.replaceImplementationTurnInCommand(any(), any(), anyString()))
+                .thenReturn(CommandResult.applied(mock(StageManager.State.class)));
+        when(local.requestImplementationInCommand(any(), any(), anyString()))
+                .thenReturn(CommandResult.applied(mock(StageManager.State.class)));
+        LocalDevelopmentRuntimeCoordinator runtime =
+                new LocalDevelopmentRuntimeCoordinator(
+                        mock(TaskCommandExecutor.class), mock(TaskManager.class),
+                        local, mock(SqliteLocalDevelopmentRuntimeStore.class),
+                        mock(PRService.class), json,
+                        Clock.fixed(NOW, ZoneOffset.UTC), 8080);
+        runtime.setSteeringStore(store);
+        Request wait = steeringRequest(
+                "wait-request",
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        Request replacement = steeringRequest(
+                "replace-request",
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+
+        try (MockedStatic<TaskCommandExecutor> ignored =
+                mockStatic(TaskCommandExecutor.class)) {
+            runtime.admitUserWaitContinuationInCommand(wait, 7);
+            runtime.admitSteeringInCommand(replacement, 7);
+        }
+
+        ArgumentCaptor<LocalTurn> waitTurn = ArgumentCaptor.forClass(LocalTurn.class);
+        verify(store).insertLocalContinuationTurn(
+                waitTurn.capture(), eq(PREDECESSOR));
+        JsonNode waitLaunch = json.readTree(waitTurn.getValue().launchInput());
+        assertThat(waitLaunch.path("resumeSessionId").asText())
+                .isEqualTo("session-1");
+        assertThat(waitLaunch.path("fallbackPrompt").asText())
+                .contains("original instruction")
+                .contains("assistant asked a question")
+                .contains("Proceed");
+        assertThat(waitLaunch.path("images").findValuesAsText("path"))
+                .containsExactly("/tmp/source.png", "/tmp/current.jpg");
+
+        ArgumentCaptor<LocalTurn> replacementTurn =
+                ArgumentCaptor.forClass(LocalTurn.class);
+        verify(store).insertLocalTurn(replacementTurn.capture());
+        JsonNode replacementLaunch =
+                json.readTree(replacementTurn.getValue().launchInput());
+        assertThat(replacementLaunch.has("resumeSessionId")).isFalse();
+        assertThat(replacementLaunch.has("fallbackPrompt")).isFalse();
+        assertThat(replacementLaunch.path("images").findValuesAsText("path"))
+                .containsExactly("/tmp/source.png", "/tmp/current.jpg");
+    }
+
+    @Test
+    void lateUserWaitReconstructsExactHistoryWithoutBranchingTheCliSession()
+    {
+        ObjectMapper json = new ObjectMapper();
+        SqliteStageSteeringStore store = mock(SqliteStageSteeringStore.class);
+        Request request = steeringRequest(
+                "wait-request", V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        String sourceDigest = "a".repeat(64);
+        String previousLaunch = """
+                {"prompt":"original instruction","images":[
+                  {"path":"/tmp/source.png","mediaType":"image/png",
+                   "digest":"%s"}]}
+                """.formatted(sourceDigest);
+        when(store.isUserWaitContinuation(request.id())).thenReturn(true);
+        when(store.cliContinuation(
+                any(Request.class), anyString(), anyLong(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Optional.of(new CliContinuation(
+                        previousLaunch,
+                        "execution-1", "session-1", false)));
+        when(store.executionLog("execution-1"))
+                .thenReturn(List.of("assistant asked the exact question"));
+        var launch = json.createObjectNode();
+        launch.put("prompt", "Proceed");
+        StageCliContinuity.freezeImages(
+                json, launch, List.of(new Attachment(
+                        1, "image/jpeg", "/tmp/current.jpg",
+                        "b".repeat(64))));
+
+        StageCliContinuity.apply(
+                json, launch, request, WorkModelKind.CLI, "Proceed", store,
+                new StageCliContinuity.Fence(
+                        "stage-1", 2, "code-1", "head-1", "base-1",
+                        "codex", "gpt-5.6", "/tmp/task-1"));
+
+        assertThat(launch.path("prompt").asText())
+                .contains("original instruction")
+                .contains("assistant asked the exact question")
+                .contains("Proceed");
+        assertThat(launch.has("resumeSessionId")).isFalse();
+        assertThat(launch.has("fallbackPrompt")).isFalse();
+        assertThat(launch.path("images").findValuesAsText("path"))
+                .containsExactly("/tmp/source.png", "/tmp/current.jpg");
+    }
+
+    @Test
+    void apiExactContinuationsReconstructWithoutAResumeToken()
+    {
+        ObjectMapper json = new ObjectMapper();
+        SqliteStageSteeringStore store = mock(SqliteStageSteeringStore.class);
+        CliContinuation source = new CliContinuation(
+                "{\"prompt\":\"original instruction\"}",
+                "execution-1", "session-1");
+        when(store.cliContinuation(
+                eq(PREDECESSOR.ownerId()), anyString(), anyLong(),
+                anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString())).thenReturn(Optional.of(source));
+        Request userWait = steeringRequest(
+                "wait-request", V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        when(store.isUserWaitContinuation(userWait.id())).thenReturn(true);
+        when(store.cliContinuation(
+                any(Request.class), anyString(), anyLong(), anyString(),
+                anyString(), anyString(), anyString(), anyString(),
+                anyString())).thenReturn(Optional.of(source));
+        when(store.executionLog("execution-1"))
+                .thenReturn(List.of("durable API execution trace"));
+        var automatic = json.createObjectNode().put("prompt", "Address findings");
+        var answer = json.createObjectNode().put("prompt", "Proceed");
+        StageCliContinuity.Fence fence = new StageCliContinuity.Fence(
+                "stage-1", 2, "code-1", "head-1", "base-1",
+                "openai", "gpt-5.6", "/tmp/task-1");
+
+        StageCliContinuity.applyExact(
+                json, automatic, PREDECESSOR.ownerId(), WorkModelKind.API,
+                "Address findings", store, fence);
+        StageCliContinuity.apply(
+                json, answer, userWait, WorkModelKind.API, "Proceed", store,
+                fence);
+
+        assertThat(automatic.path("prompt").asText())
+                .contains("original instruction")
+                .contains("durable API execution trace")
+                .contains("Address findings");
+        assertThat(answer.path("prompt").asText())
+                .contains("original instruction")
+                .contains("durable API execution trace")
+                .contains("Proceed");
+        assertThat(List.of(automatic, answer)).allSatisfy(launch -> {
+            assertThat(launch.has("resumeSessionId")).isFalse();
+            assertThat(launch.has("fallbackPrompt")).isFalse();
+        });
+    }
+
+    @Test
+    void stageLaunchRejectsAnInvalidPersistedImageDigest()
+    {
+        ObjectMapper json = new ObjectMapper();
+        assertThatThrownBy(() -> StageCliContinuity.freezeImages(
+                json, json.createObjectNode(),
+                List.of(new Attachment(
+                        1, "image/png", "/tmp/image.png", "not-a-digest"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SHA-256");
     }
 
     @Test
@@ -230,6 +439,17 @@ class TestV2StageUserWaitContinuation
                 request.contentDigest(), request.predecessor(), status,
                 ownerKind, ownerId, operationId,
                 request.requestedBy(), request.requestedAt());
+    }
+
+    private static Request steeringRequest(
+            String requestId, V2StageSteeringControl.Mode mode)
+    {
+        return new Request(
+                requestId, "command-" + requestId, "task-1", 3,
+                "stage-1", StageKind.LOCAL_DEVELOPMENT, 2, 7,
+                StageCheckpoint.IMPLEMENTING, mode, "Proceed",
+                "a".repeat(64), PREDECESSOR, "PENDING", null, null, null,
+                "user", NOW);
     }
 
     private static ResultFence fence(Predecessor predecessor)

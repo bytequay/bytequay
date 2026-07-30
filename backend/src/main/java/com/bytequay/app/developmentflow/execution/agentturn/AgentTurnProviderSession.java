@@ -77,7 +77,11 @@ public interface AgentTurnProviderSession
             List<ImageAttachment> images,
             OwnerToolEndpoint toolEndpoint,
             Access access,
-            Long maxCostUsdMilli)
+            Long maxCostUsdMilli,
+            String resumeSessionId,
+            String fallbackPrompt,
+            long priorCumulativeInputTokens,
+            long priorCumulativeOutputTokens)
     {
         public Request
         {
@@ -112,6 +116,33 @@ public interface AgentTurnProviderSession
                 throw new IllegalArgumentException(
                         "maxCostUsdMilli must be positive");
             }
+            if (resumeSessionId != null && resumeSessionId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "resumeSessionId must not be blank");
+            }
+            if (fallbackPrompt != null && fallbackPrompt.isBlank()) {
+                throw new IllegalArgumentException(
+                        "fallbackPrompt must not be blank");
+            }
+            if ((resumeSessionId == null) != (fallbackPrompt == null)) {
+                throw new IllegalArgumentException(
+                        "resumeSessionId and fallbackPrompt must be supplied together");
+            }
+            if (resumeSessionId != null && transport != Transport.CLI) {
+                throw new IllegalArgumentException(
+                        "only CLI provider sessions may resume");
+            }
+            if (priorCumulativeInputTokens < 0
+                    || priorCumulativeOutputTokens < 0) {
+                throw new IllegalArgumentException(
+                        "prior cumulative usage must be non-negative");
+            }
+            if (resumeSessionId == null
+                    && (priorCumulativeInputTokens != 0
+                    || priorCumulativeOutputTokens != 0)) {
+                throw new IllegalArgumentException(
+                        "prior cumulative usage requires a resumed session");
+            }
             if ((access == Access.READ_ONLY
                     && toolEndpoint.profile() != ToolProfile.TASK_BRAIN_READ_ONLY
                     && toolEndpoint.profile() != ToolProfile.TRUNK_CONTROL_READ_ONLY
@@ -137,7 +168,7 @@ public interface AgentTurnProviderSession
         {
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    List.of(), toolEndpoint, access, null);
+                    List.of(), toolEndpoint, access, null, null, null, 0, 0);
         }
 
         public Request(
@@ -155,7 +186,49 @@ public interface AgentTurnProviderSession
         {
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    images, toolEndpoint, access, null);
+                    images, toolEndpoint, access, null, null, null, 0, 0);
+        }
+
+        public Request(
+                Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String prompt,
+                List<ImageAttachment> images,
+                OwnerToolEndpoint toolEndpoint,
+                Access access,
+                Long maxCostUsdMilli)
+        {
+            this(transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    images, toolEndpoint, access, maxCostUsdMilli, null, null,
+                    0, 0);
+        }
+
+        public Request(
+                Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String prompt,
+                List<ImageAttachment> images,
+                OwnerToolEndpoint toolEndpoint,
+                Access access,
+                Long maxCostUsdMilli,
+                String resumeSessionId,
+                String fallbackPrompt)
+        {
+            this(transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    images, toolEndpoint, access, maxCostUsdMilli,
+                    resumeSessionId, fallbackPrompt, 0, 0);
         }
     }
 
@@ -312,7 +385,9 @@ public interface AgentTurnProviderSession
             long outputTokens,
             long costUsdMilli,
             Long processPid,
-            String error)
+            String error,
+            Long cumulativeInputTokens,
+            Long cumulativeOutputTokens)
     {
         public Result
         {
@@ -326,6 +401,17 @@ public interface AgentTurnProviderSession
             if (inputTokens < 0 || outputTokens < 0 || costUsdMilli < 0) {
                 throw new IllegalArgumentException("usage must be non-negative");
             }
+            if ((cumulativeInputTokens == null)
+                    != (cumulativeOutputTokens == null)) {
+                throw new IllegalArgumentException(
+                        "cumulative usage must be supplied together");
+            }
+            if (cumulativeInputTokens != null
+                    && (cumulativeInputTokens < inputTokens
+                    || cumulativeOutputTokens < outputTokens)) {
+                throw new IllegalArgumentException(
+                        "cumulative usage must include this Turn's usage");
+            }
             if (processPid != null && processPid < 1) {
                 throw new IllegalArgumentException("processPid must be positive");
             }
@@ -336,6 +422,20 @@ public interface AgentTurnProviderSession
                     && (error == null || error.isBlank())) {
                 throw new IllegalArgumentException("unsuccessful provider result needs an error");
             }
+        }
+
+        public Result(
+                Completion completion,
+                String providerSessionId,
+                String finalText,
+                long inputTokens,
+                long outputTokens,
+                long costUsdMilli,
+                Long processPid,
+                String error)
+        {
+            this(completion, providerSessionId, finalText, inputTokens,
+                    outputTokens, costUsdMilli, processPid, error, null, null);
         }
     }
 

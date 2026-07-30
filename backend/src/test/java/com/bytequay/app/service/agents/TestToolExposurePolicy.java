@@ -84,6 +84,14 @@ class TestToolExposurePolicy
     }
 
     @Test
+    void automaticRemoteBrainReviewsCannotWaitForTheUser()
+    {
+        assertThat(policy.automaticTaskBrainReviewTools())
+                .contains("read_commit_summary", "read_remote_pr_status")
+                .doesNotContain("approval_prompt", "ask_user_question");
+    }
+
+    @Test
     void everyV2CatalogExcludesLegacyLifecycleAndArtifactMutators()
     {
         Set<String> retired = Set.of(

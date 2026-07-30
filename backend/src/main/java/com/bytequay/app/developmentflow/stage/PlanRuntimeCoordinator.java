@@ -245,28 +245,78 @@ public final class PlanRuntimeCoordinator
                 return null;
             }
             String previousPrompt;
+            String sourceTransport;
+            String sourceProvider;
+            String sourceModel;
+            String sourceWorkingDirectory;
+            String sourceProfile;
             try {
                 JsonNode launch = json.readTree(current.launchInput());
-                previousPrompt = required(
-                        launch.path("prompt").asText(), "stored prompt");
+                previousPrompt = launch.hasNonNull("fallbackPrompt")
+                        ? required(launch.path("fallbackPrompt").asText(),
+                                "stored fallback prompt")
+                        : required(launch.path("prompt").asText(), "stored prompt");
+                sourceTransport = required(
+                        launch.path("transport").asText(), "stored transport");
+                sourceProvider = required(
+                        launch.path("provider").asText(), "stored provider");
+                sourceModel = required(
+                        launch.path("model").asText(), "stored model");
+                sourceWorkingDirectory = required(
+                        launch.path("workingDirectory").asText(),
+                        "stored working directory");
+                sourceProfile = required(
+                        launch.path("toolEndpoint").path("profile").asText(),
+                        "stored capability profile");
             }
             catch (JsonProcessingException e) {
                 throw new IllegalStateException(
                         "stored Plan launch input is invalid", e);
             }
             TurnDeliveryContext predecessor = current.turn();
+            BrainLaunchContext brain = store.requireBrainLaunchContext(
+                    predecessor.taskId());
             String stableSource = waitKind + ":" + waitId;
             String turnId = id("plan-wait-turn", stableSource);
             String operationId = id("plan-wait-operation", stableSource);
             Instant now = clock.instant();
+            StringBuilder reconstructed = new StringBuilder(previousPrompt);
+            if (current.executionId() != null) {
+                List<String> trace = store.executionLog(current.executionId());
+                if (!trace.isEmpty()) {
+                    reconstructed.append(
+                            "\n\nDurable provider trace from the prior Turn:\n");
+                    trace.forEach(event -> reconstructed.append(event).append('\n'));
+                }
+            }
+            String fallbackPrompt = continuationPrompt(
+                    reconstructed.toString(), waitKind, answer);
+            String resumeSessionId = "CLI".equals(sourceTransport)
+                    && sourceProvider.equals(brain.provider())
+                    && sourceModel.equals(brain.model())
+                    && sourceWorkingDirectory.equals(brain.worktreePath())
+                    && "TASK_BRAIN_READ_ONLY".equals(sourceProfile)
+                    && (!"codex".equals(sourceProvider)
+                    || (current.cumulativeInputTokens() != null
+                    && current.cumulativeOutputTokens() != null))
+                    ? current.providerSessionId() : null;
             TurnRequest successor = turn(
-                    store.requireBrainLaunchContext(predecessor.taskId()),
+                    brain,
                     predecessor.taskEpoch(), predecessor.stageId(),
                     predecessor.stageGeneration(), predecessor.codeFingerprint(),
                     predecessor.headSha(), predecessor.baseSha(),
                     predecessor.purpose(), turnId, operationId,
-                    id("plan-wait-ticket", stableSource),
-                    continuationPrompt(previousPrompt, waitKind, answer), now);
+                    id("plan-wait-ticket", stableSource), resumeSessionId == null
+                            ? fallbackPrompt
+                            : continuationAnswerPrompt(waitKind, answer),
+                    now, resumeSessionId,
+                    resumeSessionId == null ? null : fallbackPrompt,
+                    resumeSessionId == null
+                            ? 0 : cumulativeOrZero(
+                                    current.cumulativeInputTokens()),
+                    resumeSessionId == null
+                            ? 0 : cumulativeOrZero(
+                                    current.cumulativeOutputTokens()));
             store.insertTurn(successor);
             if (PLAN_SELF_REVIEW.equals(predecessor.purpose())) {
                 store.insertSelfReviewUserWaitAttempt(
@@ -1207,6 +1257,31 @@ public final class PlanRuntimeCoordinator
             String prompt,
             Instant requestedAt)
     {
+        return turn(
+                context, taskEpoch, stageId, stageGeneration,
+                codeFingerprint, headSha, baseSha, purpose, turnId,
+                operationId, ticketId, prompt, requestedAt, null, null, 0, 0);
+    }
+
+    private TurnRequest turn(
+            BrainLaunchContext context,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            String purpose,
+            String turnId,
+            String operationId,
+            String ticketId,
+            String prompt,
+            Instant requestedAt,
+            String resumeSessionId,
+            String fallbackPrompt,
+            long priorCumulativeInputTokens,
+            long priorCumulativeOutputTokens)
+    {
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
         if (!context.provider().equals(model.agentOrProvider())
                 || model.model() != null && !model.model().isBlank()
@@ -1229,6 +1304,15 @@ public final class PlanRuntimeCoordinator
         launch.put("workingDirectory", context.worktreePath());
         launch.put("systemPrompt", systemPrompt(context.roleSkill(), purpose));
         launch.put("prompt", prompt);
+        if (resumeSessionId != null) {
+            launch.put("resumeSessionId", resumeSessionId);
+            launch.put("fallbackPrompt", required(
+                    fallbackPrompt, "fallbackPrompt"));
+            launch.put("priorCumulativeInputTokens",
+                    priorCumulativeInputTokens);
+            launch.put("priorCumulativeOutputTokens",
+                    priorCumulativeOutputTokens);
+        }
         ObjectNode endpoint = launch.putObject("toolEndpoint");
         endpoint.put("serverName", "bytequay");
         endpoint.put("url", "http://127.0.0.1:" + serverPort
@@ -1310,6 +1394,13 @@ public final class PlanRuntimeCoordinator
             String previousPrompt, String waitKind, String answer)
     {
         return previousPrompt + "\n\nUser resolved the "
+                + waitKind.toLowerCase(Locale.ROOT).replace('_', ' ') + ": " + answer
+                + "\nContinue the same Plan work and complete its required typed output.";
+    }
+
+    private static String continuationAnswerPrompt(String waitKind, String answer)
+    {
+        return "User resolved the "
                 + waitKind.toLowerCase(Locale.ROOT).replace('_', ' ') + ": " + answer
                 + "\nContinue the same Plan work and complete its required typed output.";
     }
@@ -1588,6 +1679,11 @@ public final class PlanRuntimeCoordinator
             throw new IllegalArgumentException(name + " is blank");
         }
         return value;
+    }
+
+    private static long cumulativeOrZero(Long value)
+    {
+        return value == null ? 0 : value;
     }
 
     private static List<String> strings(List<String> values, String name)

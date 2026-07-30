@@ -31,7 +31,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -39,7 +41,7 @@ import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProv
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.Transport.CLI;
 import static java.util.Objects.requireNonNull;
 
-/** One-process-per-Turn CLI adapter using the existing provider stream parsers. */
+/** Fresh-process-per-attempt CLI adapter using the existing provider stream parsers. */
 public final class CliAgentTurnProviderSession
         implements AgentTurnProviderSession
 {
@@ -132,6 +134,9 @@ public final class CliAgentTurnProviderSession
             if (request.systemPrompt() != null) {
                 argv.add("--append-system-prompt", request.systemPrompt());
             }
+            if (request.resumeSessionId() != null) {
+                argv.add("--resume", request.resumeSessionId());
+            }
             request.images().stream()
                     .map(AgentTurnProviderSession.ImageAttachment::path)
                     .map(Path::of)
@@ -164,15 +169,31 @@ public final class CliAgentTurnProviderSession
                     + request.reasoningEffort() + "\"");
         }
         argv.add("exec")
-                .add("--ignore-user-config")
-                .add("--json")
-                .add("--skip-git-repo-check")
-                .add("--sandbox", request.access() == READ_ONLY
-                        ? "read-only" : "workspace-write")
-                .add("-C", request.workingDirectory().toString())
-                .add("-m", request.model());
+                .add("--ignore-user-config");
+        if (request.resumeSessionId() != null) {
+            // The recorded session already owns its cwd and sandbox. Codex
+            // rejects those first-turn flags after the resume subcommand.
+            argv.add("resume")
+                    .add("--json")
+                    .add("--skip-git-repo-check")
+                    .add("-m", request.model());
+        }
+        else {
+            argv.add("--json")
+                    .add("--skip-git-repo-check")
+                    .add("--sandbox", request.access() == READ_ONLY
+                            ? "read-only" : "workspace-write")
+                    .add("-C", request.workingDirectory().toString())
+                    .add("-m", request.model());
+        }
         request.images().forEach(image -> argv.add("-i", image.path()));
-        argv.add(composePrompt(request));
+        if (request.resumeSessionId() != null) {
+            argv.add(request.resumeSessionId());
+        }
+        // Keep the frozen fallback out of argv. Stage reconstruction can be
+        // large, and an expired-session restart must not fail at exec(2)'s
+        // argument-size limit before the provider can read it.
+        argv.add("-");
         return argv.build();
     }
 
@@ -190,6 +211,10 @@ public final class CliAgentTurnProviderSession
         try (OutputStream stdin = process.getOutputStream()) {
             if (provider == CliProvider.CLAUDE_CODE) {
                 stdin.write(providerPrompt(request, provider)
+                        .getBytes(StandardCharsets.UTF_8));
+            }
+            else {
+                stdin.write(composePrompt(request)
                         .getBytes(StandardCharsets.UTF_8));
             }
         }
@@ -227,6 +252,7 @@ public final class CliAgentTurnProviderSession
         private final AtomicBoolean started = new AtomicBoolean();
         private final AtomicBoolean canceled = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
+        private final AtomicLong logSequence = new AtomicLong();
 
         private CliSession(
                 Request request,
@@ -263,137 +289,270 @@ public final class CliAgentTurnProviderSession
                     ? createMcpConfig(request.toolEndpoint(), mapper)
                     : null;
             try {
+                boolean mayFallback = request.resumeSessionId() != null
+                        && request.fallbackPrompt() != null;
+                Attempt attempt = runAttempt(
+                        request, writerFence, mcpConfig, mayFallback);
+                if (!attempt.sessionUnavailable()) {
+                    return attempt.result();
+                }
                 if (canceled.get()) {
                     return canceledResult(null, 0, 0, 0, null);
                 }
-                Process launched = startProcess(writerFence, mcpConfig);
-                process.set(launched);
-                if (canceled.get()) {
-                    stopProcessTree(launched);
-                    return canceledResult(null, 0, 0, 0, launched.pid());
-                }
-                observer.processStarted(
-                        launched.pid(), "agent-turn/" + provider.id());
-                try {
-                    deliverPrompt(launched, provider, request);
-                }
-                catch (IOException e) {
-                    stopProcessTree(launched);
-                    if (canceled.get()) {
-                        return canceledResult(null, 0, 0, 0, launched.pid());
-                    }
-                    throw new ExecutionPorts.IndeterminateExecutionException(
-                            "provider started but prompt delivery failed", e);
-                }
-                CliStreamParser parser = switch (provider) {
-                    case CODEX -> new CodexJsonParser(mapper);
-                    case CLAUDE_CODE -> new StreamJsonParser(mapper);
-                };
-
-                StringBuilder finalText = new StringBuilder();
-                String sessionId = null;
-                String error = null;
-                long inputTokens = 0;
-                long outputTokens = 0;
-                long costUsdMilli = 0;
-                boolean turnDone = false;
-                long sequence = 0;
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                        launched.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        observer.log(sequence++, logPayload(line));
-                        for (StreamEvent event : parser.parse(line, Instant.now())) {
-                            if (event instanceof StreamEvent.SessionStarted started
-                                    && !started.sessionId().isBlank()) {
-                                sessionId = started.sessionId();
-                                observer.providerSession(provider.id(), sessionId);
-                            }
-                            else if (event instanceof StreamEvent.AssistantText assistant
-                                    && !assistant.text().isBlank()) {
-                                if (finalText.length() > 0) {
-                                    finalText.append("\n\n");
-                                }
-                                finalText.append(assistant.text().strip());
-                            }
-                            else if (event instanceof StreamEvent.TurnDone done) {
-                                turnDone = true;
-                                inputTokens = done.tokensIn();
-                                outputTokens = done.tokensOut();
-                                costUsdMilli = done.costUsdMilli();
-                            }
-                            else if (event instanceof StreamEvent.ErrorOccurred failed) {
-                                error = failed.message();
-                            }
-                            else if (event instanceof StreamEvent.SessionEnded ended
-                                    && ended.errorMessage() != null
-                                    && !ended.errorMessage().isBlank()) {
-                                error = ended.errorMessage();
-                            }
-                        }
-                    }
-                }
-                catch (IOException e) {
-                    if (canceled.get() && !turnDone) {
-                        return canceledResult(
-                                sessionId, inputTokens, outputTokens,
-                                costUsdMilli, launched.pid());
-                    }
-                    if (!canceled.get()) {
-                        throw new ExecutionPorts.IndeterminateExecutionException(
-                                "provider output ended ambiguously", e);
-                    }
-                    // A terminal provider frame is stronger evidence than a
-                    // concurrent cancel that closes the output pipe.
-                }
-
-                int exit;
-                try {
-                    exit = launched.waitFor();
-                }
-                catch (InterruptedException e) {
-                    cancel();
-                    Thread.currentThread().interrupt();
-                    if (turnDone) {
-                        return completedResult(
-                                sessionId, finalText, inputTokens, outputTokens,
-                                costUsdMilli, launched.pid(), error);
-                    }
-                    return canceledResult(
-                            sessionId, inputTokens, outputTokens,
-                            costUsdMilli, launched.pid());
-                }
-                if (canceled.get() && !turnDone) {
-                    return canceledResult(
-                            sessionId, inputTokens, outputTokens,
-                            costUsdMilli, launched.pid());
-                }
-                if (exit != 0 && error == null && !turnDone) {
-                    error = provider.id() + " exited with code " + exit;
-                }
-                if (!turnDone && error == null) {
-                    error = "provider exited without terminal Turn evidence";
-                }
-                if (error == null
-                        && request.maxCostUsdMilli() != null
-                        && costUsdMilli >= request.maxCostUsdMilli()) {
-                    error = "provider turn budget was exhausted";
-                }
-                return completedResult(
-                        sessionId, finalText, inputTokens, outputTokens,
-                        costUsdMilli, launched.pid(), error);
+                return runAttempt(
+                        freshFallbackRequest(), writerFence, mcpConfig, false)
+                        .result();
             }
             finally {
                 deleteMcpConfig(mcpConfig);
             }
         }
 
-        private Process startProcess(WriterFence writerFence, Path mcpConfig)
+        private Attempt runAttempt(
+                Request attemptRequest,
+                WriterFence writerFence,
+                Path mcpConfig,
+                boolean mayFallback)
+                throws Exception
+        {
+            if (canceled.get()) {
+                return new Attempt(
+                        canceledResult(null, 0, 0, 0, null), false);
+            }
+            Process launched = startProcess(
+                    attemptRequest, writerFence, mcpConfig);
+            trackProcess(launched);
+            if (canceled.get()) {
+                stopProcessTree(launched);
+                return new Attempt(canceledResult(
+                        null, 0, 0, 0, launched.pid()), false);
+            }
+
+            try {
+                deliverPrompt(launched, provider, attemptRequest);
+            }
+            catch (IOException e) {
+                stopProcessTree(launched);
+                if (canceled.get()) {
+                    return new Attempt(canceledResult(
+                            null, 0, 0, 0, launched.pid()), false);
+                }
+                throw new ExecutionPorts.IndeterminateExecutionException(
+                        "provider started but prompt delivery failed", e);
+            }
+            CliStreamParser parser = switch (provider) {
+                case CODEX -> new CodexJsonParser(mapper);
+                case CLAUDE_CODE -> new StreamJsonParser(mapper);
+            };
+
+            StringBuilder finalText = new StringBuilder();
+            StringBuilder diagnostic = new StringBuilder();
+            String sessionId = null;
+            String error = null;
+            long inputTokens = 0;
+            long outputTokens = 0;
+            long costUsdMilli = 0;
+            Long cumulativeInputTokens = null;
+            Long cumulativeOutputTokens = null;
+            String cumulativeUsageError = null;
+            boolean providerWorkStarted = false;
+            boolean ambiguousOutput = false;
+            boolean turnDone = false;
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    launched.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    observer.log(logSequence.getAndIncrement(), logPayload(line));
+                    List<StreamEvent> events = parser.parse(line, Instant.now());
+                    boolean jsonLine = line.stripLeading().startsWith("{");
+                    if (events.isEmpty()
+                            && !line.isBlank()
+                            && !isBenignPreamble(provider, line)
+                            && (jsonLine
+                                    || !isSessionUnavailable(provider, line))) {
+                        // Both stream parsers deliberately ignore unknown wire
+                        // shapes. During resume, ignored output is ambiguous:
+                        // it may represent accepted work and therefore must
+                        // disable automatic replay.
+                        ambiguousOutput = true;
+                    }
+                    if (!jsonLine) {
+                        // Provider CLIs may report resume lookup failures on
+                        // stderr as plain text. JSON error envelopes are
+                        // classified through their parsed error message.
+                        appendDiagnostic(diagnostic, line);
+                    }
+                    for (StreamEvent event : events) {
+                        if (isProviderWorkEvidence(event)) {
+                            providerWorkStarted = true;
+                        }
+                        if (event instanceof StreamEvent.SessionStarted started
+                                && !started.sessionId().isBlank()) {
+                            sessionId = started.sessionId();
+                            observer.providerSession(provider.id(), sessionId);
+                        }
+                        else if (event instanceof StreamEvent.AssistantText assistant
+                                && !assistant.text().isBlank()) {
+                            if (finalText.length() > 0) {
+                                finalText.append("\n\n");
+                            }
+                            finalText.append(assistant.text().strip());
+                        }
+                        else if (event instanceof StreamEvent.TurnDone done) {
+                            turnDone = true;
+                            if (parser.reportsCumulativeUsage()) {
+                                cumulativeInputTokens = done.tokensIn();
+                                cumulativeOutputTokens = done.tokensOut();
+                                if (done.tokensIn()
+                                        < attemptRequest.priorCumulativeInputTokens()
+                                        || done.tokensOut()
+                                        < attemptRequest.priorCumulativeOutputTokens()) {
+                                    inputTokens = 0;
+                                    outputTokens = 0;
+                                    cumulativeUsageError =
+                                            "provider cumulative usage regressed "
+                                            + "below the frozen session baseline";
+                                }
+                                else {
+                                    inputTokens = done.tokensIn()
+                                            - attemptRequest.priorCumulativeInputTokens();
+                                    outputTokens = done.tokensOut()
+                                            - attemptRequest.priorCumulativeOutputTokens();
+                                }
+                            }
+                            else {
+                                inputTokens = done.tokensIn();
+                                outputTokens = done.tokensOut();
+                            }
+                            costUsdMilli = done.costUsdMilli();
+                        }
+                        else if (event instanceof StreamEvent.ErrorOccurred failed) {
+                            error = failed.message();
+                        }
+                        else if (event instanceof StreamEvent.SessionEnded ended
+                                && ended.errorMessage() != null
+                                && !ended.errorMessage().isBlank()) {
+                            error = ended.errorMessage();
+                        }
+                    }
+                }
+            }
+            catch (IOException e) {
+                if (canceled.get() && !turnDone) {
+                    return new Attempt(canceledResult(
+                            sessionId, inputTokens, outputTokens,
+                            costUsdMilli, launched.pid()), false);
+                }
+                if (!canceled.get()) {
+                    throw new ExecutionPorts.IndeterminateExecutionException(
+                            "provider output ended ambiguously", e);
+                }
+                // A terminal provider frame is stronger evidence than a
+                // concurrent cancel that closes the output pipe.
+            }
+
+            int exit;
+            try {
+                exit = launched.waitFor();
+            }
+            catch (InterruptedException e) {
+                cancel();
+                Thread.currentThread().interrupt();
+                if (turnDone) {
+                    return new Attempt(completedResult(
+                            sessionId, finalText, inputTokens, outputTokens,
+                            costUsdMilli, launched.pid(),
+                            cumulativeUsageError == null
+                                    ? error : cumulativeUsageError,
+                            cumulativeInputTokens,
+                            cumulativeOutputTokens), false);
+                }
+                return new Attempt(canceledResult(
+                        sessionId, inputTokens, outputTokens,
+                        costUsdMilli, launched.pid()), false);
+            }
+            if (canceled.get() && !turnDone) {
+                return new Attempt(canceledResult(
+                        sessionId, inputTokens, outputTokens,
+                        costUsdMilli, launched.pid()), false);
+            }
+            if (exit != 0 && error == null && !turnDone) {
+                error = provider.id() + " exited with code " + exit;
+            }
+            if (!turnDone && error == null) {
+                error = "provider exited without terminal Turn evidence";
+            }
+            if (cumulativeUsageError != null) {
+                error = cumulativeUsageError;
+            }
+            boolean sessionUnavailable = mayFallback
+                    && !providerWorkStarted
+                    && !ambiguousOutput
+                    && isSessionUnavailable(
+                            provider, error + "\n" + diagnostic);
+            if (sessionUnavailable) {
+                return new Attempt(completedResult(
+                        sessionId, finalText, inputTokens, outputTokens,
+                        costUsdMilli, launched.pid(), error,
+                        cumulativeInputTokens,
+                        cumulativeOutputTokens), true);
+            }
+            if (error == null
+                    && attemptRequest.maxCostUsdMilli() != null
+                    && costUsdMilli >= attemptRequest.maxCostUsdMilli()) {
+                error = "provider turn budget was exhausted";
+            }
+            return new Attempt(completedResult(
+                    sessionId, finalText, inputTokens, outputTokens,
+                    costUsdMilli, launched.pid(), error,
+                    cumulativeInputTokens,
+                    cumulativeOutputTokens), false);
+        }
+
+        private Request freshFallbackRequest()
+        {
+            return new Request(
+                    request.transport(), request.provider(),
+                    request.credentialAccount(), request.model(),
+                    request.reasoningEffort(), request.workingDirectory(),
+                    request.systemPrompt(), request.fallbackPrompt(),
+                    request.images(), request.toolEndpoint(), request.access(),
+                    request.maxCostUsdMilli(), null, null, 0, 0);
+        }
+
+        private void announceProcess(Process launched)
+        {
+            observer.processStarted(
+                    launched.pid(), "agent-turn/" + provider.id());
+        }
+
+        private void trackProcess(Process launched)
+        {
+            process.set(launched);
+            try {
+                announceProcess(launched);
+            }
+            catch (RuntimeException | Error registrationFailure) {
+                try {
+                    stopProcessTree(launched);
+                }
+                catch (RuntimeException | Error stopFailure) {
+                    registrationFailure.addSuppressed(stopFailure);
+                }
+                process.compareAndSet(launched, null);
+                throw registrationFailure;
+            }
+        }
+
+        private Process startProcess(
+                Request attemptRequest,
+                WriterFence writerFence,
+                Path mcpConfig)
                 throws ExecutionPorts.RetryableExecutionException
         {
             ProcessBuilder builder = new ProcessBuilder(
-                    buildArgv(request, provider, executable, mcpConfig));
-            builder.directory(request.workingDirectory().toFile());
+                    buildArgv(attemptRequest, provider, executable, mcpConfig));
+            builder.directory(attemptRequest.workingDirectory().toFile());
             // One stream lets the admitted dispatcher worker drain the process
             // without creating a second executor or pipe-drain thread.
             builder.redirectErrorStream(true);
@@ -467,7 +626,9 @@ public final class CliAgentTurnProviderSession
                 long outputTokens,
                 long costUsdMilli,
                 long processPid,
-                String error)
+                String error,
+                Long cumulativeInputTokens,
+                Long cumulativeOutputTokens)
         {
             return new Result(
                     error == null ? Completion.SUCCEEDED : Completion.FAILED,
@@ -477,7 +638,9 @@ public final class CliAgentTurnProviderSession
                     outputTokens,
                     costUsdMilli,
                     processPid,
-                    error);
+                    error,
+                    cumulativeInputTokens,
+                    cumulativeOutputTokens);
         }
 
         private static void requireFence(Request request, WriterFence fence)
@@ -503,6 +666,65 @@ public final class CliAgentTurnProviderSession
                     .put("line", line)
                     .toString();
         }
+    }
+
+    private record Attempt(Result result, boolean sessionUnavailable) {}
+
+    private static boolean isProviderWorkEvidence(StreamEvent event)
+    {
+        if (event instanceof StreamEvent.SessionStarted started) {
+            return started.sessionId() != null && !started.sessionId().isBlank();
+        }
+        if (event instanceof StreamEvent.UsageUpdated usage) {
+            return usage.tokensIn() > 0 || usage.tokensOut() > 0;
+        }
+        if (event instanceof StreamEvent.TurnDone done) {
+            return done.tokensIn() > 0 || done.tokensOut() > 0
+                    || done.costUsdMilli() > 0;
+        }
+        return !(event instanceof StreamEvent.ErrorOccurred)
+                && !(event instanceof StreamEvent.SessionEnded);
+    }
+
+    private static void appendDiagnostic(StringBuilder diagnostic, String line)
+    {
+        int remaining = 16_384 - diagnostic.length();
+        if (remaining <= 0) {
+            return;
+        }
+        if (diagnostic.length() > 0) {
+            diagnostic.append('\n');
+            remaining--;
+        }
+        diagnostic.append(line, 0, Math.min(remaining, line.length()));
+    }
+
+    static boolean isSessionUnavailable(
+            CliProvider provider, String diagnostic)
+    {
+        requireNonNull(provider, "provider is null");
+        if (diagnostic == null || diagnostic.isBlank()) {
+            return false;
+        }
+        String lower = diagnostic.toLowerCase(Locale.ROOT);
+        return switch (provider) {
+            case CODEX -> lower.contains("no rollout found for thread id");
+            case CLAUDE_CODE ->
+                    lower.contains("no conversation found with session id")
+                            || lower.contains("conversation has expired")
+                            || lower.contains("session has expired");
+        };
+    }
+
+    private static boolean isBenignPreamble(
+            CliProvider provider, String line)
+    {
+        if (provider != CliProvider.CODEX) {
+            return false;
+        }
+        String text = line.strip();
+        return text.equals("Reading prompt from stdin...")
+                || text.equals("Reading additional input from stdin...");
     }
 
     static void stopProcessTree(Process process)

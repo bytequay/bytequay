@@ -613,7 +613,9 @@ public class SqliteLocalDevelopmentRuntimeStore
                        logical.operation_id AS logical_operation_id,
                        logical.attempt AS logical_attempt,
                        episode.id AS episode_id, episode.status AS episode_status,
-                       episode.dev_report_id, episode.validation_evidence_id,
+                       episode.dev_report_id,
+                       report.stage_turn_id AS predecessor_stage_turn_id,
+                       episode.validation_evidence_id,
                        episode.semantic_attempt, task.lifecycle_state,
                        task.epoch AS current_task_epoch,
                        task.aggregate_version AS task_version,
@@ -635,6 +637,7 @@ public class SqliteLocalDevelopmentRuntimeStore
                     continuation.logical_turn_id, turn.id)
                 JOIN brain_review_episode episode
                   ON episode.task_turn_id = logical.id
+                JOIN dev_report report ON report.id = episode.dev_report_id
                 JOIN tasks task ON task.id = turn.task_id
                 JOIN threads trunk ON trunk.id = task.thread_id
                 JOIN stage owner ON owner.id = turn.trigger_stage_id
@@ -960,6 +963,7 @@ public class SqliteLocalDevelopmentRuntimeStore
                 rs.getString("expected_head_sha"),
                 rs.getString("expected_base_sha"),
                 rs.getString("dev_report_id"),
+                rs.getString("predecessor_stage_turn_id"),
                 rs.getString("validation_evidence_id"),
                 rs.getInt("semantic_attempt"), rs.getString("lifecycle_state"),
                 rs.getLong("current_task_epoch"), rs.getLong("task_version"),
@@ -1145,7 +1149,8 @@ public class SqliteLocalDevelopmentRuntimeStore
             String episodeId, String episodeStatus, String taskId,
             long taskEpoch, String stageId, long stageGeneration,
             String codeFingerprint, String headSha, String baseSha,
-            String devReportId, String validationEvidenceId, int semanticAttempt,
+            String devReportId, String predecessorStageTurnId,
+            String validationEvidenceId, int semanticAttempt,
             String taskLifecycle, long currentTaskEpoch, long taskVersion,
             String currentStageId, Long currentStageGeneration,
             StageCheckpoint checkpoint, long stageVersion, boolean stageCompleted,

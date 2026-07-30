@@ -115,7 +115,15 @@ class TestAgentTurnOperationHandler
             throws Exception
     {
         DispatchTicket.DispatchEnvelope envelope = summaryEnvelope();
-        AgentTurnOperationHandler handler = handler(summaryTurn());
+        ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
+        AgentTurnOperationHandler handler = handler(summaryTurn(), contexts);
+        provider.onStart = () -> assertThat(contexts.find(
+                        "trunk-1",
+                        AgentTurnOperationHandler.mcpAgentKey(
+                                TASK_TURN, "task-turn-1", "operation-1"))
+                .orElseThrow().toolNames())
+                .contains("read_commit_summary")
+                .doesNotContain("approval_prompt", "ask_user_question");
 
         DispatchTicket.DispatchResult result = handler.execute(context(envelope));
 
@@ -132,6 +140,31 @@ class TestAgentTurnOperationHandler
                         envelope.owner(), envelope.fence(), result);
         assertThat(decoded.payload().purpose())
                 .isEqualTo("TASK_COMPLETION_SUMMARY");
+    }
+
+    @Test
+    void automaticRemoteBrainReviewsCannotSuspendTheirOwningEpisode()
+            throws Exception
+    {
+        for (String purpose : List.of(
+                "REMOTE_CI_BRAIN_REVIEW", "BRANCH_SYNC_BRAIN_REVIEW")) {
+            provider = new FakeProvider();
+            ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
+            AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                    turn(TASK_TURN, launchInput()), purpose);
+            provider.onStart = () -> assertThat(contexts.find(
+                            "trunk-1",
+                            AgentTurnOperationHandler.mcpAgentKey(
+                                    TASK_TURN, "task-turn-1", "operation-1"))
+                    .orElseThrow().toolNames())
+                    .contains("read_remote_pr_status")
+                    .doesNotContain("approval_prompt", "ask_user_question");
+
+            DispatchTicket.DispatchResult result = handler(turn, contexts)
+                    .execute(context(envelope(TASK_TURN, false)));
+
+            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        }
     }
 
     @Test
@@ -703,6 +736,20 @@ class TestAgentTurnOperationHandler
                 turn.currentStageGeneration(), turn.stageCompleted(), fingerprint,
                 turn.currentHeadSha(), turn.currentBaseSha(), turn.brainProvider(),
                 turn.brainModel());
+    }
+
+    private static AgentTurnOperationHandler.ExactTurn withPurpose(
+            AgentTurnOperationHandler.ExactTurn turn, String purpose)
+    {
+        return new AgentTurnOperationHandler.ExactTurn(
+                turn.ownerKind(), turn.turnId(), turn.taskId(), turn.taskEpoch(),
+                turn.stageId(), turn.stageGeneration(), purpose, turn.turnStatus(),
+                turn.operationId(), turn.semanticAttempt(), turn.expectedCodeFingerprint(),
+                turn.expectedHeadSha(), turn.expectedBaseSha(), turn.launchInput(),
+                turn.worktreePath(), turn.taskLifecycle(), turn.currentStageId(),
+                turn.currentStageGeneration(), turn.stageCompleted(),
+                turn.currentCodeFingerprint(), turn.currentHeadSha(),
+                turn.currentBaseSha(), turn.brainProvider(), turn.brainModel());
     }
 
     private static AgentTurnOperationHandler.ExactTurn withBrainIdentity(

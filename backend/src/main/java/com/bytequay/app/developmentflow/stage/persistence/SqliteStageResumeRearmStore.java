@@ -142,12 +142,18 @@ public final class SqliteStageResumeRearmStore
                        trigger_stage_id, trigger_stage_generation,
                        expected_code_fingerprint, expected_head_sha,
                        expected_base_sha, delivery_lane,
-                       json_set(launch_input,
+                       json_remove(json_set(launch_input,
+                         '$.prompt', COALESCE(
+                           json_extract(launch_input, '$.fallbackPrompt'),
+                           json_extract(launch_input, '$.prompt')),
                          '$.toolEndpoint.ownerId', ?,
                          '$.toolEndpoint.operationId', ?,
                          '$.toolEndpoint.url', replace(replace(
                            json_extract(launch_input, '$.toolEndpoint.url'),
-                           id, ?), operation_id, ?)), ?
+                           id, ?), operation_id, ?)),
+                         '$.resumeSessionId', '$.fallbackPrompt',
+                         '$.priorCumulativeInputTokens',
+                         '$.priorCumulativeOutputTokens'), ?
                 FROM task_turn WHERE id = ? AND operation_id = ?
                   AND status = 'CANCELED'
                 """, next.ownerId(), next.operationId(), next.attempt(),
@@ -178,12 +184,18 @@ public final class SqliteStageResumeRearmStore
                        trigger_stage_id, trigger_stage_generation,
                        expected_code_fingerprint, expected_head_sha,
                        expected_base_sha, delivery_lane,
-                       json_set(launch_input,
+                       json_remove(json_set(launch_input,
+                         '$.prompt', COALESCE(
+                           json_extract(launch_input, '$.fallbackPrompt'),
+                           json_extract(launch_input, '$.prompt')),
                          '$.toolEndpoint.ownerId', ?,
                          '$.toolEndpoint.operationId', ?,
                          '$.toolEndpoint.url', replace(replace(
                            json_extract(launch_input, '$.toolEndpoint.url'),
-                           id, ?), operation_id, ?)), ?
+                           id, ?), operation_id, ?)),
+                         '$.resumeSessionId', '$.fallbackPrompt',
+                         '$.priorCumulativeInputTokens',
+                         '$.priorCumulativeOutputTokens'), ?
                 FROM task_turn WHERE id = ? AND operation_id = ?
                   AND status IN ('CANCELED', 'SUPERSEDED')
                 """, next.ownerId(), next.operationId(), next.ownerId(),
@@ -234,12 +246,18 @@ public final class SqliteStageResumeRearmStore
                 SELECT ?, stage_id, stage_generation, purpose, 'QUEUED', ?, ?,
                        task_epoch, expected_code_fingerprint, expected_head_sha,
                        expected_base_sha, delivery_lane,
-                       json_set(launch_input,
+                       json_remove(json_set(launch_input,
+                         '$.prompt', COALESCE(
+                           json_extract(launch_input, '$.fallbackPrompt'),
+                           json_extract(launch_input, '$.prompt')),
                          '$.toolEndpoint.ownerId', ?,
                          '$.toolEndpoint.operationId', ?,
                          '$.toolEndpoint.url', replace(replace(
                            json_extract(launch_input, '$.toolEndpoint.url'),
-                           id, ?), operation_id, ?)), ?
+                           id, ?), operation_id, ?)),
+                         '$.resumeSessionId', '$.fallbackPrompt',
+                         '$.priorCumulativeInputTokens',
+                         '$.priorCumulativeOutputTokens'), ?
                 FROM stage_turn WHERE id = ? AND operation_id = ?
                   AND status = 'CANCELED'
                 """, next.ownerId(), next.operationId(), next.attempt(),
@@ -328,12 +346,18 @@ public final class SqliteStageResumeRearmStore
                        trigger_stage_id, trigger_stage_generation,
                        expected_code_fingerprint, expected_head_sha,
                        expected_base_sha, delivery_lane,
-                       json_set(launch_input,
+                       json_remove(json_set(launch_input,
+                         '$.prompt', COALESCE(
+                           json_extract(launch_input, '$.fallbackPrompt'),
+                           json_extract(launch_input, '$.prompt')),
                          '$.toolEndpoint.ownerId', ?,
                          '$.toolEndpoint.operationId', ?,
                          '$.toolEndpoint.url', replace(replace(
                            json_extract(launch_input, '$.toolEndpoint.url'),
-                           id, ?), operation_id, ?)), ?
+                           id, ?), operation_id, ?)),
+                         '$.resumeSessionId', '$.fallbackPrompt',
+                         '$.priorCumulativeInputTokens',
+                         '$.priorCumulativeOutputTokens'), ?
                 FROM task_turn WHERE id = ? AND operation_id = ?
                   AND status IN ('CANCELED', 'SUPERSEDED')
                 """, turnId, next.operationId(), turnId,
@@ -432,12 +456,18 @@ public final class SqliteStageResumeRearmStore
                 SELECT ?, stage_id, stage_generation, purpose, 'QUEUED', ?, ?,
                        task_epoch, expected_code_fingerprint, expected_head_sha,
                        expected_base_sha, delivery_lane,
-                       json_set(launch_input,
+                       json_remove(json_set(launch_input,
+                         '$.prompt', COALESCE(
+                           json_extract(launch_input, '$.fallbackPrompt'),
+                           json_extract(launch_input, '$.prompt')),
                          '$.toolEndpoint.ownerId', ?,
                          '$.toolEndpoint.operationId', ?,
                          '$.toolEndpoint.url', replace(replace(
                            json_extract(launch_input, '$.toolEndpoint.url'),
-                           id, ?), operation_id, ?)), ?
+                           id, ?), operation_id, ?)),
+                         '$.resumeSessionId', '$.fallbackPrompt',
+                         '$.priorCumulativeInputTokens',
+                         '$.priorCumulativeOutputTokens'), ?
                 FROM stage_turn WHERE id = ? AND operation_id = ?
                   AND status = 'CANCELED'
                 """, next.ownerId(), next.operationId(), next.attempt(),

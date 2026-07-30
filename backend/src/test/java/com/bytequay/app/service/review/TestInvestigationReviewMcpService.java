@@ -176,6 +176,39 @@ class TestInvestigationReviewMcpService
     }
 
     @Test
+    void reviewAssignmentsNeverExposeOrAcceptUserWaitTools()
+    {
+        when(tools.tools(TurnSpec.Transport.ANTHROPIC, false))
+                .thenReturn(toolCatalog(
+                        "read_diff", "ask_user_question", "approval_prompt"));
+
+        JsonNode listed = service.handle(
+                "review-1", "assignment-1", INVESTIGATE,
+                "subject-1", null, rpc("tools/list", null));
+        JsonNode question = service.handle(
+                "review-1", "assignment-1", INVESTIGATE,
+                "subject-1", null,
+                rpc("tools/call", """
+                        {"name":"ask_user_question","arguments":{}}
+                        """));
+        JsonNode permission = service.handle(
+                "review-1", "assignment-1", INVESTIGATE,
+                "subject-1", null,
+                rpc("tools/call", """
+                        {"name":"approval_prompt","arguments":{}}
+                        """));
+
+        assertThat(listed.toString())
+                .contains("read_diff")
+                .doesNotContain("ask_user_question", "approval_prompt");
+        assertThat(question.toString())
+                .contains("ReviewAssignmentTurn does not support user waits");
+        assertThat(permission.toString())
+                .contains("ReviewAssignmentTurn does not support user waits");
+        assertThat(executed.get()).isNull();
+    }
+
+    @Test
     void guidanceToolPolicyIsFrozenByItsExactTarget()
     {
         JsonNode planner = service.handle(

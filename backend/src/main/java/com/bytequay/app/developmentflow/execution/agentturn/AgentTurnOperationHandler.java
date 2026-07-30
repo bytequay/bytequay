@@ -186,7 +186,12 @@ public final class AgentTurnOperationHandler
                 input.prompt(),
                 input.images(),
                 endpoint,
-                access);
+                access,
+                null,
+                input.resumeSessionId(),
+                input.fallbackPrompt(),
+                input.priorCumulativeInputTokens(),
+                input.priorCumulativeOutputTokens());
         Observer observer = new Observer(context);
         String agentKey = mcpAgentKey(
                 turn.ownerKind(), turn.turnId(), turn.operationId());
@@ -255,9 +260,18 @@ public final class AgentTurnOperationHandler
         return new ResolvedAgentContext(
                 definition.role(), definition.version(), definition.permissionRole(),
                 stageType, definition.capabilities(), List.of(), List.of(),
-                definition.resources(), completionSummary(turn)
-                        ? tools.completionSummaryTools()
-                        : tools.v2Tools(v2Profile(turn)));
+                definition.resources(), runtimeTools(turn));
+    }
+
+    private Set<String> runtimeTools(ExactTurn turn)
+    {
+        if (completionSummary(turn)) {
+            return tools.completionSummaryTools();
+        }
+        if (automaticTaskBrainReview(turn)) {
+            return tools.automaticTaskBrainReviewTools();
+        }
+        return tools.v2Tools(v2Profile(turn));
     }
 
     private static V2Profile v2Profile(ExactTurn turn)
@@ -451,7 +465,9 @@ public final class AgentTurnOperationHandler
                 disposition,
                 result.error(),
                 null,
-                run.outputCodeSubject());
+                run.outputCodeSubject(),
+                result.cumulativeInputTokens(),
+                result.cumulativeOutputTokens());
         Evidence evidence = new Evidence(
                 PAYLOAD_VERSION,
                 disposition,
@@ -806,6 +822,14 @@ public final class AgentTurnOperationHandler
                 && "TASK_COMPLETION_SUMMARY".equals(turn.purpose());
     }
 
+    private static boolean automaticTaskBrainReview(ExactTurn turn)
+    {
+        return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
+                && Set.of(
+                        "REMOTE_CI_BRAIN_REVIEW",
+                        "BRANCH_SYNC_BRAIN_REVIEW").contains(turn.purpose());
+    }
+
     private static boolean terminalTaskBrainConversation(ExactTurn turn)
     {
         return taskBrainConversation(turn)
@@ -832,7 +856,13 @@ public final class AgentTurnOperationHandler
             String prompt,
             @JsonInclude(JsonInclude.Include.NON_EMPTY)
                     List<AgentTurnProviderSession.ImageAttachment> images,
-            AgentTurnProviderSession.OwnerToolEndpoint toolEndpoint)
+            AgentTurnProviderSession.OwnerToolEndpoint toolEndpoint,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+                    String resumeSessionId,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+                    String fallbackPrompt,
+            long priorCumulativeInputTokens,
+            long priorCumulativeOutputTokens)
     {
         public LaunchInput
         {
@@ -866,6 +896,72 @@ public final class AgentTurnOperationHandler
             if (systemPrompt != null && systemPrompt.isBlank()) {
                 throw new IllegalArgumentException("systemPrompt must not be blank");
             }
+            if (resumeSessionId != null && resumeSessionId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "resumeSessionId must not be blank");
+            }
+            if (fallbackPrompt != null && fallbackPrompt.isBlank()) {
+                throw new IllegalArgumentException(
+                        "fallbackPrompt must not be blank");
+            }
+            if ((resumeSessionId == null) != (fallbackPrompt == null)) {
+                throw new IllegalArgumentException(
+                        "resumeSessionId and fallbackPrompt must be supplied together");
+            }
+            if (resumeSessionId != null
+                    && transport != AgentTurnProviderSession.Transport.CLI) {
+                throw new IllegalArgumentException(
+                        "only CLI launch input may resume a provider session");
+            }
+            if (priorCumulativeInputTokens < 0
+                    || priorCumulativeOutputTokens < 0) {
+                throw new IllegalArgumentException(
+                        "prior cumulative usage must be non-negative");
+            }
+            if (resumeSessionId == null
+                    && (priorCumulativeInputTokens != 0
+                    || priorCumulativeOutputTokens != 0)) {
+                throw new IllegalArgumentException(
+                        "prior cumulative usage requires a resumed session");
+            }
+        }
+
+        public LaunchInput(
+                int schemaVersion,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                String workingDirectory,
+                String systemPrompt,
+                String prompt,
+                List<AgentTurnProviderSession.ImageAttachment> images,
+                AgentTurnProviderSession.OwnerToolEndpoint toolEndpoint)
+        {
+            this(schemaVersion, transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    images, toolEndpoint, null, null, 0, 0);
+        }
+
+        public LaunchInput(
+                int schemaVersion,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                String workingDirectory,
+                String systemPrompt,
+                String prompt,
+                List<AgentTurnProviderSession.ImageAttachment> images,
+                AgentTurnProviderSession.OwnerToolEndpoint toolEndpoint,
+                String resumeSessionId,
+                String fallbackPrompt)
+        {
+            this(schemaVersion, transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    images, toolEndpoint, resumeSessionId, fallbackPrompt, 0, 0);
         }
 
         public LaunchInput(
@@ -882,7 +978,7 @@ public final class AgentTurnOperationHandler
         {
             this(schemaVersion, transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    List.of(), toolEndpoint);
+                    List.of(), toolEndpoint, null, null, 0, 0);
         }
     }
 
@@ -902,7 +998,11 @@ public final class AgentTurnOperationHandler
             Disposition disposition,
             String error,
             UserWaitRef userWait,
-            OutputCodeSubject outputCodeSubject)
+            OutputCodeSubject outputCodeSubject,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+                    Long providerCumulativeInputTokens,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+                    Long providerCumulativeOutputTokens)
     {
         public RawResult(
                 int schemaVersion,
@@ -922,7 +1022,8 @@ public final class AgentTurnOperationHandler
         {
             this(schemaVersion, turnId, ownerKind, purpose, transport, provider,
                     providerSessionId, finalText, inputTokens, outputTokens,
-                    costUsdMilli, processPid, disposition, error, null, null);
+                    costUsdMilli, processPid, disposition, error, null, null,
+                    null, null);
         }
 
         public RawResult(
@@ -944,7 +1045,32 @@ public final class AgentTurnOperationHandler
         {
             this(schemaVersion, turnId, ownerKind, purpose, transport, provider,
                     providerSessionId, finalText, inputTokens, outputTokens,
-                    costUsdMilli, processPid, disposition, error, userWait, null);
+                    costUsdMilli, processPid, disposition, error, userWait, null,
+                    null, null);
+        }
+
+        public RawResult(
+                int schemaVersion,
+                String turnId,
+                DispatchTicket.OwnerKind ownerKind,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String providerSessionId,
+                String finalText,
+                long inputTokens,
+                long outputTokens,
+                long costUsdMilli,
+                Long processPid,
+                Disposition disposition,
+                String error,
+                UserWaitRef userWait,
+                OutputCodeSubject outputCodeSubject)
+        {
+            this(schemaVersion, turnId, ownerKind, purpose, transport, provider,
+                    providerSessionId, finalText, inputTokens, outputTokens,
+                    costUsdMilli, processPid, disposition, error, userWait,
+                    outputCodeSubject, null, null);
         }
 
         public RawResult
@@ -960,6 +1086,17 @@ public final class AgentTurnOperationHandler
             }
             if (inputTokens < 0 || outputTokens < 0 || costUsdMilli < 0) {
                 throw new IllegalArgumentException("raw result usage must be non-negative");
+            }
+            if ((providerCumulativeInputTokens == null)
+                    != (providerCumulativeOutputTokens == null)) {
+                throw new IllegalArgumentException(
+                        "provider cumulative usage must be supplied together");
+            }
+            if (providerCumulativeInputTokens != null
+                    && (providerCumulativeInputTokens < inputTokens
+                    || providerCumulativeOutputTokens < outputTokens)) {
+                throw new IllegalArgumentException(
+                        "provider cumulative usage must include raw Turn usage");
             }
             if ((disposition == Disposition.USER_WAIT) != (userWait != null)) {
                 throw new IllegalArgumentException(

@@ -126,7 +126,11 @@ public final class ReviewAssignmentTurnOperationHandler
                 input.systemPrompt(), input.prompt(), input.images(),
                 input.toolEndpoint(),
                 AgentTurnProviderSession.Access.READ_ONLY,
-                turn.costCapUsdMilli());
+                turn.costCapUsdMilli(),
+                input.resumeSessionId(),
+                input.fallbackPrompt(),
+                input.priorCumulativeInputTokens(),
+                input.priorCumulativeOutputTokens());
         try (AgentTurnProviderSession.Session session = provider.open(
                 request, new Observer(context))) {
             context.onCancellation(session::cancel);
@@ -199,11 +203,15 @@ public final class ReviewAssignmentTurnOperationHandler
         String error = exceeded
                 ? "provider exceeded the frozen review Turn cost cap"
                 : result.error();
-        AgentTurnOperationHandler.RawResult payload = raw(
-                envelope, turn, input.transport(), input.provider(),
+        AgentTurnOperationHandler.RawResult payload = new AgentTurnOperationHandler.RawResult(
+                PAYLOAD_VERSION, turn.turnId(),
+                DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN,
+                turn.purpose(), input.transport(), input.provider(),
                 result.providerSessionId(), result.finalText(), result.inputTokens(),
                 result.outputTokens(), result.costUsdMilli(), result.processPid(),
-                disposition, error);
+                disposition, error, null, null,
+                result.cumulativeInputTokens(),
+                result.cumulativeOutputTokens());
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), succeeded ? SUCCEEDED : FAILED,
                 json(payload), json(evidence(turn, disposition, error)), error);

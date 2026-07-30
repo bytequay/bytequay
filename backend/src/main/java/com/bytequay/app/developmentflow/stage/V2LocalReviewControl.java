@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
 import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
@@ -75,6 +76,7 @@ public final class V2LocalReviewControl
     private final ApplicationEventPublisher events;
     private final Clock clock;
     private final int serverPort;
+    private SqliteStageSteeringStore steering;
 
     @Autowired
     public V2LocalReviewControl(
@@ -109,6 +111,12 @@ public final class V2LocalReviewControl
             throw new IllegalArgumentException("serverPort is invalid");
         }
         this.serverPort = serverPort;
+    }
+
+    @Autowired
+    void setSteeringStore(SqliteStageSteeringStore steering)
+    {
+        this.steering = requireNonNull(steering, "steering is null");
     }
 
     public boolean handles(PR pr)
@@ -1175,6 +1183,15 @@ public final class V2LocalReviewControl
         }
         int laneMask = model.kind() == WorkModelKind.CLI ? 1 : 2;
         ObjectNode launch = writerLaunch(subject, model, turnId, operationId, prompt);
+        if (steering != null) {
+            StageCliContinuity.applyExact(
+                    json, launch, subject.sourceStageTurnId(), model.kind(),
+                    prompt, steering, new StageCliContinuity.Fence(
+                            subject.stageId(), subject.stageGeneration(),
+                            subject.codeFingerprint(), subject.headSha(),
+                            subject.baseSha(), subject.provider(), subject.model(),
+                            subject.worktreePath()));
+        }
         jdbc.update("""
                 INSERT INTO stage_turn(
                     id, stage_id, stage_generation, purpose, status,
@@ -1265,6 +1282,7 @@ public final class V2LocalReviewControl
                        owner.generation AS stage_generation,
                        owner.version AS stage_version, owner.checkpoint,
                        report.id AS dev_report_id,
+                       report.stage_turn_id AS source_stage_turn_id,
                        report.code_fingerprint, report.head_sha, report.base_sha,
                        identity.worktree_path, creation.work_model_snapshot,
                        brain.provider, brain.model, brain.role_skill,
@@ -2086,6 +2104,7 @@ public final class V2LocalReviewControl
                 rs.getLong("task_epoch"), rs.getString("stage_id"),
                 rs.getLong("stage_generation"), rs.getLong("stage_version"),
                 rs.getString("checkpoint"), rs.getString("dev_report_id"),
+                rs.getString("source_stage_turn_id"),
                 rs.getString("code_fingerprint"), rs.getString("head_sha"),
                 rs.getString("base_sha"), rs.getString("worktree_path"),
                 rs.getString("work_model_snapshot"), rs.getString("provider"),
@@ -2152,7 +2171,8 @@ public final class V2LocalReviewControl
     private record Subject(
             String taskId, String prId, long taskEpoch, String stageId,
             long stageGeneration, long stageVersion, String checkpoint,
-            String devReportId, String codeFingerprint, String headSha,
+            String devReportId, String sourceStageTurnId,
+            String codeFingerprint, String headSha,
             String baseSha, String worktreePath, String workModelSnapshot,
             String provider, String model, String roleSkill,
             String trunkId, String workspaceId) {}

@@ -110,6 +110,12 @@ public class ToolExposurePolicy
             "read_review_panel_findings", "read_remote_pr_status",
             "list_unresolved_comments", "read_dev_report", "read_dev_conversation"));
 
+    private static final Set<String> V2_AUTOMATIC_TASK_BRAIN = Set.copyOf(
+            V2_TASK_BRAIN.stream()
+                    .filter(tool -> !Set.of(
+                            "approval_prompt", "ask_user_question").contains(tool))
+                    .toList());
+
     private static final Set<String> V2_LOCAL_DEVELOPMENT = union(V2_COMMON, Set.of(
             "run_checks", "read_dev_report", "read_dev_conversation",
             "list_unresolved_comments", "list_pr_review_threads"));
@@ -138,6 +144,12 @@ public class ToolExposurePolicy
     public Set<String> completionSummaryTools()
     {
         return COMPLETION_SUMMARY;
+    }
+
+    /** Finite automatic verdicts cannot suspend an owning remote episode. */
+    public Set<String> automaticTaskBrainReviewTools()
+    {
+        return V2_AUTOMATIC_TASK_BRAIN;
     }
 
     /**

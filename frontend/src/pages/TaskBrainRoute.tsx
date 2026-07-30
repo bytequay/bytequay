@@ -622,23 +622,25 @@ export function TaskBrainRoute({
                   <div className="sp-appr__why">
                     {data.rightRail.approval.reasonShort} — {data.rightRail.approval.pendingArtifact}
                   </div>
-                  <div className="sp-appr__actions">
-                    <button
-                      type="button"
-                      className="sp-ab sp-ab--ok"
-                      onClick={() => {
-                        const href = data.rightRail.approval?.primaryAction.href;
-                        if (href?.startsWith('#/') === true) {
-                          window.location.hash = href;
-                        }
-                        else {
-                          openChanges();
-                        }
-                      }}
-                    >
-                      {data.rightRail.approval.primaryAction.label}
-                    </button>
-                  </div>
+                  {data.rightRail.approval.primaryAction !== null && (
+                    <div className="sp-appr__actions">
+                      <button
+                        type="button"
+                        className="sp-ab sp-ab--ok"
+                        onClick={() => {
+                          const href = data.rightRail.approval?.primaryAction?.href;
+                          if (href?.startsWith('#/') === true) {
+                            window.location.hash = href;
+                          }
+                          else {
+                            openChanges();
+                          }
+                        }}
+                      >
+                        {data.rightRail.approval.primaryAction.label}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </DecisionNode>
             )}

@@ -126,6 +126,7 @@ import com.bytequay.app.service.review.TaskReviewSnapshotResultDeliveryPort;
 import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.WorktreeService;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
@@ -686,6 +687,8 @@ class TestDevelopmentFlowExecutionConfig
 
         return contextRunner()
                 .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
+                .withBean(ReasoningEffortService.class,
+                        () -> mock(ReasoningEffortService.class))
                 .withBean(PlanRuntimeCoordinator.class,
                         () -> mock(PlanRuntimeCoordinator.class))
                 .withBean(LocalDevelopmentRuntimeCoordinator.class,

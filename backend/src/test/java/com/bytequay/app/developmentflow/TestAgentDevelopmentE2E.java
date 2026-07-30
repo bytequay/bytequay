@@ -196,7 +196,6 @@ class TestAgentDevelopmentE2E
         watchedRepos.setLocalClonePath("acme", "widget", repositoryRoot.toString());
         String workspaceId = workspaces.create(new WorkspaceService.NewWorkspaceRequest(
                 "E2E development", false, "", List.of(REPO))).id();
-        workspaces.addRepo(workspaceId, REPO, "main");
         // The trunk must be created through the real path: only that one
         // promotes the new thread to V2 inside its creation transaction.
         Thread trunk = threadService.create(new ThreadService.NewTaskRequest(
@@ -282,6 +281,7 @@ class TestAgentDevelopmentE2E
         git(root, "commit", "--quiet", "-m", "Seed the fixture repository");
         git(root, "remote", "add", "origin", origin.toString());
         git(root, "push", "--quiet", "origin", "main");
+        git(root, "remote", "set-head", "origin", "main");
         return root;
     }
 

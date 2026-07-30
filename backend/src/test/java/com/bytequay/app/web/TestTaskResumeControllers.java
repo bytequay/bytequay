@@ -18,6 +18,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +46,8 @@ class TestTaskResumeControllers
     private ContextAssembler contextAssembler;
     @MockitoBean
     private WorkModelResolver workModelResolver;
+    @MockitoBean
+    private ReasoningEffortService reasoningEfforts;
     @MockitoBean
     private ReviewStore reviewStore;
 

@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.learning.ProjectLearningService;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,15 +27,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * End-to-end coverage of the auto-fix opt-in endpoint. The endpoint
@@ -63,12 +65,15 @@ class TestWorkspaceController
     private JdbcTemplate jdbc;
     @MockitoBean
     private ProjectLearningService projectLearning;
+    @MockitoBean
+    private GitRunner git;
 
     @Test
     void verifiedWatchStartsProjectLearning()
-            throws IOException
+            throws Exception
     {
         Path clone = Files.createDirectory(tempDir.resolve("learn-repo"));
+        when(git.defaultBranch(clone, "origin")).thenReturn(Optional.of("main"));
         jdbc.update("""
                 INSERT INTO watched_repos (owner, repo, local_clone_path)
                 VALUES ('learn-owner', 'learn-repo', ?)

@@ -39,12 +39,14 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -84,6 +86,7 @@ public final class PlanRuntimeCoordinator
     private final ObjectReader workModelReader;
     private final Clock clock;
     private final int serverPort;
+    private ReasoningEffortService reasoningEfforts;
 
     public PlanRuntimeCoordinator(
             TaskCommandExecutor commands,
@@ -131,6 +134,13 @@ public final class PlanRuntimeCoordinator
             throw new IllegalArgumentException("serverPort is invalid");
         }
         this.serverPort = serverPort;
+    }
+
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     public DispatchTicket.DeliveryReceipt deliverProvisioning(
@@ -1283,6 +1293,10 @@ public final class PlanRuntimeCoordinator
             long priorCumulativeOutputTokens)
     {
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
+        if (reasoningEfforts != null) {
+            model = reasoningEfforts.forTask(
+                    context.trunkId(), context.taskId(), model);
+        }
         if (!context.provider().equals(model.agentOrProvider())
                 || model.model() != null && !model.model().isBlank()
                     && !context.model().equals(model.model())

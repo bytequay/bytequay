@@ -19,6 +19,7 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.skills.RoleRegistry;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
@@ -40,19 +41,23 @@ public final class TaskOutcomeSummaryLaunchResolver
     private final WatchedRepoStore watchedRepos;
     private final RoleRegistry roles;
     private final SessionKnowledgeProvider knowledge;
+    private final ReasoningEffortService reasoningEfforts;
 
     public TaskOutcomeSummaryLaunchResolver(
             ThreadEngineOverrides engines,
             WorkspaceRepositoryResolver repositories,
             WatchedRepoStore watchedRepos,
             RoleRegistry roles,
-            SessionKnowledgeProvider knowledge)
+            SessionKnowledgeProvider knowledge,
+            ReasoningEffortService reasoningEfforts)
     {
         this.engines = requireNonNull(engines, "engines is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.roles = requireNonNull(roles, "roles is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     @Override
@@ -64,6 +69,8 @@ public final class TaskOutcomeSummaryLaunchResolver
                         outcome.trunkId(), SessionAudience.PLAN)
                 .orElseThrow(() -> new IllegalStateException(
                         "Trunk has no frozen Plan engine for outcome summary"));
+        model = reasoningEfforts.forTask(
+                outcome.trunkId(), outcome.taskId(), model);
         String provider = requireText(
                 model.agentOrProvider(), "Plan engine provider");
         String modelName = requireText(model.model(), "Plan engine model");

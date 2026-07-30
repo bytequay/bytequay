@@ -29,8 +29,9 @@ package com.bytequay.app.domain;
  *       instance to use. {@code null} means "use the ★ default account
  *       for this provider". Ignored for CLI agents because they manage
  *       their own auth outside ByteQuay.</li>
- *   <li>{@code reasoningEffort} — CLI reasoning level. {@code null}
- *       leaves the choice to the selected model's CLI default.</li>
+ *   <li>{@code reasoningEffort} — provider-native reasoning level for CLI
+ *       and supported API engines. {@code null} leaves the choice to the
+ *       selected engine's default.</li>
  * </ul>
  *
  * <p>The cascade itself (workspace → thread → task → seat,

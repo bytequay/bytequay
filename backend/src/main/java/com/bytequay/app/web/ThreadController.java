@@ -42,6 +42,7 @@ import com.bytequay.app.service.threads.ConvIndexService;
 import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.ScopeWorkModel;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
@@ -116,6 +117,7 @@ public class ThreadController
     private final ChatAttachmentStore attachmentStore;
     private final ObjectMapper mapper;
     private V2UserWaitService v2Waits;
+    private ReasoningEffortService reasoningEfforts;
 
     public ThreadController(
             ThreadService threads,
@@ -145,6 +147,13 @@ public class ThreadController
     void setV2Waits(V2UserWaitService v2Waits)
     {
         this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
+    }
+
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     /** GET /api/threads?status=RUNNING&limit=50&groupId=...&workspaceId=... */
@@ -373,13 +382,36 @@ public class ThreadController
             @RequestBody(required = false) WorkModelBody body)
     {
         WorkModel requested = body == null ? null : body.workModel();
-        Thread updated = threads.setWorkModel(id, ScopeWorkModel.effortOnly(
-                workModelResolver.resolveForThread(id).choice(), requested));
+        WorkModel engine = workModelResolver.resolveForThread(id).choice();
+        try {
+            requireReasoningEfforts().setTrunk(
+                    id, engine, ReasoningEffortService.requested(requested));
+        }
+        catch (IllegalArgumentException failure) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), failure.getMessage(), failure);
+        }
+        catch (IllegalStateException failure) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409), failure.getMessage(), failure);
+        }
+        Thread updated = threads.find(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no thread: " + id));
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(id);
-        threads.updateTrunkWorkModel(id, resolved.choice());
         return new ResolvedWorkModelResponse(
                 updated.workModel(), resolved.choice(), resolved.provenance(),
                 threads.isWorkModelAgentLocked(id));
+    }
+
+    private ReasoningEffortService requireReasoningEfforts()
+    {
+        if (reasoningEfforts == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "Reasoning effort controls are not configured");
+        }
+        return reasoningEfforts;
     }
 
     /** Request body for {@link #setWorkModel} — wraps the optional

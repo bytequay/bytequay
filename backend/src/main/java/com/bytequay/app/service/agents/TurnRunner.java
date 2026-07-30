@@ -181,6 +181,10 @@ public final class TurnRunner
         requestBody.put("model", spec.modelId());
         requestBody.put("max_tokens", spec.maxOutputTokens());
         requestBody.put("stream", true);
+        if (spec.reasoningEffort() != null) {
+            requestBody.putObject("output_config")
+                    .put("effort", spec.reasoningEffort());
+        }
         if (spec.system() != null && !spec.system().isEmpty()) {
             requestBody.put("system", spec.system());
         }
@@ -324,6 +328,9 @@ public final class TurnRunner
         requestBody.put("model", spec.modelId());
         requestBody.put("max_tokens", spec.maxOutputTokens());
         requestBody.put("stream", true);
+        if (spec.reasoningEffort() != null) {
+            requestBody.put("reasoning_effort", spec.reasoningEffort());
+        }
         // Request token counts in the final streaming chunk.
         ObjectNode streamOpts = mapper.createObjectNode();
         streamOpts.put("include_usage", true);

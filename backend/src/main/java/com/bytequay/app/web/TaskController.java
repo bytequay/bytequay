@@ -21,8 +21,9 @@ import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
-import com.bytequay.app.service.workmodel.ScopeWorkModel;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -57,6 +58,7 @@ public class TaskController
     private final TaskService taskService;
     private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
+    private ReasoningEffortService reasoningEfforts;
 
     public TaskController(
             TaskService taskService,
@@ -66,6 +68,13 @@ public class TaskController
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
+    }
+
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     /** All tasks for the thread, oldest seq first. The UI's left-rail
@@ -276,8 +285,11 @@ public class TaskController
     {
         Task task = taskService.requireTask(threadId, taskId);
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForTask(threadId, taskId);
+        WorkModel effective = reasoningEfforts == null
+                ? resolved.choice()
+                : reasoningEfforts.resolveTaskEngine(threadId, taskId);
         return new ResolvedWorkModelResponse(
-                task.workModel(), resolved.choice(), resolved.provenance(),
+                task.workModel(), effective, resolved.provenance(),
                 taskService.isWorkModelAgentLocked(threadId, taskId));
     }
 
@@ -296,12 +308,38 @@ public class TaskController
             @RequestBody(required = false) WorkModelBody body)
     {
         WorkModel requested = body == null ? null : body.workModel();
-        Task updated = taskService.setWorkModel(threadId, taskId, ScopeWorkModel.effortOnly(
-                workModelResolver.resolveForTask(threadId, taskId).choice(), requested));
+        WorkModel engine = requireReasoningEfforts()
+                .resolveTaskEngine(threadId, taskId);
+        try {
+            requireReasoningEfforts().setTask(
+                    threadId, taskId, engine,
+                    ReasoningEffortService.requested(requested));
+        }
+        catch (IllegalArgumentException failure) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), failure.getMessage(), failure);
+        }
+        catch (IllegalStateException failure) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409), failure.getMessage(), failure);
+        }
+        Task updated = taskService.requireTask(threadId, taskId);
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForTask(threadId, taskId);
         return new ResolvedWorkModelResponse(
-                updated.workModel(), resolved.choice(), resolved.provenance(),
+                updated.workModel(),
+                requireReasoningEfforts().resolveTaskEngine(threadId, taskId),
+                resolved.provenance(),
                 taskService.isWorkModelAgentLocked(threadId, taskId));
+    }
+
+    private ReasoningEffortService requireReasoningEfforts()
+    {
+        if (reasoningEfforts == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "Reasoning effort controls are not configured");
+        }
+        return reasoningEfforts;
     }
 
     /** Body for {@link #setWorkModel} — wraps the optional

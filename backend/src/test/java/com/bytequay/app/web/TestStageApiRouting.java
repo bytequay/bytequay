@@ -19,6 +19,8 @@ import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.compatibility.V2StageApiService;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -26,6 +28,7 @@ import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -53,6 +56,8 @@ class TestStageApiRouting
     private final V2StageApiService v2 = mock(V2StageApiService.class);
     private final StageStore stageStore = mock(StageStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
+    private final ReasoningEffortService reasoningEfforts =
+            mock(ReasoningEffortService.class);
     private final StageController controller = controller();
 
     @Test
@@ -110,31 +115,37 @@ class TestStageApiRouting
     }
 
     @Test
-    void stageWorkModelMutationCannotWriteEitherLegacyOrV2StageRows()
+    void stageWorkModelMutationUsesOnlyTheTypedV2Owner()
     {
         UUID legacyId = UUID.randomUUID();
         UUID v2Id = UUID.randomUUID();
         StageInstance legacyStage = mock(StageInstance.class);
-        StageInstance v2Stage = mock(StageInstance.class);
         Task legacyTask = mock(Task.class);
         Task v2Task = mock(Task.class);
         when(legacyTask.id()).thenReturn("task-legacy");
         when(v2Task.id()).thenReturn("task-v2");
+        when(v2Task.threadId()).thenReturn("trunk-v2");
         when(legacyStage.taskId()).thenReturn("task-legacy");
-        when(v2Stage.taskId()).thenReturn("task-v2");
         when(stageStore.findStageById(legacyId)).thenReturn(Optional.of(legacyStage));
-        when(stageStore.findStageById(v2Id)).thenReturn(Optional.of(v2Stage));
         when(taskStore.findTaskById("task-legacy")).thenReturn(Optional.of(legacyTask));
         when(taskStore.findTaskById("task-v2")).thenReturn(Optional.of(v2Task));
-        when(taskStore.isV2Task("task-v2")).thenReturn(true);
+        when(routes.taskForStage(v2Id.toString()))
+                .thenReturn(Optional.of("task-v2"));
+        WorkModel effective = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5", null, "high");
+        when(reasoningEfforts.resolveStageEngine(
+                "trunk-v2", "task-v2", v2Id.toString()))
+                .thenReturn(effective);
 
         assertThatThrownBy(() -> controller.setWorkModel(legacyId.toString(), null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("read-only");
-        assertThatThrownBy(() -> controller.setWorkModel(v2Id.toString(), null))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("frozen at creation");
+        assertThat(controller.setWorkModel(
+                v2Id.toString(),
+                new StageController.WorkModelBody(effective)).effective())
+                .isEqualTo(effective);
 
+        verify(reasoningEfforts).setStage("task-v2", v2Id.toString(), "high");
         verify(stageStore, never())
                 .updateWorkModel(any(), any());
     }
@@ -177,6 +188,7 @@ class TestStageApiRouting
                 taskStore, mock(ThreadStore.class),
                 mock(WorkModelResolver.class));
         result.setV2Stages(routes, v2);
+        result.setReasoningEfforts(reasoningEfforts);
         return result;
     }
 }

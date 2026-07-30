@@ -365,6 +365,7 @@ public final class UserRemoteActionOperationHandler
         MERGE,
         ENABLE_AUTO_MERGE,
         DISABLE_AUTO_MERGE,
+        APPLY_SUGGESTION,
         TRIGGER_CI_EMPTY_COMMIT;
 
         public static SemanticAction legacy(ActionKind kind)

@@ -174,6 +174,10 @@ export interface LocalPRBundle {
    *  strip (design #47) — the push dialog shows this verbatim. Optional so
    *  presentational fixtures can omit it. */
   pendingStripCount?: number;
+  /** True while the backend is still refreshing this PR from git/GitHub in the
+   *  background — the snapshot above is served immediately and may be a beat
+   *  behind. `usePR` polls faster until it clears. */
+  syncing?: boolean;
 }
 
 /** `mode="local"` renders the local phase, `mode="remote"` the pushed phase. */

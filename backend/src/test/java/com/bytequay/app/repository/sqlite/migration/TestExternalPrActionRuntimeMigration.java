@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.AuthorizationRequest;
+import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.UnwatchedRepositoryException;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.Action;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionPayload;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionStatus;
@@ -113,6 +114,21 @@ class TestExternalPrActionRuntimeMigration
                 .hasMessageContaining("accepted delivery");
         assertThat(store.findLatestProjection("external-pr").orElseThrow()
                 .blocksNewPublication()).isTrue();
+    }
+
+    @Test
+    void unwatchedRepositoryFailsWithItsOwnActionableReason()
+            throws Exception
+    {
+        String url = database("external-action-unwatched.db");
+        migrate(url, "289");
+        seedExternalPr(url);
+        jdbc(url).update("DELETE FROM workspace_repos");
+
+        assertThatThrownBy(() -> store(url).authorize(approve("approve"), NOW))
+                .isInstanceOf(UnwatchedRepositoryException.class)
+                .hasMessage("ByteQuay must watch acme/widget"
+                        + " before publishing to its pull requests");
     }
 
     @Test

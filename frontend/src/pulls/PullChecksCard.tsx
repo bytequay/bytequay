@@ -12,7 +12,9 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import type { CheckFailureDto } from '../types';
 import { CiFailIcon, CiPassIcon } from './atoms';
+import { isCiErrorLine } from './detailModel';
 import type { ChecksGroup, ChecksModel } from './detailModel';
 
 /** The collapsible checks card from the prototype's shared checks section. */
@@ -44,7 +46,133 @@ function RowIcon({ state }: { state: ChecksGroup['rows'][number]['state'] }) {
   }
 }
 
-export default function PullChecksCard({ model }: { model: ChecksModel }) {
+/** Null until the user first unfolds the row — failure detail is fetched from
+ *  GitHub on demand rather than cached, since it's only ever read when someone
+ *  opens a failing row. */
+type AnnotationState = 'loading' | 'error' | CheckFailureDto;
+
+const annotationBox = {
+  margin: '2px 18px 8px 46px',
+  padding: '9px 11px',
+  border: '1px solid #eef1f4',
+  borderRadius: 7,
+  background: '#fbfcfd',
+} as const;
+
+const monoBlock = {
+  margin: '2px 0 0',
+  font: '11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace',
+  color: '#3f4650', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+} as const;
+
+/** Monospace block with the error lines picked out, so the actual failure
+ *  stands out from the surrounding build chatter. One block element per line
+ *  so the highlight covers the whole row, not just the glyphs. */
+function MonoLines({ text, scroll }: { text: string; scroll?: boolean }) {
+  return (
+    <pre style={scroll === true ? { ...monoBlock, maxHeight: 260, overflow: 'auto' } : monoBlock}>
+      {text.split('\n').map((line, i) => (
+        <div key={i} style={isCiErrorLine(line) ? { color: '#cf222e', fontWeight: 600 } : undefined}>
+          {line === '' ? ' ' : line}
+        </div>
+      ))}
+    </pre>
+  );
+}
+
+function Failure({ state }: { state: AnnotationState }) {
+  if (state === 'loading') {
+    return <div style={annotationBox}><span style={{ fontSize: 12, color: '#8b949e' }}>Loading failure detail…</span></div>;
+  }
+  if (state === 'error') {
+    return <div style={annotationBox}><span style={{ fontSize: 12, color: '#cf222e' }}>Couldn&apos;t load failure detail.</span></div>;
+  }
+  if (state.annotations.length > 0) {
+    return (
+      <div style={annotationBox}>
+        {state.annotations.map((a, i) => (
+          <div key={i} style={{ marginTop: i === 0 ? 0 : 11 }}>
+            {a.title !== null && a.title !== '' && (
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: '#1f2328' }}>{a.title}</div>
+            )}
+            {a.message !== null && a.message !== '' && <MonoLines text={a.message} />}
+            {a.path !== null && a.path !== '' && (
+              <div style={{ marginTop: 3, fontSize: 11.5, color: '#8b949e', wordBreak: 'break-all' }}>
+                {a.path}{a.startLine !== null && `#L${a.startLine}`}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (state.log !== '') {
+    // Log excerpt, so it gets its own scroll rather than stretching the card.
+    return (
+      <div style={annotationBox}>
+        <div style={{ fontSize: 11.5, color: '#8b949e', marginBottom: 5 }}>
+          No annotation published — showing the end of the job log.
+        </div>
+        <MonoLines text={state.log} scroll />
+      </div>
+    );
+  }
+  // External CI, or a log GitHub no longer exposes.
+  return <div style={annotationBox}><span style={{ fontSize: 12, color: '#8b949e' }}>No failure detail published for this check.</span></div>;
+}
+
+function CheckRow({ row, repo }: { row: ChecksGroup['rows'][number]; repo: string }) {
+  const [open, setOpen] = useState(false);
+  const [annotations, setAnnotations] = useState<AnnotationState | null>(null);
+  // Only a failing remote check is worth unfolding: a green one has nothing
+  // to explain, and a local run never had a GitHub check-run id to key off.
+  const checkRunId = row.state === 'fail' ? row.checkRunId : null;
+  const toggle = () => {
+    if (checkRunId === null) {
+      return;
+    }
+    const opening = !open;
+    setOpen(opening);
+    // Refetch on a re-open only after a failure, so a transient error doesn't
+    // poison the row until the card remounts.
+    if (!opening || (annotations !== null && annotations !== 'error')) {
+      return;
+    }
+    setAnnotations('loading');
+    window.bridge.fetchCheckFailure(repo, checkRunId)
+      .then(failure => setAnnotations(failure))
+      .catch(() => setAnnotations('error'));
+  };
+  return (
+    <>
+      <div
+        className={checkRunId !== null ? 'pl-hov-btn' : undefined}
+        onClick={toggle}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 18px 6px 24px',
+          cursor: checkRunId !== null ? 'pointer' : 'default',
+        }}
+      >
+        {/* Chevron sits in the gutter so the icon column stays put whether or
+            not the row expands: 24 + 12 + the 10px gap lands it back at 46. */}
+        {checkRunId !== null
+          ? <Chevron open={open} />
+          : <span style={{ width: 12, flexShrink: 0 }} />}
+        <RowIcon state={row.state} />
+        <span style={{ fontSize: 13, color: '#1f2328', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.name}</span>
+        <span style={{ fontSize: 12, color: '#8b949e' }}>{row.note}</span>
+        {row.time !== '' && (
+          <span title={row.title} style={{ marginLeft: 'auto', paddingLeft: 10, fontSize: 12, color: '#8b949e', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {row.time}
+          </span>
+        )}
+      </div>
+      {open && annotations !== null && <Failure state={annotations} />}
+    </>
+  );
+}
+
+export default function PullChecksCard({ model, repo }: { model: ChecksModel; repo: string }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const isOpen = (g: ChecksGroup) => open[g.key] ?? g.defaultOpen;
   return (
@@ -80,18 +208,9 @@ export default function PullChecksCard({ model }: { model: ChecksModel }) {
           </div>
           {isOpen(g) && (
             <div style={{ padding: '0 0 8px' }}>
-              {g.rows.map(cr => (
-                <div key={cr.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 18px 6px 46px' }}>
-                  <RowIcon state={cr.state} />
-                  <span style={{ fontSize: 13, color: '#1f2328', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cr.name}</span>
-                  <span style={{ fontSize: 12, color: '#8b949e' }}>{cr.note}</span>
-                  {cr.time !== '' && (
-                    <span title={cr.title} style={{ marginLeft: 'auto', paddingLeft: 10, fontSize: 12, color: '#8b949e', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                      {cr.time}
-                    </span>
-                  )}
-                </div>
-              ))}
+              {/* Key on the check-run id too: the row now owns fold state, so
+                  two matrix legs sharing a name must not share it. */}
+              {g.rows.map(cr => <CheckRow key={`${cr.name}:${cr.checkRunId ?? ''}`} row={cr} repo={repo} />)}
             </div>
           )}
         </div>

@@ -144,15 +144,19 @@ public final class RemoteRepairTurnRuntime
         RepairContext context = turns.requireContext(
                 request.taskId(), request.stageId());
         WorkModel model = workModel(context);
-        String prompt = steeringPrompt(
-                request, ownerStore.attachments(request.id()), purpose);
+        List<Attachment> attachments = ownerStore.attachments(request.id());
+        String prompt = steeringPrompt(request, attachments, purpose);
         String turnId = id("remote-repair-steering-turn", request.id());
         String operationId = id("remote-repair-steering-operation", request.id());
+        ObjectNode launch = launch(
+                context, model, "STAGE_TURN", turnId, operationId,
+                "STAGE_DEVELOPMENT", stageSystemPrompt(context.roleSkill()), prompt);
+        StageCliContinuity.freezeImages(json, launch, attachments);
+        applyCliContinuity(
+                launch, request, context, model, prompt, ownerStore);
         return turns.insertSteeringTurn(
                 request,
-                write(launch(context, model, "STAGE_TURN", turnId,
-                        operationId, "STAGE_DEVELOPMENT",
-                        stageSystemPrompt(context.roleSkill()), prompt)),
+                write(launch),
                 model.kind().name(), laneMask(model), clock.instant());
     }
 
@@ -712,6 +716,23 @@ public final class RemoteRepairTurnRuntime
         endpoint.put("profile", profile);
         endpoint.put("approvalPromptTool", "mcp__bytequay__approval_prompt");
         return launch;
+    }
+
+    private void applyCliContinuity(
+            ObjectNode launch,
+            Request request,
+            RepairContext context,
+            WorkModel model,
+            String currentPrompt,
+            SqliteStageSteeringStore ownerStore)
+    {
+        StageCliContinuity.apply(
+                json, launch, request, model.kind(), currentPrompt, ownerStore,
+                new StageCliContinuity.Fence(
+                        context.stageId(), context.stageGeneration(),
+                        context.codeFingerprint(), context.headSha(),
+                        context.baseSha(), context.provider(), context.model(),
+                        context.worktreePath()));
     }
 
     private StageResult decodeStage(String value)

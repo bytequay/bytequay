@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.persistence;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -45,6 +46,7 @@ class TestSqliteExecutionEvidencePort
                 tempDir.resolve("execution-evidence.db"));
         SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk");
         SqliteExecutionTestSupport.seedTask(database, "trunk", "task", 1);
+        migrateToProcessAttempts(database);
         DispatchTicket requested = SqliteExecutionTestSupport.requestedTaskTicket(
                 "ticket", "operation", "workspace", "trunk", "task",
                 NOW, VALIDATION, true, false);
@@ -73,6 +75,7 @@ class TestSqliteExecutionEvidencePort
                 running, lease, DispatchTicket.ClaimPurpose.EXECUTE, NOW.plusSeconds(1));
         evidence.providerSession(executionId, "openai", "session-1");
         evidence.processStarted(executionId, 4242, "logs/execution-1.jsonl");
+        evidence.processStarted(executionId, 4343, "logs/execution-1-fallback.jsonl");
         evidence.appendLog(executionId, 0, "{\"event\":\"start\"}", NOW.plusSeconds(2));
         evidence.appendLog(executionId, 1, "{\"event\":\"done\"}", NOW.plusSeconds(3));
         evidence.recordUsage(executionId, 100, 40, 7);
@@ -97,8 +100,8 @@ class TestSqliteExecutionEvidencePort
                 .containsEntry("infrastructure_attempt", 1)
                 .containsEntry("provider", "openai")
                 .containsEntry("provider_session_id", "session-1")
-                .containsEntry("process_pid", 4242)
-                .containsEntry("log_ref", "logs/execution-1.jsonl")
+                .containsEntry("process_pid", 4343)
+                .containsEntry("log_ref", "logs/execution-1-fallback.jsonl")
                 .containsEntry("status", "SUCCEEDED")
                 .containsEntry("heartbeat_at_ms", NOW.plusSeconds(5).toEpochMilli())
                 .containsEntry("finished_at_ms", NOW.plusSeconds(5).toEpochMilli())
@@ -107,6 +110,18 @@ class TestSqliteExecutionEvidencePort
                 .containsEntry("cost_usd_milli", 9);
         assertThat((String) row.get("raw_result"))
                 .contains("raw-operation", "raw-fingerprint", "SUCCEEDED");
+        assertThat(database.jdbc().queryForList("""
+                SELECT process_attempt, process_pid, log_ref
+                FROM agent_execution_process_attempt
+                WHERE execution_id = ? ORDER BY process_attempt
+                """, executionId))
+                .extracting(process -> List.of(
+                        process.get("process_attempt"),
+                        process.get("process_pid"),
+                        process.get("log_ref")))
+                .containsExactly(
+                        List.of(1, 4242, "logs/execution-1.jsonl"),
+                        List.of(2, 4343, "logs/execution-1-fallback.jsonl"));
         assertThat(database.jdbc().queryForList("""
                 SELECT seq, payload, created_at_ms
                 FROM agent_execution_log WHERE execution_id = ? ORDER BY seq
@@ -122,6 +137,13 @@ class TestSqliteExecutionEvidencePort
         assertThatThrownBy(() -> evidence.finish(
                 executionId, result, null, NOW.plusSeconds(6)))
                 .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> evidence.processStarted(
+                executionId, 4444, "logs/too-late.jsonl"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(database.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM agent_execution_process_attempt
+                WHERE execution_id = ?
+                """, Integer.class, executionId)).isEqualTo(2);
     }
 
     @Test
@@ -258,6 +280,7 @@ class TestSqliteExecutionEvidencePort
                 tempDir.resolve(databaseName));
         SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk");
         SqliteExecutionTestSupport.seedTask(database, "trunk", "task", 1);
+        migrateToProcessAttempts(database);
         DispatchTicket requested = SqliteExecutionTestSupport.requestedTaskTicket(
                 "ticket", "operation", "workspace", "trunk", "task",
                 NOW, VALIDATION, true, false);
@@ -280,6 +303,16 @@ class TestSqliteExecutionEvidencePort
         DispatchTicket running = claimed.markRunning(NOW.plusSeconds(1));
         assertThat(tickets.compareAndSet(claimed.id(), claimed.version(), running)).isTrue();
         return new StartedExecution(database, tickets, lease, running);
+    }
+
+    private static void migrateToProcessAttempts(
+            SqliteExecutionTestSupport.Database database)
+    {
+        Flyway.configure()
+                .dataSource(database.url(), "", "")
+                .target("294")
+                .load()
+                .migrate();
     }
 
     private static DispatchTicket.DispatchResult result(String operationId, int attempt)

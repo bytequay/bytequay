@@ -81,21 +81,31 @@ public final class V2ThreadControlService
 
     public String send(Thread thread, String input, TurnInitiator initiator)
     {
-        return send(thread, input, initiator, UUID.randomUUID().toString());
+        return send(
+                thread, input, initiator, UUID.randomUUID().toString(),
+                null, null);
     }
 
     /** Restart-safe attended continuation of one durable typed user wait. */
-    public String continueUserWait(Thread thread, String input, String commandId)
+    public String continueUserWait(
+            Thread thread,
+            String input,
+            String commandId,
+            String sourceTurnId,
+            String sourceOperationId)
     {
         requireText(commandId, "commandId");
+        requireText(sourceTurnId, "sourceTurnId");
+        requireText(sourceOperationId, "sourceOperationId");
         return send(
                 thread, input, TurnInitiator.attended("typed-user-wait"),
-                commandId);
+                commandId, sourceTurnId, sourceOperationId);
     }
 
     private String send(
             Thread thread, String input, TurnInitiator initiator,
-            String commandId)
+            String commandId, String continuationTurnId,
+            String continuationOperationId)
     {
         requireNonNull(thread, "thread is null");
         requireText(input, "input");
@@ -119,7 +129,8 @@ public final class V2ThreadControlService
                         engine.agentOrProvider(),
                         engine.kind() == WorkModelKind.API ? engine.account() : null,
                         engine.model(), engine.reasoningEffort(), systemPrompt,
-                        input, input));
+                        input, input, continuationTurnId,
+                        continuationOperationId));
         return result.turnId();
     }
 

@@ -23,6 +23,7 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort;
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.ResultCommand;
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.ResultReceipt;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Admission;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.CliContinuation;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FlowPhase;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RetryCandidate;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -124,6 +125,79 @@ class TestReviewAssignmentTurnRuntimeMigration
         assertThat(jdbc.queryForObject(
                 "SELECT lane_mask FROM dispatch_ticket WHERE id = 'review-ticket-1'",
                 Integer.class)).isEqualTo(10);
+    }
+
+    @Test
+    void cliContinuityRequiresTheExactReviewWorktree()
+    {
+        Admission admission = cliAdmission(
+                "review-turn-cli", "review-operation-cli", "review-ticket-cli");
+        store.admitRound("round-1", "head-1", List.of(admission), NOW);
+        assertThat(store.tryStart(
+                admission.turnId(), admission.operationId(), NOW.plusSeconds(1)))
+                .isEqualTo(ReviewAssignmentTurnOperationHandler.StartDisposition.STARTED);
+        assertThat(store.accept(result(
+                admission, SUCCEEDED, PROVIDER_SUCCEEDED)).acceptance())
+                .isEqualTo(ACCEPTED);
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'SUCCEEDED',
+                    completed_at_ms = 20, delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'accepted'
+                WHERE id = 'review-ticket-cli'
+                """);
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    provider_session_id, status, started_at_ms, finished_at_ms)
+                VALUES ('review-execution-cli', 'review-ticket-cli', 1,
+                    'claude-code', 'review-session-cli', 'SUCCEEDED', 19, 20)
+                """);
+
+        assertThat(store.successfulCliSession(
+                "assignment-review-1", "investigate", "assignment-review-1",
+                "claude-code", "claude-sonnet-4-5", "/tmp/task-1"))
+                .get()
+                .satisfies(continuation -> {
+                    assertThat(continuation.providerSessionId())
+                            .isEqualTo("review-session-cli");
+                    assertThat(continuation.executionId())
+                            .isEqualTo("review-execution-cli");
+                });
+        assertThat(store.successfulCliSession(
+                "assignment-review-1", "investigate", "assignment-review-1",
+                "claude-code", "claude-sonnet-4-5", "/tmp/other"))
+                .isEmpty();
+        jdbc.update("""
+                DELETE FROM review_assignment_turn_result_receipt
+                WHERE turn_id = 'review-turn-cli'
+                """);
+        assertThat(store.successfulCliSession(
+                "review-turn-cli", "review-operation-cli", "claude-code",
+                "claude-sonnet-4-5", "/tmp/task-1"))
+                .get()
+                .extracting(CliContinuation::providerSessionId)
+                .isEqualTo("review-session-cli");
+        assertThat(store.successfulCliSession(
+                "review-turn-cli", "review-operation-cli", "claude-code",
+                "claude-sonnet-4-5", "/tmp/other"))
+                .isEmpty();
+
+        jdbc.update("""
+                INSERT INTO review_assignment_turn(
+                    id, assignment_id, purpose, subject_key, verifier_run_id,
+                    status, operation_id, attempt, start_commit, delivery_lane,
+                    cost_cap_usd_milli, launch_input, requested_at_ms,
+                    started_at_ms, finished_at_ms, error_message)
+                VALUES ('review-turn-later', 'assignment-review-1',
+                    'investigate', 'assignment-review-1', NULL, 'FAILED',
+                    'review-operation-later', 2, 'head-1', 'CLI', 1, ?,
+                    21, 21, 22, 'later attempt failed')
+                """, admission.launchInput());
+        assertThat(store.successfulCliSession(
+                "review-turn-cli", "review-operation-cli", "claude-code",
+                "claude-sonnet-4-5", "/tmp/task-1"))
+                .isEmpty();
     }
 
     @Test
@@ -710,6 +784,17 @@ class TestReviewAssignmentTurnRuntimeMigration
                 launch(turnId, operationId));
     }
 
+    private static Admission cliAdmission(
+            String turnId, String operationId, String ticketId)
+    {
+        return new Admission(
+                turnId, operationId, ticketId, "assignment-review-1",
+                "investigate", "assignment-review-1", null, 1, "head-1",
+                AgentTurnProviderSession.Transport.CLI,
+                1000,
+                cliLaunch(turnId, operationId));
+    }
+
     private static Admission primary(
             String turnId, String operationId, String ticketId,
             String assignmentId, long costCapUsdMilli)
@@ -812,6 +897,32 @@ class TestReviewAssignmentTurnRuntimeMigration
                     1, AgentTurnProviderSession.Transport.API, "openai", "account-1",
                     "gpt-5", null, "/tmp/task-1", "review system",
                     "review this change", endpoint));
+        }
+        catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static String cliLaunch(String turnId, String operationId)
+    {
+        try {
+            AgentTurnProviderSession.OwnerToolEndpoint endpoint =
+                    new AgentTurnProviderSession.OwnerToolEndpoint(
+                            "bytequay",
+                            "http://127.0.0.1:53123/api/v2/"
+                                    + "review-assignment-turns/" + turnId
+                                    + "/operations/" + operationId + "/mcp",
+                            DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN,
+                            turnId, operationId,
+                            AgentTurnProviderSession.ToolProfile
+                                    .REVIEW_ASSIGNMENT_READ_ONLY,
+                            "mcp__bytequay__approval_prompt");
+            return JSON.writeValueAsString(
+                    new AgentTurnOperationHandler.LaunchInput(
+                            1, AgentTurnProviderSession.Transport.CLI,
+                            "claude-code", null, "claude-sonnet-4-5", "high",
+                            "/tmp/task-1", "review system",
+                            "review this change", endpoint));
         }
         catch (Exception e) {
             throw new AssertionError(e);

@@ -28,6 +28,7 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -70,6 +71,273 @@ class TestV2StageSteeringStore
         assertThat(recovered.find("steer-1")).contains(request);
         assertThat(recovered.findPending(10)).extracting(Request::id)
                 .containsExactly("steer-1");
+    }
+
+    @Test
+    void cliContinuationRequiresTheAcceptedOutputSubjectAndNoLiveConsumer()
+    {
+        Fixture fixture = fixture("cli-continuation.db", false, true);
+        Request request = request(
+                fixture, "steer-cli", "command-cli",
+                V2StageSteeringControl.Mode.APPEND);
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc());
+
+        assertThat(fixture.steering().cliContinuation(
+                request, "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .extracting(
+                        SqliteStageSteeringStore.CliContinuation::providerSessionId)
+                .isEqualTo("stage-session-1");
+        assertThat(fixture.steering().cliContinuation(
+                request, "local-stage-1", 1,
+                "fingerprint-stale", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1")).isEmpty();
+
+        fixture.jdbc().update("""
+                INSERT INTO stage_turn(
+                    id, stage_id, stage_generation, purpose, status,
+                    operation_id, attempt, task_epoch,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                VALUES ('live-cli-consumer', 'local-stage-1', 1,
+                    'USER_STEERING', 'REQUESTED', 'live-cli-operation', 2, 1,
+                    'fingerprint-2', 'head-2', 'base-1', 'CLI', '{}', 12)
+                """);
+        assertThat(fixture.steering().cliContinuation(
+                request, "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1")).isEmpty();
+        assertThat(fixture.steering().cliContinuation(
+                "turn-1", "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .extracting(
+                        SqliteStageSteeringStore.CliContinuation::sessionReusable)
+                .isEqualTo(false);
+    }
+
+    @Test
+    void cliContinuationRequiresTheFrozenExecutionProvider()
+    {
+        Fixture fixture = fixture("cli-provider-fence.db", false, true);
+        Request request = request(
+                fixture, "steer-cli", "command-cli",
+                V2StageSteeringControl.Mode.APPEND);
+        Request userWait = request(
+                fixture, "wait-cli", "wait-command-cli",
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc(), "claude");
+
+        assertThat(fixture.steering().cliContinuation(
+                request, "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1")).isEmpty();
+        assertThat(fixture.steering().cliContinuation(
+                "turn-1", "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .extracting(
+                        SqliteStageSteeringStore.CliContinuation::sessionReusable)
+                .isEqualTo(false);
+        assertThat(fixture.steering().cliContinuation(
+                userWait, "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .extracting(
+                        SqliteStageSteeringStore.CliContinuation::sessionReusable)
+                .isEqualTo(false);
+    }
+
+    @Test
+    void exactAutomaticContinuationRequiresTheLatestSuccessfulStageTurn()
+    {
+        Fixture fixture = fixture("cli-exact-continuation.db", false, true);
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc());
+
+        assertThat(fixture.steering().cliContinuation(
+                "turn-1", "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .extracting(
+                        SqliteStageSteeringStore.CliContinuation::providerSessionId)
+                .isEqualTo("stage-session-1");
+
+        seedCliSteeringSuccessor(
+                fixture.jdbc(), "STAGE_DEVELOPMENT",
+                "fingerprint-2", "head-2", false);
+        assertThat(fixture.steering().cliContinuation(
+                "turn-1", "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .extracting(
+                        SqliteStageSteeringStore.CliContinuation::sessionReusable)
+                .isEqualTo(false);
+    }
+
+    @Test
+    void exactContinuationKeepsContextWhenTheProviderHasNoResumeToken()
+    {
+        Fixture fixture = fixture("cli-exact-no-token.db", false, true);
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc());
+        fixture.jdbc().update("""
+                UPDATE agent_execution SET provider_session_id = NULL
+                WHERE id = 'cli-execution'
+                """);
+
+        assertThat(fixture.steering().cliContinuation(
+                "turn-1", "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .satisfies(continuation -> {
+                    assertThat(continuation.launchInput())
+                            .contains("implement the change");
+                    assertThat(continuation.providerSessionId()).isNull();
+                    assertThat(continuation.sessionReusable()).isFalse();
+                });
+    }
+
+    @Test
+    void lateUserWaitKeepsExactHistoryButDoesNotReuseTheSourceSession()
+    {
+        Fixture fixture = fixture("cli-late-user-wait.db", false, true);
+        Request consumer = request(
+                fixture, "consumer", "consumer-command",
+                V2StageSteeringControl.Mode.APPEND);
+        Request lateAnswer = request(
+                fixture, "late-answer", "late-answer-command",
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.steering().insert(consumer, List.of()));
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc());
+        seedCliSteeringSuccessor(
+                fixture.jdbc(), "STAGE_DEVELOPMENT",
+                "fingerprint-2", "head-2", false);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.steering().markAdmitted(
+                        consumer.id(), "STAGE_TURN", "steering-turn-1",
+                        "steering-operation-1", Instant.ofEpochMilli(11)));
+
+        assertThat(fixture.steering().cliContinuation(
+                lateAnswer, "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .satisfies(continuation -> {
+                    assertThat(continuation.providerSessionId())
+                            .isEqualTo("stage-session-1");
+                    assertThat(continuation.sessionReusable()).isFalse();
+                });
+    }
+
+    @Test
+    void queuedAppendContinuesFromTheLatestSuccessfulEarlierAppend()
+    {
+        Fixture fixture = fixture("cli-append-lineage.db", false, true);
+        Request first = request(
+                fixture, "z-steer-first", "command-first",
+                V2StageSteeringControl.Mode.APPEND);
+        Request second = new Request(
+                "a-steer-second", "command-second", first.taskId(),
+                first.taskEpoch(), first.stageId(), first.stageKind(),
+                first.stageGeneration(), first.acceptedStageVersion(),
+                first.acceptedCheckpoint(), first.mode(), "Second adjustment",
+                "b".repeat(64), first.predecessor(), "PENDING", null, null,
+                null, "test", first.requestedAt());
+        fixture.commands().executeVoid("task-1", () -> {
+            fixture.steering().insert(first, List.of());
+            fixture.steering().insert(second, List.of());
+        });
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc());
+        seedCliSteeringSuccessor(
+                fixture.jdbc(), "STAGE_DEVELOPMENT",
+                "fingerprint-3", "head-3", true);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.steering().markAdmitted(
+                        first.id(), "STAGE_TURN", "steering-turn-1",
+                        "steering-operation-1", Instant.ofEpochMilli(11)));
+
+        assertThat(fixture.steering().cliContinuation(
+                second, "local-stage-1", 1,
+                "fingerprint-3", "head-3", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .extracting(
+                        SqliteStageSteeringStore.CliContinuation::providerSessionId)
+                .isEqualTo("stage-session-2");
+    }
+
+    @Test
+    void incompatibleLatestAppendDoesNotFallBackToAnOlderSession()
+    {
+        Fixture fixture = fixture("cli-append-fence.db", false, true);
+        Request first = request(
+                fixture, "z-steer-first", "command-first",
+                V2StageSteeringControl.Mode.APPEND);
+        Request second = new Request(
+                "a-steer-second", "command-second", first.taskId(),
+                first.taskEpoch(), first.stageId(), first.stageKind(),
+                first.stageGeneration(), first.acceptedStageVersion(),
+                first.acceptedCheckpoint(), first.mode(), "Second adjustment",
+                "b".repeat(64), first.predecessor(), "PENDING", null, null,
+                null, "test", first.requestedAt());
+        fixture.commands().executeVoid("task-1", () -> {
+            fixture.steering().insert(first, List.of());
+            fixture.steering().insert(second, List.of());
+        });
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc());
+        seedCliSteeringSuccessor(
+                fixture.jdbc(), "TASK_BRAIN", "fingerprint-2", "head-2", true);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.steering().markAdmitted(
+                        first.id(), "STAGE_TURN", "steering-turn-1",
+                        "steering-operation-1", Instant.ofEpochMilli(11)));
+
+        assertThat(fixture.steering().cliContinuation(
+                second, "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1")).isEmpty();
+    }
+
+    @Test
+    void failedLatestAppendDoesNotReplayAnOlderSuccessfulSession()
+    {
+        Fixture fixture = fixture("cli-append-failed.db", false, true);
+        Request first = request(
+                fixture, "z-steer-first", "command-first",
+                V2StageSteeringControl.Mode.APPEND);
+        Request second = new Request(
+                "a-steer-second", "command-second", first.taskId(),
+                first.taskEpoch(), first.stageId(), first.stageKind(),
+                first.stageGeneration(), first.acceptedStageVersion(),
+                first.acceptedCheckpoint(), first.mode(), "Second adjustment",
+                "b".repeat(64), first.predecessor(), "PENDING", null, null,
+                null, "test", first.requestedAt());
+        fixture.commands().executeVoid("task-1", () -> {
+            fixture.steering().insert(first, List.of());
+            fixture.steering().insert(second, List.of());
+        });
+        terminalizeSuccessfulCliPredecessor(fixture.jdbc());
+        seedCliSteeringSuccessor(
+                fixture.jdbc(), "STAGE_DEVELOPMENT",
+                "fingerprint-2", "head-2", false);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.steering().markAdmitted(
+                        first.id(), "STAGE_TURN", "steering-turn-1",
+                        "steering-operation-1", Instant.ofEpochMilli(11)));
+
+        assertThat(fixture.steering().cliContinuation(
+                second, "local-stage-1", 1,
+                "fingerprint-2", "head-2", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1")).isEmpty();
     }
 
     @Test
@@ -252,9 +520,25 @@ class TestV2StageSteeringStore
                   AND purpose = 'IMPLEMENT_LOCAL_PLAN'
                   AND attempt = 3 AND status = 'QUEUED'
                 """, Integer.class)).isOne();
+        assertThat(fixture.jdbc().queryForMap("""
+                SELECT json_extract(launch_input, '$.prompt') AS prompt,
+                       json_type(launch_input, '$.resumeSessionId') AS resume_type,
+                       json_type(launch_input, '$.fallbackPrompt') AS fallback_type
+                FROM stage_turn
+                WHERE stage_id = 'local-stage-1'
+                  AND purpose = 'IMPLEMENT_LOCAL_PLAN' AND attempt = 3
+                """))
+                .containsEntry("prompt", "complete durable fallback")
+                .containsEntry("resume_type", null)
+                .containsEntry("fallback_type", null);
     }
 
     private Fixture fixture(String name, boolean sibling)
+    {
+        return fixture(name, sibling, false);
+    }
+
+    private Fixture fixture(String name, boolean sibling, boolean cli)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
@@ -266,9 +550,9 @@ class TestV2StageSteeringStore
             seedOwner(jdbc, "2", 2);
         }
         Flyway.configure().dataSource(dataSource).target("265").load().migrate();
-        seedImplementation(jdbc, "1");
+        seedImplementation(jdbc, "1", cli);
         if (sibling) {
-            seedImplementation(jdbc, "2");
+            seedImplementation(jdbc, "2", cli);
         }
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
@@ -368,6 +652,17 @@ class TestV2StageSteeringStore
 
     private static void seedSecondImplementation(JdbcTemplate jdbc)
     {
+        String launch = """
+                {"schemaVersion":1,"transport":"CLI","provider":"codex",
+                 "model":"model","workingDirectory":"/tmp/task-1",
+                 "prompt":"incremental prompt","resumeSessionId":"old-session",
+                 "fallbackPrompt":"complete durable fallback",
+                 "toolEndpoint":{"serverName":"bytequay",
+                 "url":"http://127.0.0.1:53123/api/v2/stage-turns/turn-history/operations/operation-history/mcp",
+                 "ownerKind":"STAGE_TURN","ownerId":"turn-history",
+                 "operationId":"operation-history","profile":"STAGE_DEVELOPMENT",
+                 "approvalPromptTool":"mcp__bytequay__approval_prompt"}}
+                """;
         jdbc.update("""
                 INSERT INTO stage_turn(
                     id, stage_id, stage_generation, purpose, status, operation_id,
@@ -376,8 +671,8 @@ class TestV2StageSteeringStore
                     launch_input, requested_at_ms)
                 VALUES ('turn-history', 'local-stage-1', 1,
                     'IMPLEMENT_LOCAL_PLAN', 'QUEUED', 'operation-history',
-                    2, 1, 'fingerprint-1', 'base-1', 'base-1', 'API', '{}', 17)
-                """);
+                    2, 1, 'fingerprint-1', 'base-1', 'base-1', 'CLI', ?, 17)
+                """, launch);
         jdbc.update("""
                 INSERT INTO local_stage_turn_request(
                     id, command_id, stage_turn_id, task_id,
@@ -397,10 +692,146 @@ class TestV2StageSteeringStore
                     expected_base_sha, status, created_at_ms)
                 VALUES ('ticket-history', 'operation-history',
                     'EXECUTE_STAGE_TURN', 'AGENT_TURN', 'STAGE_TURN',
-                    'turn-history', 'STAGE_TURN_RESULT', 2, 1, 1,
+                    'turn-history', 'STAGE_TURN_RESULT', 1, 1, 1,
                     'workspace-1', 'trunk-1', 'task-1', 1, 'local-stage-1', 1,
                     2, 'fingerprint-1', 'base-1', 'base-1', 'REQUESTED', 17)
                 """);
+    }
+
+    private static void terminalizeSuccessfulCliPredecessor(JdbcTemplate jdbc)
+    {
+        terminalizeSuccessfulCliPredecessor(jdbc, "codex");
+    }
+
+    private static void terminalizeSuccessfulCliPredecessor(
+            JdbcTemplate jdbc, String executionProvider)
+    {
+        jdbc.update("""
+                UPDATE stage_turn SET status = 'SUCCEEDED', started_at_ms = 9,
+                    finished_at_ms = 10 WHERE id = 'turn-1'
+                """);
+        jdbc.update("""
+                UPDATE dispatch_ticket SET version = version + 1,
+                    status = 'SUCCEEDED', delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'accepted', completed_at_ms = 10
+                WHERE id = 'ticket-1'
+                """);
+        ObjectMapper json = new ObjectMapper();
+        var payload = json.createObjectNode();
+        payload.put("providerCumulativeInputTokens", 100);
+        payload.put("providerCumulativeOutputTokens", 40);
+        payload.putObject("outputCodeSubject")
+                .put("codeFingerprint", "fingerprint-2")
+                .put("headSha", "head-2")
+                .put("baseSha", "base-1");
+        String rawResult = json.createObjectNode()
+                .put("payloadJson", payload.toString())
+                .toString();
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    provider_session_id, status, started_at_ms, finished_at_ms,
+                    raw_result)
+                VALUES ('cli-execution', 'ticket-1', 1, ?,
+                    'stage-session-1', 'SUCCEEDED', 9, 10, ?)
+                """, executionProvider, rawResult);
+    }
+
+    private static void seedCliSteeringSuccessor(
+            JdbcTemplate jdbc,
+            String profile,
+            String outputFingerprint,
+            String outputHead,
+            boolean successful)
+    {
+        ObjectMapper json = new ObjectMapper();
+        var launch = json.createObjectNode();
+        launch.put("schemaVersion", 1);
+        launch.put("transport", "CLI");
+        launch.put("provider", "codex");
+        launch.put("model", "gpt-5.6");
+        launch.put("workingDirectory", "/tmp/task-1");
+        launch.putObject("toolEndpoint").put("profile", profile);
+        launch.put("prompt", "first adjustment");
+        jdbc.update("""
+                INSERT INTO stage_turn(
+                    id, stage_id, stage_generation, purpose, status, operation_id,
+                    attempt, task_epoch, expected_code_fingerprint,
+                    expected_head_sha, expected_base_sha, delivery_lane,
+                    launch_input, requested_at_ms)
+                VALUES ('steering-turn-1', 'local-stage-1', 1,
+                    'USER_STEERING', 'QUEUED', 'steering-operation-1',
+                    1, 1, 'fingerprint-1', 'base-1', 'base-1', 'CLI',
+                    ?, 8)
+                """, launch.toString());
+        jdbc.update("""
+                INSERT INTO local_stage_turn_request(
+                    id, command_id, stage_turn_id, task_id,
+                    local_development_stage_id, task_epoch, stage_generation,
+                    kind, queue_mode, prompt_digest, requested_by,
+                    requested_at_ms)
+                VALUES ('steering-local-request-1', 'steering-command-1',
+                    'steering-turn-1', 'task-1', 'local-stage-1', 1, 1,
+                    'STEERING', 'IMMEDIATE', ?, 'test', 8)
+                """, "c".repeat(64));
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family, owner_kind,
+                    owner_id, callback_route, lane_mask, exclusive_task,
+                    writer_required, workspace_id, trunk_id, task_id, task_epoch,
+                    stage_id, stage_generation, attempt,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, created_at_ms)
+                VALUES ('steering-ticket-1', 'steering-operation-1',
+                    'EXECUTE_STAGE_TURN', 'AGENT_TURN', 'STAGE_TURN',
+                    'steering-turn-1', 'STAGE_TURN_RESULT', 1, 1, 1,
+                    'workspace-1', 'trunk-1', 'task-1', 1,
+                    'local-stage-1', 1, 1, 'fingerprint-1', 'base-1',
+                    'base-1', 'REQUESTED', 8)
+                """);
+        if (!successful) {
+            jdbc.update("""
+                    UPDATE stage_turn SET status = 'FAILED', started_at_ms = 9,
+                        finished_at_ms = 10, error_message = 'provider failed'
+                    WHERE id = 'steering-turn-1'
+                    """);
+            jdbc.update("""
+                    UPDATE dispatch_ticket SET version = version + 1,
+                        status = 'FAILED', delivery_acceptance = 'ACCEPTED',
+                        delivery_evidence = 'failed', completed_at_ms = 10,
+                        last_error = 'provider failed'
+                    WHERE id = 'steering-ticket-1'
+                    """);
+            return;
+        }
+        jdbc.update("""
+                UPDATE stage_turn SET status = 'SUCCEEDED', started_at_ms = 9,
+                    finished_at_ms = 10 WHERE id = 'steering-turn-1'
+                """);
+        jdbc.update("""
+                UPDATE dispatch_ticket SET version = version + 1,
+                    status = 'SUCCEEDED', delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'accepted', completed_at_ms = 10
+                WHERE id = 'steering-ticket-1'
+                """);
+        var payload = json.createObjectNode();
+        payload.put("providerCumulativeInputTokens", 100);
+        payload.put("providerCumulativeOutputTokens", 40);
+        payload.putObject("outputCodeSubject")
+                .put("codeFingerprint", outputFingerprint)
+                .put("headSha", outputHead)
+                .put("baseSha", "base-1");
+        String rawResult = json.createObjectNode()
+                .put("payloadJson", payload.toString())
+                .toString();
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    provider_session_id, status, started_at_ms, finished_at_ms,
+                    raw_result)
+                VALUES ('steering-execution-1', 'steering-ticket-1', 1,
+                    'codex', 'stage-session-2', 'SUCCEEDED', 9, 10, ?)
+                """, rawResult);
     }
 
     private static TaskManager.Store taskStore(
@@ -580,8 +1011,19 @@ class TestV2StageSteeringStore
                 "provision-ticket-" + suffix);
     }
 
-    private static void seedImplementation(JdbcTemplate jdbc, String suffix)
+    private static void seedImplementation(
+            JdbcTemplate jdbc, String suffix, boolean cli)
     {
+        String deliveryLane = cli ? "CLI" : "API";
+        int laneMask = cli ? 1 : 2;
+        String launchInput = cli
+                ? """
+                    {"schemaVersion":1,"transport":"CLI","provider":"codex",
+                     "model":"gpt-5.6","workingDirectory":"/tmp/task-%s",
+                     "toolEndpoint":{"profile":"STAGE_DEVELOPMENT"},
+                     "prompt":"implement the change"}
+                    """.formatted(suffix)
+                : "{}";
         jdbc.update("""
                 INSERT INTO stage_turn(
                     id, stage_id, stage_generation, purpose, status, operation_id,
@@ -589,10 +1031,10 @@ class TestV2StageSteeringStore
                     expected_head_sha, expected_base_sha, delivery_lane,
                     launch_input, requested_at_ms)
                 VALUES (?, ?, 1, 'IMPLEMENT_LOCAL_PLAN', 'QUEUED', ?, 1, 1,
-                    ?, ?, ?, 'API', '{}', 4)
+                    ?, ?, ?, ?, ?, 4)
                 """, "turn-" + suffix, "local-stage-" + suffix,
                 "operation-" + suffix, "fingerprint-" + suffix,
-                "base-" + suffix, "base-" + suffix);
+                "base-" + suffix, "base-" + suffix, deliveryLane, launchInput);
         jdbc.update("""
                 INSERT INTO local_stage_turn_request(
                     id, command_id, stage_turn_id, task_id,
@@ -612,10 +1054,11 @@ class TestV2StageSteeringStore
                     expected_code_fingerprint, expected_head_sha,
                     expected_base_sha, status, created_at_ms)
                 VALUES (?, ?, 'EXECUTE_STAGE_TURN', 'AGENT_TURN', 'STAGE_TURN',
-                    ?, 'STAGE_TURN_RESULT', 2, 1, 1, 'workspace-1', 'trunk-1',
+                    ?, 'STAGE_TURN_RESULT', ?, 1, 1, 'workspace-1', 'trunk-1',
                     ?, 1, ?, 1, 1, ?, ?, ?, 'REQUESTED', 4)
                 """, "ticket-" + suffix, "operation-" + suffix,
-                "turn-" + suffix, "task-" + suffix, "local-stage-" + suffix,
+                "turn-" + suffix, laneMask, "task-" + suffix,
+                "local-stage-" + suffix,
                 "fingerprint-" + suffix, "base-" + suffix, "base-" + suffix);
     }
 

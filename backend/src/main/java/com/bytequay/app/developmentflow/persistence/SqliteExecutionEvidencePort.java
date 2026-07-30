@@ -174,18 +174,34 @@ public class SqliteExecutionEvidencePort
         if (processPid < 1 || (logReference != null && logReference.isBlank())) {
             throw new IllegalArgumentException("process evidence is invalid");
         }
-        updateRequired("""
-                UPDATE agent_execution SET process_pid = ?, log_ref = ?, status = 'RUNNING'
-                WHERE id = ? AND finished_at_ms IS NULL
-                    AND (process_pid IS NULL OR process_pid = ?)
-                    AND (log_ref IS NULL OR log_ref IS ?)
-                """, statement -> {
-                    statement.setLong(1, processPid);
-                    statement.setString(2, logReference);
-                    statement.setString(3, executionId);
-                    statement.setLong(4, processPid);
-                    statement.setString(5, logReference);
-                }, "process start");
+        SqliteTransactions.immediate(dataSource, transactionConnection, connection -> {
+            updateRequired("""
+                    INSERT INTO agent_execution_process_attempt(
+                        execution_id, process_attempt, process_pid, log_ref)
+                    SELECT execution.id,
+                        COALESCE((
+                            SELECT MAX(attempt.process_attempt)
+                            FROM agent_execution_process_attempt attempt
+                            WHERE attempt.execution_id = execution.id), 0) + 1,
+                        ?, ?
+                    FROM agent_execution execution
+                    WHERE execution.id = ? AND execution.finished_at_ms IS NULL
+                    """, statement -> {
+                        statement.setLong(1, processPid);
+                        statement.setString(2, logReference);
+                        statement.setString(3, executionId);
+                    }, "process attempt start");
+            updateRequired("""
+                    UPDATE agent_execution
+                    SET process_pid = ?, log_ref = ?, status = 'RUNNING'
+                    WHERE id = ? AND finished_at_ms IS NULL
+                    """, statement -> {
+                        statement.setLong(1, processPid);
+                        statement.setString(2, logReference);
+                        statement.setString(3, executionId);
+                    }, "current process start");
+            return null;
+        });
     }
 
     @Override

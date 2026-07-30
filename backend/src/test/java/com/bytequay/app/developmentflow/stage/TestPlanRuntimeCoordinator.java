@@ -35,6 +35,7 @@ import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -188,6 +189,17 @@ class TestPlanRuntimeCoordinator
         waits.answerQuestion(
                 "plan-question", 0, null, "Proceed", "user",
                 NOW.plusSeconds(2));
+        bootstrap.jdbc().update("""
+                UPDATE agent_execution
+                SET provider_session_id = 'plan-session-1'
+                WHERE ticket_id = ? AND infrastructure_attempt = 1
+                """, predecessor.ticketId());
+        bootstrap.jdbc().update("""
+                INSERT INTO agent_execution_log(
+                    execution_id, seq, payload, created_at_ms)
+                VALUES (?, 0, 'prior Plan provider trace', ?)
+                """, "execution-" + predecessor.operationId(),
+                NOW.plusSeconds(2).toEpochMilli());
         finishAsUserWait(bootstrap.jdbc(), predecessor);
         waits.recordUserWait(
                 owner, "QUESTION", "plan-question", "payload-digest",
@@ -218,6 +230,18 @@ class TestPlanRuntimeCoordinator
                 .containsEntry("purpose", "PLAN_DRAFT")
                 .containsEntry("returned_stage_version", 2)
                 .containsEntry("checkpoint", "DRAFTING");
+        JsonNode launch = new ObjectMapper().readTree(
+                bootstrap.jdbc().queryForObject("""
+                        SELECT launch_input FROM task_turn WHERE id = ?
+                        """, String.class, successor));
+        assertThat(launch.path("resumeSessionId").asText())
+                .isEqualTo("plan-session-1");
+        assertThat(launch.path("prompt").asText())
+                .contains("User resolved the question: Proceed")
+                .doesNotContain("prior Plan provider trace");
+        assertThat(launch.path("fallbackPrompt").asText())
+                .contains("prior Plan provider trace")
+                .contains("User resolved the question: Proceed");
 
         String replay = runtime(bootstrap.dataSource()).plan().continueUserWait(
                 predecessor.turnId(), predecessor.operationId(),
@@ -225,6 +249,164 @@ class TestPlanRuntimeCoordinator
         assertThat(replay).isEqualTo(successor);
         assertThat(countWhere(bootstrap.jdbc(), "task_turn",
                 "purpose = 'PLAN_DRAFT'")).isEqualTo(2);
+        assertThat(count(bootstrap.jdbc(),
+                "plan_turn_user_wait_continuation_v265")).isOne();
+
+        bootstrap.jdbc().update("""
+                UPDATE task_turn SET status = 'SUCCEEDED' WHERE id = ?
+                """, successor);
+        assertThat(new SqlitePlanRuntimeStore(bootstrap.jdbc())
+                .findUserWaitContext(
+                        predecessor.turnId(), predecessor.operationId(),
+                        "QUESTION", "plan-question"))
+                .hasValueSatisfying(context -> assertThat(
+                        context.providerSessionId()).isNull());
+    }
+
+    @Test
+    void incompatibleOrMissingCliSessionStartsFreshWithTheCompleteTrace()
+            throws Exception
+    {
+        record Case(String name, String provider, String session) {}
+        for (Case test : List.of(
+                new Case("provider-mismatch", "claude-code", "foreign-session"),
+                new Case("missing-session", "codex", null))) {
+            Bootstrapped bootstrap = bootstrap("plan-wait-" + test.name() + ".db");
+            Flyway.configure().dataSource(bootstrap.dataSource()).target("265")
+                    .load().migrate();
+            Runtime runtime = runtime(bootstrap.dataSource());
+            RunningTurn predecessor = startCurrentTurn(
+                    bootstrap.jdbc(), bootstrap.taskId());
+            bootstrap.jdbc().update("""
+                    UPDATE task_turn
+                    SET status = 'RUNNING', started_at_ms = ?
+                    WHERE id = ? AND operation_id = ? AND status = 'REQUESTED'
+                    """, NOW.toEpochMilli(), predecessor.turnId(),
+                    predecessor.operationId());
+            ActiveAgentContextRegistry.TypedOwner owner =
+                    new ActiveAgentContextRegistry.TypedOwner(
+                            DispatchTicket.OwnerKind.TASK_TURN,
+                            predecessor.turnId(), predecessor.operationId());
+            V2UserWaitStore waits = new V2UserWaitStore(bootstrap.jdbc());
+            waits.insertQuestion(
+                    owner, "plan-question", "plan-question-call",
+                    "Continue with this Plan?", null, "[]", true,
+                    NOW.plusSeconds(1));
+            waits.answerQuestion(
+                    "plan-question", 0, null, "Proceed", "user",
+                    NOW.plusSeconds(2));
+            bootstrap.jdbc().update("""
+                    UPDATE agent_execution
+                    SET provider = ?, provider_session_id = ?
+                    WHERE ticket_id = ? AND infrastructure_attempt = 1
+                    """, test.provider(), test.session(), predecessor.ticketId());
+            String trace = "trace for " + test.name();
+            bootstrap.jdbc().update("""
+                    INSERT INTO agent_execution_log(
+                        execution_id, seq, payload, created_at_ms)
+                    VALUES (?, 0, ?, ?)
+                    """, "execution-" + predecessor.operationId(), trace,
+                    NOW.plusSeconds(2).toEpochMilli());
+            finishAsUserWait(bootstrap.jdbc(), predecessor);
+            waits.recordUserWait(
+                    owner, "QUESTION", "plan-question", "payload-digest",
+                    "{\"schema\":\"TYPED_USER_WAIT_DELIVERY_V1\"}",
+                    NOW.plusSeconds(4));
+            finalizePendingTickets(bootstrap.jdbc());
+
+            String successor = runtime.plan().continueUserWait(
+                    predecessor.turnId(), predecessor.operationId(),
+                    "QUESTION", "plan-question", "Proceed");
+            JsonNode launch = new ObjectMapper().readTree(
+                    bootstrap.jdbc().queryForObject("""
+                            SELECT launch_input FROM task_turn WHERE id = ?
+                            """, String.class, successor));
+            assertThat(launch.has("resumeSessionId")).isFalse();
+            assertThat(launch.has("fallbackPrompt")).isFalse();
+            assertThat(launch.path("prompt").asText())
+                    .contains(trace)
+                    .contains("User resolved the question: Proceed");
+        }
+    }
+
+    @Test
+    void livePlanTurnForcesFreshUserWaitContinuation()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-wait-live-consumer.db");
+        Flyway.configure().dataSource(bootstrap.dataSource()).target("265")
+                .load().migrate();
+        Runtime runtime = runtime(bootstrap.dataSource());
+        RunningTurn predecessor = startCurrentTurn(
+                bootstrap.jdbc(), bootstrap.taskId());
+        bootstrap.jdbc().update("""
+                UPDATE task_turn
+                SET status = 'RUNNING', started_at_ms = ?
+                WHERE id = ? AND operation_id = ? AND status = 'REQUESTED'
+                """, NOW.toEpochMilli(), predecessor.turnId(),
+                predecessor.operationId());
+        ActiveAgentContextRegistry.TypedOwner owner =
+                new ActiveAgentContextRegistry.TypedOwner(
+                        DispatchTicket.OwnerKind.TASK_TURN,
+                        predecessor.turnId(), predecessor.operationId());
+        V2UserWaitStore waits = new V2UserWaitStore(bootstrap.jdbc());
+        waits.insertQuestion(
+                owner, "plan-question", "plan-question-call",
+                "Continue with this Plan?", null, "[]", true,
+                NOW.plusSeconds(1));
+        waits.answerQuestion(
+                "plan-question", 0, null, "Proceed", "user",
+                NOW.plusSeconds(2));
+        bootstrap.jdbc().update("""
+                UPDATE agent_execution
+                SET provider_session_id = 'plan-session-1'
+                WHERE ticket_id = ? AND infrastructure_attempt = 1
+                """, predecessor.ticketId());
+        bootstrap.jdbc().update("""
+                INSERT INTO agent_execution_log(
+                    execution_id, seq, payload, created_at_ms)
+                VALUES (?, 0, 'trace before concurrent Plan Turn', ?)
+                """, "execution-" + predecessor.operationId(),
+                NOW.plusSeconds(2).toEpochMilli());
+        finishAsUserWait(bootstrap.jdbc(), predecessor);
+        waits.recordUserWait(
+                owner, "QUESTION", "plan-question", "payload-digest",
+                "{\"schema\":\"TYPED_USER_WAIT_DELIVERY_V1\"}",
+                NOW.plusSeconds(4));
+        finalizePendingTickets(bootstrap.jdbc());
+        bootstrap.jdbc().update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, trigger_stage_id, trigger_stage_generation,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                SELECT 'live-plan-consumer', task_id, 'PLAN_SELF_REVIEW',
+                    'REQUESTED', 'live-plan-operation', 1, task_epoch,
+                    trigger_stage_id, trigger_stage_generation,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane,
+                    json_set(launch_input,
+                        '$.toolEndpoint.ownerId', 'live-plan-consumer',
+                        '$.toolEndpoint.operationId', 'live-plan-operation',
+                        '$.toolEndpoint.url',
+                        'http://127.0.0.1/api/v2/task-turns/live-plan-consumer/operations/live-plan-operation/mcp'),
+                    ?
+                FROM task_turn WHERE id = ?
+                """, NOW.plusSeconds(5).toEpochMilli(), predecessor.turnId());
+
+        String successor = runtime.plan().continueUserWait(
+                predecessor.turnId(), predecessor.operationId(),
+                "QUESTION", "plan-question", "Proceed");
+        assertThat(successor).isNotNull();
+        JsonNode launch = new ObjectMapper().readTree(
+                bootstrap.jdbc().queryForObject("""
+                        SELECT launch_input FROM task_turn WHERE id = ?
+                        """, String.class, successor));
+        assertThat(launch.has("resumeSessionId")).isFalse();
+        assertThat(launch.has("fallbackPrompt")).isFalse();
+        assertThat(launch.path("prompt").asText())
+                .contains("trace before concurrent Plan Turn");
         assertThat(count(bootstrap.jdbc(),
                 "plan_turn_user_wait_continuation_v265")).isOne();
     }

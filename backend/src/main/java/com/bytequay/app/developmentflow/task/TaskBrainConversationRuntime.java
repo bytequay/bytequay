@@ -31,7 +31,6 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
-import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,7 +41,9 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -139,8 +140,8 @@ public final class TaskBrainConversationRuntime
     {
         requireText(taskId, "taskId");
         String body = required(text, "text").trim();
-        List<String> paths = attachments.save(taskId, imageDataUrls);
-        return commands.execute(taskId, () -> sendInCommand(taskId, body, paths));
+        return commands.execute(taskId, () ->
+                sendInCommand(taskId, body, imageDataUrls));
     }
 
     public DispatchTicket.DeliveryReceipt deliver(
@@ -175,26 +176,56 @@ public final class TaskBrainConversationRuntime
     }
 
     private BrainMessageResponse sendInCommand(
-            String taskId, String body, List<String> paths)
+            String taskId, String body, List<String> imageDataUrls)
     {
         TaskCommandExecutor.requireCurrent(taskId);
         ConversationContext context = store.requireConversationContext(taskId);
         requireChatLifecycle(context);
+        if (store.hasLiveConversationTurn(taskId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "another Task Brain message is still running");
+        }
+        WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
+        requireEngine(context.provider(), context.model(), workModel);
+        boolean active = "ACTIVE".equals(context.lifecycle());
+        Path workingDirectory = active
+                ? exactPath(context.worktreePath())
+                : repositoryRoot(context.workspaceId());
+        List<Message> history = store.conversation(taskId);
+        List<Attachment> historicalAttachments =
+                store.conversationAttachments(taskId);
+        List<String> paths = attachments.save(taskId, imageDataUrls);
         Instant now = clock.instant();
         String turnId = UUID.randomUUID().toString();
         String operationId = UUID.randomUUID().toString();
         String ticketId = UUID.randomUUID().toString();
-        WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
-        requireEngine(context.provider(), context.model(), workModel);
-        Path workingDirectory = "ACTIVE".equals(context.lifecycle())
-                ? exactPath(context.worktreePath())
-                : repositoryRoot(context.workspaceId());
-        String prompt = conversationPrompt(
-                store.conversation(taskId), body, paths);
+        List<Attachment> saved = persistedAttachments(turnId, paths, now);
+        List<AgentTurnProviderSession.ImageAttachment> launchImages =
+                launchImages(historicalAttachments, saved);
+        String fallbackPrompt = conversationPrompt(
+                history, historicalAttachments, body, paths);
+        SqliteTaskBrainConversationStore.CliSession session =
+                workModel.kind() == WorkModelKind.CLI
+                        ? store.latestSuccessfulCliSession(
+                                taskId, context.taskEpoch(),
+                                active ? context.stageId() : null,
+                                active ? context.stageGeneration() : null,
+                                context.codeFingerprint(), context.headSha(),
+                                context.baseSha(), context.provider(), context.model(),
+                                workingDirectory.toString()).orElse(null)
+                        : null;
+        String resumeSessionId = session == null
+                ? null : session.providerSessionId();
+        String prompt = resumeSessionId == null
+                ? fallbackPrompt : conversationTurnPrompt(body, paths);
         String launch = launch(
                 context.provider(), context.model(), context.roleSkill(), workModel,
-                workingDirectory, turnId, operationId, prompt);
-        boolean active = "ACTIVE".equals(context.lifecycle());
+                workingDirectory, turnId, operationId, prompt, launchImages,
+                resumeSessionId,
+                resumeSessionId == null ? null : fallbackPrompt,
+                session == null ? 0 : session.cumulativeInputTokens(),
+                session == null ? 0 : session.cumulativeOutputTokens());
         String lane = workModel.kind().name();
         int runnerLaneMask = workModel.kind() == WorkModelKind.CLI ? 1 : 2;
         int laneMask = active ? runnerLaneMask : runnerLaneMask | 8;
@@ -207,16 +238,7 @@ public final class TaskBrainConversationRuntime
                 1, lane, laneMask, active, false, CALLBACK, launch, now);
         Message user = new Message(
                 "task-brain-user:" + turnId, turnId, 1, "USER", body, now);
-        List<Attachment> saved = new ArrayList<>(paths.size());
-        for (int index = 0; index < paths.size(); index++) {
-            String path = paths.get(index);
-            ChatAttachmentStore.Attachment attachment = attachments.read(path);
-            saved.add(new Attachment(
-                    "task-brain-attachment:" + turnId + ":" + (index + 1),
-                    path, MessageAttachments.mimeTypeFor(path),
-                    digest(attachment.bytes()), now));
-        }
-        store.insertConversationTurn(turn, user, List.copyOf(saved));
+        store.insertConversationTurn(turn, user, saved);
         return new BrainMessageResponse(turnId, context.trunkId());
     }
 
@@ -314,7 +336,7 @@ public final class TaskBrainConversationRuntime
         String ticketId = id("task-brain-wait-ticket", seed);
         String normalizedAnswer = value(answer, "The user resolved the request.").trim();
         String launch = continuationLaunch(
-                source.launchInput(), turnId, operationId,
+                source, turnId, operationId,
                 waitKind, waitId, normalizedAnswer);
         NewTurn successor = new NewTurn(
                 turnId, operationId, ticketId, source.purpose(),
@@ -398,7 +420,12 @@ public final class TaskBrainConversationRuntime
             Path workingDirectory,
             String turnId,
             String operationId,
-            String prompt)
+            String prompt,
+            List<AgentTurnProviderSession.ImageAttachment> images,
+            String resumeSessionId,
+            String fallbackPrompt,
+            long priorCumulativeInputTokens,
+            long priorCumulativeOutputTokens)
     {
         AgentTurnProviderSession.OwnerToolEndpoint endpoint =
                 new AgentTurnProviderSession.OwnerToolEndpoint(
@@ -413,12 +440,15 @@ public final class TaskBrainConversationRuntime
                                 : AgentTurnProviderSession.Transport.API,
                         provider, workModel.account(), model,
                         workModel.reasoningEffort(), workingDirectory.toString(),
-                        systemPrompt(roleSkill), prompt, endpoint);
+                        systemPrompt(roleSkill), prompt, images, endpoint,
+                        resumeSessionId, fallbackPrompt,
+                        priorCumulativeInputTokens,
+                        priorCumulativeOutputTokens);
         return write(input);
     }
 
     private String continuationLaunch(
-            String frozen,
+            ContinuationContext source,
             String turnId,
             String operationId,
             String waitKind,
@@ -426,17 +456,54 @@ public final class TaskBrainConversationRuntime
             String answer)
     {
         try {
-            JsonNode parsed = json.readTree(frozen);
+            JsonNode parsed = json.readTree(source.launchInput());
             if (!(parsed instanceof ObjectNode launch)) {
                 throw new IllegalArgumentException("launch input is not an object");
             }
-            String prompt = required(launch.path("prompt").asText(null), "prompt");
-            launch.put("prompt", prompt
+            String prompt = launch.hasNonNull("fallbackPrompt")
+                    ? required(launch.path("fallbackPrompt").asText(null),
+                            "fallbackPrompt")
+                    : required(launch.path("prompt").asText(null), "prompt");
+            StringBuilder reconstructed = new StringBuilder(prompt);
+            if (source.executionId() != null) {
+                List<String> trace = store.executionLog(source.executionId());
+                if (!trace.isEmpty()) {
+                    reconstructed.append(
+                            "\n\nDurable provider trace from the prior Turn:\n");
+                    trace.forEach(event -> reconstructed.append(event).append('\n'));
+                }
+            }
+            String fallbackPrompt = reconstructed
                     + "\n\nThe prior execution paused for "
                     + waitKind.toLowerCase(Locale.ROOT)
                     + " " + waitId + ". The user's answer is:\n" + answer
                     + "\n\nContinue the same operation from that answer. Do not repeat "
-                    + "work already completed before the pause.");
+                    + "work already completed before the pause.";
+            if ("CLI".equals(source.deliveryLane())
+                    && source.providerSessionId() != null
+                    && (!"codex".equals(launch.path("provider").asText())
+                    || (source.cumulativeInputTokens() != null
+                    && source.cumulativeOutputTokens() != null))) {
+                launch.put("prompt", "The prior execution paused for "
+                        + waitKind.toLowerCase(Locale.ROOT) + " " + waitId
+                        + ". The user's answer is:\n" + answer
+                        + "\n\nContinue the same operation from that answer.");
+                launch.put("resumeSessionId", source.providerSessionId());
+                launch.put("fallbackPrompt", fallbackPrompt);
+                launch.put("priorCumulativeInputTokens",
+                        source.cumulativeInputTokens() == null
+                                ? 0 : source.cumulativeInputTokens());
+                launch.put("priorCumulativeOutputTokens",
+                        source.cumulativeOutputTokens() == null
+                                ? 0 : source.cumulativeOutputTokens());
+            }
+            else {
+                launch.put("prompt", fallbackPrompt);
+                launch.remove("resumeSessionId");
+                launch.remove("fallbackPrompt");
+                launch.remove("priorCumulativeInputTokens");
+                launch.remove("priorCumulativeOutputTokens");
+            }
             JsonNode endpointNode = launch.path("toolEndpoint");
             if (!(endpointNode instanceof ObjectNode endpoint)) {
                 throw new IllegalArgumentException("tool endpoint is missing");
@@ -460,7 +527,10 @@ public final class TaskBrainConversationRuntime
     }
 
     private static String conversationPrompt(
-            List<Message> history, String body, List<String> paths)
+            List<Message> history,
+            List<Attachment> historicalAttachments,
+            String body,
+            List<String> paths)
     {
         StringBuilder prompt = new StringBuilder(
                 "Answer the user's Task-level question using read-only tools. "
@@ -472,6 +542,12 @@ public final class TaskBrainConversationRuntime
                         .append(message.body()).append('\n');
             }
         }
+        if (!historicalAttachments.isEmpty()) {
+            prompt.append(
+                    "\nImages from the earlier conversation (managed read-only files):\n");
+            historicalAttachments.forEach(attachment -> prompt
+                    .append("- ").append(attachment.contentRef()).append('\n'));
+        }
         prompt.append("\nUser: ").append(body);
         if (!paths.isEmpty()) {
             prompt.append("\n\nAttached images (managed read-only files):\n");
@@ -479,6 +555,65 @@ public final class TaskBrainConversationRuntime
         }
         prompt.append("\nReply directly to the user.");
         return prompt.toString();
+    }
+
+    private List<Attachment> persistedAttachments(
+            String turnId, List<String> paths, Instant now)
+    {
+        List<Attachment> saved = new ArrayList<>(paths.size());
+        for (int index = 0; index < paths.size(); index++) {
+            String path = paths.get(index);
+            ChatAttachmentStore.Attachment attachment = attachments.read(path);
+            saved.add(new Attachment(
+                    "task-brain-attachment:" + turnId + ":" + (index + 1),
+                    path, attachment.mimeType(),
+                    digest(attachment.bytes()), now));
+        }
+        return List.copyOf(saved);
+    }
+
+    private List<AgentTurnProviderSession.ImageAttachment> launchImages(
+            List<Attachment> historical, List<Attachment> current)
+    {
+        List<AgentTurnProviderSession.ImageAttachment> images =
+                new ArrayList<>(historical.size() + current.size());
+        for (Attachment attachment : historical) {
+            images.add(verifiedImage(attachment));
+        }
+        for (Attachment attachment : current) {
+            images.add(verifiedImage(attachment));
+        }
+        return List.copyOf(images);
+    }
+
+    private AgentTurnProviderSession.ImageAttachment verifiedImage(
+            Attachment attachment)
+    {
+        String contentRef = required(
+                attachment.contentRef(), "attachment.contentRef");
+        String mediaType = required(
+                attachment.mediaType(), "attachment.mediaType");
+        String expectedDigest = required(
+                attachment.digest(), "attachment.digest");
+        ChatAttachmentStore.Attachment content =
+                attachments.read(contentRef);
+        if (!mediaType.equals(content.mimeType())
+                || !expectedDigest.equals(digest(content.bytes()))) {
+            throw new IllegalStateException(
+                    "durable Task Brain attachment changed: " + contentRef);
+        }
+        return new AgentTurnProviderSession.ImageAttachment(
+                contentRef, mediaType, expectedDigest);
+    }
+
+    private static String conversationTurnPrompt(String body, List<String> paths)
+    {
+        StringBuilder prompt = new StringBuilder("User: ").append(body);
+        if (!paths.isEmpty()) {
+            prompt.append("\n\nAttached images (managed read-only files):\n");
+            paths.forEach(path -> prompt.append("- ").append(path).append('\n'));
+        }
+        return prompt.append("\nReply directly to the user.").toString();
     }
 
     private static String systemPrompt(String roleSkill)

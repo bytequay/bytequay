@@ -86,12 +86,133 @@ public class SqliteTaskBrainConversationStore
                 JOIN task_turn turn ON turn.id = message.turn_id
                 WHERE turn.task_id = ?
                   AND turn.purpose = 'TASK_BRAIN_CONVERSATION'
-                ORDER BY message.created_at_ms, turn.requested_at_ms,
-                         message.turn_id, message.seq
+                ORDER BY turn.rowid, message.seq
                 """, (rs, row) -> new Message(
                         rs.getString("id"), rs.getString("turn_id"),
                         rs.getInt("seq"), rs.getString("role"),
                         rs.getString("body"), instant(rs, "created_at_ms")), taskId);
+    }
+
+    public List<Attachment> conversationAttachments(String taskId)
+    {
+        requireText(taskId, "taskId");
+        return jdbc.query("""
+                SELECT attachment.id, attachment.content_ref,
+                       attachment.media_type, attachment.digest,
+                       attachment.created_at_ms
+                FROM task_attachment attachment
+                JOIN task_turn turn ON turn.id = attachment.turn_id
+                WHERE turn.task_id = ?
+                  AND turn.purpose = 'TASK_BRAIN_CONVERSATION'
+                  AND attachment.kind = 'IMAGE'
+                ORDER BY turn.rowid, attachment.rowid
+                """, (rs, row) -> new Attachment(
+                        rs.getString("id"), rs.getString("content_ref"),
+                        rs.getString("media_type"), rs.getString("digest"),
+                        instant(rs, "created_at_ms")), taskId);
+    }
+
+    /** Returns a session only when the latest conversation Turn is its sole consumer. */
+    public Optional<CliSession> latestSuccessfulCliSession(
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            Long stageGeneration,
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            String provider,
+            String model,
+            String workingDirectory)
+    {
+        requireText(taskId, "taskId");
+        requireText(codeFingerprint, "codeFingerprint");
+        requireText(headSha, "headSha");
+        requireText(baseSha, "baseSha");
+        requireText(provider, "provider");
+        requireText(model, "model");
+        requireText(workingDirectory, "workingDirectory");
+        if ((stageId == null) != (stageGeneration == null)) {
+            throw new IllegalArgumentException(
+                    "stageId and stageGeneration must be supplied together");
+        }
+        return jdbc.query("""
+                SELECT execution.provider_session_id,
+                       json_extract(json_extract(execution.raw_result,
+                           '$.payloadJson'),
+                           '$.providerCumulativeInputTokens')
+                           AS cumulative_input_tokens,
+                       json_extract(json_extract(execution.raw_result,
+                           '$.payloadJson'),
+                           '$.providerCumulativeOutputTokens')
+                           AS cumulative_output_tokens
+                FROM task_turn turn
+                JOIN task_brain_conversation_result_v266 receipt
+                  ON receipt.task_turn_id = turn.id
+                 AND receipt.acceptance = 'ACCEPTED'
+                 AND receipt.terminal_status = 'SUCCEEDED'
+                JOIN dispatch_ticket ticket
+                  ON ticket.owner_kind = 'TASK_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                 AND ticket.status = 'SUCCEEDED'
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                 AND execution.status = 'SUCCEEDED'
+                 AND execution.provider_session_id IS NOT NULL
+                 AND execution.provider =
+                     json_extract(turn.launch_input, '$.provider')
+                WHERE turn.task_id = ?
+                  AND turn.purpose = 'TASK_BRAIN_CONVERSATION'
+                  AND turn.status = 'SUCCEEDED'
+                  AND turn.task_epoch = ?
+                  AND turn.trigger_stage_id IS ?
+                  AND turn.trigger_stage_generation IS ?
+                  AND turn.expected_code_fingerprint IS ?
+                  AND turn.expected_head_sha IS ?
+                  AND turn.expected_base_sha IS ?
+                  AND json_extract(turn.launch_input, '$.transport') = 'CLI'
+                  AND json_extract(turn.launch_input, '$.provider') = ?
+                  AND json_extract(turn.launch_input, '$.model') = ?
+                  AND json_extract(turn.launch_input, '$.workingDirectory') = ?
+                  AND json_extract(
+                      turn.launch_input, '$.toolEndpoint.profile') =
+                      'TASK_BRAIN_READ_ONLY'
+                  AND (? <> 'codex' OR (
+                      json_type(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.providerCumulativeInputTokens') = 'integer'
+                      AND json_type(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.providerCumulativeOutputTokens') = 'integer'))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM task_turn later
+                      WHERE later.task_id = turn.task_id
+                        AND later.purpose = 'TASK_BRAIN_CONVERSATION'
+                        AND later.rowid > turn.rowid)
+                ORDER BY execution.infrastructure_attempt DESC
+                LIMIT 1
+                """, (rs, row) -> new CliSession(
+                rs.getString("provider_session_id"),
+                rs.getLong("cumulative_input_tokens"),
+                rs.getLong("cumulative_output_tokens")),
+                taskId, taskEpoch, stageId, stageGeneration,
+                codeFingerprint, headSha, baseSha,
+                provider, model, workingDirectory, provider)
+                .stream().findFirst();
+    }
+
+    public boolean hasLiveConversationTurn(String taskId)
+    {
+        requireText(taskId, "taskId");
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM task_turn
+                WHERE task_id = ?
+                  AND purpose = 'TASK_BRAIN_CONVERSATION'
+                  AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                """, Integer.class, taskId);
+        return count != null && count > 0;
     }
 
     public void insertConversationTurn(NewTurn turn, Message userMessage,
@@ -282,6 +403,38 @@ public class SqliteTaskBrainConversationStore
                        source.expected_code_fingerprint,
                        source.expected_head_sha, source.expected_base_sha,
                        source.delivery_lane, source.launch_input,
+                       execution.id AS execution_id,
+                       CASE WHEN source.delivery_lane = 'CLI'
+                         AND json_extract(
+                           source.launch_input, '$.transport') = 'CLI'
+                         AND json_extract(
+                           source.launch_input, '$.toolEndpoint.profile') =
+                           'TASK_BRAIN_READ_ONLY'
+                         AND execution.provider = json_extract(
+                           source.launch_input, '$.provider')
+                         AND NOT EXISTS (
+                           SELECT 1 FROM task_turn later
+                           WHERE later.task_id = source.task_id
+                             AND later.purpose = source.purpose
+                             AND later.rowid > source.rowid)
+                         AND NOT EXISTS (
+                           SELECT 1 FROM task_turn live
+                           WHERE live.task_id = source.task_id
+                             AND live.purpose = source.purpose
+                             AND live.status IN (
+                               'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING'))
+                         THEN execution.provider_session_id END
+                         AS provider_session_id,
+                       CASE WHEN json_type(source.launch_input,
+                           '$.resumeSessionId') IS NULL THEN 0
+                         ELSE json_extract(source.launch_input,
+                           '$.priorCumulativeInputTokens') END
+                           AS cumulative_input_tokens,
+                       CASE WHEN json_type(source.launch_input,
+                           '$.resumeSessionId') IS NULL THEN 0
+                         ELSE json_extract(source.launch_input,
+                           '$.priorCumulativeOutputTokens') END
+                           AS cumulative_output_tokens,
                        logical.id AS logical_turn_id,
                        logical.operation_id AS logical_operation_id,
                        logical.attempt AS logical_attempt,
@@ -305,6 +458,14 @@ public class SqliteTaskBrainConversationStore
                   ON logical.id = COALESCE(prior.logical_turn_id, source.id)
                 JOIN dispatch_ticket ticket
                   ON ticket.operation_id = source.operation_id
+                LEFT JOIN agent_execution execution
+                  ON execution.id = (
+                    SELECT candidate.id
+                    FROM agent_execution candidate
+                    WHERE candidate.ticket_id = ticket.id
+                      AND candidate.status = 'SUCCEEDED'
+                    ORDER BY candidate.infrastructure_attempt DESC
+                    LIMIT 1)
                 JOIN tasks task ON task.id = source.task_id
                 JOIN threads trunk ON trunk.id = task.thread_id
                 LEFT JOIN task_current_stage current ON current.task_id = task.id
@@ -343,6 +504,15 @@ public class SqliteTaskBrainConversationStore
             throw new IllegalStateException("Task Brain user wait is ambiguous");
         }
         return rows.stream().findFirst();
+    }
+
+    public List<String> executionLog(String executionId)
+    {
+        requireText(executionId, "executionId");
+        return jdbc.query("""
+                SELECT payload FROM agent_execution_log
+                WHERE execution_id = ? ORDER BY seq
+                """, (rs, row) -> rs.getString("payload"), executionId);
     }
 
     public void insertContinuation(
@@ -476,6 +646,10 @@ public class SqliteTaskBrainConversationStore
                 rs.getString("expected_head_sha"),
                 rs.getString("expected_base_sha"),
                 rs.getString("delivery_lane"), rs.getString("launch_input"),
+                rs.getString("execution_id"),
+                rs.getString("provider_session_id"),
+                nullableLong(rs, "cumulative_input_tokens"),
+                nullableLong(rs, "cumulative_output_tokens"),
                 rs.getString("logical_turn_id"),
                 rs.getString("logical_operation_id"),
                 rs.getInt("logical_attempt"),
@@ -584,6 +758,8 @@ public class SqliteTaskBrainConversationStore
             String taskId, long taskEpoch, int sourceAttempt, String stageId,
             Long stageGeneration, String codeFingerprint, String headSha,
             String baseSha, String deliveryLane, String launchInput,
+            String executionId, String providerSessionId,
+            Long cumulativeInputTokens, Long cumulativeOutputTokens,
             String logicalTurnId, String logicalOperationId, int logicalAttempt,
             String callbackRoute, int laneMask, boolean exclusiveTask,
             boolean writerRequired, String trunkId, String workspaceId,
@@ -598,6 +774,21 @@ public class SqliteTaskBrainConversationStore
                     taskEpoch, stageId, stageGeneration == null ? 0 : stageGeneration,
                     logicalOperationId, logicalAttempt,
                     codeFingerprint, headSha, baseSha);
+        }
+    }
+
+    public record CliSession(
+            String providerSessionId,
+            long cumulativeInputTokens,
+            long cumulativeOutputTokens)
+    {
+        public CliSession
+        {
+            requireText(providerSessionId, "providerSessionId");
+            if (cumulativeInputTokens < 0 || cumulativeOutputTokens < 0) {
+                throw new IllegalArgumentException(
+                        "cumulative usage must be non-negative");
+            }
         }
     }
 }

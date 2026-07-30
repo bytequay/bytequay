@@ -16,16 +16,22 @@ package com.bytequay.app.developmentflow.trunk.persistence;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchTicketStore;
+import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
 import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
@@ -212,6 +218,373 @@ class TestPlanningBaseTurnRuntime
                     assertThat(launchedPrompt.contentJson())
                             .isEqualTo(pendingPrompt.contentJson());
                 });
+    }
+
+    @Test
+    void nextCliTurnResumesItsExactTrunkSessionAndFreezesHistoryFallback()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(tempDir.resolve("cli-resume.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path repository = Files.createDirectory(tempDir.resolve("resume-repo"));
+        Path planning = Files.createDirectory(tempDir.resolve("resume-planning"));
+        Path image = Files.write(
+                tempDir.resolve("resume-history.png"), new byte[] {1, 2, 3});
+        ObjectMapper json = new ObjectMapper();
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        TrunkManager manager = manager(dataSource, trunkStore);
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager, trunkStore, repository);
+        PlanningBaseTurnRuntime.Receipt prior = runtime.request(
+                new PlanningBaseTurnRuntime.Request(
+                        "prior-cli-turn", "user", "trunk-1", "workspace-1",
+                        "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", null, "gpt-5.6", "high", "trunk role",
+                        MessageAttachments.encode(
+                                json, "first question", List.of(image.toString())),
+                        MessageAttachments.encode(
+                                json, "compiled first", List.of(image.toString()))));
+        deliverSuccessfulRefresh(
+                runtime, jdbc, prior, repository, planning, json);
+        runtime.recoverCommittedDeliveries(20);
+        String priorOperationId = jdbc.queryForObject("""
+                SELECT operation_id FROM thread_turn WHERE id = ?
+                """, String.class, prior.turnId());
+        String priorTicketId = jdbc.queryForObject("""
+                SELECT id FROM dispatch_ticket
+                WHERE owner_kind = 'THREAD_TURN' AND owner_id = ?
+                """, String.class, prior.turnId());
+        new SqliteThreadTurnOperationStore(jdbc).tryStart(
+                prior.turnId(), priorOperationId, NOW.plusSeconds(1));
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    provider_session_id, status, started_at_ms, finished_at_ms,
+                    tokens_in, tokens_out)
+                VALUES ('prior-execution', ?, 1, 'codex', 'session-trunk-1',
+                    'SUCCEEDED', ?, ?, 100, 40)
+                """, priorTicketId, NOW.plusSeconds(1).toEpochMilli(),
+                NOW.plusSeconds(2).toEpochMilli());
+        DispatchTicket.OperationFence priorFence = new DispatchTicket.OperationFence(
+                null, null, null, priorOperationId, 1,
+                null, null, null);
+        AgentTurnOperationHandler.RawResult priorPayload =
+                new AgentTurnOperationHandler.RawResult(
+                        1, prior.turnId(), DispatchTicket.OwnerKind.THREAD_TURN,
+                        "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", "session-trunk-1", "first answer",
+                        100, 40, 0, 1L,
+                        AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
+                        null, null, null, 100L, 40L);
+        DispatchTicket.DispatchResult priorResult =
+                new DispatchTicket.DispatchResult(
+                        priorFence, DispatchTicket.Outcome.SUCCEEDED,
+                        json.writeValueAsString(priorPayload), "{}", null);
+        jdbc.update("""
+                UPDATE agent_execution SET raw_result = ?
+                WHERE id = 'prior-execution'
+                """, json.writeValueAsString(priorResult));
+        markResultPending(jdbc, priorTicketId, priorResult);
+        DispatchTicket.DeliveryReceipt priorDelivery =
+                new ThreadTurnResultDeliveryPort(
+                        manager, new AgentTurnOwnerResultCodec(json), json,
+                        Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC))
+                        .deliver(
+                                new DispatchTicket.OwnerReference(
+                                        DispatchTicket.OwnerKind.THREAD_TURN,
+                                        prior.turnId(), "THREAD_TURN_RESULT"),
+                                priorFence, priorResult);
+        markDelivered(jdbc, priorTicketId, priorDelivery);
+
+        jdbc.update("""
+                UPDATE agent_execution SET provider = 'claude'
+                WHERE id = 'prior-execution'
+                """);
+        assertThat(new SqlitePlanningBaseTurnStore(jdbc)
+                .latestSuccessfulCliSession(
+                        "trunk-1", "codex", "gpt-5.6", planning.toString()))
+                .isEmpty();
+        jdbc.update("""
+                UPDATE agent_execution SET provider = 'codex'
+                WHERE id = 'prior-execution'
+                """);
+
+        PlanningBaseTurnRuntime.Receipt next = runtime.request(
+                new PlanningBaseTurnRuntime.Request(
+                        "next-cli-turn", "user", "trunk-1", "workspace-1",
+                        "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", null, "gpt-5.6", "high", "trunk role",
+                        "second question", "compiled second"));
+        deliverSuccessfulRefresh(
+                runtime, jdbc, next, repository, planning, json);
+        runtime.recoverCommittedDeliveries(20);
+
+        JsonNode launch = json.readTree(jdbc.queryForObject("""
+                SELECT launch_input FROM thread_turn WHERE id = ?
+                """, String.class, next.turnId()));
+        assertThat(launch.path("resumeSessionId").asText())
+                .isEqualTo("session-trunk-1");
+        assertThat(launch.path("priorCumulativeInputTokens").asLong())
+                .isEqualTo(100);
+        assertThat(launch.path("priorCumulativeOutputTokens").asLong())
+                .isEqualTo(40);
+        assertThat(launch.path("prompt").asText()).isEqualTo("compiled second");
+        assertThat(launch.path("fallbackPrompt").asText())
+                .contains("first question", "first answer", "compiled second",
+                        image.toString());
+        assertThat(launch.path("images").get(0).path("path").asText())
+                .isEqualTo(image.toString());
+        assertThat(count(jdbc, "thread_attachment")).isOne();
+    }
+
+    @Test
+    void userWaitContinuationResumesExactSessionWithoutANormalResultReceipt()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(
+                tempDir.resolve("cli-user-wait-resume.db"), "265");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path repository = Files.createDirectory(
+                tempDir.resolve("user-wait-repo"));
+        Path planning = Files.createDirectory(
+                tempDir.resolve("user-wait-planning"));
+        ObjectMapper json = new ObjectMapper();
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        TrunkManager manager = manager(dataSource, trunkStore);
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager, trunkStore, repository);
+        PlanningBaseTurnRuntime.Receipt sourceRequest = runtime.request(
+                new PlanningBaseTurnRuntime.Request(
+                        "user-wait-source", "user", "trunk-1", "workspace-1",
+                        "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", null, "gpt-5.6", "high", "trunk role",
+                        "source question", "source full prompt"));
+        deliverSuccessfulRefresh(
+                runtime, jdbc, sourceRequest, repository, planning, json);
+        runtime.recoverCommittedDeliveries(20);
+        String sourceTurnId = sourceRequest.turnId();
+        String sourceOperationId = jdbc.queryForObject("""
+                SELECT operation_id FROM thread_turn WHERE id = ?
+                """, String.class, sourceTurnId);
+        String sourceTicketId = jdbc.queryForObject("""
+                SELECT id FROM dispatch_ticket
+                WHERE owner_kind = 'THREAD_TURN' AND owner_id = ?
+                """, String.class, sourceTurnId);
+        new SqliteThreadTurnOperationStore(jdbc).tryStart(
+                sourceTurnId, sourceOperationId, NOW.plusSeconds(1));
+        jdbc.update("""
+                INSERT INTO thread_question(
+                    id, turn_id, call_id, prompt, state, created_at_ms)
+                VALUES ('question-1', ?, 'call-1', 'Choose one', 'OPEN', ?)
+                """, sourceTurnId, NOW.plusSeconds(1).toEpochMilli());
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    provider_session_id, status, started_at_ms, finished_at_ms)
+                VALUES ('user-wait-execution', ?, 1, 'codex',
+                    'session-user-wait', 'SUCCEEDED', ?, ?)
+                """, sourceTicketId, NOW.plusSeconds(1).toEpochMilli(),
+                NOW.plusSeconds(2).toEpochMilli());
+        jdbc.update("""
+                INSERT INTO agent_execution_log(
+                    execution_id, seq, payload, created_at_ms)
+                VALUES ('user-wait-execution', 0,
+                    '{"type":"assistant","text":"partial analysis"}', ?)
+                """, NOW.plusSeconds(1).toEpochMilli());
+        DispatchTicket.OperationFence waitFence =
+                new DispatchTicket.OperationFence(
+                        null, null, null, sourceOperationId, 1,
+                        null, null, null);
+        AgentTurnOperationHandler.RawResult waitPayload =
+                new AgentTurnOperationHandler.RawResult(
+                        1, sourceTurnId, DispatchTicket.OwnerKind.THREAD_TURN,
+                        "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", "session-user-wait", "", 0, 0, 0, 1L,
+                        AgentTurnOperationHandler.Disposition.USER_WAIT, null,
+                        new AgentTurnOperationHandler.UserWaitRef(
+                                "QUESTION", "question-1"));
+        markResultPending(
+                jdbc, sourceTicketId, new DispatchTicket.DispatchResult(
+                        waitFence, DispatchTicket.Outcome.SUCCEEDED,
+                        json.writeValueAsString(waitPayload), "{}", null));
+        new V2UserWaitStore(jdbc).recordUserWait(
+                new ActiveAgentContextRegistry.TypedOwner(
+                        DispatchTicket.OwnerKind.THREAD_TURN,
+                        sourceTurnId, sourceOperationId),
+                "QUESTION", "question-1", "payload-digest", "result-evidence",
+                NOW.plusSeconds(2));
+        markDelivered(
+                jdbc, sourceTicketId,
+                new DispatchTicket.DeliveryReceipt(
+                        DispatchTicket.Acceptance.ACCEPTED, "{}"));
+        SqlitePlanningBaseTurnStore planningStore =
+                new SqlitePlanningBaseTurnStore(jdbc);
+        assertThat(planningStore.userWaitSource(
+                sourceTurnId, sourceOperationId, "trunk-1")).isEmpty();
+        jdbc.update("""
+                UPDATE thread_question
+                SET state = 'ANSWERED', answer = 'approve', answer_revision = 1,
+                    answered_at_ms = ?, answer_free_form = 'approve',
+                    answer_actor = 'user', continuation_state = 'READY'
+                WHERE id = 'question-1'
+                """, NOW.plusSeconds(3).toEpochMilli());
+        jdbc.update("""
+                UPDATE agent_execution SET provider = 'claude'
+                WHERE id = 'user-wait-execution'
+                """);
+        assertThat(planningStore.userWaitSource(
+                sourceTurnId, sourceOperationId, "trunk-1"))
+                .hasValueSatisfying(source -> assertThat(
+                        source.providerSessionId()).isNull());
+        jdbc.update("""
+                UPDATE agent_execution SET provider = 'codex'
+                WHERE id = 'user-wait-execution'
+                """);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM trunk_thread_turn_result_receipt
+                WHERE turn_id = ?
+                """, Integer.class, sourceTurnId)).isZero();
+
+        PlanningBaseTurnRuntime.Receipt continuation = runtime.request(
+                new PlanningBaseTurnRuntime.Request(
+                        "user-wait-continuation", "user", "trunk-1",
+                        "workspace-1", "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", null, "gpt-5.6", "high", "trunk role",
+                        "User answered the question: approve",
+                        "User answered the question: approve",
+                        sourceTurnId, sourceOperationId));
+        deliverSuccessfulRefresh(
+                runtime, jdbc, continuation, repository, planning, json);
+        runtime.recoverCommittedDeliveries(20);
+
+        JsonNode launch = json.readTree(jdbc.queryForObject("""
+                SELECT launch_input FROM thread_turn WHERE id = ?
+                """, String.class, continuation.turnId()));
+        assertThat(launch.path("resumeSessionId").asText())
+                .isEqualTo("session-user-wait");
+        assertThat(launch.path("prompt").asText())
+                .isEqualTo("User answered the question: approve");
+        assertThat(launch.path("fallbackPrompt").asText())
+                .contains("source full prompt", "partial analysis",
+                        "User answered the question: approve");
+        assertThat(jdbc.queryForObject("""
+                SELECT json_extract(launch_intent, '$.continuationTurnId')
+                FROM planning_base_refresh_operation WHERE operation_id = ?
+                """, String.class, continuation.operationId()))
+                .isEqualTo(sourceTurnId);
+    }
+
+    @Test
+    void conversationAndSessionUseTrunkVersionWhenTimestampsTie()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(tempDir.resolve("turn-order.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path planning = Files.createDirectory(tempDir.resolve("turn-order-worktree"));
+        ObjectMapper json = new ObjectMapper();
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        TrunkManager manager = manager(dataSource, trunkStore);
+        Path repository = Files.createDirectory(tempDir.resolve("turn-order-repo"));
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager, trunkStore, repository);
+        String firstTurnId = completePlannedCliTurn(
+                runtime, jdbc, manager, repository, planning,
+                "request-0", "first question",
+                "first prompt", "first answer", "first-session",
+                "first-execution", json);
+        String secondTurnId = completePlannedCliTurn(
+                runtime, jdbc, manager, repository, planning,
+                "request-1", "second question",
+                "second prompt", "second answer", "second-session",
+                "second-execution", json);
+        assertThat(secondTurnId).isLessThan(firstTurnId);
+
+        SqlitePlanningBaseTurnStore store = new SqlitePlanningBaseTurnStore(jdbc);
+        assertThat(store.conversation("trunk-1"))
+                .extracting(SqlitePlanningBaseTurnStore.ConversationMessage::body)
+                .containsExactly(
+                        "first question", "first answer",
+                        "second question", "second answer");
+        assertThat(store.latestSuccessfulCliSession(
+                "trunk-1", "codex", "gpt-5.6", planning.toString()))
+                .get()
+                .extracting(SqlitePlanningBaseTurnStore.CliSession::providerSessionId)
+                .isEqualTo("second-session");
+    }
+
+    @Test
+    void nonConversationTurnNeitherJoinsHistoryNorConsumesConversationSession()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(
+                tempDir.resolve("conversation-purpose.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path planning = Files.createDirectory(
+                tempDir.resolve("conversation-purpose-worktree"));
+        ObjectMapper json = new ObjectMapper();
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        TrunkManager manager = manager(dataSource, trunkStore);
+        Path repository = Files.createDirectory(
+                tempDir.resolve("conversation-purpose-repo"));
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager, trunkStore, repository);
+        completePlannedCliTurn(
+                runtime, jdbc, manager, repository, planning,
+                "conversation-1", "conversation question", "conversation prompt",
+                "conversation answer", "conversation-session",
+                "conversation-execution", json);
+        String nonConversationTurnId = completeCliTurn(
+                runtime, jdbc, manager, repository, planning, "PLANNING",
+                "non-conversation", "internal question", "internal prompt",
+                "internal answer", "internal-session", "internal-execution", json);
+
+        JsonNode nonConversationLaunch = json.readTree(jdbc.queryForObject("""
+                SELECT launch_input FROM thread_turn WHERE id = ?
+                """, String.class, nonConversationTurnId));
+        assertThat(nonConversationLaunch.has("resumeSessionId")).isFalse();
+        assertThat(nonConversationLaunch.has("fallbackPrompt")).isFalse();
+        assertThat(nonConversationLaunch.path("prompt").asText())
+                .isEqualTo("internal prompt");
+
+        SqlitePlanningBaseTurnStore store = new SqlitePlanningBaseTurnStore(jdbc);
+        assertThat(store.conversation("trunk-1"))
+                .extracting(SqlitePlanningBaseTurnStore.ConversationMessage::body)
+                .containsExactly("conversation question", "conversation answer");
+        assertThat(store.latestSuccessfulCliSession(
+                "trunk-1", "codex", "gpt-5.6", planning.toString()))
+                .get()
+                .extracting(SqlitePlanningBaseTurnStore.CliSession::providerSessionId)
+                .isEqualTo("conversation-session");
+
+        PlanningBaseTurnRuntime.Receipt next = runtime.request(
+                new PlanningBaseTurnRuntime.Request(
+                        "conversation-2", "user", "trunk-1", "workspace-1",
+                        "TRUNK_CONVERSATION",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", null, "gpt-5.6", "high", "trunk role",
+                        "next question", "next prompt"));
+        deliverSuccessfulRefresh(
+                runtime, jdbc, next, repository, planning, json);
+        runtime.recoverCommittedDeliveries(20);
+
+        JsonNode launch = json.readTree(jdbc.queryForObject("""
+                SELECT launch_input FROM thread_turn WHERE id = ?
+                """, String.class, next.turnId()));
+        assertThat(launch.path("resumeSessionId").asText())
+                .isEqualTo("conversation-session");
+        assertThat(launch.path("fallbackPrompt").asText())
+                .contains("conversation question", "conversation answer", "next prompt")
+                .doesNotContain("internal question", "internal answer", "internal prompt");
     }
 
     @Test
@@ -673,9 +1046,12 @@ class TestPlanningBaseTurnRuntime
             ObjectMapper json)
             throws Exception
     {
+        String expectedBaseSha = jdbc.queryForObject("""
+                SELECT expected_base_sha FROM dispatch_ticket WHERE id = ?
+                """, String.class, requested.dispatchTicketId());
         DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
                 null, null, null, requested.operationId(), 1,
-                null, null, null);
+                null, null, expectedBaseSha);
         PlanningBaseRefreshOperationHandler.Snapshot snapshot =
                 new PlanningBaseRefreshOperationHandler.Snapshot(
                         1, requested.operationId(), "trunk-1",
@@ -692,6 +1068,119 @@ class TestPlanningBaseTurnRuntime
                         PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE),
                 fence, raw);
         markDelivered(jdbc, requested.dispatchTicketId(), accepted);
+    }
+
+    private static String completePlannedCliTurn(
+            PlanningBaseTurnRuntime runtime,
+            JdbcTemplate jdbc,
+            TrunkManager manager,
+            Path repository,
+            Path workingDirectory,
+            String commandId,
+            String userMessage,
+            String prompt,
+            String answer,
+            String sessionId,
+            String executionId,
+            ObjectMapper json)
+            throws Exception
+    {
+        return completeCliTurn(
+                runtime, jdbc, manager, repository, workingDirectory,
+                "TRUNK_CONVERSATION", commandId, userMessage, prompt, answer,
+                sessionId, executionId, json);
+    }
+
+    private static String completeCliTurn(
+            PlanningBaseTurnRuntime runtime,
+            JdbcTemplate jdbc,
+            TrunkManager manager,
+            Path repository,
+            Path workingDirectory,
+            String purpose,
+            String commandId,
+            String userMessage,
+            String prompt,
+            String answer,
+            String sessionId,
+            String executionId,
+            ObjectMapper json)
+            throws Exception
+    {
+        String turnId;
+        if ("TRUNK_CONVERSATION".equals(purpose)) {
+            PlanningBaseTurnRuntime.Receipt request = runtime.request(
+                    new PlanningBaseTurnRuntime.Request(
+                            commandId, "user", "trunk-1", "workspace-1",
+                            purpose,
+                            AgentTurnProviderSession.Transport.CLI,
+                            "codex", null, "gpt-5.6", "high", "trunk role",
+                            userMessage, prompt));
+            deliverSuccessfulRefresh(
+                    runtime, jdbc, request, repository, workingDirectory, json);
+            runtime.recoverCommittedDeliveries(20);
+            turnId = request.turnId();
+        }
+        else {
+            long version = jdbc.queryForObject("""
+                    SELECT aggregate_version FROM threads WHERE id = 'trunk-1'
+                    """, Long.class);
+            turnId = new ThreadTurnHandoff(
+                    manager, json, Clock.fixed(NOW, ZoneOffset.UTC), 53123)
+                    .request(new ThreadTurnHandoff.Request(
+                            commandId, "user", "trunk-1", "workspace-1",
+                            version, purpose,
+                            AgentTurnProviderSession.Transport.CLI,
+                            "codex", null, "gpt-5.6", "high", workingDirectory,
+                            "trunk role", userMessage, prompt))
+                    .state().turnId();
+        }
+        String operationId = jdbc.queryForObject("""
+                SELECT operation_id FROM thread_turn WHERE id = ?
+                """, String.class, turnId);
+        String ticketId = jdbc.queryForObject("""
+                SELECT id FROM dispatch_ticket
+                WHERE owner_kind = 'THREAD_TURN' AND owner_id = ?
+                """, String.class, turnId);
+        new SqliteThreadTurnOperationStore(jdbc).tryStart(
+                turnId, operationId, NOW.plusSeconds(1));
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    provider_session_id, status, started_at_ms, finished_at_ms)
+                VALUES (?, ?, 1, 'codex', ?, 'SUCCEEDED', ?, ?)
+                """, executionId, ticketId, sessionId,
+                NOW.plusSeconds(1).toEpochMilli(),
+                NOW.plusSeconds(2).toEpochMilli());
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                null, null, null, operationId, 1,
+                null, null, null);
+        AgentTurnOperationHandler.RawResult payload =
+                new AgentTurnOperationHandler.RawResult(
+                        1, turnId, DispatchTicket.OwnerKind.THREAD_TURN,
+                        purpose,
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", sessionId, answer, 1, 1, 0, 1L,
+                        AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
+                        null, null, null, 100L, 40L);
+        DispatchTicket.DispatchResult result = new DispatchTicket.DispatchResult(
+                fence, DispatchTicket.Outcome.SUCCEEDED,
+                json.writeValueAsString(payload), "{}", null);
+        jdbc.update("""
+                UPDATE agent_execution SET raw_result = ? WHERE id = ?
+                """, json.writeValueAsString(result), executionId);
+        markResultPending(jdbc, ticketId, result);
+        DispatchTicket.DeliveryReceipt delivered =
+                new ThreadTurnResultDeliveryPort(
+                        manager, new AgentTurnOwnerResultCodec(json), json,
+                        Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC))
+                        .deliver(
+                                new DispatchTicket.OwnerReference(
+                                        DispatchTicket.OwnerKind.THREAD_TURN,
+                                        turnId, "THREAD_TURN_RESULT"),
+                                fence, result);
+        markDelivered(jdbc, ticketId, delivered);
+        return turnId;
     }
 
     private static void markDelivered(
@@ -732,9 +1221,14 @@ class TestPlanningBaseTurnRuntime
 
     private static SQLiteDataSource database(Path file)
     {
+        return database(file, "260");
+    }
+
+    private static SQLiteDataSource database(Path file, String target)
+    {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("260").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

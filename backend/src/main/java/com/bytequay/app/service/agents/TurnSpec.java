@@ -33,6 +33,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
  * @param authToken      Anthropic {@code x-api-key} or OpenAI-style
  *                       bearer token, depending on transport.
  * @param modelId        provider model id, stamped on the request.
+ * @param reasoningEffort provider-native reasoning effort for this request;
+ *                       null omits the field.
  * @param system         Anthropic top-level system prompt; null when
  *                       absent or when the transport carries it in
  *                       {@code messages[0]}.
@@ -48,12 +50,29 @@ public record TurnSpec(
         String url,
         String authToken,
         String modelId,
+        String reasoningEffort,
         String system,
         ArrayNode messages,
         ArrayNode tools,
         int maxOutputTokens,
         int maxToolIterations)
 {
+    /** Compatibility constructor for callers that do not select effort. */
+    public TurnSpec(
+            Transport transport,
+            String url,
+            String authToken,
+            String modelId,
+            String system,
+            ArrayNode messages,
+            ArrayNode tools,
+            int maxOutputTokens,
+            int maxToolIterations)
+    {
+        this(transport, url, authToken, modelId, null, system, messages,
+                tools, maxOutputTokens, maxToolIterations);
+    }
+
     public enum Transport
     {
         ANTHROPIC,

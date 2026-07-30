@@ -45,6 +45,7 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -85,6 +86,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final int serverPort;
     private SqliteStageSteeringStore steering;
     private V2LocalReviewControl localReview;
+    private ReasoningEffortService reasoningEfforts;
 
     public LocalDevelopmentRuntimeCoordinator(
             TaskCommandExecutor commands,
@@ -124,6 +126,13 @@ public final class LocalDevelopmentRuntimeCoordinator
         this.steering = requireNonNull(steering, "steering is null");
     }
 
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
+    }
+
     /** Materializes one already-durable steering request under its Task stripe. */
     public SteeringAdmission admitSteeringInCommand(Request request, long stageVersion)
     {
@@ -140,6 +149,8 @@ public final class LocalDevelopmentRuntimeCoordinator
         List<Attachment> attachments = ownerStore.attachments(request.id());
         String prompt = steeringPrompt(request, attachments);
         WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
+        workModel = stageEffort(context.trunkId(), context.taskId(),
+                context.stageId(), workModel);
         int laneMask = workModel.kind() == WorkModelKind.CLI ? 1 : 2;
         ObjectNode launch = writerLaunch(
                 context.provider(), context.model(), context.roleSkill(), workModel,
@@ -196,6 +207,8 @@ public final class LocalDevelopmentRuntimeCoordinator
         List<Attachment> attachments = ownerStore.attachments(request.id());
         String prompt = steeringPrompt(request, attachments);
         WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
+        workModel = stageEffort(context.trunkId(), context.taskId(),
+                context.stageId(), workModel);
         int laneMask = workModel.kind() == WorkModelKind.CLI ? 1 : 2;
         ObjectNode launch = writerLaunch(
                 context.provider(), context.model(), context.roleSkill(), workModel,
@@ -744,6 +757,8 @@ public final class LocalDevelopmentRuntimeCoordinator
                 + "exact code subject:\n\n" + String.join("\n", verdict.findings())
                 + "\n\nReturn the same strict Local development result JSON.";
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
+        model = stageEffort(context.trunkId(), context.taskId(),
+                context.stageId(), model);
         String lane = model.kind().name();
         int laneMask = model.kind() == WorkModelKind.CLI ? 1 : 2;
         ObjectNode launch = writerLaunch(
@@ -864,6 +879,7 @@ public final class LocalDevelopmentRuntimeCoordinator
         String operationId = id("development-brain-operation", evidence.id());
         String ticketId = id("development-brain-ticket", evidence.id());
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
+        model = taskEffort(context.trunkId(), context.taskId(), model);
         if (!context.provider().equals(model.agentOrProvider())
                 || model.model() != null && !model.model().isBlank()
                     && !context.model().equals(model.model())) {
@@ -965,6 +981,8 @@ public final class LocalDevelopmentRuntimeCoordinator
             Instant requestedAt)
     {
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
+        model = stageEffort(context.trunkId(), context.taskId(),
+                context.stageId(), model);
         if (!context.provider().equals(model.agentOrProvider())
                 || model.model() != null && !model.model().isBlank()
                     && !context.model().equals(model.model())
@@ -1056,6 +1074,23 @@ public final class LocalDevelopmentRuntimeCoordinator
         catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Frozen work model is invalid", e);
         }
+    }
+
+    private WorkModel taskEffort(
+            String trunkId, String taskId, WorkModel frozen)
+    {
+        return reasoningEfforts == null
+                ? frozen
+                : reasoningEfforts.forTask(trunkId, taskId, frozen);
+    }
+
+    private WorkModel stageEffort(
+            String trunkId, String taskId, String stageId, WorkModel frozen)
+    {
+        return reasoningEfforts == null
+                ? frozen
+                : reasoningEfforts.forStage(
+                        trunkId, taskId, stageId, frozen);
     }
 
     private CommandResult<StageManager.State> acceptCodeResult(

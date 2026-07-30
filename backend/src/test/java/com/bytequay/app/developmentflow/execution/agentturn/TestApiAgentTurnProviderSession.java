@@ -97,6 +97,7 @@ class TestApiAgentTurnProviderSession
 
         TurnSpec spec = captured.get();
         assertThat(spec.transport()).isEqualTo(TurnSpec.Transport.ANTHROPIC);
+        assertThat(spec.reasoningEffort()).isEqualTo("high");
         assertThat(spec.system()).isEqualTo("system");
         assertThat(spec.messages()).hasSize(1);
         assertThat(spec.messages().get(0).path("role").asText()).isEqualTo("user");

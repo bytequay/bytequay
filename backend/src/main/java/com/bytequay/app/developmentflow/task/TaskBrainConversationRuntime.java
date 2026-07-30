@@ -32,6 +32,7 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -87,6 +88,7 @@ public final class TaskBrainConversationRuntime
     private final ObjectReader workModelReader;
     private final Clock clock;
     private final int serverPort;
+    private ReasoningEffortService reasoningEfforts;
 
     @Autowired
     public TaskBrainConversationRuntime(
@@ -128,6 +130,13 @@ public final class TaskBrainConversationRuntime
             throw new IllegalArgumentException("serverPort is invalid");
         }
         this.serverPort = serverPort;
+    }
+
+    @Autowired
+    public void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     public boolean isV2Task(String taskId)
@@ -187,6 +196,10 @@ public final class TaskBrainConversationRuntime
                     "another Task Brain message is still running");
         }
         WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
+        if (reasoningEfforts != null) {
+            workModel = reasoningEfforts.forTask(
+                    context.trunkId(), context.taskId(), workModel);
+        }
         requireEngine(context.provider(), context.model(), workModel);
         boolean active = "ACTIVE".equals(context.lifecycle());
         Path workingDirectory = active
@@ -511,11 +524,41 @@ public final class TaskBrainConversationRuntime
             endpoint.put("url", endpointUrl(turnId, operationId));
             endpoint.put("ownerId", turnId);
             endpoint.put("operationId", operationId);
+            applyCurrentEffort(source, launch);
             return write(launch);
         }
         catch (JsonProcessingException e) {
             throw new IllegalStateException(
                     "Frozen Task Brain continuation launch is invalid", e);
+        }
+    }
+
+    private void applyCurrentEffort(
+            ContinuationContext source, ObjectNode launch)
+    {
+        if (reasoningEfforts == null) {
+            return;
+        }
+        AgentTurnProviderSession.Transport transport =
+                AgentTurnProviderSession.Transport.valueOf(
+                        required(launch.path("transport").asText(null),
+                                "transport"));
+        WorkModel frozen = new WorkModel(
+                transport == AgentTurnProviderSession.Transport.CLI
+                        ? WorkModelKind.CLI : WorkModelKind.API,
+                required(launch.path("provider").asText(null), "provider"),
+                required(launch.path("model").asText(null), "model"),
+                launch.path("credentialAccount").isTextual()
+                        ? launch.path("credentialAccount").asText() : null,
+                launch.path("reasoningEffort").isTextual()
+                        ? launch.path("reasoningEffort").asText() : null);
+        WorkModel current = reasoningEfforts.forTask(
+                source.trunkId(), source.taskId(), frozen);
+        if (current.reasoningEffort() == null) {
+            launch.putNull("reasoningEffort");
+        }
+        else {
+            launch.put("reasoningEffort", current.reasoningEffort());
         }
     }
 

@@ -900,9 +900,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               />
               <div style={composerFooterStyle}>
                 <span style={composerScopeStyle}>▸ Thread</span>
-                <span style={composerGlyphStyle} title="Slash commands">/</span>
                 <span style={composerFooterHintStyle}>
-                  ↵ send · ⌘↵ newline · / commands
+                  ↵ send · ⌘↵ newline
                 </span>
                 {trunkInFlight ? (
                   <button
@@ -2157,14 +2156,6 @@ const schedulerFooterStyle: React.CSSProperties = {
   fontStyle: 'italic',
   textAlign: 'center',
 };
-
-const composerGlyphStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text-4)',
-  padding: '0 2px',
-  cursor: 'default',
-};
-
 
 const taskCardMetaStyle: React.CSSProperties = {
   display: 'flex',

@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -281,11 +282,26 @@ public final class ApiAgentTurnProviderSession
                 provider.url(),
                 provider.authToken(),
                 request.model(),
+                apiEffort(request),
                 system,
                 messages,
                 renderTools(provider.transport(), catalog),
                 MAX_OUTPUT_TOKENS,
                 MAX_TOOL_ITERATIONS);
+    }
+
+    private static String apiEffort(Request request)
+    {
+        String effort = request.reasoningEffort();
+        if (effort == null) {
+            return null;
+        }
+        return switch (request.provider().toLowerCase(Locale.ROOT)) {
+            case "anthropic", "openai" -> effort;
+            default -> throw new IllegalArgumentException(
+                    "reasoning effort is unsupported for API provider "
+                            + request.provider());
+        };
     }
 
     private ObjectNode objectMessage(String role, String content)

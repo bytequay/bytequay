@@ -37,6 +37,7 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -87,6 +88,7 @@ public final class RemoteRepairTurnRuntime
     private final int serverPort;
     private final boolean requireCiBrainReview;
     private SqliteStageSteeringStore steering;
+    private ReasoningEffortService reasoningEfforts;
 
     public RemoteRepairTurnRuntime(
             TaskCommandExecutor commands,
@@ -120,6 +122,13 @@ public final class RemoteRepairTurnRuntime
         this.steering = requireNonNull(steering, "steering is null");
     }
 
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
+    }
+
     public SqliteRemoteRepairTurnStore.TurnRequest admitSteeringInCommand(
             Request request)
     {
@@ -143,7 +152,7 @@ public final class RemoteRepairTurnRuntime
         }
         RepairContext context = turns.requireContext(
                 request.taskId(), request.stageId());
-        WorkModel model = workModel(context);
+        WorkModel model = workModel(context, "STAGE_TURN");
         List<Attachment> attachments = ownerStore.attachments(request.id());
         String prompt = steeringPrompt(request, attachments, purpose);
         String turnId = id("remote-repair-steering-turn", request.id());
@@ -238,7 +247,7 @@ public final class RemoteRepairTurnRuntime
                 episode.taskId(), episode.stageId());
         requireSubject(context, rebaseResult);
         BranchStep step = remoteStore.requireBranchStep(episode.id(), 3);
-        WorkModel model = workModel(context);
+        WorkModel model = workModel(context, "STAGE_TURN");
         String prompt = "Resolve every conflict while rebasing the exact Task "
                 + "head onto base " + episode.targetBaseSha()
                 + ". Do not push. Finish the rebase and commit the resolved "
@@ -525,7 +534,7 @@ public final class RemoteRepairTurnRuntime
     {
         RepairContext context = turns.requireContext(
                 episode.taskId(), episode.stageId());
-        WorkModel model = workModel(context);
+        WorkModel model = workModel(context, "STAGE_TURN");
         int attempt = episode.fixAttemptCount() + 1;
         String suffix = episode.id() + ":fix:" + attempt;
         String turnId = id("ci-repair-stage-turn", suffix);
@@ -542,7 +551,7 @@ public final class RemoteRepairTurnRuntime
     {
         RepairContext context = turns.requireContext(
                 episode.taskId(), episode.stageId());
-        WorkModel model = workModel(context);
+        WorkModel model = workModel(context, "TASK_TURN");
         int attempt = episode.fixAttemptCount();
         String suffix = episode.id() + ":brain:" + attempt;
         String turnId = id("ci-repair-task-turn", suffix);
@@ -562,7 +571,7 @@ public final class RemoteRepairTurnRuntime
     private void requestBranchBrain(
             RepairContext context, BranchEpisode episode, BranchStep step)
     {
-        WorkModel model = workModel(context);
+        WorkModel model = workModel(context, "TASK_TURN");
         int attempt = step.attemptCount() + 1;
         String suffix = step.id() + ":" + attempt;
         String turnId = id("branch-sync-task-turn", suffix);
@@ -665,7 +674,7 @@ public final class RemoteRepairTurnRuntime
                 output.codeFingerprint(), output.headSha(), output.baseSha());
     }
 
-    private WorkModel workModel(RepairContext context)
+    private WorkModel workModel(RepairContext context, String ownerKind)
     {
         WorkModel model;
         try {
@@ -680,6 +689,14 @@ public final class RemoteRepairTurnRuntime
                     && !context.model().equals(model.model())) {
             throw new IllegalStateException(
                     "Frozen Task Brain and work model identify different engines");
+        }
+        if (reasoningEfforts != null) {
+            model = "TASK_TURN".equals(ownerKind)
+                    ? reasoningEfforts.forTask(
+                            context.trunkId(), context.taskId(), model)
+                    : reasoningEfforts.forStage(
+                            context.trunkId(), context.taskId(),
+                            context.stageId(), model);
         }
         return model;
     }

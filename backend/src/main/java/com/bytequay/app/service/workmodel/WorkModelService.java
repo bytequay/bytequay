@@ -140,7 +140,7 @@ public class WorkModelService
                     /* installed */ true,
                     /* authed */ true,
                     agent.defaultModel().id(),
-                    toEntries(agent.models())));
+                    toEntries(agent.id(), agent.models())));
         }
         return out.build();
     }
@@ -237,17 +237,63 @@ public class WorkModelService
                     provider.id(),
                     provider.displayName(),
                     provider.defaultModel().id(),
-                    toEntries(provider.models()),
+                    toEntries(provider.id(), provider.models()),
                     toAccounts(accounts)));
         }
         return out.build();
     }
 
-    private static List<WorkModelEntry> toEntries(List<WorkModelCatalog.CatalogEntry> models)
+    private static List<WorkModelEntry> toEntries(
+            String engine,
+            List<WorkModelCatalog.CatalogEntry> models)
     {
         return models.stream()
-                .map(m -> new WorkModelEntry(m.id(), m.displayName(), m.isDefault()))
+                .map(model -> entry(engine, model))
                 .collect(toImmutableList());
+    }
+
+    private static WorkModelEntry entry(
+            String engine,
+            WorkModelCatalog.CatalogEntry model)
+    {
+        List<String> efforts = switch (engine) {
+            case "claude-code", "anthropic" -> model.id().contains("haiku")
+                    ? List.of()
+                    : model.id().contains("sonnet")
+                            ? List.of("low", "medium", "high", "max")
+                            : List.of("low", "medium", "high", "xhigh", "max");
+            case "codex", "openai" -> model.id().startsWith("gpt-5")
+                    ? List.of("minimal", "low", "medium", "high")
+                    : List.of();
+            default -> List.of();
+        };
+        String defaultEffort = efforts.isEmpty()
+                ? null
+                : (engine.equals("codex") || engine.equals("openai"))
+                        ? "medium" : "high";
+        return new WorkModelEntry(
+                model.id(),
+                model.displayName(),
+                model.isDefault(),
+                null,
+                defaultEffort,
+                efforts.stream()
+                        .map(effort -> new WorkModelReasoningEffort(
+                                effort, effortDescription(effort)))
+                        .collect(toImmutableList()));
+    }
+
+    private static String effortDescription(String effort)
+    {
+        return switch (effort) {
+            case "minimal" -> "Fastest response with minimal reasoning";
+            case "low" -> "Faster response with lighter reasoning";
+            case "medium" -> "Balanced speed and reasoning";
+            case "high" -> "Deeper reasoning";
+            case "xhigh" -> "Very deep reasoning";
+            case "max" -> "Maximum available reasoning";
+            default -> effort;
+        };
     }
 
     private static List<WorkModelEntry> toCodexEntries(List<CodexModelCatalogProbe.Model> models)

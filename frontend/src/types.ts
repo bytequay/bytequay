@@ -1240,8 +1240,8 @@ export type WorkModelDto = {
    *  account for this provider. Ignored on CLI kinds (the agent
    *  manages its own auth). */
   account: string | null;
-  /** CLI-only reasoning level. Null/absent uses that model's CLI-reported
-   *  default. */
+  /** Request-level reasoning effort for CLI or supporting API models.
+   *  Null/absent uses the inherited or model default. */
   reasoningEffort?: string | null;
 };
 
@@ -1380,8 +1380,8 @@ export type ResolvedWorkModelDto = {
     scopeId: string | null;
     scopeLabel: string;
   };
-  /** Historical lock projection. V2 scopes freeze their full work-model
-   *  snapshot at creation and expose it read-only regardless of this bit. */
+  /** Historical lock projection. Existing scopes keep their engine snapshot;
+   *  effort overrides remain editable for future, not-yet-admitted turns. */
   agentLocked: boolean;
 };
 
@@ -3560,13 +3560,23 @@ export type Bridge = {
   /** Resolve the effective work model for a thread (cascade: thread →
    *  workspace → global default). */
   getThreadWorkModel: (threadId: string) => Promise<ResolvedWorkModelDto>;
+  /** Set or clear this trunk's effort override. The engine remains fixed. */
+  setThreadWorkModel: (threadId: string, model: WorkModelDto | null) => Promise<ResolvedWorkModelDto>;
   /** Resolve the effective work model for a task (cascade: task →
    *  thread → workspace → global default). */
   getTaskWorkModel: (threadId: string, taskId: string) => Promise<ResolvedWorkModelDto>;
+  /** Set or clear this task's effort override. The engine remains fixed. */
+  setTaskWorkModel: (
+    threadId: string,
+    taskId: string,
+    model: WorkModelDto | null,
+  ) => Promise<ResolvedWorkModelDto>;
   /** Resolve the effective work model for a stage (cascade: stage →
    *  task → thread → workspace → global default) — the most-specific
    *  rung on the cascade. */
   getStageWorkModel: (stageId: string) => Promise<ResolvedWorkModelDto>;
+  /** Set or clear this stage's effort override. The engine remains fixed. */
+  setStageWorkModel: (stageId: string, model: WorkModelDto | null) => Promise<ResolvedWorkModelDto>;
   /** Local ds4 inference server lifecycle. Status is the cheap poll
    *  every page surface (widget + Settings) shares; the rest drive
    *  the management actions. */

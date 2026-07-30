@@ -24,6 +24,7 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.localpr.PrUpdatedEvent;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -77,6 +78,7 @@ public final class V2LocalReviewControl
     private final Clock clock;
     private final int serverPort;
     private SqliteStageSteeringStore steering;
+    private ReasoningEffortService reasoningEfforts;
 
     @Autowired
     public V2LocalReviewControl(
@@ -117,6 +119,13 @@ public final class V2LocalReviewControl
     void setSteeringStore(SqliteStageSteeringStore steering)
     {
         this.steering = requireNonNull(steering, "steering is null");
+    }
+
+    @Autowired
+    void setReasoningEfforts(ReasoningEffortService reasoningEfforts)
+    {
+        this.reasoningEfforts = requireNonNull(
+                reasoningEfforts, "reasoningEfforts is null");
     }
 
     public boolean handles(PR pr)
@@ -1175,6 +1184,11 @@ public final class V2LocalReviewControl
         Instant now = clock.instant();
         String prompt = feedbackPrompt(batch.id());
         WorkModel model = decodeWorkModel(subject.workModelSnapshot());
+        if (reasoningEfforts != null) {
+            model = reasoningEfforts.forStage(
+                    subject.trunkId(), subject.taskId(),
+                    subject.stageId(), model);
+        }
         if (!subject.provider().equals(model.agentOrProvider())
                 || model.model() != null && !model.model().isBlank()
                     && !subject.model().equals(model.model())) {

@@ -6175,6 +6175,23 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:setWorkModel', async (_event, args: unknown) => {
+    const { threadId, model } = args as { threadId: string; model: unknown };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/work-model`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workModel: model }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `setThreadWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:getTaskWorkModel', async (_event, args: unknown) => {
     const { threadId, taskId } = args as { threadId: string; taskId: string };
     const res = await fetch(
@@ -6187,6 +6204,27 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:setTaskWorkModel', async (_event, args: unknown) => {
+    const { threadId, taskId, model } = args as {
+      threadId: string;
+      taskId: string;
+      model: unknown;
+    };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/work-model`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workModel: model }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `setTaskWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:getStageWorkModel', async (_event, args: unknown) => {
     const { stageId } = args as { stageId: string };
     const res = await fetch(
@@ -6195,6 +6233,23 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       throw new Error(detail || `getStageWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:setStageWorkModel', async (_event, args: unknown) => {
+    const { stageId, model } = args as { stageId: string; model: unknown };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/work-model`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workModel: model }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `setStageWorkModel returned ${res.status}`);
     }
     return res.json();
   });

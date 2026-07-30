@@ -15,8 +15,6 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 import { CloseIcon, PlusIcon, SendUpIcon } from '../TaskBrainDesignIcons';
 import { Kbd } from '../primitives';
-import { useSlashCommands, type SlashCommand } from '../../useSlashCommands';
-import { OPEN_WORK_MODEL_EVENT } from '../../workspace/WorkModelPill';
 import { pasteClipboardImages } from './pasteClipboardImages';
 
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
@@ -104,17 +102,8 @@ export function Composer({
     if (canSend) onSubmit(showSuggestedReply ? suggestedReply : undefined);
   };
 
-  // Slash commands. "/model" opens the work-model pill already rendered in
-  // this composer's footer (it listens for the window event). Only shown
-  // when a modePill is present, since that's the pill the event drives.
-  const commands: SlashCommand[] = modePill === undefined ? [] : [
-    { name: 'model', desc: 'Switch AI model', run: () => window.dispatchEvent(new Event(OPEN_WORK_MODEL_EVENT)) },
-  ];
-  const slash = useSlashCommands({ value, onChange, commands, textareaRef: taRef });
-
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
-    if (slash.onKeyDown(e)) return;
     if (showSuggestedReply && e.key === 'Tab'
       && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
@@ -157,7 +146,6 @@ export function Composer({
         </div>
       )}
       <div className={workspaceVariant ? 'composer composer--workspace-v2' : 'composer'} style={{ position: 'relative' }}>
-        {slash.dropdown}
         {images.length > 0 && (
           <div className="composer-images">
             {images.map(src => (
@@ -189,9 +177,8 @@ export function Composer({
             ? `Message. Suggested reply: ${suggestedReply}. Press Tab to insert or Enter to send.`
             : 'Message'}
           disabled={disabled}
-          onChange={slash.onChange}
+          onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
-          onClick={slash.onClick}
           onPaste={onPaste}
         />
         <div className="footer">

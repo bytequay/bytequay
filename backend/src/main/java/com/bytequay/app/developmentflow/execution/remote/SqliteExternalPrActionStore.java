@@ -436,10 +436,35 @@ public class SqliteExternalPrActionStore
                   AND lower(detail.base_repo) = lower(local_pr.repo)
                 """, (rs, row) -> subject(rs), prId);
         if (rows.size() != 1) {
+            requireWatchedRepository(prId);
             throw new IllegalStateException(
                     "external PR action requires one complete cached subject");
         }
         return rows.getFirst();
+    }
+
+    /**
+     * A PR's GitHub effects hang off the V2 REVIEW Trunk in the workspace
+     * bound to its repository, so a repository the user never watched has
+     * nowhere to own them and {@link #requireCachedSubject} finds nothing.
+     * That is a setup gap the user closes by watching the repository — not a
+     * moved head or a stale cache — so report it as itself. Only runs on the
+     * failure path.
+     */
+    private void requireWatchedRepository(String prId)
+    {
+        List<String> unwatched = jdbc.queryForList("""
+                SELECT local_pr.repo FROM pr local_pr
+                WHERE local_pr.id = ?
+                  AND local_pr.repo IS NOT NULL
+                  AND length(trim(local_pr.repo)) > 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM workspace_repos binding
+                      WHERE lower(binding.repo_full_name) = lower(local_pr.repo))
+                """, String.class, prId);
+        if (!unwatched.isEmpty()) {
+            throw new UnwatchedRepositoryException(unwatched.getFirst());
+        }
     }
 
     private Optional<Subject> findCurrentSubject(Action action)
@@ -716,6 +741,24 @@ public class SqliteExternalPrActionStore
             throw new IllegalArgumentException(name + " is blank");
         }
         return value;
+    }
+
+    /**
+     * The one authorization failure the user can fix from the app: the PR's
+     * repository isn't watched, so it has no workspace and no REVIEW Trunk to
+     * own a GitHub effect. Stays an {@link IllegalStateException} so claim and
+     * authorization handling treat it exactly like any other stale subject;
+     * the message is user-facing and the UI turns it into a watch action, so
+     * keep its wording in step with the frontend's submit-review drawer.
+     */
+    public static final class UnwatchedRepositoryException
+            extends IllegalStateException
+    {
+        public UnwatchedRepositoryException(String repository)
+        {
+            super("ByteQuay must watch " + requireText(repository, "repository")
+                    + " before publishing to its pull requests");
+        }
     }
 
     public record AuthorizationRequest(

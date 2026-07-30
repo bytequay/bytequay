@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.execution.remote;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.UnwatchedRepositoryException;
 import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore.AuthorizationRequest;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.Action;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.ActionKind;
@@ -28,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -35,8 +37,10 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -61,6 +65,36 @@ class TestV2UserRemoteActionRuntime
         runtime = new V2UserRemoteActionRuntime(
                 store, prs, new ObjectMapper(), investigationReviews,
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void anUnwatchedRepositoryKeepsItsOwnReasonWhileStaleSubjectsStayGeneric()
+    {
+        SqliteExternalPrActionStore externalActions =
+                mock(SqliteExternalPrActionStore.class);
+        V2UserRemoteActionRuntime external = new V2UserRemoteActionRuntime(
+                store, externalActions, null, null, prs, new ObjectMapper(),
+                investigationReviews);
+        // doThrow, not when(...): re-stubbing a throwing method through
+        // when() would call the mock and raise the previous stub.
+        doThrow(new UnwatchedRepositoryException("acme/widget"))
+                .when(externalActions).authorize(any(), any());
+
+        assertThatThrownBy(() -> external.publishExternalReview(
+                "command-1", "pr-1", null, "APPROVE", "", List.of(), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("ByteQuay must watch acme/widget"
+                        + " before publishing to its pull requests")
+                .hasMessageNotContaining("no longer matches");
+
+        doThrow(new IllegalStateException("cached head moved"))
+                .when(externalActions).authorize(any(), any());
+
+        assertThatThrownBy(() -> external.publishExternalReview(
+                "command-2", "pr-1", null, "APPROVE", "", List.of(), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining(
+                        "no longer matches the exact cached PR/head");
     }
 
     @Test

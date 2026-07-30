@@ -86,6 +86,39 @@ describe('SubmitReviewDrawer', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('GitHub rejected this approval.');
   });
 
+  it('offers to watch the repository when that is why the review was refused', async () => {
+    const onWatchRepo = vi.fn();
+    const refusal = new Error(
+      'ByteQuay must watch trinodb/trino before publishing to its pull requests');
+    render(
+      <SubmitReviewDrawer
+        open
+        onClose={() => {}}
+        onSubmit={() => Promise.reject(refusal)}
+        onWatchRepo={onWatchRepo}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain("ByteQuay isn't watching");
+    expect(alert.textContent).toContain('trinodb/trino');
+    fireEvent.click(screen.getByRole('button', { name: 'Watch trinodb/trino' }));
+    expect(onWatchRepo).toHaveBeenCalledOnce();
+  });
+
+  it('shows the refusal without a watch button when watching is not wired up', async () => {
+    const refusal = new Error(
+      'ByteQuay must watch trinodb/trino before publishing to its pull requests');
+    render(<SubmitReviewDrawer open onClose={() => {}} onSubmit={() => Promise.reject(refusal)} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain("isn't watching");
+    expect(screen.queryByRole('button', { name: /^Watch / })).toBeNull();
+  });
+
   it('removes Electron IPC noise from a submission error', async () => {
     const message = "Error invoking remote method 'pr:publishReview': Error: "
       + 'The configured GitHub token cannot perform this action.';

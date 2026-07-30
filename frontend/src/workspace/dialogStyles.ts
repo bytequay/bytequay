@@ -97,21 +97,6 @@ export const dialogStyles = {
     color: 'var(--ws-text-1)',
     boxSizing: 'border-box',
   } as React.CSSProperties,
-  chipRow: {
-    display: 'flex',
-    gap: 6,
-    marginTop: 10,
-    flexWrap: 'wrap',
-  } as React.CSSProperties,
-  chip: {
-    padding: '4px 10px',
-    fontSize: 11,
-    border: '1px solid var(--ws-card-border)',
-    borderRadius: 999,
-    background: 'rgba(255, 255, 255, 0.85)',
-    color: 'var(--ws-text-3)',
-    cursor: 'pointer',
-  } as React.CSSProperties,
   helperRow: {
     marginTop: 8,
     fontSize: 11,

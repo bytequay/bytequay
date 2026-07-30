@@ -2,7 +2,7 @@
 
 Status: **LOCKED**
 
-Version: **3.3**
+Version: **3.5**
 
 Decision date: **2026-07-28**
 
@@ -10,11 +10,18 @@ This document is the normative architecture contract for development-flow
 ownership, state transitions, persistence, asynchronous work, recovery, and
 cleanup.
 
-This document and its tracked migration plan are a self-contained
-implementation contract. Files under `docs/mockups/` are optional local design
-history, not required inputs. The preserved product topology and journey are
-restated below. If an older note describes TaskPhase, AgentScheduler, generic
-AgentRun, CI_FIXING stages, nullable turn scope, event-driven lifecycle
+The tracked
+[Project Intelligence architecture](./project-intelligence-design.md) is the
+normative extension for learned context, approved direction, review
+intelligence, briefing, and review voice. It is subordinate to this document
+for lifecycle, admission, execution, source snapshots, and recovery.
+
+The development-flow core in this document and its tracked migration plan is a
+self-contained implementation contract. Files under `docs/mockups/` are
+optional local design history, not required inputs. The preserved product
+topology and journey are restated below. If an older note describes TaskPhase,
+AgentScheduler, generic AgentRun, CI_FIXING stages, nullable turn scope,
+event-driven lifecycle
 transitions, or any other conflicting behavior, this document controls.
 
 Changing a locked rule requires an explicit decision. Record the decision in
@@ -396,14 +403,17 @@ compatibility matrix below; no ignored document is needed to implement them.
     capabilities, and source coordinates retained only as capture provenance.
     Full review advertises `frozen-changed-files`: it may read those persisted
     bodies but cannot claim arbitrary repository source, repository callers,
-    or Git history. Quick review remains diff-only. Every result, guidance,
-    restart, deterministic coverage pass, verification, and finalization
-    continuation loads that row only; uncaptured paths fail closed, typed CLI
-    work uses a neutral non-checkout directory, and no continuation may fetch
-    GitHub, run Git, or read mutable filesystem state after the dispatch lease.
-    V2 Task reviews derive it from the accepted TaskReviewSnapshot result, and
-    standalone reviews derive it from the accepted ReviewSessionSnapshot
-    result.
+    or Git history. Quick review remains diff-only. Every result, restart,
+    deterministic coverage pass, verification, and finalization continuation
+    loads source evidence from that row only. After Project Intelligence
+    cutover, review objectives and guidance may additionally load only the
+    exact immutable round-intelligence row required by C53; it supplies no
+    source evidence and grants no additional source capability. Uncaptured
+    paths fail closed, typed CLI work uses a neutral non-checkout directory,
+    and no continuation may fetch GitHub, run Git, or read mutable filesystem
+    state after the dispatch lease. V2 Task reviews derive the source row from
+    the accepted TaskReviewSnapshot result, and standalone reviews derive it
+    from the accepted ReviewSessionSnapshot result.
 49. **C49** — Every seat-admitting command for a standalone ReviewSession is
     database-only and creates one durable ReviewSessionSnapshot Operation with
     a ReviewSession-owned DispatchTicket. Quick capture follows C47. Full
@@ -449,7 +459,37 @@ compatibility matrix below; no ignored document is needed to implement them.
     command, or the destructive command commits and blocks the ticket. There is
     no Workspace-wide pause mutation; exact Task and Stage owners must cancel
     or finish their own work before repository replacement.
-
+53. **C53** — Project Intelligence is a Workspace-owned context system, not a
+    lifecycle owner. It may select bounded Plan and full-review angles,
+    applicable areas, objectives, recipes, and ordering, but it cannot change
+    Stage shape, admission, review class, panel, budget, source capability,
+    evidence, severity, verification, failure class, publishability, or
+    verdict. After Project Intelligence cutover, each new Plan revision and
+    full ReviewRound uses one exact immutable intelligence projection; a quick
+    review uses an explicit empty projection, and no admitted seat or
+    continuation reloads live intelligence. A changed basis requires a new Plan
+    revision, and review requires a new ReviewRound. A Plan-scoped exception may
+    cover only a deliberate deviation from an item already present in the
+    still-current frozen basis and typed STEWARDSHIP concern; it cannot accept a
+    basis change. The same mandatory Plan self-review is never rerun. Project
+    Intelligence adds no Stage, scheduler, executor, or capacity authority.
+54. **C54** — A successful Plan self-review with CHANGES_REQUESTED records its
+    exact concerns and enters the existing AWAITING_APPROVAL checkpoint; it
+    does not launch an automatic redraft. The user may request a revised Plan,
+    which creates a new revision and one self-review, or atomically dismiss
+    every current PLAN_REASONING CONCERN as incorrect review reasoning with an
+    attributed explanation and record an exact HUMAN approval on the same
+    revision. Every exact concern must still be OPEN, and generic follow-up
+    commands cannot resolve or defer CONCERN or STEWARDSHIP. A
+    PROJECT_DIRECTION concern carries its exact frozen item and statement
+    digest as non-dismissible STEWARDSHIP.
+    POLICY and AUTOMATION still require APPROVED. BLOCKED, failed, no-verdict,
+    partial, stale, or open-STEWARDSHIP cases cannot use adjudication. A changed
+    intelligence basis requires a new Plan revision, while a deliberate
+    Direction deviation remains the C53 exact scoped-exception path.
+    Adjudication is immutable approval evidence, not another self-review; it
+    cannot mutate Project Intelligence, add a Stage, or authorize an override
+    in a downstream implementation BrainReviewEpisode or Agent Review.
 ## Owners and boundaries
 
 | Owner | Sole write authority |
@@ -547,19 +587,37 @@ never returns to an earlier state.
 
 ~~~text
 DRAFTING -> SELF_REVIEW -> AWAITING_APPROVAL -> COMPLETED
-    ^             |
-    +-- revision -+
+    ^                            |
+    +--------- revise -----------+
 ~~~
 
 - Plan content is revisioned.
 - Exactly one mandatory Brain self-review applies to each candidate final
   revision.
-- A material change creates another revision and invalidates approval evidence.
-- Auto-approval may approve the latest reviewed revision when Task policy
-  permits.
+- A material Plan or governing-basis change creates another revision and
+  invalidates approval evidence.
+- Auto-approval may approve the latest APPROVED-reviewed revision when Task
+  policy permits.
 - User follow-ups are recorded against a revision.
-- note-plan-concern facts and Project Stewardship direction checks are part of
+- note-plan-concern facts and Project Direction checks are part of
   the reviewed Plan evidence.
+- APPROVED waits for the normal approval decision. CHANGES_REQUESTED stores
+  at least one exact CONCERN and waits for the user; it never starts a redraft
+  by itself.
+- From CHANGES_REQUESTED, Revise Plan creates a new revision. Adjudicate and
+  approve is an all-or-nothing HUMAN command that dismisses every exact concern
+  as incorrect reasoning and approves the same revision.
+- A viable deliberate Direction deviation is APPROVED with STEWARDSHIP linked
+  to the exact frozen item and statement digest, not CHANGES_REQUESTED. From a
+  CHANGES_REQUESTED result, the exception route creates a substantive revision
+  that states the bounded deviation, rationale, rejected aligned alternative,
+  risks, and compensating checks. A malformed or misclassified
+  verdict/concern/stewardship combination opens the existing review blocker.
+- BLOCKED, failed/no-verdict review, an open STEWARDSHIP concern, or any stale
+  Task, Stage, revision, self-review, content, intelligence, or current
+  Direction fence cannot be adjudicated.
+- Task and Stage optimistic versions are part of that fence. A same-generation
+  owner mutation rejects a stale displayed decision.
 - A stewardship exception disables automatic Plan approval and automatic merge
   until explicitly resolved.
 - The first self-review execution failure may retry once as infrastructure
@@ -1104,9 +1162,32 @@ Task branch/worktree invariants:
 - The Plan Stage records a proposed revision.
 - Task Brain performs one self-review TaskTurn for that revision.
 - The use case records the Brain result in Task and Plan.
-- If revised, the new revision requires its own self-review.
-- User or policy approval applies only to the exact reviewed revision.
+- APPROVED enters the normal approval wait. CHANGES_REQUESTED persists its exact
+  concerns and enters the same wait without starting agent work.
+- The user may request revision; the existing redraft path then creates a new
+  revision with its own self-review.
+- The user may instead adjudicate a CHANGES_REQUESTED result. The serialized
+  Plan-owner command requires an attributed, nonblank DISMISSED_INCORRECT
+  decision for every exact CONCERN, resolves them, and records HUMAN approval
+  atomically. A partial or stale command changes nothing.
+- Adjudication cannot accept BLOCKED, failed/no-verdict, or open-STEWARDSHIP
+  evidence. POLICY and AUTOMATION approval still require APPROVED.
+- Generic resolution and deferral remain limited to FOLLOW_UP; every adjudicated
+  CONCERN must still be OPEN when the atomic command starts.
+- If Project Intelligence is wrong or inapplicable, the user corrects it through
+  its owner and creates a new Plan revision with a new frozen basis and one
+  self-review. The Plan text may remain identical when the basis digest changed.
+- Revision idempotency is scoped to the stable producing command or Turn. Its
+  replay returns the original row; a fresh candidate identical to the
+  immediately current prose and basis is a no-op, while A/X to B/X to A/X is
+  valid monotonic revision history.
+- Human, policy, or automation approval applies only to the exact reviewed
+  revision.
 - Approval completes Plan and lets Task open Local Development.
+- If HUMAN approval used adjudication, the exact bounded concern resolutions
+  accompany the approved Plan in downstream development Turns. They prevent
+  blind replay of the Plan-review concern but do not suppress a new Brain or
+  review finding supported by new code evidence.
 - Replan first requests whole-Task quiescence. No new work is admitted.
 - Once all claimed mutating work is stopped or reconciled, Task epoch advances
   and a new Plan Stage generation opens.
@@ -1760,7 +1841,8 @@ second workflow coordinator.
 | User/agent/issue/quality/automation Task origins | typed TaskAssignment | Preserved without nullable inference |
 | Fresh-base, planning-snapshot and fork provenance | TaskAssignment + ProvisionTaskOperation | Preserved |
 | Task branch/worktree/session/PR identity | TaskManager + fenced WorktreeLease | Preserved and strengthened |
-| Mandatory Plan, self-review, follow-ups, auto/manual approval | Plan Stage + Task Brain | Preserved |
+| Mandatory Plan, self-review, follow-ups, auto/manual approval | Plan Stage + Task Brain | Preserved; CHANGES_REQUESTED waits for human revision or exact all-concern adjudication, while POLICY/AUTOMATION still require APPROVED |
+| Project Intelligence in Plan and full review | immutable Plan-revision and ReviewRound intelligence projections | Post-cutover extension; exact Workspace context may select bounded angles and ordering but never lifecycle, source capability, evidence, verification, publication, or verdict |
 | Replan with history and runtime teardown | Task command + new Plan generation | Preserved and fenced |
 | Stage stream, steer and interrupt | exact StageTurn/Operation | Preserved |
 | Development/validation/Brain loop | Local Stage + BrainReviewEpisode | Preserved without coordinator ping-pong |
@@ -2053,12 +2135,15 @@ duplicate-delivery variants where applicable.
     projection. Prove no application executor, in-memory quick-run map, legacy
     AI draft endpoint, or direct publish path can perform the review.
 87. Restart or steer after every typed review seat result. Verify each
-    continuation reads the immutable ReviewRound snapshot only, never Git,
-    GitHub, or the filesystem; complete frozen changed-file bodies remain
+    continuation reads source evidence only from the immutable ReviewRound
+    snapshot and, after Project Intelligence cutover, guidance only from the
+    exact immutable round-intelligence row; it never reads Git, GitHub, the
+    filesystem, or live knowledge. Complete frozen changed-file bodies remain
     readable after the checkout changes or is deleted, uncaptured paths fail
     closed, deterministic coverage searches only frozen bodies, and typed CLI
     work starts outside the checkout. Block a result whose route, prompt
-    metadata, base/head, or snapshot identity does not match the exact round.
+    metadata, base/head, intelligence digest, or snapshot identity does not
+    match the exact round.
 88. For a Task-attached review, invoke initial start, Continue, Re-review,
     answer, and scheduled/delta review. Verify each command commits its own
     exact TaskReviewSnapshot and Task-owned `LOCAL_GIT` ticket without Git,
@@ -2105,7 +2190,47 @@ duplicate-delivery variants where applicable.
     ticket is terminal, verify the destructive command succeeds; verify ticket
     admission resumes only after repository reattachment or successful
     re-clone completion.
-
+94. After Project Intelligence cutover, watch the same repository in two
+    Workspaces and start a Plan draft, a full review, and a quick review.
+    Verify the Plan draft launch and resulting revision use one exact immutable
+    Workspace projection, the full ReviewRound freezes only its authorized
+    Workspace projection beside the C48 source snapshot, and quick review
+    freezes the canonical empty projection. Activate, retire, challenge, and
+    replace knowledge after admission; every existing Turn and continuation
+    reuses its frozen projection while a new Plan revision or ReviewRound sees
+    the new basis. Prove no live or repository-only retrieval occurs after
+    admission and intelligence cannot change Stage state, review class,
+    capacity, source tools, evidence, severity, verification, publishability,
+    or the user verdict.
+95. Complete one Plan self-review with CHANGES_REQUESTED and two persisted
+    concerns. Verify no redraft Turn is admitted and the existing Plan Stage
+    waits at AWAITING_APPROVAL. Request revision and verify a new Plan revision
+    with one new self-review is created. In a second case, submit attributed
+    DISMISSED_INCORRECT reasons for every concern and verify the resolutions and
+    HUMAN approval commit atomically on the same revision without changing its
+    sole self-review. Replay the same stable command and verify the original
+    approval/evidence returns; change its payload, Task/Stage optimistic version,
+    or another displayed fence and verify rejection. Omit one concern, use the
+    generic endpoint to resolve/defer one first, leave typed STEWARDSHIP open,
+    try to store a frozen Direction reference as PLAN_REASONING, or use BLOCKED,
+    failed, or no-verdict evidence; verify the entire adjudication rejects with
+    no partial resolution or approval. Change the applicable Direction digest
+    and attempt a scoped exception against the old revision; verify rejection
+    and a required new revision. Choose Intelligence is wrong, correct it through
+    Memory, and verify a new revision may preserve identical Plan prose only when
+    its projection digest changed. Verify Local and Remote Development
+    receive the exact bounded approval evidence and may still raise a new
+    implementation-backed finding. Prove adjudication never mutates knowledge,
+    grants a Direction exception, enables POLICY/AUTOMATION approval, adds a
+    Stage, or overrides a downstream implementation BrainReviewEpisode or Agent
+    Review.
+96. Within one open Plan Stage, create revisions A/X, B/X, and then A/X again,
+    where the letter is the prose digest and X is the intelligence digest.
+    Verify all three receive monotonic revision identities and one self-review
+    each. Replay each stable producing command and verify no duplicate revision;
+    submit a fresh candidate identical to the immediately current prose and
+    basis and verify NO_SEMANTIC_CHANGE. A historical content match must never
+    return or reuse the older revision's self-review or approval evidence.
 ## Patterns to preserve
 
 Reuse and adapt:
@@ -2164,6 +2289,44 @@ reconciliation; they are never reassigned using latest/active inference.
   promised extension until separately designed and implemented.
 
 ## Change log
+
+### 3.5 — 2026-07-30
+
+- Made CHANGES_REQUESTED Plan self-review a human decision gate instead of an
+  automatic redraft trigger.
+- Added exact all-concern human adjudication on the same Plan revision while
+  preserving APPROVED-only policy and automation gates, blockers, Direction
+  exceptions, and the one-self-review invariant.
+- Required typed, non-dismissible Direction linkage and exact idempotent command
+  replay for adjudication evidence.
+- Restricted scoped exceptions to unchanged frozen Direction and required a new
+  revision for every applicable-basis change.
+- Preserved generic follow-up isolation and added Task/Stage optimistic-version
+  fences to all-concern adjudication.
+- Required wrong intelligence to be corrected through Memory and a new frozen
+  Plan revision, with revision idempotency scoped to its producing command
+  rather than historical content.
+- Added acceptance scenarios 95 and 96 for revision, adjudication, typed
+  stewardship, command replay, A/B/A history, and non-authority boundaries.
+
+### 3.4 — 2026-07-30
+
+- Incorporated the tracked Project Intelligence contract as a subordinate
+  extension without reopening lifecycle ownership or the completed migration.
+- Locked one immutable intelligence projection per Plan revision and full
+  ReviewRound, explicit empty intelligence for quick review, and the rule that
+  intelligence selects attention but cannot supply evidence or decide review
+  outcomes.
+- Required a new Plan revision or ReviewRound when the governing basis changes,
+  introduced an exact human-approved Plan exception later narrowed by 3.5 to an
+  unchanged frozen basis, and prohibited any new intelligence Stage, scheduler,
+  executor, or capacity authority.
+- Added the compatibility-matrix boundary and acceptance scenario 94 for
+  Workspace isolation, frozen reuse, quick-review emptiness, and downstream
+  non-authority.
+- Clarified C48 and scenario 87 so frozen source evidence remains exclusive to
+  the source snapshot while post-cutover guidance comes only from the separate
+  immutable round-intelligence row.
 
 ### 3.3 — 2026-07-30
 

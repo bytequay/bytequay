@@ -181,7 +181,7 @@ describe('WorkspaceNavShell', () => {
     await waitFor(() => expect(container.querySelector('.workspace-page-switcher')).toBeTruthy());
 
     const text = container.textContent ?? '';
-    expect(text.indexOf('TRUNKS')).toBeLessThan(text.indexOf('WORKSPACE'));
+    expect(text.indexOf('Trunks')).toBeLessThan(text.indexOf('WORKSPACE'));
     expect(screen.queryByText('WORK')).toBeNull();
     expect(screen.queryByText('REPO')).toBeNull();
     expect(screen.queryByText('BRAIN')).toBeNull();

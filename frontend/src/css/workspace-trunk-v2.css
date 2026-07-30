@@ -45,10 +45,8 @@
   letter-spacing: 0.1em;
 }
 
-.workspace-redesign .trunk-page-v2-nav__section-head > span {
-  color: #b6bcc2;
-  font-size: var(--left-nav-meta-font-size);
-  font-weight: var(--left-nav-font-weight);
+.workspace-redesign .trunk-page-v2-nav__section-head > strong {
+  font-size: 13px;
 }
 
 .workspace-redesign .trunk-page-v2-nav__section-head > button {

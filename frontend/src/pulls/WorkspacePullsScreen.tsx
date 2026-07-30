@@ -16,6 +16,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { PullRequestDto } from '../types';
 import type { AgentReviewData } from '../review/agentReviewTypes';
 import { workspaceApi, type WorkspaceRepositoryDto } from '../workspace/workspaceApi';
+import { getCached, setCached } from '../dataCache';
 import { PaneToggleIcon } from './atoms';
 import type { PullRow } from './model';
 import {
@@ -57,6 +58,17 @@ function reviewState(review: AgentReviewData | null): 'none' | 'running' | 'done
   return review.review.status === 'STALE' ? 'stale' : 'done';
 }
 
+/** Last-known rows/repo per workspace, so re-entering this screen repaints the
+ *  list it had instead of flashing empty while the fetch runs. Same module
+ *  cache the standalone Pulls screen seeds from. */
+function prsCacheKey(workspaceId: string) {
+  return `workspacePulls:${workspaceId}`;
+}
+
+function repoCacheKey(workspaceId: string) {
+  return `workspaceRepo:${workspaceId}`;
+}
+
 async function loadPullRequests(workspaceId: string, selectedNumber?: number): Promise<PullRequestDto[]> {
   const rows = await workspaceApi.pullRequests(workspaceId);
   if (selectedNumber === undefined || rows.some(pr => pr.number === selectedNumber)) return rows;
@@ -88,8 +100,12 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   onOpenPr: (n: number) => void;
   onBackToList: () => void;
 }) {
-  const [prs, setPrs] = useState<PullRequestDto[]>([]);
-  const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(null);
+  const [prs, setPrs] = useState<PullRequestDto[]>(
+    () => getCached<PullRequestDto[]>(prsCacheKey(workspaceId)) ?? [],
+  );
+  const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(
+    () => getCached<WorkspaceRepositoryDto>(repoCacheKey(workspaceId)) ?? null,
+  );
   const [view, setView] = useState<'board' | 'list'>('list');
   // Default filter: 'all' — deterministic before data loads. Revisit if a
   // review-first default proves better in daily use.
@@ -106,7 +122,10 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   useEffect(() => {
     let cancelled = false;
     void workspaceApi.repository(workspaceId)
-      .then(value => { if (!cancelled) setRepo(value); })
+      .then(value => {
+        setCached(repoCacheKey(workspaceId), value);
+        if (!cancelled) setRepo(value);
+      })
       .catch(() => { /* transient; pane resolution simply waits */ });
     return () => { cancelled = true; };
   }, [workspaceId]);
@@ -114,7 +133,10 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   useEffect(() => {
     let cancelled = false;
     void loadPullRequests(workspaceId, initialPrNumber)
-      .then(rows => { if (!cancelled) setPrs(rows); })
+      .then(rows => {
+        setCached(prsCacheKey(workspaceId), rows);
+        if (!cancelled) setPrs(rows);
+      })
       .catch(() => { /* transient; Refresh retries */ });
     return () => { cancelled = true; };
   }, [workspaceId, initialPrNumber]);

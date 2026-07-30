@@ -148,7 +148,7 @@ function CommentCard({ item, repoCtx, onReaction }: {
 
 function ReviewCard({
   item, repoCtx, threads, prAuthor, prHtmlUrl, onThreadReply, onThreadReact, onThreadSetResolved,
-  onOpenCommentLocation,
+  onApplySuggestion, onOpenCommentLocation,
 }: {
   item: Extract<TimelineItem, { kind: 'review' }>;
   repoCtx: MarkdownRepoContext;
@@ -158,6 +158,7 @@ function ReviewCard({
   onThreadReply?: (rootGithubId: number, body: string) => Promise<void>;
   onThreadReact?: (commentGithubId: number, content: ReactionContent) => Promise<void>;
   onThreadSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
+  onApplySuggestion?: (path: string, line: number, startLine: number | null, suggestion: string) => Promise<void>;
   onOpenCommentLocation?: (filePath: string, line: number | null, side: 'LEFT' | 'RIGHT') => void;
 }) {
   const reviewSummary = (
@@ -212,6 +213,7 @@ function ReviewCard({
               : body => onThreadReply(thread.rootGithubId, body)}
             onReact={onThreadReact}
             onSetResolved={onThreadSetResolved}
+            onApplySuggestion={onApplySuggestion}
             onLocationClick={onOpenCommentLocation === undefined || thread.filePath === null
               ? undefined
               : () => onOpenCommentLocation(thread.filePath!, thread.line, (thread.side ?? 'RIGHT') as 'LEFT' | 'RIGHT')}
@@ -224,7 +226,7 @@ function ReviewCard({
 
 export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
-  onThreadReply, onThreadReact, onThreadSetResolved, localPr,
+  onThreadReply, onThreadReact, onThreadSetResolved, onApplySuggestion, localPr,
   onLocalReply, onLocalResolve, onLocalReopen, currentUserLogin, onOpenCommentLocation, onOpenCommit,
 }: {
   items: TimelineItem[];
@@ -236,6 +238,8 @@ export default function PullTimeline({
   onThreadReply?: (rootGithubId: number, body: string) => Promise<void>;
   onThreadReact?: (commentGithubId: number, content: ReactionContent) => Promise<void>;
   onThreadSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
+  /** Commits a review suggestion onto the PR's head branch. */
+  onApplySuggestion?: (path: string, line: number, startLine: number | null, suggestion: string) => Promise<void>;
   localPr?: LocalPR;
   onLocalReply?: (root: LocalPRComment, body: string) => Promise<void>;
   onLocalResolve?: (commentId: string) => Promise<void>;
@@ -366,6 +370,7 @@ export default function PullTimeline({
                 onThreadReply={onThreadReply}
                 onThreadReact={onThreadReact}
                 onThreadSetResolved={onThreadSetResolved}
+                onApplySuggestion={onApplySuggestion}
                 onOpenCommentLocation={onOpenCommentLocation}
               />
             );

@@ -19,4 +19,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public record GitHubFileContent(
         String encoding,
         String content,
-        long size) {}
+        long size,
+        /** Blob sha — required as the optimistic-concurrency token when
+         *  writing the file back through the Contents API. */
+        String sha) {}

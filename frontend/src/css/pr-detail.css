@@ -1267,11 +1267,42 @@ button.prc-branches__ref--clickable:hover {
   padding: 0;
   background: var(--bg-card);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--font-size-lg);
-  line-height: 1.5;
+  font-size: var(--pr-code-font-size, 12px);
+  line-height: 20px;
   white-space: pre;
   overflow-x: auto;
 }
+.prc-suggestion__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+}
+.prc-suggestion__apply {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.prc-suggestion__apply:hover:not(:disabled) {
+  border-color: var(--accent-a40);
+  background: var(--accent-a7);
+  color: var(--accent);
+}
+.prc-suggestion__apply:disabled { opacity: 0.55; cursor: default; }
+.prc-suggestion__error {
+  font-size: var(--font-size-sm);
+  color: var(--danger, #cf222e);
+}
+
 /* Per-line review thread messages render as a flat conversation —
    no per-message bordered card — per
    docs/mockups/issue/pr-details/pr-review-response.png. Avatar +
@@ -1585,22 +1616,24 @@ button.prc-branches__ref--clickable:hover {
   border-bottom: 1px solid #d8dee4;
   background: #fff;
 }
+/* Row width comes from .prc-review-thread__hunk-inner (sized to the
+   longest line), not from `min-width: 100%` — a percentage resolves
+   against the scroll container's *visible* width, so every row ended up
+   with its own ragged right edge and the +/− tint stopped at the end of
+   that line's own text instead of covering the full row. */
 .prc-review-thread__context-hunk .diff-row {
   grid-template-columns: 48px 48px max-content;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
 }
 .prc-review-thread__context-hunk .diff-row__gutter {
-  padding: 0 8px;
-  font-size: 12px;
-  line-height: 24px;
+  padding: 2px 8px 0;
   text-align: right;
 }
+/* Font size + line height are inherited from the shared .diff-row rules
+   (12px / 20px) so review-thread code matches the main diff viewer
+   instead of rendering a couple of points larger. */
 .prc-review-thread__context-hunk .diff-row__content {
   min-width: max-content;
-  padding: 0 12px;
-  font-size: 13px;
-  line-height: 24px;
   white-space: pre;
   overflow-wrap: normal;
   word-break: normal;
@@ -1760,14 +1793,13 @@ button.prc-branches__ref--clickable:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   cursor: pointer;
-  padding: 1px 6px 1px 7px;
+  padding: 3px 8px;
   font: inherit;
   font-size: var(--font-size-md);
   line-height: 1.4;
   color: var(--text-3);
   display: inline-flex;
   align-items: center;
-  gap: 2px;
 }
 .reaction-add__trigger:hover {
   color: var(--accent);
@@ -1778,12 +1810,12 @@ button.prc-branches__ref--clickable:hover {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.reaction-add__plus {
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  color: var(--text-3);
-}
-.reaction-add__trigger:hover .reaction-add__plus { color: var(--accent); }
+/* The icon slot holds either a text emoji or an inline <svg>. An inline
+   svg sits on its span's text baseline, so the span keeps a descender's
+   worth of empty space below the glyph and the icon rides high inside
+   the pill. Making the svg a block collapses the span to the glyph's own
+   box so the trigger's padding centres it. */
+.reaction-add__trigger svg { display: block; }
 .reaction-add__picker {
   position: absolute;
   bottom: calc(100% + 6px);

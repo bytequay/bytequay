@@ -127,7 +127,8 @@ public final class GitHubUserRemoteActionGateway
                     REACT_REVIEW_COMMENT -> List.of(requireReviewComment(
                     target, targetId(action)).identity());
             case SET_THREAD_RESOLUTION -> List.of(threadState(target, action));
-            case MERGE, ENABLE_AUTO_MERGE, DISABLE_AUTO_MERGE -> List.of();
+            case MERGE, ENABLE_AUTO_MERGE, DISABLE_AUTO_MERGE,
+                    APPLY_SUGGESTION -> List.of();
             case DEQUEUE, DELETE_REMOTE_BRANCH, SET_DRAFT_STATE, UPDATE_TITLE,
                     UPDATE_BODY, CLOSE_PULL_REQUEST, ADD_REVIEWER,
                     REMOVE_REVIEWER, SET_ASSIGNEE, SET_LABEL,
@@ -211,6 +212,7 @@ public final class GitHubUserRemoteActionGateway
             case DISABLE_AUTO_MERGE -> mutateAndProbe(
                     action, context, target -> pullRequests.disableAutoMerge(
                             target.pat(), target.ref()));
+            case APPLY_SUGGESTION -> applySuggestion(action, context);
             case TRIGGER_CI_EMPTY_COMMIT -> throw new AssertionError();
         };
     }
@@ -253,6 +255,7 @@ public final class GitHubUserRemoteActionGateway
             case MERGE -> probeMerge(action);
             case ENABLE_AUTO_MERGE -> probeAutoMerge(action, true);
             case DISABLE_AUTO_MERGE -> probeAutoMerge(action, false);
+            case APPLY_SUGGESTION -> probeSuggestionApplied(action);
             case TRIGGER_CI_EMPTY_COMMIT -> throw new AssertionError();
         };
     }
@@ -731,6 +734,98 @@ public final class GitHubUserRemoteActionGateway
         catch (RuntimeException failure) {
             return recover(action, context, failure);
         }
+    }
+
+    /**
+     * Commits a review suggestion over the lines it was written against,
+     * the same edit "Apply suggestion" makes on github.com.
+     *
+     * <p>The line range is only meaningful at the head the reviewer
+     * commented on, so {@link #requireExactTarget} pins it; the blob sha
+     * read here pins the file itself, so a push that landed between the
+     * two calls makes GitHub reject the write rather than let a stale
+     * range overwrite it. The write moves the head, which is why the proof
+     * reads the branch content back instead of re-pinning the target.
+     */
+    private EffectResult applySuggestion(
+            Action action, ExecutionContext context)
+            throws Exception
+    {
+        Target target = requireExactTarget(action);
+        ActionPayload payload = action.payload();
+        String path = requireText(payload.filePath(), "filePath");
+        int endLine = requireNonNull(payload.lineNumber(), "lineNumber is null");
+        int startLine = payload.startLine() == null
+                ? endLine : payload.startLine();
+        try {
+            requireActive(context);
+            RepoRef head = headRepository(action);
+            PullRequestRepository.FileBlob blob = pullRequests
+                    .fetchFileBlob(target.pat(), head, path, action.branchName())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "suggestion target " + path
+                                    + " does not exist on " + action.branchName()));
+            String patched = SuggestionPatch.apply(
+                    blob.text(), startLine, endLine, payload.body());
+            if (patched.equals(blob.text())) {
+                // The suggestion is already the file's content — nothing to
+                // commit, and GitHub would reject an empty write anyway.
+                return proven(suggestionEffectId(action),
+                        "suggestion already present in " + path);
+            }
+            pullRequests.commitFileText(
+                    target.pat(), head, path, action.branchName(), blob.sha(),
+                    patched, suggestionCommitMessage(action, path));
+            return requireProven(
+                    probeSuggestionApplied(action),
+                    "GitHub did not expose the applied suggestion");
+        }
+        catch (ExecutionPorts.IndeterminateExecutionException failure) {
+            throw failure;
+        }
+        catch (RuntimeException failure) {
+            return recover(action, context, failure);
+        }
+    }
+
+    private EffectResult probeSuggestionApplied(Action action)
+            throws RetryableActionException
+    {
+        ActionPayload payload = action.payload();
+        String path = requireText(payload.filePath(), "filePath");
+        int endLine = requireNonNull(payload.lineNumber(), "lineNumber is null");
+        int startLine = payload.startLine() == null
+                ? endLine : payload.startLine();
+        RepoRef head = headRepository(action);
+        String pat = pats.resolve(head.fullName());
+        return pullRequests.fetchFileBlob(pat, head, path, action.branchName())
+                .filter(blob -> SuggestionPatch.applied(
+                        blob.text(), startLine, payload.body()))
+                .map(blob -> proven(suggestionEffectId(action),
+                        "suggestion is present at " + path + ":" + startLine
+                                + " on " + action.branchName()))
+                .orElseGet(() -> unproven(
+                        "suggestion is not present at " + path + ":" + startLine));
+    }
+
+    private static RepoRef headRepository(Action action)
+    {
+        // Fork PRs commit to the contributor's branch, not the base repo.
+        return RepoRef.parse(requireText(
+                action.headRepositoryId(), "headRepositoryId"));
+    }
+
+    private static String suggestionEffectId(Action action)
+    {
+        return "suggestion:" + action.operationId();
+    }
+
+    private static String suggestionCommitMessage(Action action, String path)
+    {
+        return "Apply suggestion to " + path + "\n\n"
+                + "Co-authored-by review suggestion applied from "
+                + action.remoteRepositoryId() + "#"
+                + action.pullRequestNumber();
     }
 
     private EffectResult addReaction(
@@ -1721,7 +1816,7 @@ public final class GitHubUserRemoteActionGateway
                         REACT_PULL_REQUEST, REACT_REVIEW_COMMENT,
                         REACT_ISSUE_COMMENT, SET_THREAD_RESOLUTION,
                         ENABLE_AUTO_MERGE, DISABLE_AUTO_MERGE,
-                        TRIGGER_CI_EMPTY_COMMIT -> OPEN;
+                        APPLY_SUGGESTION, TRIGGER_CI_EMPTY_COMMIT -> OPEN;
             };
         }
 

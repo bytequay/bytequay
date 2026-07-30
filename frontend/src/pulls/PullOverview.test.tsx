@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invalidate } from '../dataCache';
+import type { ReviewThreadDto } from '../types';
 import type { LocalPRBundle } from '../types/localPr';
 import type { DashboardPR } from '../types/dashboardPr';
 import { buildTimeline, type TimelineItem } from './detailModel';
@@ -662,5 +663,81 @@ describe('PullOverview', () => {
     fireEvent.click(screen.getByTitle('Rocket'));
 
     await waitFor(() => expect(onCommentReaction).toHaveBeenCalledWith(4357983764, 'rocket'));
+  });
+
+  describe('applying a review suggestion', () => {
+    function suggestionThread(overrides: Partial<ReviewThreadDto>): ReviewThreadDto {
+      return {
+        rootGithubId: 501, filePath: 'src/Foo.java', line: 43, side: 'RIGHT',
+        diffHunk: '@@ -41,3 +41,3 @@\n context\n-return oldValue;\n+return currentValue;',
+        messages: [{
+          githubId: 601, author: 'reviewer',
+          body: 'Prefer the constant:\n```suggestion\nreturn CURRENT_VALUE;\n```',
+          createdAt: '2025-06-20T10:00:00Z', reactions: null, reviewId: 77,
+          authorAssociation: 'MEMBER',
+        }],
+        resolved: false, outdated: false, startLine: 42, startSide: 'RIGHT',
+        originalLine: 43, originalStartLine: 42,
+        ...overrides,
+      };
+    }
+
+    // The thread hangs off a review timeline event, keyed by remoteEventId
+    // — without one there is no card to render the suggestion into.
+    const reviewBundle = {
+      ...bundle,
+      timeline: [{
+        id: 'review-event', localPrId: 'pr-1', eventType: 'review', actor: '@reviewer',
+        isLocalOnly: false, strippedOnPushAt: null, createdAt: 1_750_412_800_000,
+        payload: { verdict: 'COMMENTED', body: null }, remoteEventId: 9001,
+      }],
+    } as LocalPRBundle;
+
+    function renderThread(thread: ReviewThreadDto, applySuggestion: ReturnType<typeof vi.fn>) {
+      window.bridge = {
+        fetchPullRequestDetail: vi.fn().mockResolvedValue({
+          recentActivity: [{
+            actor: 'reviewer', eventType: 'reviewed', timestamp: '2025-06-20T10:00:00Z',
+            body: null, state: 'COMMENTED', beforeSha: null, afterSha: null,
+            requestedReviewer: null, reviewId: 77, authorAssociation: 'MEMBER',
+            githubId: 9001, reactions: null, labelName: null, labelColor: null,
+            milestoneTitle: null, assigneeLogin: null, crossRefNumber: null,
+            crossRefTitle: null, crossRefUrl: null, crossRefIsPullRequest: false,
+          }],
+          reviewThreads: [thread],
+        }),
+        refreshPullRequestDetail: vi.fn().mockImplementation(() => new Promise(() => {})),
+        applySuggestion,
+      } as unknown as typeof window.bridge;
+      return render(<PullOverview row={row([])} bundle={reviewBundle} isMerged={false} />);
+    }
+
+    it('commits the suggestion body over the thread line range', async () => {
+      const applySuggestion = vi.fn().mockResolvedValue(undefined);
+      renderThread(suggestionThread({}), applySuggestion);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Apply suggestion' }));
+
+      // The suggestion body only — the surrounding markdown stays out of
+      // the commit, and the range is the thread's current coordinates.
+      await waitFor(() => expect(applySuggestion).toHaveBeenCalledWith(
+        'trinodb/trino', 1, 'return CURRENT_VALUE;', 'src/Foo.java', 43, 42,
+      ));
+    });
+
+    it('hides the button when the line range no longer identifies head code', async () => {
+      const applySuggestion = vi.fn().mockResolvedValue(undefined);
+      renderThread(suggestionThread({ outdated: true }), applySuggestion);
+
+      expect(await screen.findByText('Suggested change')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Apply suggestion' })).toBeNull();
+
+      cleanup();
+      renderThread(suggestionThread({ side: 'LEFT' }), applySuggestion);
+
+      expect(await screen.findByText('Suggested change')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Apply suggestion' })).toBeNull();
+      expect(applySuggestion).not.toHaveBeenCalled();
+    });
   });
 });

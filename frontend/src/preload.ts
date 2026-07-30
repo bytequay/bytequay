@@ -190,6 +190,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:prConflictPaths', owner, repo, prNumber, baseRef),
   fetchCheckLog: (repo: string, checkRunId: number) =>
     ipcRenderer.invoke('backend:prCheckLog', repo, checkRunId),
+  fetchCheckFailure: (repo: string, checkRunId: number) =>
+    ipcRenderer.invoke('backend:prCheckFailure', repo, checkRunId),
   setPrDraft: (repo: string, number: number, draft: boolean) =>
     ipcRenderer.invoke('backend:setPrDraft', repo, number, draft),
   updatePrTitle: (repo: string, number: number, title: string): Promise<{ number: number; title: string; updatedAt: string }> =>
@@ -275,6 +277,15 @@ const bridge: Bridge = {
     startSide?: 'LEFT' | 'RIGHT' | null,
   ): Promise<void> =>
     ipcRenderer.invoke('backend:createInlineReviewComment', repo, number, body, path, line, side, startLine ?? null, startSide ?? null),
+  applySuggestion: (
+    repo: string,
+    number: number,
+    suggestion: string,
+    path: string,
+    line: number,
+    startLine?: number | null,
+  ): Promise<void> =>
+    ipcRenderer.invoke('backend:applySuggestion', repo, number, suggestion, path, line, startLine ?? null),
   updatePrBody: (repo: string, number: number, body: string): Promise<void> =>
     ipcRenderer.invoke('backend:updatePrBody', repo, number, body),
   getWatchedRepos: (): Promise<WatchedRepoDto[]> => ipcRenderer.invoke('repos:list'),

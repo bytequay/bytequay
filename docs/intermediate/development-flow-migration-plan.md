@@ -9,9 +9,16 @@ Completed: **2026-07-30**
 Normative contract:
 [development-flow-design.md](./development-flow-design.md)
 
+Post-migration Project Intelligence enhancement:
+[project-intelligence-delivery-plan.md](./project-intelligence-delivery-plan.md)
+
 This document records how the locked design was implemented and the permanent
 cutover/maintenance rules. It cannot change a locked contract; any semantic
 change must first be recorded in the normative design.
+
+The linked Project Intelligence work may extend immutable Plan and ReviewRound
+inputs and exact Plan approval evidence through the existing V2 owners. It does
+not reopen this completed migration and cannot restore a retired runtime.
 
 ## Outcome
 
@@ -1206,3 +1213,10 @@ The redesign is complete:
 The presence of legacy-named read-model or compatibility source does not make
 this checklist incomplete. Only reintroduced creation, claiming, scheduling,
 transition, or recovery authority would reopen the migration.
+
+Project Intelligence delivery is tracked separately. Its unchecked work does
+not change the completed status above; a violation of the V2 ownership,
+admission, or snapshot contracts would require correction in the intelligence
+design, not a legacy migration path. Its human Plan-adjudication extension must
+reuse the Plan owner, existing AWAITING_APPROVAL checkpoint, concern records,
+and approval handoff; it adds no migration Stage or execution runtime.

@@ -28,6 +28,18 @@ function submitErrorMessage(error: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': Error:\s*/, '');
 }
 
+/** The backend refuses to publish to a repository the app doesn't watch: an
+ *  external PR's GitHub effects are owned by a review trunk in the workspace
+ *  bound to its repository, and an unwatched repository has neither. Its
+ *  message names the repository, which is all this drawer needs to offer the
+ *  fix — keep the pattern in step with SqliteExternalPrActionStore's
+ *  UnwatchedRepositoryException. */
+const UNWATCHED_REPOSITORY = /must watch (\S+) before publishing/;
+
+function unwatchedRepository(submitError: string | null): string | null {
+  return submitError === null ? null : submitError.match(UNWATCHED_REPOSITORY)?.[1] ?? null;
+}
+
 /**
  * Right-side drawer for submitting a review on the task's own diff — a
  * top-level comment plus a verdict, mirroring github.com's "Finish your
@@ -40,6 +52,7 @@ function submitErrorMessage(error: unknown): string {
  */
 export function SubmitReviewDrawer({
   open, submitting = false, onClose, onSubmit, pendingComments = [], onRemovePending,
+  onWatchRepo,
 }: {
   open: boolean;
   submitting?: boolean;
@@ -50,6 +63,10 @@ export function SubmitReviewDrawer({
    *  before submitting. Omit where no draft-comment source is wired up. */
   pendingComments?: DiffInlineComment[];
   onRemovePending?: (commentId: string) => void;
+  /** Starts watching the PR's repository. Offered only when the submission
+   *  failed for want of a watched repository. Omit on surfaces whose PR
+   *  always has one (a task's own PR), where the failure can't arise. */
+  onWatchRepo?: () => void;
 }) {
   const [body, setBody] = useState('');
   const [verdict, setVerdict] = useState<ReviewVerdict>('COMMENT');
@@ -67,6 +84,8 @@ export function SubmitReviewDrawer({
   useEffect(() => {
     if (open) { setBody(''); setVerdict('COMMENT'); setSubmitError(null); }
   }, [open]);
+
+  const unwatched = unwatchedRepository(submitError);
 
   const submit = async () => {
     setSubmitError(null);
@@ -128,7 +147,24 @@ export function SubmitReviewDrawer({
             </label>
           ))}
         </div>
-        {submitError !== null && <p className="submit-review-drawer__error" role="alert">{submitError}</p>}
+        {submitError !== null && (
+          <p className="submit-review-drawer__error" role="alert">
+            {unwatched === null ? submitError : (
+              <>
+                Can't submit review — ByteQuay isn't watching <code>{unwatched}</code> yet.
+                {onWatchRepo !== undefined && (
+                  <button
+                    type="button"
+                    className="button button--primary button--sm submit-review-drawer__watch"
+                    onClick={onWatchRepo}
+                  >
+                    Watch {unwatched}
+                  </button>
+                )}
+              </>
+            )}
+          </p>
+        )}
         <div className="submit-review-drawer__foot">
           <button type="button" className="submit-review-drawer__cancel" onClick={onClose} disabled={submitting}>
             Cancel

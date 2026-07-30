@@ -31,6 +31,7 @@ import { buildHeader } from './detailModel';
 import type { PullRow } from './model';
 import PullChanges from './PullChanges';
 import PullOverview from './PullOverview';
+import WatchRepoModal from '../repos/AddRepoModal';
 import '../css/pulls.css';
 
 /**
@@ -49,6 +50,15 @@ function isLocalPrReviewPublication(value: unknown): value is LocalPrReviewPubli
     && 'commandId' in value
     && 'status' in value
     && 'blocksNewPublication' in value;
+}
+
+/** `owner/name` → the watch modal's two arguments. Null for a task-origin PR,
+ *  which carries no remote repository until it's pushed. */
+function splitRepo(repo: string | null): { owner: string; repo: string } | null {
+  const slash = repo === null ? -1 : repo.indexOf('/');
+  return repo === null || slash <= 0 || slash === repo.length - 1
+    ? null
+    : { owner: repo.slice(0, slash), repo: repo.slice(slash + 1) };
 }
 
 function reviewPublicationNotice(publication: LocalPrReviewPublicationDto): string {
@@ -306,6 +316,7 @@ export function PullDetailBody({
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const [watchTarget, setWatchTarget] = useState<{ owner: string; repo: string } | null>(null);
   const [reviewPublication, setReviewPublication] = useState<
     LocalPrReviewPublicationDto | null | undefined
   >(() => bundle?.pr.taskId === null
@@ -359,6 +370,9 @@ export function PullDetailBody({
   const durablePublicationPrId = canPublish && bundle?.pr.taskId === null
     ? bundle.pr.id
     : null;
+  const watchable = durablePublicationPrId === null
+    ? null
+    : splitRepo(bundle?.pr.repo ?? null);
   useEffect(() => {
     const getPublication = typeof window === 'undefined'
       ? undefined
@@ -609,11 +623,27 @@ export function PullDetailBody({
         pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment))}
         onRemovePending={submissionBlocked ? undefined : removePending}
         onClose={() => setSubmitOpen(false)}
+        onWatchRepo={watchable === null ? undefined : () => setWatchTarget(watchable)}
         onSubmit={async (body, verdict) => {
           await submitReview(body, verdict);
           setSubmitOpen(false);
         }}
       />
+      {watchTarget !== null && (
+        <WatchRepoModal
+          owner={watchTarget.owner}
+          repo={watchTarget.repo}
+          onClose={() => setWatchTarget(null)}
+          onStarted={() => {
+            // Cloning runs in the background; the review can't publish until
+            // it finishes and the workspace binding exists.
+            setWatchTarget(null);
+            setSubmitOpen(false);
+            setReviewNotice(`Watching ${watchTarget.owner}/${watchTarget.repo}. `
+              + 'Submit the review again once its clone finishes.');
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1309,6 +1309,10 @@
   font-size: 12px;
   line-height: 1.4;
 }
+.submit-review-drawer__watch {
+  display: block;
+  margin-top: 8px;
+}
 .submit-review-verdict {
   display: flex;
   align-items: flex-start;

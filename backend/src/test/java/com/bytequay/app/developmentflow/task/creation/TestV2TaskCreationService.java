@@ -403,6 +403,103 @@ class TestV2TaskCreationService
     }
 
     @Test
+    void missingWorkspaceBaseBranchFailsBeforeTaskHandoff()
+    {
+        Path repositoryRoot = tempDir.resolve("missing-base-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("missing-base.db", repositoryRoot);
+        markTrunkV2(jdbc);
+        TaskCreationHandoff handoff = mock(TaskCreationHandoff.class);
+        ThreadEngineOverrides engines = mock(ThreadEngineOverrides.class);
+        WorkspaceRepositoryResolver repositories =
+                mock(WorkspaceRepositoryResolver.class);
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+
+        when(engines.forAudience(TRUNK, SessionAudience.PLAN))
+                .thenReturn(Optional.of(PLAN_MODEL));
+        when(repositories.resolve(WORKSPACE)).thenReturn(
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "widget", "acme/widget", null));
+        when(relations.find(WORKSPACE)).thenReturn(Optional.empty());
+
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(), handoff, commands(jdbc), jdbc,
+                mock(ThreadStore.class), mock(TaskStore.class), engines,
+                engineResolver(), engineFreezer(), repositories, relations,
+                mock(ReviewBuildSelectionStore.class), new ObjectMapper(),
+                mock(V2DevelopmentFlowProjection.class));
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "codex", "gpt-test", "Build exact flow",
+                repositoryRoot.toString(), null, "Implement the accepted design",
+                List.of(), "DEVELOP", null, null, ThreadFlow.BUILD, WORKSPACE,
+                PLAN_MODEL);
+
+        assertThatThrownBy(() -> service.create(trunk(), request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Workspace " + WORKSPACE)
+                .hasMessageContaining("configured base branch")
+                .hasMessageContaining("before cutting a Task");
+        verify(handoff, never()).create(any(), any());
+    }
+
+    @Test
+    void agentTaskUsesTheExactTrunkPlanningSnapshot()
+    {
+        Path repositoryRoot = tempDir.resolve("agent-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("agent-creation.db", repositoryRoot);
+        markTrunkV2(jdbc);
+        TaskCreationHandoff handoff = mock(TaskCreationHandoff.class);
+        TaskStore tasks = mock(TaskStore.class);
+        ThreadStore threads = mock(ThreadStore.class);
+        ThreadEngineOverrides engines = mock(ThreadEngineOverrides.class);
+        WorkspaceRepositoryResolver repositories =
+                mock(WorkspaceRepositoryResolver.class);
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        V2DevelopmentFlowProjection projection =
+                mock(V2DevelopmentFlowProjection.class);
+        Task raw = taskShape();
+
+        when(engines.forAudience(TRUNK, SessionAudience.PLAN))
+                .thenReturn(Optional.of(PLAN_MODEL));
+        when(repositories.resolve(WORKSPACE)).thenReturn(
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "widget", "acme/widget", "main"));
+        when(relations.find(WORKSPACE)).thenReturn(Optional.empty());
+        when(threads.findPlanningSnapshot(TRUNK)).thenReturn(Optional.of(
+                new ThreadStore.PlanningSnapshot(
+                        repositoryRoot.toString(), "planning-sha")));
+        when(tasks.findTaskById(TASK)).thenReturn(Optional.of(raw));
+        when(projection.project(raw)).thenReturn(raw);
+        List<TaskCreationHandoff.Command> captured = new ArrayList<>();
+        when(handoff.create(any(), any())).thenAnswer(invocation -> {
+            Supplier<TaskCreationHandoff.Command> factory = invocation.getArgument(1);
+            captured.add(factory.get());
+            return creationResult(repositoryRoot);
+        });
+
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(), handoff, commands(jdbc), jdbc,
+                threads, tasks, engines, engineResolver(), engineFreezer(), repositories,
+                relations, mock(ReviewBuildSelectionStore.class), new ObjectMapper(),
+                projection);
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "codex", "gpt-test", "Build exact flow",
+                repositoryRoot.toString(), null, "Implement the accepted design",
+                List.of(), "DEVELOP", null, null, ThreadFlow.BUILD, WORKSPACE,
+                PLAN_MODEL).withOrigin(Task.ORIGIN_AGENT);
+
+        assertThat(service.create(trunk(), request)).isSameAs(raw);
+
+        verify(handoff).create(any(), any());
+        TaskCreationInput input = captured.getFirst().authorization().input();
+        TaskAssignment.NewFromTrunk assignment =
+                (TaskAssignment.NewFromTrunk) input.assignment();
+        assertThat(assignment.origin())
+                .isEqualTo(new TaskAssignment.AgentHandoff("planning-sha"));
+        assertThat(input.base()).isEqualTo(new TaskCreationInput.PlanningSnapshot(
+                new TaskAssignment.Direct("acme/widget"), "main", "planning-sha"));
+    }
+
+    @Test
     void mapsFrozenReviewBuildSelectionToExactReviewFindingsAssignment()
     {
         Path repositoryRoot = tempDir.resolve("review-repo").toAbsolutePath();

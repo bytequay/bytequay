@@ -85,7 +85,7 @@ public final class V2DevelopmentFlowProjection
                 status(row),
                 first(row.branchName(), legacyShape.branchName()),
                 first(row.worktreePath(), legacyShape.worktreePath()),
-                first(row.baseRef(), legacyShape.baseBranch()),
+                row.baseRef(),
                 repositoryRoot(row.worktreePath(), legacyShape.workingDir()),
                 null, null,
                 row.remotePrNumber(), prState(row.prState()), ciState(row),
@@ -285,7 +285,26 @@ public final class V2DevelopmentFlowProjection
                        owner.opened_at_ms AS owner_opened_at_ms,
                        owner.completed_at_ms AS owner_completed_at_ms,
                        code.branch_name, code.worktree_path,
-                       context.base_ref, context.repository_id,
+                       CASE
+                           WHEN context.base_source IS NULL
+                               THEN NULLIF(task.base_branch, '')
+                           WHEN context.base_source = 'EXISTING_PR_HEAD'
+                               THEN COALESCE(
+                                   NULLIF(context.base_ref, ''),
+                                   CASE WHEN json_valid(provision.result_evidence)
+                                       AND json_extract(
+                                           provision.result_evidence, '$.schema')
+                                           = 'PROVISION_TASK_V2'
+                                       AND json_extract(
+                                           provision.result_evidence, '$.baseSource')
+                                           = 'EXISTING_PR_HEAD'
+                                       THEN NULLIF(json_extract(
+                                           provision.result_evidence,
+                                           '$.pullRequest.baseRef'), '')
+                                   END)
+                           ELSE NULLIF(context.base_ref, '')
+                       END AS base_ref,
+                       context.repository_id,
                        CASE WHEN json_valid(context.work_model_snapshot)
                             THEN json_extract(context.work_model_snapshot, '$.kind')
                             ELSE NULL END AS agent_runtime,
@@ -336,6 +355,9 @@ public final class V2DevelopmentFlowProjection
                 LEFT JOIN stage owner ON owner.id = current.stage_id
                 LEFT JOIN task_code_identity code ON code.task_id = task.id
                 LEFT JOIN task_creation_context context ON context.task_id = task.id
+                LEFT JOIN provision_task_operation provision
+                  ON provision.id = code.provision_operation_id
+                 AND provision.status = 'ACCEPTED'
                 LEFT JOIN task_brain brain ON brain.task_id = task.id
                 LEFT JOIN pr ON pr.task_id = task.id AND pr.origin = 'task'
                 LEFT JOIN remote_pr_binding binding ON binding.task_id = task.id

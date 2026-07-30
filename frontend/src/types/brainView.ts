@@ -218,7 +218,7 @@ export type ApprovalDto = {
   stageTitle: string;                 // "CiFixingStage · iter #3 · push"
   reasonShort: string;                // "Auto-push budget exhausted (5/5)"
   pendingArtifact: string;            // "CostMeter.tsx — remove unused import"
-  primaryAction: { label: string; href: string };  // "Review & approve push"
+  primaryAction: { label: string; href: string } | null;  // "Review & approve push"
 };
 
 export type CostBreakdown = {

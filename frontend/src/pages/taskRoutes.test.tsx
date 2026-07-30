@@ -65,6 +65,41 @@ describe('TaskBrainRoute', () => {
     expect(window.location.hash).toBe('#/workspace/ws-default/settings/agents');
   });
 
+  it('renders a V2 blocker without a primary action', async () => {
+    const taskId = 'task-actionless-blocker';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: { ...base.task, id: taskId },
+      rightRail: {
+        ...base.rightRail,
+        approval: {
+          tone: 'ask',
+          stageId: 'dev-1',
+          stageTitle: 'Task needs attention',
+          reasonShort: 'operation failed',
+          pendingArtifact: 'blocker-1',
+          primaryAction: null,
+        },
+      },
+    };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getPrForTask: vi.fn().mockResolvedValue(null),
+      getLocalPrBundle: vi.fn().mockResolvedValue(null),
+      listNotificationsForThread: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
+
+    expect(await screen.findByText('Task needs attention')).toBeTruthy();
+    expect(screen.getByText('operation failed — blocker-1')).toBeTruthy();
+    expect(document.querySelector('.sp-appr__actions')).toBeNull();
+  });
+
   it('inherits the per-thread auto-approve default for a task whose backend value is off', async () => {
     localStorage.setItem('bq.autoApprove.thread.t1', 'true');
     const getTaskAutoApprove = vi.fn().mockResolvedValue({ enabled: false });

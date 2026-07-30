@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.execution;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,7 +36,13 @@ public final class WorktreeWriterLeaseManager
     public WorktreeWriterLeaseManager(Store store, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
-        this.clock = requireNonNull(clock, "clock is null");
+        // Leases persist to millisecond columns and revalidation compares
+        // acquiredAt for exact equality. A clock with sub-millisecond
+        // resolution — Clock.systemUTC() on every current JDK — would mint an
+        // acquiredAt no read-back can ever reproduce, so every heartbeat and
+        // every writer fence would fail as "non-exact". Truncate to the
+        // precision the store can actually round-trip.
+        this.clock = Clock.tick(requireNonNull(clock, "clock is null"), Duration.ofMillis(1));
     }
 
     public Lease acquire(ExecutionContext context, String worktreePath)

@@ -127,13 +127,15 @@ public class PRController
     }
 
     /** Resolver for an external PR — the dashboard/details-page entry point
-     *  for a GitHub PR that isn't tied to a ByteQuay task. Creates the row
-     *  (origin=external) on first sight, syncing on every call after. */
+     *  for a GitHub PR that isn't tied to a ByteQuay task, and what a PR pane
+     *  blocks on before it can mount. Creates the row (origin=external) on
+     *  first sight; after that it answers from the store and refreshes in the
+     *  background, since the caller is only here for the id. */
     @GetMapping("/api/repos/{owner}/{repo}/prs/{number}")
     public PRDto getExternalPr(@PathVariable String owner, @PathVariable String repo, @PathVariable int number)
     {
         String slug = owner + "/" + repo;
-        return PRDto.from(sync.syncExternalPR(slug, number)
+        return PRDto.from(sync.resolveExternalPR(slug, number)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + slug + "#" + number)));
     }
 
@@ -248,24 +250,28 @@ public class PRController
                 List.of(), "");
     }
 
-    /** The whole stored PR projection in one payload. Standalone dashboard
-     *  PRs may retain their explicit refresh; Task-owned reads never perform
-     *  Git or GitHub I/O or advance lifecycle. */
+    /** The whole stored PR projection in one payload. Task-owned reads never
+     *  perform Git or GitHub I/O or advance lifecycle. A standalone dashboard
+     *  PR still refreshes, but off the request thread — refreshing it inline
+     *  put seconds of GitHub and git latency on every PR-pane paint, for data
+     *  the store already holds in milliseconds. {@code syncing} tells the
+     *  caller that refresh is still running so it can poll for the result. */
     @GetMapping("/api/prs/{prId}/bundle")
     public PRBundleDto bundle(@PathVariable String prId)
     {
-        PR stored = prService.findById(prId)
+        PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
-        PR pr = stored.taskId() == null
-                ? sync.syncPRForDisplay(prId).orElse(stored)
-                : stored;
+        if (pr.taskId() == null) {
+            sync.syncInBackground(prId);
+        }
         return new PRBundleDto(
                 PRDto.from(pr),
                 prService.commits(pr.id()).stream().map(PRCommitDto::from).toList(),
                 prService.timeline(pr.id()).stream().map(e -> PRTimelineEntryDto.from(e, mapper)).toList(),
                 prService.checks(pr.id()).stream().map(PRCheckDto::from).toList(),
                 prService.comments(pr.id()).stream().map(PRCommentDto::from).toList(),
-                prService.pendingStripCount(pr.id()));
+                prService.pendingStripCount(pr.id()),
+                sync.isSyncing(pr.id()));
     }
 
     /** Explicit user-triggered refresh — always probes GitHub (no maxAge

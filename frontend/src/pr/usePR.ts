@@ -23,6 +23,10 @@ const POLL_MS = 60000;
  * the same live cadence as the stage/Brain views so progress milestones do
  * not sit unseen for up to a minute. Remote PRs keep the cheaper cadence. */
 const LOCAL_PR_POLL_MS = 5000;
+/** The bundle GET returns the stored snapshot right away and refreshes from
+ *  git/GitHub in the background, so a `syncing` payload means fresher data is
+ *  seconds out — poll for it instead of sitting on the stale one for a minute. */
+const SYNCING_POLL_MS = 1000;
 
 /** Last-known bundle per PR id — stale-while-revalidate, same pattern as
  *  every other id-keyed hook in this app (see idCache). */
@@ -52,7 +56,9 @@ export function usePR(prId: string | null): UsePRState {
   );
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollMs = bundle?.pr.status.startsWith('local-') ? LOCAL_PR_POLL_MS : POLL_MS;
+  const pollMs = bundle?.syncing === true
+    ? SYNCING_POLL_MS
+    : bundle?.pr.status.startsWith('local-') ? LOCAL_PR_POLL_MS : POLL_MS;
   const requestGenerationRef = useRef(0);
 
   const shownIdRef = useRef(prId);

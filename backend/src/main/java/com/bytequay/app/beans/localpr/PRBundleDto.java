@@ -20,7 +20,9 @@ import java.util.List;
  * so the bridge hook resolves the whole local PR in a single call instead of
  * five round-trips. {@code pendingStripCount} is the authoritative count of
  * local-only events + local comments a push would strip (design #47) — the
- * push dialog shows it verbatim.
+ * push dialog shows it verbatim. {@code syncing} is true while a background
+ * refresh of this PR is still running, so the caller knows the snapshot may be
+ * a beat behind git/GitHub and can poll for the newer one.
  */
 public record PRBundleDto(
         PRDto pr,
@@ -28,4 +30,5 @@ public record PRBundleDto(
         List<PRTimelineEntryDto> timeline,
         List<PRCheckDto> checks,
         List<PRCommentDto> comments,
-        int pendingStripCount) {}
+        int pendingStripCount,
+        boolean syncing) {}

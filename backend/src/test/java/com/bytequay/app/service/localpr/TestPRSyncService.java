@@ -37,6 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -67,8 +69,10 @@ class TestPRSyncService
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PRPublishService prPublish = mock(PRPublishService.class);
+    /** Direct executor, so background syncs run inline and assertions stay
+     *  deterministic. */
     private final PRSyncService service =
-            new PRSyncService(prService, taskStore, git, brainReview, pullRequests, prPublish);
+            new PRSyncService(prService, taskStore, git, brainReview, pullRequests, prPublish, Runnable::run);
 
     private Task task(TaskPhase phase)
     {
@@ -93,6 +97,69 @@ class TestPRSyncService
     {
         return draftPr().withRemote("acme/widget", 42, "https://github.com/acme/widget/pull/42", NOW)
                 .withStatus(PR.STATUS_REMOTE_DRAFTED, NOW);
+    }
+
+    private static PR syncedAt(PR pr, Instant when)
+    {
+        return new PR(
+                pr.id(), pr.taskId(), pr.branchName(), pr.baseBranch(), pr.title(), pr.description(),
+                pr.status(), pr.createdAt(), pr.pushedAt(), pr.remotePrNumber(), pr.remotePrUrl(),
+                pr.mergedAt(), pr.closedAt(), pr.localAddressedThroughAt(), pr.origin(), pr.repo(),
+                pr.author(), when, pr.githubSync(), pr.branchDeletedAt());
+    }
+
+    /**
+     * A PR pane can't mount until this resolver hands back the row's id, so a
+     * PR we already hold must not wait on GitHub for it.
+     */
+    @Test
+    void resolvingAKnownExternalPrNeverTouchesGitHub()
+    {
+        List<Runnable> queued = new ArrayList<>();
+        PRSyncService deferred = new PRSyncService(
+                prService, taskStore, git, brainReview, pullRequests, prPublish, queued::add);
+        when(prService.findTaskByRepoAndNumber("acme/widget", 42)).thenReturn(Optional.empty());
+        when(prService.findByRepoAndNumber("acme/widget", 42)).thenReturn(Optional.of(pushedPr()));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr()));
+
+        assertThat(deferred.resolveExternalPR("acme/widget", 42)).contains(pushedPr());
+
+        verify(pullRequests, never()).lookupPullRequest(anyString(), anyInt());
+        verify(pullRequests, never()).refreshPullRequestDetail(anyString(), anyInt(), anyInt());
+        // The refresh still happens, just not while the caller is waiting.
+        assertThat(queued).hasSize(1);
+    }
+
+    /**
+     * The bundle GET reports {@code isSyncing} so the pane can poll for the
+     * background pass's result. That flag has to converge: if every poll
+     * started another pass the PR would sync forever at the fast cadence.
+     */
+    @Test
+    void backgroundSyncRunsOnceThenLetsPollingSettle()
+    {
+        List<Runnable> queued = new ArrayList<>();
+        PRSyncService deferred = new PRSyncService(
+                prService, taskStore, git, brainReview, pullRequests, prPublish, queued::add);
+        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
+
+        deferred.syncInBackground("pr1");
+        assertThat(deferred.isSyncing("pr1")).isTrue();
+        assertThat(queued).hasSize(1);
+
+        // A poll landing mid-pass must not stack a second one.
+        deferred.syncInBackground("pr1");
+        assertThat(queued).hasSize(1);
+
+        queued.get(0).run();
+        assertThat(deferred.isSyncing("pr1")).isFalse();
+
+        // The pass just marked the PR synced, so the next poll is a no-op and
+        // the pane drops back to its normal cadence.
+        when(prService.findById("pr1")).thenReturn(Optional.of(syncedAt(draftPr(), Instant.now())));
+        deferred.syncInBackground("pr1");
+        assertThat(queued).hasSize(1);
+        assertThat(deferred.isSyncing("pr1")).isFalse();
     }
 
     private static ActivityItem commented(long githubId, String actor, String body)
@@ -379,8 +446,11 @@ class TestPRSyncService
                 "pr-old", null, "feature/y", "main", "Old PR", "", PR.STATUS_MERGED, NOW,
                 null, 55, "https://github.com/acme/widget/pull/55", null, null, null,
                 PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
+        // Relative to the real clock, not the frozen NOW: syncList measures
+        // retention against Instant.now(), so a fixed timestamp silently ages
+        // out of the window and fails the day it crosses HANDLED_RETENTION_DAYS.
         PRTriageState reviewedYesterday = new PRTriageState(
-                "pr-old", null, NOW.minus(1, ChronoUnit.DAYS), HandledAction.APPROVED, null, null, null);
+                "pr-old", null, Instant.now().minus(1, ChronoUnit.DAYS), HandledAction.APPROVED, null, null, null);
         when(prService.dashboardEntries()).thenReturn(
                 List.of(new PRDashboardEntry(fellOut, reviewedYesterday)));
 

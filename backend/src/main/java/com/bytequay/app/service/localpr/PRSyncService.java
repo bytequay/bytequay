@@ -34,6 +34,7 @@ import com.bytequay.app.service.review.BrainReviewService;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -49,8 +50,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 
+import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -77,6 +81,12 @@ public class PRSyncService
      *  ({@code POST /api/prs/{id}/sync}) passes {@code 0} to always probe. */
     private static final int DEFAULT_MAX_AGE_SECONDS = 20;
 
+    /** Floor between two background passes for the same PR, so a pane polling
+     *  on the fast cadence can't spin up a fresh pass on every tick. This does
+     *  not loosen freshness: a pass still probes GitHub through {@link
+     *  #DEFAULT_MAX_AGE_SECONDS}, exactly as it did when the fetch ran inline. */
+    private static final int MIN_BACKGROUND_SYNC_SECONDS = 5;
+
     /** Phases at which dev is finished and the PR is awaiting the user's review. */
     private static final Set<TaskPhase> READY_FOR_REVIEW = ImmutableSet.of(
             TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
@@ -87,10 +97,17 @@ public class PRSyncService
     private final BrainReviewService brainReview;
     private final PullRequestService pullRequests;
     private final PRPublishService prPublish;
+    private final Executor executor;
+
+    /** PRs with a {@link #syncInBackground} pass still running. Deduped so a
+     *  fast poll cadence can't stack overlapping GitHub round-trips and git
+     *  subprocesses on top of each other. */
+    private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     public PRSyncService(
             PRService prService, TaskStore taskStore, GitRunner git, BrainReviewService brainReview,
-            PullRequestService pullRequests, PRPublishService prPublish)
+            PullRequestService pullRequests, PRPublishService prPublish,
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -98,6 +115,7 @@ public class PRSyncService
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.prPublish = requireNonNull(prPublish, "prPublish is null");
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     /** Historical compatibility read. Task-owned PR creation and observation
@@ -123,6 +141,56 @@ public class PRSyncService
     public Optional<PR> syncPRForDisplay(String prId)
     {
         return syncPR(prId, DEFAULT_MAX_AGE_SECONDS);
+    }
+
+    /**
+     * Runs a sync off the request thread. Read endpoints call this instead of
+     * syncing inline: a bundle fetch is ~2ms of SQLite behind 2-3s of GitHub
+     * round-trips and git subprocesses, and putting that on the paint path
+     * made every PR-pane open, review-round jump, and task open feel stuck.
+     * Callers report {@link #isSyncing} so the frontend can poll for the
+     * result instead of blocking on it.
+     */
+    public void syncInBackground(String prId)
+    {
+        PR pr = prService.findById(prId).orElse(null);
+        if (pr == null) {
+            return;
+        }
+        // Without this the flag is self-perpetuating: the caller polls faster
+        // while syncing, each poll starts a fresh pass, and the PR never stops
+        // syncing. A pass that just finished makes the next poll a no-op, which
+        // clears the flag and drops the caller back to its normal cadence.
+        if (pr.syncedAt() != null && pr.syncedAt().isAfter(Instant.now().minusSeconds(MIN_BACKGROUND_SYNC_SECONDS))) {
+            return;
+        }
+        if (!inFlight.add(prId)) {
+            return;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    syncPR(prId, DEFAULT_MAX_AGE_SECONDS);
+                }
+                catch (RuntimeException e) {
+                    log.info("background sync for PR {} failed: {}", prId, e.getMessage());
+                }
+                finally {
+                    inFlight.remove(prId);
+                }
+            });
+        }
+        catch (RuntimeException e) {
+            inFlight.remove(prId);
+            log.info("scheduling a background sync for PR {} failed: {}", prId, e.getMessage());
+        }
+    }
+
+    /** True while {@link #syncInBackground} still has a pass running for this
+     *  PR — the bundle payload's {@code syncing} flag. */
+    public boolean isSyncing(String prId)
+    {
+        return inFlight.contains(prId);
     }
 
     /**
@@ -159,6 +227,23 @@ public class PRSyncService
      * #syncPR} for the rest (timeline, status). Empty only when GitHub has
      * no such PR (a bad link, or the caller lacks access).
      */
+    /**
+     * Resolver-shaped {@link #syncExternalPR}: a PR we already hold resolves
+     * straight from the store with its refresh handed to the background, so
+     * opening a PR pane doesn't wait on GitHub for an id it could have read
+     * locally. Only a PR never seen before pays the fetch that mints its row.
+     */
+    public Optional<PR> resolveExternalPR(String repo, int number)
+    {
+        Optional<PR> existing = prService.findTaskByRepoAndNumber(repo, number)
+                .or(() -> prService.findByRepoAndNumber(repo, number));
+        if (existing.isPresent()) {
+            syncInBackground(existing.get().id());
+            return existing;
+        }
+        return syncExternalPR(repo, number);
+    }
+
     public Optional<PR> syncExternalPR(String repo, int number)
     {
         // Prefer a task's own PR row if it's been pushed to this number, so we

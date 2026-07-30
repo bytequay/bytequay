@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.beans.localpr.PRBundleDto;
 import com.bytequay.app.developmentflow.stage.ManualPrValidationRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Operation;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Status;
@@ -92,8 +93,10 @@ class TestPRControllerBundle
         verify(sync, never()).syncPRForDisplay("pr1");
     }
 
+    /** A standalone PR still refreshes, but never on the request thread — the
+     *  read is milliseconds of SQLite, the refresh is seconds of GitHub. */
     @Test
-    void standaloneBundleKeepsExplicitDisplayRefresh()
+    void standaloneBundleRefreshesInTheBackground()
     {
         PRService prs = mock(PRService.class);
         PRSyncService sync = mock(PRSyncService.class);
@@ -104,7 +107,7 @@ class TestPRControllerBundle
                 null, null, null, PR.ORIGIN_EXTERNAL, "acme/widget",
                 "@octocat", null, null, null);
         when(prs.findById("pr1")).thenReturn(Optional.of(stored));
-        when(sync.syncPRForDisplay("pr1")).thenReturn(Optional.of(stored));
+        when(sync.isSyncing("pr1")).thenReturn(true);
         when(prs.commits("pr1")).thenReturn(List.of());
         when(prs.timeline("pr1")).thenReturn(List.of());
         when(prs.checks("pr1")).thenReturn(List.of());
@@ -112,9 +115,11 @@ class TestPRControllerBundle
         PRController controller = controller(prs, mock(PRPublishService.class),
                 sync, mock(TaskStore.class), mock(InvestigationReviewService.class));
 
-        controller.bundle("pr1");
+        PRBundleDto bundle = controller.bundle("pr1");
 
-        verify(sync).syncPRForDisplay("pr1");
+        verify(sync, never()).syncPRForDisplay("pr1");
+        verify(sync).syncInBackground("pr1");
+        assertThat(bundle.syncing()).isTrue();
     }
 
     @Test

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
@@ -26,6 +27,7 @@ import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptScope;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.review.ReviewSessionPurge;
 import com.bytequay.app.service.threads.ThreadService;
@@ -39,6 +41,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -102,6 +105,7 @@ public class WorkspaceService
     private final ConceptRegistry concepts;
     private final ThreadStore threadStore;
     private final WatchedRepoStore watchedRepos;
+    private final GitRunner git;
     private final ThreadService threadService;
     private final InvestigationReviewService investigationReviews;
     private final ReviewSessionPurge reviewSessionPurge;
@@ -113,6 +117,7 @@ public class WorkspaceService
             ConceptRegistry concepts,
             ThreadStore threadStore,
             WatchedRepoStore watchedRepos,
+            GitRunner git,
             // @Lazy breaks the cycle WorkspaceService → ThreadService →
             // ThreadRegistry → WorkspaceService (the registry reads workspace
             // context). The teardown only needs ThreadService at delete time.
@@ -126,6 +131,7 @@ public class WorkspaceService
         this.concepts = requireNonNull(concepts, "concepts is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.git = requireNonNull(git, "git is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
         this.investigationReviews = requireNonNull(
                 investigationReviews, "investigationReviews is null");
@@ -356,6 +362,7 @@ public class WorkspaceService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "repository is already mapped to a workspace: " + repoFullName);
         }
+        String defaultBaseBranch = resolveDefaultBaseBranch(repoFullName);
         String workspaceId = allocateWorkspaceId(request.slug(), name);
         Workspace workspace = new Workspace(
                 workspaceId,
@@ -368,7 +375,7 @@ public class WorkspaceService
         store.saveWorkspace(workspace);
         store.addRepo(new WorkspaceRepo(
                 workspace.id(), repoFullName,
-                /* defaultBaseBranch */ null,
+                defaultBaseBranch,
                 /* autoFixEnabled */ false,
                 now));
         return store.findWorkspaceById(workspace.id()).orElse(workspace);
@@ -419,6 +426,48 @@ public class WorkspaceService
                 && watchedRepos.find(repoFullName.substring(0, slash), repoFullName.substring(slash + 1))
                         .map(repo -> localCloneExists(repo.localClonePath()))
                         .orElse(false);
+    }
+
+    /**
+     * Resolve the semantic merge target while the verified clone is being
+     * bound. Task creation is deliberately database-only, so the Workspace
+     * must persist this bare branch name rather than asking a detached
+     * planning checkout which branch it is on later.
+     */
+    private String resolveDefaultBaseBranch(String repoFullName)
+    {
+        int slash = repoFullName.indexOf('/');
+        if (slash <= 0 || slash == repoFullName.length() - 1) {
+            throw unresolvedBaseBranch(repoFullName, null);
+        }
+        WatchedRepo watched = watchedRepos.find(
+                        repoFullName.substring(0, slash),
+                        repoFullName.substring(slash + 1))
+                .filter(repo -> localCloneExists(repo.localClonePath()))
+                .orElseThrow(() -> unresolvedBaseBranch(repoFullName, null));
+        try {
+            return git.defaultBranch(Path.of(watched.localClonePath()), "origin")
+                    .filter(branch -> !branch.isBlank())
+                    .orElseThrow(() -> unresolvedBaseBranch(repoFullName, null));
+        }
+        catch (IOException e) {
+            throw unresolvedBaseBranch(repoFullName, e);
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            throw unresolvedBaseBranch(repoFullName, e);
+        }
+    }
+
+    private static ResponseStatusException unresolvedBaseBranch(
+            String repoFullName, Exception cause)
+    {
+        String message = "repository default branch could not be resolved from "
+                + "origin/HEAD: " + repoFullName;
+        return cause == null
+                ? new ResponseStatusException(HttpStatusCode.valueOf(422), message)
+                : new ResponseStatusException(
+                        HttpStatusCode.valueOf(422), message, cause);
     }
 
     private static boolean localCloneExists(String path)
@@ -694,6 +743,40 @@ public class WorkspaceService
     {
         for (Workspace workspace : list()) {
             syncGlossaryConcepts(workspace);
+        }
+    }
+
+    /**
+     * Repair repository bindings created before the base branch became a
+     * required Workspace invariant. This runs after Flyway's metadata
+     * backfill and covers locally cloned repositories whose GitHub metadata
+     * was never cached. Explicit user values are never overwritten.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void repairMissingDefaultBaseBranches()
+    {
+        int repaired = 0;
+        for (Workspace workspace : list()) {
+            for (WorkspaceRepo repo : store.listRepos(workspace.id())) {
+                if (repo.defaultBaseBranch() != null
+                        && !repo.defaultBaseBranch().isBlank()) {
+                    continue;
+                }
+                try {
+                    String branch = resolveDefaultBaseBranch(repo.repoFullName());
+                    store.addRepo(new WorkspaceRepo(
+                            repo.workspaceId(), repo.repoFullName(), branch,
+                            repo.autoFixEnabled(), repo.addedAt()));
+                    repaired++;
+                }
+                catch (ResponseStatusException failure) {
+                    log.warn("Workspace {} base branch remains unresolved: {}",
+                            workspace.id(), failure.getReason());
+                }
+            }
+        }
+        if (repaired > 0) {
+            log.info("Repaired {} Workspace repository base branch(es)", repaired);
         }
     }
 

@@ -151,10 +151,11 @@ public final class ReviewAssignmentTurnRuntime
         String operationId = id("review-operation");
         String ticketId = id("review-ticket");
         AgentTurnProviderSession.OwnerToolEndpoint endpoint = endpoint(turnId, operationId);
+        String retryPrompt = fullPrompt(oldLaunch);
         AgentTurnOperationHandler.LaunchInput launch = new AgentTurnOperationHandler.LaunchInput(
                 PAYLOAD_VERSION, oldLaunch.transport(), oldLaunch.provider(),
                 oldLaunch.credentialAccount(), oldLaunch.model(), oldLaunch.reasoningEffort(),
-                oldLaunch.workingDirectory(), oldLaunch.systemPrompt(), oldLaunch.prompt(), endpoint);
+                oldLaunch.workingDirectory(), oldLaunch.systemPrompt(), retryPrompt, endpoint);
         Admission admission = new Admission(
                 turnId, operationId, ticketId, assignmentId, candidate.purpose(),
                 candidate.subjectKey(), candidate.verifierRunId(),
@@ -200,14 +201,40 @@ public final class ReviewAssignmentTurnRuntime
         String turnId = stableId("review-wait-turn", waitKind, waitId);
         String operationId = stableId("review-wait-operation", waitKind, waitId);
         String ticketId = stableId("review-wait-ticket", waitKind, waitId);
+        String fallbackPrompt = continuationPrompt(
+                withExecutionTrace(
+                        fullPrompt(oldLaunch), candidate.executionId()),
+                waitKind, answer);
+        CliContinuation waitContinuation = oldLaunch.transport()
+                == AgentTurnProviderSession.Transport.CLI
+                ? store.successfulCliSession(
+                        candidate.turnId(), candidate.operationId(),
+                        oldLaunch.provider(), oldLaunch.model(),
+                        oldLaunch.workingDirectory()).orElse(null)
+                : null;
+        boolean waitCumulativeReady = waitContinuation != null
+                && (!"codex".equals(oldLaunch.provider())
+                || (waitContinuation.cumulativeInputTokens() != null
+                && waitContinuation.cumulativeOutputTokens() != null));
+        String resumeSessionId = !waitCumulativeReady
+                ? null : waitContinuation.providerSessionId();
         AgentTurnOperationHandler.LaunchInput launch =
                 new AgentTurnOperationHandler.LaunchInput(
                         PAYLOAD_VERSION, oldLaunch.transport(), oldLaunch.provider(),
                         oldLaunch.credentialAccount(), oldLaunch.model(),
                         oldLaunch.reasoningEffort(), oldLaunch.workingDirectory(),
-                        oldLaunch.systemPrompt(), continuationPrompt(
-                                oldLaunch.prompt(), waitKind, answer),
-                        endpoint(turnId, operationId));
+                        oldLaunch.systemPrompt(), resumeSessionId == null
+                                ? fallbackPrompt
+                                : continuationAnswerPrompt(waitKind, answer),
+                        List.of(), endpoint(turnId, operationId),
+                        resumeSessionId,
+                        resumeSessionId == null ? null : fallbackPrompt,
+                        !waitCumulativeReady
+                                ? 0 : cumulativeOrZero(
+                                        waitContinuation.cumulativeInputTokens()),
+                        !waitCumulativeReady
+                                ? 0 : cumulativeOrZero(
+                                        waitContinuation.cumulativeOutputTokens()));
         Admission admission = new Admission(
                 turnId, operationId, ticketId, candidate.assignmentId(),
                 candidate.purpose(), candidate.subjectKey(),
@@ -348,11 +375,39 @@ public final class ReviewAssignmentTurnRuntime
         String ticketId = id("review-ticket");
         AgentLaunch provider = seat.provider();
         Path workingDirectory = seat.workingDirectory().toAbsolutePath().normalize();
+        String predecessorPurpose = switch (seat.purpose()) {
+            case SELF_REFUTATION -> INVESTIGATE;
+            case INDEPENDENT_VERIFICATION -> BLIND_RECONSTRUCTION;
+            default -> null;
+        };
+        String predecessorSubject = SELF_REFUTATION.equals(seat.purpose())
+                ? seat.assignmentId() : seat.subjectKey();
+        CliContinuation continuation = provider.transport()
+                == AgentTurnProviderSession.Transport.CLI
+                && predecessorPurpose != null
+                ? store.successfulCliSession(
+                        seat.assignmentId(), predecessorPurpose,
+                        predecessorSubject, provider.provider(), provider.model(),
+                        workingDirectory.toString())
+                        .orElse(null)
+                : null;
+        String resumeSessionId = continuation == null
+                ? null : continuation.providerSessionId();
+        String fallbackPrompt = continuation == null
+                ? null : continuedPrompt(continuation, seat.prompt().prompt());
         AgentTurnOperationHandler.LaunchInput launch = new AgentTurnOperationHandler.LaunchInput(
                 PAYLOAD_VERSION, provider.transport(), provider.provider(),
                 provider.credentialAccount(), provider.model(), null,
                 workingDirectory.toString(), seat.prompt().systemPrompt(),
-                seat.prompt().prompt(), endpoint(turnId, operationId));
+                seat.prompt().prompt(), List.of(), endpoint(turnId, operationId),
+                resumeSessionId,
+                fallbackPrompt,
+                continuation == null
+                        ? 0 : cumulativeOrZero(
+                                continuation.cumulativeInputTokens()),
+                continuation == null
+                        ? 0 : cumulativeOrZero(
+                                continuation.cumulativeOutputTokens()));
         return new Admission(
                 turnId, operationId, ticketId, seat.assignmentId(), seat.purpose(),
                 seat.subjectKey(), seat.verifierRunId(), attempt, startCommit,
@@ -370,6 +425,11 @@ public final class ReviewAssignmentTurnRuntime
                 DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN,
                 turnId, operationId, REVIEW_ASSIGNMENT_READ_ONLY,
                 "mcp__bytequay__approval_prompt");
+    }
+
+    private static long cumulativeOrZero(Long value)
+    {
+        return value == null ? 0 : value;
     }
 
     private String encode(Object value)
@@ -402,6 +462,51 @@ public final class ReviewAssignmentTurnRuntime
                 + "\nContinue the same review assignment from this answer.";
     }
 
+    private static String continuationAnswerPrompt(String waitKind, String answer)
+    {
+        return "The user resolved the "
+                + waitKind.toLowerCase(Locale.ROOT).replace('_', ' ') + ": " + answer
+                + "\nContinue the same review assignment from this answer.";
+    }
+
+    private static String fullPrompt(AgentTurnOperationHandler.LaunchInput launch)
+    {
+        return launch.fallbackPrompt() == null
+                ? launch.prompt() : launch.fallbackPrompt();
+    }
+
+    private String continuedPrompt(CliContinuation continuation, String currentPrompt)
+    {
+        AgentTurnOperationHandler.LaunchInput previous;
+        try {
+            previous = json.readValue(
+                    continuation.launchInput(),
+                    AgentTurnOperationHandler.LaunchInput.class);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "stored review predecessor launch input is invalid", e);
+        }
+        return withExecutionTrace(
+                fullPrompt(previous), continuation.executionId())
+                + "\n\nNext review instruction:\n" + currentPrompt;
+    }
+
+    private String withExecutionTrace(String prompt, String executionId)
+    {
+        if (executionId == null) {
+            return prompt;
+        }
+        List<String> trace = store.executionLog(executionId);
+        if (trace.isEmpty()) {
+            return prompt;
+        }
+        StringBuilder reconstructed = new StringBuilder(prompt)
+                .append("\n\nDurable provider trace from the prior Turn:\n");
+        trace.forEach(event -> reconstructed.append(event).append('\n'));
+        return reconstructed.toString();
+    }
+
     public interface Store
     {
         void admitRound(
@@ -432,6 +537,25 @@ public final class ReviewAssignmentTurnRuntime
                 String waitId)
         {
             return Optional.empty();
+        }
+
+        default Optional<CliContinuation> successfulCliSession(
+                String assignmentId, String purpose, String subjectKey,
+                String provider, String model, String workingDirectory)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<CliContinuation> successfulCliSession(
+                String turnId, String operationId, String provider, String model,
+                String workingDirectory)
+        {
+            return Optional.empty();
+        }
+
+        default List<String> executionLog(String executionId)
+        {
+            return List.of();
         }
 
         default String continueUserWait(
@@ -594,7 +718,8 @@ public final class ReviewAssignmentTurnRuntime
             String verifierRunId,
             int attempt,
             long costCapUsdMilli,
-            String launchInput)
+            String launchInput,
+            String executionId)
     {
         public ContinuationCandidate
         {
@@ -613,6 +738,36 @@ public final class ReviewAssignmentTurnRuntime
                 throw new IllegalArgumentException(
                         "attempt and cost cap must be positive");
             }
+        }
+    }
+
+    public record CliContinuation(
+            String launchInput,
+            String executionId,
+            String providerSessionId,
+            Long cumulativeInputTokens,
+            Long cumulativeOutputTokens)
+    {
+        public CliContinuation
+        {
+            requireText(launchInput, "launchInput");
+            requireText(executionId, "executionId");
+            requireText(providerSessionId, "providerSessionId");
+            if ((cumulativeInputTokens == null)
+                    != (cumulativeOutputTokens == null)
+                    || (cumulativeInputTokens != null
+                    && (cumulativeInputTokens < 0 || cumulativeOutputTokens < 0))) {
+                throw new IllegalArgumentException(
+                        "review cumulative usage baseline is invalid");
+            }
+        }
+
+        public CliContinuation(
+                String launchInput,
+                String executionId,
+                String providerSessionId)
+        {
+            this(launchInput, executionId, providerSessionId, 0L, 0L);
         }
     }
 

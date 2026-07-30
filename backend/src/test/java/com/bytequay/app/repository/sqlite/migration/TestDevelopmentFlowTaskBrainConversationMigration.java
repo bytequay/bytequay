@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.task.SqliteTaskBrainConversationStore;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -120,6 +123,104 @@ class TestDevelopmentFlowTaskBrainConversationMigration
             assertThat(number(connection,
                     "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
         }
+    }
+
+    @Test
+    void cliContinuityUsesExactWorktreeAndInsertionOrder()
+            throws Exception
+    {
+        String url = database("cli-continuity.db");
+        migrate(url, "228");
+        try (Connection connection = connect(url)) {
+            seedActiveTask(connection);
+        }
+        migrate(url, "266");
+        try (Connection connection = connect(url)) {
+            completeConversation(
+                    connection, "turn-z", "operation-z", "ticket-z",
+                    "execution-z", "session-z", "older", 30);
+            completeConversation(
+                    connection, "turn-a", "operation-a", "ticket-a",
+                    "execution-a", "session-a", "newer", 20);
+            execute(connection, """
+                    INSERT INTO task_attachment(
+                        id, turn_id, kind, content_ref, media_type, digest,
+                        created_at_ms)
+                    VALUES ('attachment-z', 'turn-z', 'IMAGE', '/tmp/z.png',
+                            'image/png', '%1$s', 100),
+                           ('attachment-a', 'turn-a', 'IMAGE', '/tmp/a.png',
+                            'image/png', '%2$s', 10)
+                    """.formatted("c".repeat(64), "d".repeat(64)));
+        }
+        SQLiteDataSource source = new SQLiteDataSource();
+        source.setUrl(url);
+        SqliteTaskBrainConversationStore store =
+                new SqliteTaskBrainConversationStore(new JdbcTemplate(source));
+
+        assertThat(store.latestSuccessfulCliSession(
+                "task-1", 1, "stage-1", 1L,
+                "fingerprint-1", "base-1", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .get()
+                .satisfies(session -> {
+                    assertThat(session.providerSessionId()).isEqualTo("session-a");
+                    assertThat(session.cumulativeInputTokens()).isEqualTo(100);
+                    assertThat(session.cumulativeOutputTokens()).isEqualTo(40);
+                });
+        assertThat(store.latestSuccessfulCliSession(
+                "task-1", 1, "stage-1", 1L,
+                "fingerprint-1", "base-1", "base-1",
+                "codex", "gpt-5.6", "/tmp/other"))
+                .isEmpty();
+        assertThat(store.latestSuccessfulCliSession(
+                "task-1", 1, "stage-1", 2L,
+                "fingerprint-1", "base-1", "base-1",
+                "codex", "gpt-5.6", "/tmp/task-1"))
+                .isEmpty();
+        assertThat(store.conversation("task-1"))
+                .filteredOn(message -> message.role().equals("USER"))
+                .extracting(SqliteTaskBrainConversationStore.Message::body)
+                .containsExactly("older", "newer");
+        assertThat(store.conversationAttachments("task-1"))
+                .extracting(
+                        SqliteTaskBrainConversationStore.Attachment::contentRef)
+                .containsExactly("/tmp/z.png", "/tmp/a.png");
+
+        try (Connection connection = connect(url)) {
+            execute(connection, """
+                    INSERT INTO task_question(
+                        id, turn_id, call_id, prompt, state, answer,
+                        answer_revision, created_at_ms, answered_at_ms,
+                        answer_free_form, answer_actor, continuation_state)
+                    VALUES ('question-a', 'turn-a', 'call-a', 'Continue?',
+                        'ANSWERED', 'yes', 1, 22, 23, 'yes', 'user', 'READY')
+                    """);
+            execute(connection, """
+                    INSERT INTO typed_user_wait_result(
+                        operation_id, owner_kind, turn_id, wait_kind, wait_id,
+                        payload_digest, result_evidence, accepted_at_ms)
+                    VALUES ('operation-a', 'TASK_TURN', 'turn-a', 'QUESTION',
+                        'question-a', '%s', 'waiting for user', 22)
+                    """.formatted("b".repeat(64)));
+        }
+        assertThat(store.findContinuationContext(
+                        "turn-a", "operation-a", "QUESTION", "question-a"))
+                .get()
+                .extracting(
+                        SqliteTaskBrainConversationStore.ContinuationContext::providerSessionId)
+                .isEqualTo("session-a");
+
+        try (Connection connection = connect(url)) {
+            completeConversation(
+                    connection, "turn-b", "operation-b", "ticket-b",
+                    "execution-b", "session-b", "latest", 40);
+        }
+        assertThat(store.findContinuationContext(
+                        "turn-a", "operation-a", "QUESTION", "question-a"))
+                .get()
+                .extracting(
+                        SqliteTaskBrainConversationStore.ContinuationContext::providerSessionId)
+                .isNull();
     }
 
     private static void seedActiveTask(Connection connection)
@@ -298,6 +399,59 @@ class TestDevelopmentFlowTaskBrainConversationMigration
     {
         execute(connection, ticketSql(
                 ticketId, turnId, operationId, exclusiveTask));
+    }
+
+    private static void completeConversation(
+            Connection connection,
+            String turnId,
+            String operationId,
+            String ticketId,
+            String executionId,
+            String sessionId,
+            String body,
+            long messageTime)
+            throws SQLException
+    {
+        insertConversationTurn(connection, turnId, operationId, "fingerprint-1");
+        execute(connection, """
+                INSERT INTO task_message(
+                    id, turn_id, seq, role, body, created_at_ms)
+                VALUES ('user-%1$s', '%1$s', 1, 'USER', '%2$s', %3$d),
+                       ('assistant-%1$s', '%1$s', 2, 'ASSISTANT',
+                        'answer to %2$s', %3$d)
+                """.formatted(turnId, body, messageTime));
+        insertConversationTicket(connection, ticketId, turnId, operationId, 1);
+        execute(connection, """
+                UPDATE task_turn
+                SET status = 'SUCCEEDED', started_at_ms = 21, finished_at_ms = 22
+                WHERE id = '%1$s'
+                """.formatted(turnId));
+        execute(connection, """
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'SUCCEEDED',
+                    completed_at_ms = 22, delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'accepted'
+                WHERE id = '%1$s'
+                """.formatted(ticketId));
+        execute(connection, """
+                INSERT INTO task_brain_conversation_result_v266(
+                    task_turn_id, operation_id, raw_outcome, raw_result_digest,
+                    acceptance, terminal_status, assistant_message_id,
+                    evidence, recorded_at_ms)
+                VALUES ('%1$s', '%2$s', 'SUCCEEDED', '%3$s', 'ACCEPTED',
+                    'SUCCEEDED', 'assistant-%1$s', 'accepted', 22);
+                """.formatted(turnId, operationId, "a".repeat(64)));
+        execute(connection, """
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    provider_session_id, status, started_at_ms, finished_at_ms,
+                    raw_result)
+                VALUES ('%1$s', '%2$s', 1, 'codex', '%3$s',
+                    'SUCCEEDED', 21, 22,
+                    json_object('payloadJson', json_object(
+                        'providerCumulativeInputTokens', 100,
+                        'providerCumulativeOutputTokens', 40)))
+                """.formatted(executionId, ticketId, sessionId));
     }
 
     private static String ticketSql(

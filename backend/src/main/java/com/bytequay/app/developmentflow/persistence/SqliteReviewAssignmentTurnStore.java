@@ -24,6 +24,7 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.Re
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.ResultReceipt;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Admission;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.CliContinuation;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.ContinuationCandidate;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FlowPhase;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RetryCandidate;
@@ -296,6 +297,157 @@ public class SqliteReviewAssignmentTurnStore
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<CliContinuation> successfulCliSession(
+            String assignmentId, String purpose, String subjectKey,
+            String provider, String model, String workingDirectory)
+    {
+        requireText(assignmentId, "assignmentId");
+        requireText(purpose, "purpose");
+        requireText(subjectKey, "subjectKey");
+        requireText(provider, "provider");
+        requireText(model, "model");
+        requireText(workingDirectory, "workingDirectory");
+        return jdbc.query("""
+                SELECT turn.launch_input, execution.id AS execution_id,
+                       execution.provider_session_id,
+                       json_extract(json_extract(execution.raw_result,
+                           '$.payloadJson'),
+                           '$.providerCumulativeInputTokens')
+                           AS cumulative_input_tokens,
+                       json_extract(json_extract(execution.raw_result,
+                           '$.payloadJson'),
+                           '$.providerCumulativeOutputTokens')
+                           AS cumulative_output_tokens
+                FROM review_assignment_turn turn
+                JOIN review_assignment_turn_result_receipt receipt
+                  ON receipt.turn_id = turn.id
+                 AND receipt.acceptance = 'ACCEPTED'
+                 AND receipt.terminal_status = 'SUCCEEDED'
+                JOIN dispatch_ticket ticket
+                  ON ticket.owner_kind = 'REVIEW_ASSIGNMENT_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                 AND ticket.status = 'SUCCEEDED'
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                 AND execution.status = 'SUCCEEDED'
+                 AND execution.provider_session_id IS NOT NULL
+                 AND execution.provider =
+                     json_extract(turn.launch_input, '$.provider')
+                WHERE turn.assignment_id = ?
+                  AND turn.purpose = ? AND turn.subject_key = ?
+                  AND turn.status = 'SUCCEEDED'
+                  AND json_extract(turn.launch_input, '$.transport') = 'CLI'
+                  AND json_extract(turn.launch_input, '$.provider') = ?
+                  AND json_extract(turn.launch_input, '$.model') = ?
+                  AND json_extract(turn.launch_input, '$.workingDirectory') = ?
+                  AND json_extract(
+                      turn.launch_input, '$.toolEndpoint.profile') =
+                      'REVIEW_ASSIGNMENT_READ_ONLY'
+                  AND (? <> 'codex' OR (
+                      json_type(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.providerCumulativeInputTokens') = 'integer'
+                      AND json_type(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.providerCumulativeOutputTokens') = 'integer'))
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM review_assignment_turn later
+                      WHERE later.assignment_id = turn.assignment_id
+                        AND later.purpose = turn.purpose
+                        AND later.subject_key = turn.subject_key
+                        AND later.attempt > turn.attempt)
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM review_assignment_turn live
+                      WHERE live.assignment_id = turn.assignment_id
+                        AND live.status IN (
+                            'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING'))
+                ORDER BY turn.attempt DESC,
+                         execution.infrastructure_attempt DESC
+                LIMIT 1
+                """, (rs, row) -> new CliContinuation(
+                        rs.getString("launch_input"),
+                        rs.getString("execution_id"),
+                        rs.getString("provider_session_id"),
+                        nullableLong(rs, "cumulative_input_tokens"),
+                        nullableLong(rs, "cumulative_output_tokens")),
+                assignmentId, purpose, subjectKey, provider, model,
+                workingDirectory, provider)
+                .stream().findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CliContinuation> successfulCliSession(
+            String turnId, String operationId, String provider, String model,
+            String workingDirectory)
+    {
+        requireText(turnId, "turnId");
+        requireText(operationId, "operationId");
+        requireText(provider, "provider");
+        requireText(model, "model");
+        requireText(workingDirectory, "workingDirectory");
+        return jdbc.query("""
+                SELECT turn.launch_input, execution.id AS execution_id,
+                       execution.provider_session_id,
+                       CASE WHEN json_type(turn.launch_input,
+                           '$.resumeSessionId') IS NULL THEN 0
+                         ELSE json_extract(turn.launch_input,
+                           '$.priorCumulativeInputTokens') END
+                           AS cumulative_input_tokens,
+                       CASE WHEN json_type(turn.launch_input,
+                           '$.resumeSessionId') IS NULL THEN 0
+                         ELSE json_extract(turn.launch_input,
+                           '$.priorCumulativeOutputTokens') END
+                           AS cumulative_output_tokens
+                FROM review_assignment_turn turn
+                JOIN dispatch_ticket ticket
+                  ON ticket.owner_kind = 'REVIEW_ASSIGNMENT_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                 AND ticket.status = 'SUCCEEDED'
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                 AND execution.status = 'SUCCEEDED'
+                 AND execution.provider_session_id IS NOT NULL
+                 AND execution.provider =
+                     json_extract(turn.launch_input, '$.provider')
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.status = 'SUCCEEDED'
+                  AND json_extract(turn.launch_input, '$.transport') = 'CLI'
+                  AND json_extract(turn.launch_input, '$.provider') = ?
+                  AND json_extract(turn.launch_input, '$.model') = ?
+                  AND json_extract(turn.launch_input, '$.workingDirectory') = ?
+                  AND json_extract(
+                      turn.launch_input, '$.toolEndpoint.profile') =
+                      'REVIEW_ASSIGNMENT_READ_ONLY'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM review_assignment_turn later
+                      WHERE later.assignment_id = turn.assignment_id
+                        AND later.rowid > turn.rowid)
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM review_assignment_turn live
+                      WHERE live.assignment_id = turn.assignment_id
+                        AND live.status IN (
+                            'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING'))
+                ORDER BY execution.infrastructure_attempt DESC
+                LIMIT 1
+                """, (rs, row) -> new CliContinuation(
+                        rs.getString("launch_input"),
+                        rs.getString("execution_id"),
+                        rs.getString("provider_session_id"),
+                        nullableLong(rs, "cumulative_input_tokens"),
+                        nullableLong(rs, "cumulative_output_tokens")),
+                turnId, operationId, provider, model, workingDirectory)
+                .stream().findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<ContinuationCandidate> userWaitCandidate(
             String predecessorTurnId,
             String predecessorOperationId,
@@ -311,7 +463,8 @@ public class SqliteReviewAssignmentTurnStore
                        assignment.round_id, turn.assignment_id,
                        turn.start_commit, turn.purpose, turn.subject_key,
                        turn.verifier_run_id, turn.attempt,
-                       turn.cost_cap_usd_milli, turn.launch_input
+                       turn.cost_cap_usd_milli, turn.launch_input,
+                       execution.id AS execution_id
                 FROM review_assignment_turn turn
                 JOIN review_assignment assignment
                   ON assignment.id = turn.assignment_id
@@ -323,6 +476,14 @@ public class SqliteReviewAssignmentTurnStore
                   ON ticket.owner_kind = 'REVIEW_ASSIGNMENT_TURN'
                  AND ticket.owner_id = turn.id
                  AND ticket.operation_id = turn.operation_id
+                LEFT JOIN agent_execution execution
+                  ON execution.id = (
+                    SELECT candidate.id
+                    FROM agent_execution candidate
+                    WHERE candidate.ticket_id = ticket.id
+                      AND candidate.status = 'SUCCEEDED'
+                    ORDER BY candidate.infrastructure_attempt DESC
+                    LIMIT 1)
                 LEFT JOIN tasks task ON task.id = session.owner_task_id
                 LEFT JOIN task_current_code_subject_v230 code
                   ON code.task_id = session.owner_task_id
@@ -365,9 +526,21 @@ public class SqliteReviewAssignmentTurnStore
                                 rs.getString("verifier_run_id"),
                                 rs.getInt("attempt"),
                                 rs.getLong("cost_cap_usd_milli"),
-                                rs.getString("launch_input")),
+                                rs.getString("launch_input"),
+                                rs.getString("execution_id")),
                 predecessorTurnId, predecessorOperationId, waitKind, waitId,
                 waitKind, waitId, waitKind, waitId).stream().findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> executionLog(String executionId)
+    {
+        requireText(executionId, "executionId");
+        return jdbc.query("""
+                SELECT payload FROM agent_execution_log
+                WHERE execution_id = ? ORDER BY seq
+                """, (rs, row) -> rs.getString("payload"), executionId);
     }
 
     @Override

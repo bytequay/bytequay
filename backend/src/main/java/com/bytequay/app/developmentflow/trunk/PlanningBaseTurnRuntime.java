@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.trunk;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -32,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -53,6 +55,7 @@ public final class PlanningBaseTurnRuntime
     private final ObjectMapper json;
     private final ObjectReader snapshotReader;
     private final ObjectReader intentReader;
+    private final ObjectReader turnLaunchReader;
     private final Clock clock;
 
     public PlanningBaseTurnRuntime(
@@ -76,6 +79,9 @@ public final class PlanningBaseTurnRuntime
                         PlanningBaseRefreshOperationHandler.Snapshot.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.intentReader = json.readerFor(LaunchIntent.class)
+                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        this.turnLaunchReader = json.readerFor(
+                        AgentTurnOperationHandler.LaunchInput.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -102,7 +108,8 @@ public final class PlanningBaseTurnRuntime
                 1, request.purpose(), request.transport(), request.provider(),
                 request.credentialAccount(), request.model(),
                 request.reasoningEffort(), request.systemPrompt(),
-                user.text(), prompt.text(), images);
+                user.text(), prompt.text(), images,
+                request.continuationTurnId(), request.continuationOperationId());
         String frozen = write(intent);
         Optional<TrunkManager.PlanningBaseRequestReceipt> existing =
                 trunkStore.findPlanningBaseRequest(
@@ -261,8 +268,77 @@ public final class PlanningBaseTurnRuntime
             TrunkManager.State current = trunkStore.findById(candidate.trunkId())
                     .orElseThrow(() -> new IllegalStateException(
                             "V2 Trunk disappeared before launch"));
-            String prompt = movement(candidate.previousBaseSha(), candidate.baseSha())
+            String currentPrompt = movement(
+                    candidate.previousBaseSha(), candidate.baseSha())
                     + intent.prompt();
+            String fallbackPrompt;
+            String resumeSessionId;
+            long priorCumulativeInputTokens = 0;
+            long priorCumulativeOutputTokens = 0;
+            List<AgentTurnProviderSession.ImageAttachment> launchImages;
+            if (intent.continuationTurnId() == null) {
+                boolean conversation = intent.purpose().equals("TRUNK_CONVERSATION");
+                List<AgentTurnProviderSession.ImageAttachment> historicalImages =
+                        conversation
+                                ? store.conversationAttachments(candidate.trunkId())
+                                : List.of();
+                fallbackPrompt = conversation
+                        ? conversationPrompt(
+                                store.conversation(candidate.trunkId()),
+                                historicalImages, currentPrompt)
+                        : currentPrompt;
+                launchImages = mergeImages(historicalImages, intent.images());
+                SqlitePlanningBaseTurnStore.CliSession session =
+                        conversation && intent.transport()
+                                == AgentTurnProviderSession.Transport.CLI
+                                ? store.latestSuccessfulCliSession(
+                                        candidate.trunkId(), intent.provider(),
+                                        intent.model(), candidate.worktreePath())
+                                        .orElse(null)
+                                : null;
+                resumeSessionId = session == null
+                        ? null : session.providerSessionId();
+                if (session != null) {
+                    priorCumulativeInputTokens = session.cumulativeInputTokens();
+                    priorCumulativeOutputTokens = session.cumulativeOutputTokens();
+                }
+            }
+            else {
+                SqlitePlanningBaseTurnStore.UserWaitSource source =
+                        store.userWaitSource(
+                                        intent.continuationTurnId(),
+                                        intent.continuationOperationId(),
+                                        candidate.trunkId())
+                                .orElse(null);
+                if (source == null) {
+                    suppressInvalidLaunch(candidate,
+                            "Trunk user-wait source is stale or unavailable");
+                    return;
+                }
+                AgentTurnOperationHandler.LaunchInput sourceLaunch;
+                try {
+                    sourceLaunch = readTurnLaunch(source.launchInput());
+                }
+                catch (IllegalStateException e) {
+                    suppressInvalidLaunch(candidate, detail(e));
+                    return;
+                }
+                fallbackPrompt = continuationPrompt(
+                        fullPrompt(sourceLaunch),
+                        store.executionLog(source.executionId()), currentPrompt);
+                launchImages = mergeImages(sourceLaunch.images(), intent.images());
+                resumeSessionId = resumable(
+                        intent, candidate, source, sourceLaunch)
+                        ? source.providerSessionId() : null;
+                if (resumeSessionId != null) {
+                    priorCumulativeInputTokens = source.cumulativeInputTokens() == null
+                            ? 0 : source.cumulativeInputTokens();
+                    priorCumulativeOutputTokens = source.cumulativeOutputTokens() == null
+                            ? 0 : source.cumulativeOutputTokens();
+                }
+            }
+            String prompt = resumeSessionId == null
+                    ? fallbackPrompt : currentPrompt;
             TrunkManager.ThreadTurnCommand command;
             try {
                 command = turns.prepare(new ThreadTurnHandoff.Request(
@@ -272,8 +348,11 @@ public final class PlanningBaseTurnRuntime
                         intent.provider(), intent.credentialAccount(), intent.model(),
                         intent.reasoningEffort(), Path.of(candidate.worktreePath()),
                         intent.systemPrompt(), intent.userMessage(), prompt,
-                        intent.images(), candidate.planningOperationId(),
-                        candidate.baseSha()));
+                        launchImages, intent.images(), candidate.planningOperationId(),
+                        candidate.baseSha(), resumeSessionId,
+                        resumeSessionId == null ? null : fallbackPrompt,
+                        priorCumulativeInputTokens,
+                        priorCumulativeOutputTokens));
             }
             catch (ThreadTurnHandoff.InvalidFrozenAttachmentException e) {
                 suppressInvalidLaunch(candidate, detail(e));
@@ -325,6 +404,81 @@ public final class PlanningBaseTurnRuntime
                 ? root : summary + ": " + root;
     }
 
+    private static String conversationPrompt(
+            List<SqlitePlanningBaseTurnStore.ConversationMessage> history,
+            List<AgentTurnProviderSession.ImageAttachment> historicalImages,
+            String currentPrompt)
+    {
+        if (history.isEmpty() && historicalImages.isEmpty()) {
+            return currentPrompt;
+        }
+        StringBuilder prompt = new StringBuilder(
+                "Continue this durable Trunk conversation.\n\nConversation so far:\n");
+        history.forEach(message -> prompt
+                .append("user".equalsIgnoreCase(message.role())
+                        ? "User: " : "Trunk: ")
+                .append(message.body()).append('\n'));
+        if (!historicalImages.isEmpty()) {
+            prompt.append("\nHistorical image attachments (managed read-only files):\n");
+            historicalImages.forEach(image -> prompt
+                    .append("- ").append(image.path()).append('\n'));
+        }
+        return prompt.append("\nCurrent request:\n")
+                .append(currentPrompt).toString();
+    }
+
+    private static List<AgentTurnProviderSession.ImageAttachment> mergeImages(
+            List<AgentTurnProviderSession.ImageAttachment> earlier,
+            List<AgentTurnProviderSession.ImageAttachment> current)
+    {
+        LinkedHashSet<AgentTurnProviderSession.ImageAttachment> merged =
+                new LinkedHashSet<>(earlier);
+        merged.addAll(current);
+        return List.copyOf(merged);
+    }
+
+    private static String continuationPrompt(
+            String sourcePrompt, List<String> sourceTrace, String currentPrompt)
+    {
+        StringBuilder prompt = new StringBuilder(sourcePrompt);
+        if (!sourceTrace.isEmpty()) {
+            prompt.append("\n\nDurable provider trace from the prior Turn:\n");
+            sourceTrace.forEach(event -> prompt.append(event).append('\n'));
+        }
+        return prompt.append("\n\nCurrent continuation:\n")
+                .append(currentPrompt).toString();
+    }
+
+    private static String fullPrompt(
+            AgentTurnOperationHandler.LaunchInput launch)
+    {
+        return launch.fallbackPrompt() == null
+                ? launch.prompt() : launch.fallbackPrompt();
+    }
+
+    private static boolean resumable(
+            LaunchIntent intent,
+            SqlitePlanningBaseTurnStore.LaunchCandidate candidate,
+            SqlitePlanningBaseTurnStore.UserWaitSource source,
+            AgentTurnOperationHandler.LaunchInput sourceLaunch)
+    {
+        return intent.transport() == AgentTurnProviderSession.Transport.CLI
+                && source.latestTurn()
+                && source.providerSessionId() != null
+                && !source.providerSessionId().isBlank()
+                && (!"codex".equals(intent.provider())
+                    || (source.cumulativeInputTokens() != null
+                    && source.cumulativeOutputTokens() != null))
+                && sourceLaunch.transport()
+                    == AgentTurnProviderSession.Transport.CLI
+                && sourceLaunch.provider().equals(intent.provider())
+                && sourceLaunch.model().equals(intent.model())
+                && sourceLaunch.workingDirectory().equals(
+                        candidate.worktreePath())
+                && sourceLaunch.toolEndpoint().profile()
+                    == AgentTurnProviderSession.ToolProfile.TRUNK_CONTROL_READ_ONLY;
+    }
+
     private Path repositoryRoot(String workspaceId)
     {
         WorkspaceRepositoryResolver.RepositoryIdentity repository =
@@ -367,6 +521,17 @@ public final class PlanningBaseTurnRuntime
         }
         catch (JsonProcessingException | IllegalArgumentException e) {
             throw new IllegalStateException("planning launch intent is invalid", e);
+        }
+    }
+
+    private AgentTurnOperationHandler.LaunchInput readTurnLaunch(String value)
+    {
+        try {
+            return turnLaunchReader.readValue(value);
+        }
+        catch (JsonProcessingException | IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "stored Trunk user-wait launch input is invalid", e);
         }
     }
 
@@ -441,7 +606,9 @@ public final class PlanningBaseTurnRuntime
             String reasoningEffort,
             String systemPrompt,
             String userMessage,
-            String prompt)
+            String prompt,
+            String continuationTurnId,
+            String continuationOperationId)
     {
         public Request
         {
@@ -455,6 +622,34 @@ public final class PlanningBaseTurnRuntime
             requireText(model, "model");
             requireText(userMessage, "userMessage");
             requireText(prompt, "prompt");
+            requirePair(
+                    continuationTurnId, continuationOperationId,
+                    "continuation Turn and Operation");
+            if (continuationTurnId != null
+                    && !purpose.equals("TRUNK_CONVERSATION")) {
+                throw new IllegalArgumentException(
+                        "only Trunk conversation may continue a user wait");
+            }
+        }
+
+        public Request(
+                String commandId,
+                String actor,
+                String trunkId,
+                String workspaceId,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                String systemPrompt,
+                String userMessage,
+                String prompt)
+        {
+            this(commandId, actor, trunkId, workspaceId, purpose, transport,
+                    provider, credentialAccount, model, reasoningEffort,
+                    systemPrompt, userMessage, prompt, null, null);
         }
     }
 
@@ -478,7 +673,11 @@ public final class PlanningBaseTurnRuntime
             String userMessage,
             String prompt,
             @JsonInclude(JsonInclude.Include.NON_EMPTY)
-                    List<AgentTurnProviderSession.ImageAttachment> images)
+                    List<AgentTurnProviderSession.ImageAttachment> images,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+                    String continuationTurnId,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+                    String continuationOperationId)
     {
         private LaunchIntent
         {
@@ -493,6 +692,26 @@ public final class PlanningBaseTurnRuntime
             requireText(userMessage, "userMessage");
             requireText(prompt, "prompt");
             images = images == null ? List.of() : List.copyOf(images);
+            requirePair(
+                    continuationTurnId, continuationOperationId,
+                    "continuation Turn and Operation");
+            if (continuationTurnId != null
+                    && !purpose.equals("TRUNK_CONVERSATION")) {
+                throw new IllegalArgumentException(
+                        "only Trunk conversation may continue a user wait");
+            }
+        }
+    }
+
+    private static void requirePair(String left, String right, String name)
+    {
+        if ((left == null) != (right == null)) {
+            throw new IllegalArgumentException(
+                    "%s must be supplied together".formatted(name));
+        }
+        if (left != null && (left.isBlank() || right.isBlank())) {
+            throw new IllegalArgumentException(
+                    "%s must not be blank".formatted(name));
         }
     }
 

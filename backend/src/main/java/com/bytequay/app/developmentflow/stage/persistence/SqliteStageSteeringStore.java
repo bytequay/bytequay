@@ -383,6 +383,290 @@ public final class SqliteStageSteeringStore
         return count != null && count > 0;
     }
 
+    public Optional<CliContinuation> cliContinuation(
+            Request request,
+            String stageId,
+            long stageGeneration,
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            String provider,
+            String model,
+            String workingDirectory)
+    {
+        requireNonNull(request, "request is null");
+        Predecessor predecessor = requireNonNull(
+                request.predecessor(), "predecessor is null");
+        requireText(stageId, "stageId");
+        requireText(codeFingerprint, "codeFingerprint");
+        requireText(headSha, "headSha");
+        requireText(baseSha, "baseSha");
+        requireText(provider, "provider");
+        requireText(model, "model");
+        requireText(workingDirectory, "workingDirectory");
+        if (!"STAGE_TURN".equals(predecessor.ownerKind())) {
+            return Optional.empty();
+        }
+        return jdbc.query("""
+                WITH lineage_candidate(
+                    turn_id, operation_id, ticket_id, successor_rank,
+                    steering_order) AS (
+                    SELECT ?, ?, ?, 0, 0
+                    UNION ALL
+                    SELECT steering.successor_owner_id,
+                           steering.successor_operation_id, ticket.id, 1,
+                           steering.rowid
+                    FROM stage_steering_request_v257 steering
+                    JOIN dispatch_ticket ticket
+                      ON ticket.owner_kind = 'STAGE_TURN'
+                     AND ticket.owner_id = steering.successor_owner_id
+                     AND ticket.operation_id = steering.successor_operation_id
+                    WHERE ? = 'APPEND'
+                      AND steering.task_id = ? AND steering.task_epoch = ?
+                      AND steering.stage_id = ?
+                      AND steering.stage_generation = ?
+                      AND steering.status = 'ADMITTED'
+                      AND steering.successor_owner_kind = 'STAGE_TURN'
+                      AND steering.rowid < (
+                          SELECT current.rowid
+                          FROM stage_steering_request_v257 current
+                          WHERE current.id = ?)
+                ),
+                latest_lineage AS (
+                    SELECT * FROM lineage_candidate
+                    ORDER BY successor_rank DESC, steering_order DESC
+                    LIMIT 1
+                )
+                SELECT turn.launch_input, execution.id AS execution_id,
+                       execution.provider_session_id,
+                       CASE WHEN json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.disposition') = 'USER_WAIT'
+                         THEN CASE WHEN json_type(turn.launch_input,
+                             '$.resumeSessionId') IS NULL THEN 0
+                           ELSE json_extract(turn.launch_input,
+                             '$.priorCumulativeInputTokens') END
+                         ELSE json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.providerCumulativeInputTokens') END
+                           AS cumulative_input_tokens,
+                       CASE WHEN json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.disposition') = 'USER_WAIT'
+                         THEN CASE WHEN json_type(turn.launch_input,
+                             '$.resumeSessionId') IS NULL THEN 0
+                           ELSE json_extract(turn.launch_input,
+                             '$.priorCumulativeOutputTokens') END
+                         ELSE json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.providerCumulativeOutputTokens') END
+                           AS cumulative_output_tokens,
+                       CASE WHEN execution.provider_session_id IS NOT NULL
+                           AND execution.provider_session_id <> ''
+                           AND execution.provider = ?
+                           AND json_extract(turn.launch_input, '$.transport') =
+                               'CLI'
+                           AND json_extract(turn.launch_input, '$.provider') = ?
+                           AND json_extract(turn.launch_input, '$.model') = ?
+                           AND json_extract(
+                               turn.launch_input, '$.workingDirectory') = ?
+                           AND json_extract(
+                               turn.launch_input, '$.toolEndpoint.profile') =
+                               'STAGE_DEVELOPMENT'
+                           AND (? <> 'CANCEL_AND_REPLACE' OR NOT (
+                               EXISTS (
+                                   SELECT 1 FROM stage_turn later_turn
+                                   WHERE later_turn.stage_id = turn.stage_id
+                                     AND later_turn.stage_generation =
+                                         turn.stage_generation
+                                     AND later_turn.rowid > turn.rowid)
+                               OR EXISTS (
+                                   SELECT 1 FROM stage_turn live
+                                   WHERE live.stage_id = turn.stage_id
+                                     AND live.stage_generation =
+                                         turn.stage_generation
+                                     AND live.status IN ('REQUESTED', 'QUEUED',
+                                         'CLAIMED', 'RUNNING'))))
+                       THEN 1 ELSE 0 END AS session_reusable
+                FROM latest_lineage candidate
+                JOIN stage_turn turn
+                  ON turn.id = candidate.turn_id
+                 AND turn.operation_id = candidate.operation_id
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = candidate.ticket_id
+                 AND ticket.owner_kind = 'STAGE_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                 AND ticket.status = 'SUCCEEDED'
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                 AND execution.status = 'SUCCEEDED'
+                WHERE turn.status = 'SUCCEEDED'
+                  AND turn.stage_id = ? AND turn.stage_generation = ?
+                  AND COALESCE(
+                      json_extract(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.outputCodeSubject.codeFingerprint'),
+                      turn.expected_code_fingerprint) = ?
+                  AND COALESCE(
+                      json_extract(json_extract(execution.raw_result,
+                          '$.payloadJson'), '$.outputCodeSubject.headSha'),
+                      turn.expected_head_sha) = ?
+                  AND COALESCE(
+                      json_extract(json_extract(execution.raw_result,
+                          '$.payloadJson'), '$.outputCodeSubject.baseSha'),
+                      turn.expected_base_sha) = ?
+                  AND (? = 'CANCEL_AND_REPLACE' OR (
+                      execution.provider_session_id IS NOT NULL
+                      AND execution.provider_session_id <> ''
+                      AND execution.provider = ?
+                      AND json_extract(turn.launch_input, '$.transport') = 'CLI'
+                      AND json_extract(turn.launch_input, '$.provider') = ?
+                      AND json_extract(turn.launch_input, '$.model') = ?
+                      AND json_extract(
+                          turn.launch_input, '$.workingDirectory') = ?
+                      AND json_extract(
+                          turn.launch_input, '$.toolEndpoint.profile') =
+                          'STAGE_DEVELOPMENT'))
+                  AND (? = 'CANCEL_AND_REPLACE' OR NOT EXISTS (
+                      SELECT 1 FROM stage_turn live
+                      WHERE live.stage_id = turn.stage_id
+                        AND live.stage_generation = turn.stage_generation
+                        AND live.status IN (
+                            'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')))
+                ORDER BY execution.infrastructure_attempt DESC
+                LIMIT 1
+                """, (rs, row) -> new CliContinuation(
+                rs.getString("launch_input"), rs.getString("execution_id"),
+                rs.getString("provider_session_id"),
+                nullableLong(rs, "cumulative_input_tokens"),
+                nullableLong(rs, "cumulative_output_tokens"),
+                rs.getInt("session_reusable") == 1),
+                predecessor.ownerId(), predecessor.operationId(),
+                predecessor.ticketId(), request.mode().name(), request.taskId(),
+                request.taskEpoch(), request.stageId(), request.stageGeneration(),
+                request.id(),
+                provider, provider, model, workingDirectory,
+                request.mode().name(),
+                stageId, stageGeneration,
+                codeFingerprint, headSha, baseSha,
+                request.mode().name(), provider, provider, model,
+                workingDirectory,
+                request.mode().name())
+                .stream().findFirst();
+    }
+
+    public Optional<CliContinuation> cliContinuation(
+            String predecessorTurnId,
+            String stageId,
+            long stageGeneration,
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            String provider,
+            String model,
+            String workingDirectory)
+    {
+        requireText(predecessorTurnId, "predecessorTurnId");
+        requireText(stageId, "stageId");
+        requireText(codeFingerprint, "codeFingerprint");
+        requireText(headSha, "headSha");
+        requireText(baseSha, "baseSha");
+        requireText(provider, "provider");
+        requireText(model, "model");
+        requireText(workingDirectory, "workingDirectory");
+        return jdbc.query("""
+                SELECT turn.launch_input, execution.id AS execution_id,
+                       execution.provider_session_id,
+                       CASE WHEN json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.disposition') = 'USER_WAIT'
+                         THEN CASE WHEN json_type(turn.launch_input,
+                             '$.resumeSessionId') IS NULL THEN 0
+                           ELSE json_extract(turn.launch_input,
+                             '$.priorCumulativeInputTokens') END
+                         ELSE json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.providerCumulativeInputTokens') END
+                           AS cumulative_input_tokens,
+                       CASE WHEN json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.disposition') = 'USER_WAIT'
+                         THEN CASE WHEN json_type(turn.launch_input,
+                             '$.resumeSessionId') IS NULL THEN 0
+                           ELSE json_extract(turn.launch_input,
+                             '$.priorCumulativeOutputTokens') END
+                         ELSE json_extract(json_extract(
+                           execution.raw_result, '$.payloadJson'),
+                           '$.providerCumulativeOutputTokens') END
+                           AS cumulative_output_tokens,
+                       CASE WHEN execution.provider_session_id IS NOT NULL
+                           AND execution.provider_session_id <> ''
+                           AND execution.provider = ?
+                           AND json_extract(turn.launch_input, '$.transport') =
+                               'CLI'
+                           AND json_extract(turn.launch_input, '$.provider') = ?
+                           AND json_extract(turn.launch_input, '$.model') = ?
+                           AND json_extract(
+                               turn.launch_input, '$.workingDirectory') = ?
+                           AND json_extract(
+                               turn.launch_input, '$.toolEndpoint.profile') =
+                               'STAGE_DEVELOPMENT'
+                           AND NOT EXISTS (
+                               SELECT 1 FROM stage_turn later
+                               WHERE later.stage_id = turn.stage_id
+                                 AND later.stage_generation =
+                                     turn.stage_generation
+                                 AND later.rowid > turn.rowid)
+                       THEN 1 ELSE 0 END AS session_reusable
+                FROM stage_turn turn
+                JOIN dispatch_ticket ticket
+                  ON ticket.owner_kind = 'STAGE_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                 AND ticket.status = 'SUCCEEDED'
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                 AND execution.status = 'SUCCEEDED'
+                WHERE turn.id = ?
+                  AND turn.status = 'SUCCEEDED'
+                  AND turn.stage_id = ? AND turn.stage_generation = ?
+                  AND COALESCE(
+                      json_extract(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.outputCodeSubject.codeFingerprint'),
+                      turn.expected_code_fingerprint) = ?
+                  AND COALESCE(
+                      json_extract(json_extract(execution.raw_result,
+                          '$.payloadJson'), '$.outputCodeSubject.headSha'),
+                      turn.expected_head_sha) = ?
+                  AND COALESCE(
+                      json_extract(json_extract(execution.raw_result,
+                          '$.payloadJson'), '$.outputCodeSubject.baseSha'),
+                      turn.expected_base_sha) = ?
+                ORDER BY execution.infrastructure_attempt DESC
+                LIMIT 1
+                """, (rs, row) -> new CliContinuation(
+                rs.getString("launch_input"), rs.getString("execution_id"),
+                rs.getString("provider_session_id"),
+                nullableLong(rs, "cumulative_input_tokens"),
+                nullableLong(rs, "cumulative_output_tokens"),
+                rs.getInt("session_reusable") == 1),
+                provider, provider, model, workingDirectory,
+                predecessorTurnId, stageId, stageGeneration,
+                codeFingerprint, headSha, baseSha)
+                .stream().findFirst();
+    }
+
+    public List<String> executionLog(String executionId)
+    {
+        requireText(executionId, "executionId");
+        return jdbc.query("""
+                SELECT payload FROM agent_execution_log
+                WHERE execution_id = ? ORDER BY seq
+                """, (rs, row) -> rs.getString("payload"), executionId);
+    }
+
     public List<Attachment> attachments(String requestId)
     {
         return jdbc.query("""
@@ -720,6 +1004,13 @@ public final class SqliteStageSteeringStore
         }
     }
 
+    private static Long nullableLong(ResultSet rs, String name)
+            throws SQLException
+    {
+        long value = rs.getLong(name);
+        return rs.wasNull() ? null : value;
+    }
+
     public record Request(
             String id, String commandId, String taskId, long taskEpoch,
             String stageId, StageKind stageKind, long stageGeneration,
@@ -733,6 +1024,46 @@ public final class SqliteStageSteeringStore
             String ownerKind, String ownerId, String purpose, String ticketId,
             String operationId, int attempt, String codeFingerprint,
             String headSha, String baseSha) {}
+
+    public record CliContinuation(
+            String launchInput, String executionId, String providerSessionId,
+            Long cumulativeInputTokens, Long cumulativeOutputTokens,
+            boolean sessionReusable)
+    {
+        public CliContinuation(
+                String launchInput,
+                String executionId,
+                String providerSessionId)
+        {
+            this(launchInput, executionId, providerSessionId, 0L, 0L, true);
+        }
+
+        public CliContinuation(
+                String launchInput,
+                String executionId,
+                String providerSessionId,
+                boolean sessionReusable)
+        {
+            this(launchInput, executionId, providerSessionId, 0L, 0L,
+                    sessionReusable);
+        }
+
+        public CliContinuation
+        {
+            requireText(launchInput, "launchInput");
+            requireText(executionId, "executionId");
+            if (sessionReusable) {
+                requireText(providerSessionId, "providerSessionId");
+            }
+            if ((cumulativeInputTokens == null)
+                    != (cumulativeOutputTokens == null)
+                    || (cumulativeInputTokens != null
+                    && (cumulativeInputTokens < 0 || cumulativeOutputTokens < 0))) {
+                throw new IllegalArgumentException(
+                        "cumulative usage baseline is invalid");
+            }
+        }
+    }
 
     public record Attachment(
             int position, String mediaType, String contentRef,

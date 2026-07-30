@@ -91,10 +91,14 @@ public final class ThreadTurnHandoff
                         request.reasoningEffort(),
                         request.workingDirectory().toString(),
                         request.systemPrompt(), request.compiledPrompt(),
-                        request.images(), endpoint);
+                        request.images(), endpoint,
+                        request.resumeSessionId(), request.fallbackPrompt(),
+                        request.priorCumulativeInputTokens(),
+                        request.priorCumulativeOutputTokens());
         String launchInput = write(input);
+        verifyImages(request.images());
         List<TrunkManager.ThreadTurnAttachment> attachments = attachments(
-                turnId, request.images());
+                turnId, request.messageImages());
         return new TrunkManager.ThreadTurnCommand(
                 request.commandId(), request.actor(), request.trunkId(),
                 request.workspaceId(), request.expectedTrunkVersion(),
@@ -114,17 +118,24 @@ public final class ThreadTurnHandoff
                 new ArrayList<>(images.size());
         for (int index = 0; index < images.size(); index++) {
             AgentTurnProviderSession.ImageAttachment image = images.get(index);
+            attachments.add(new TrunkManager.ThreadTurnAttachment(
+                    "%s:attachment:%08d".formatted(turnId, index + 1),
+                    "image", image.path(), image.mediaType(), image.digest()));
+        }
+        return List.copyOf(attachments);
+    }
+
+    private static void verifyImages(
+            List<AgentTurnProviderSession.ImageAttachment> images)
+    {
+        for (AgentTurnProviderSession.ImageAttachment image : images) {
             try {
                 image.readVerified();
             }
             catch (IllegalArgumentException | IllegalStateException e) {
                 throw new InvalidFrozenAttachmentException(e.getMessage(), e);
             }
-            attachments.add(new TrunkManager.ThreadTurnAttachment(
-                    "%s:attachment:%08d".formatted(turnId, index + 1),
-                    "image", image.path(), image.mediaType(), image.digest()));
         }
-        return List.copyOf(attachments);
     }
 
     public static List<AgentTurnProviderSession.ImageAttachment> freezeImages(
@@ -218,8 +229,13 @@ public final class ThreadTurnHandoff
             String userMessage,
             String compiledPrompt,
             List<AgentTurnProviderSession.ImageAttachment> images,
+            List<AgentTurnProviderSession.ImageAttachment> messageImages,
             String planningOperationId,
-            String planningBaseSha)
+            String planningBaseSha,
+            String resumeSessionId,
+            String fallbackPrompt,
+            long priorCumulativeInputTokens,
+            long priorCumulativeOutputTokens)
     {
         public Request
         {
@@ -235,6 +251,12 @@ public final class ThreadTurnHandoff
             requireText(userMessage, "userMessage");
             requireText(compiledPrompt, "compiledPrompt");
             images = images == null ? List.of() : List.copyOf(images);
+            messageImages = messageImages == null
+                    ? List.of() : List.copyOf(messageImages);
+            if (!images.containsAll(messageImages)) {
+                throw new IllegalArgumentException(
+                        "message images must be included in provider images");
+            }
             if (expectedTrunkVersion < 0) {
                 throw new IllegalArgumentException(
                         "expectedTrunkVersion is negative");
@@ -269,6 +291,113 @@ public final class ThreadTurnHandoff
                 throw new IllegalArgumentException(
                         "planning Operation and base SHA must not be blank");
             }
+            if ((resumeSessionId == null) != (fallbackPrompt == null)) {
+                throw new IllegalArgumentException(
+                        "resume session and fallback prompt must be supplied together");
+            }
+            if (resumeSessionId != null
+                    && (transport != AgentTurnProviderSession.Transport.CLI
+                    || resumeSessionId.isBlank() || fallbackPrompt.isBlank())) {
+                throw new IllegalArgumentException(
+                        "CLI resume input is invalid");
+            }
+            if (priorCumulativeInputTokens < 0
+                    || priorCumulativeOutputTokens < 0
+                    || (resumeSessionId == null
+                    && (priorCumulativeInputTokens != 0
+                    || priorCumulativeOutputTokens != 0))) {
+                throw new IllegalArgumentException(
+                        "CLI cumulative resume baseline is invalid");
+            }
+        }
+
+        public Request(
+                String commandId,
+                String actor,
+                String trunkId,
+                String workspaceId,
+                long expectedTrunkVersion,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String userMessage,
+                String compiledPrompt,
+                List<AgentTurnProviderSession.ImageAttachment> images,
+                String planningOperationId,
+                String planningBaseSha,
+                String resumeSessionId,
+                String fallbackPrompt)
+        {
+            this(commandId, actor, trunkId, workspaceId, expectedTrunkVersion,
+                    purpose, transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, userMessage,
+                    compiledPrompt, images, images, planningOperationId,
+                    planningBaseSha, resumeSessionId, fallbackPrompt, 0, 0);
+        }
+
+        public Request(
+                String commandId,
+                String actor,
+                String trunkId,
+                String workspaceId,
+                long expectedTrunkVersion,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String userMessage,
+                String compiledPrompt,
+                List<AgentTurnProviderSession.ImageAttachment> images,
+                String planningOperationId,
+                String planningBaseSha,
+                String resumeSessionId,
+                String fallbackPrompt,
+                long priorCumulativeInputTokens,
+                long priorCumulativeOutputTokens)
+        {
+            this(commandId, actor, trunkId, workspaceId, expectedTrunkVersion,
+                    purpose, transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, userMessage,
+                    compiledPrompt, images, images, planningOperationId,
+                    planningBaseSha, resumeSessionId, fallbackPrompt,
+                    priorCumulativeInputTokens,
+                    priorCumulativeOutputTokens);
+        }
+
+        public Request(
+                String commandId,
+                String actor,
+                String trunkId,
+                String workspaceId,
+                long expectedTrunkVersion,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String userMessage,
+                String compiledPrompt,
+                List<AgentTurnProviderSession.ImageAttachment> images,
+                String planningOperationId,
+                String planningBaseSha)
+        {
+            this(commandId, actor, trunkId, workspaceId, expectedTrunkVersion,
+                    purpose, transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, userMessage,
+                    compiledPrompt, images, images, planningOperationId,
+                    planningBaseSha, null, null, 0, 0);
         }
 
         /** Compatibility constructor for non-planning and pre-V260 tests. */
@@ -292,7 +421,8 @@ public final class ThreadTurnHandoff
             this(commandId, actor, trunkId, workspaceId, expectedTrunkVersion,
                     purpose, transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, userMessage,
-                    compiledPrompt, List.of(), null, null);
+                    compiledPrompt, List.of(), List.of(), null, null, null, null,
+                    0, 0);
         }
     }
 

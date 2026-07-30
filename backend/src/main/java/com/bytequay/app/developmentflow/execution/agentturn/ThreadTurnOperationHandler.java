@@ -128,7 +128,12 @@ public final class ThreadTurnOperationHandler
                 input.reasoningEffort(), Path.of(input.workingDirectory()),
                 input.systemPrompt(), input.prompt(), input.images(),
                 input.toolEndpoint(),
-                AgentTurnProviderSession.Access.READ_ONLY);
+                AgentTurnProviderSession.Access.READ_ONLY,
+                null,
+                input.resumeSessionId(),
+                input.fallbackPrompt(),
+                input.priorCumulativeInputTokens(),
+                input.priorCumulativeOutputTokens());
         Observer observer = new Observer(context);
         StartDisposition started = store.tryStart(
                 turn.turnId(), turn.operationId(), clock.instant());
@@ -261,7 +266,9 @@ public final class ThreadTurnOperationHandler
                 envelope, turn, input.transport(), input.provider(), result.finalText(),
                 result.inputTokens(), result.outputTokens(), result.costUsdMilli(),
                 result.processPid(), disposition, result.error(),
-                result.providerSessionId());
+                result.providerSessionId(), null,
+                result.cumulativeInputTokens(),
+                result.cumulativeOutputTokens());
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), succeeded ? SUCCEEDED : FAILED,
                 json(payload), json(evidence(turn, disposition, result.error())),
@@ -292,7 +299,7 @@ public final class ThreadTurnOperationHandler
                 envelope, turn, input.transport(), input.provider(), "",
                 0, 0, 0, null,
                 AgentTurnOperationHandler.Disposition.USER_WAIT, null,
-                null, wait);
+                null, wait, null, null);
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), SUCCEEDED, json(payload),
                 json(evidence(turn, AgentTurnOperationHandler.Disposition.USER_WAIT,
@@ -328,7 +335,7 @@ public final class ThreadTurnOperationHandler
     {
         return raw(envelope, turn, transport, provider, finalText, inputTokens,
                 outputTokens, costUsdMilli, processPid, disposition, error, null,
-                null);
+                null, null, null);
     }
 
     private static AgentTurnOperationHandler.RawResult raw(
@@ -347,7 +354,7 @@ public final class ThreadTurnOperationHandler
     {
         return raw(envelope, turn, transport, provider, finalText, inputTokens,
                 outputTokens, costUsdMilli, processPid, disposition, error,
-                providerSessionId, null);
+                providerSessionId, null, null, null);
     }
 
     private static AgentTurnOperationHandler.RawResult raw(
@@ -363,7 +370,9 @@ public final class ThreadTurnOperationHandler
             AgentTurnOperationHandler.Disposition disposition,
             String error,
             String providerSessionId,
-            AgentTurnOperationHandler.UserWaitRef wait)
+            AgentTurnOperationHandler.UserWaitRef wait,
+            Long providerCumulativeInputTokens,
+            Long providerCumulativeOutputTokens)
     {
         return new AgentTurnOperationHandler.RawResult(
                 PAYLOAD_VERSION,
@@ -372,7 +381,9 @@ public final class ThreadTurnOperationHandler
                 turn == null ? null : turn.purpose(),
                 transport, provider, providerSessionId, finalText,
                 inputTokens, outputTokens, costUsdMilli, processPid,
-                disposition, error, wait);
+                disposition, error, wait, null,
+                providerCumulativeInputTokens,
+                providerCumulativeOutputTokens);
     }
 
     private static AgentTurnOperationHandler.Evidence evidence(

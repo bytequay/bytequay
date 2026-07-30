@@ -552,7 +552,47 @@ public class SqlitePlanRuntimeStore
                     policy.id AS policy_revision_id, policy.auto_approve,
                     policy.auto_merge,
                     review_attempt.self_review_id AS self_review_id,
-                    review_attempt.semantic_attempt AS review_attempt
+                    review_attempt.semantic_attempt AS review_attempt,
+                    execution.id AS execution_id,
+                    CASE
+                      WHEN json_extract(turn.launch_input, '$.transport') = 'CLI'
+                        AND json_extract(
+                            turn.launch_input, '$.toolEndpoint.profile') =
+                            'TASK_BRAIN_READ_ONLY'
+                        AND execution.provider = json_extract(
+                            turn.launch_input, '$.provider')
+                        AND length(trim(execution.provider_session_id)) > 0
+                        AND NOT EXISTS (
+                          SELECT 1 FROM task_turn live
+                          WHERE live.task_id = turn.task_id
+                            AND live.trigger_stage_id = turn.trigger_stage_id
+                            AND live.trigger_stage_generation =
+                                turn.trigger_stage_generation
+                            AND live.purpose IN (
+                              'PLAN_DRAFT', 'PLAN_SELF_REVIEW')
+                            AND live.status IN (
+                              'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING'))
+                        AND NOT EXISTS (
+                          SELECT 1 FROM task_turn later
+                          WHERE later.task_id = turn.task_id
+                            AND later.trigger_stage_id = turn.trigger_stage_id
+                            AND later.trigger_stage_generation =
+                                turn.trigger_stage_generation
+                            AND later.purpose IN (
+                              'PLAN_DRAFT', 'PLAN_SELF_REVIEW')
+                            AND later.rowid > turn.rowid)
+                      THEN execution.provider_session_id
+                    END AS provider_session_id,
+                    CASE WHEN json_type(turn.launch_input,
+                        '$.resumeSessionId') IS NULL THEN 0
+                      ELSE json_extract(turn.launch_input,
+                        '$.priorCumulativeInputTokens') END
+                        AS cumulative_input_tokens,
+                    CASE WHEN json_type(turn.launch_input,
+                        '$.resumeSessionId') IS NULL THEN 0
+                      ELSE json_extract(turn.launch_input,
+                        '$.priorCumulativeOutputTokens') END
+                        AS cumulative_output_tokens
                 FROM task_turn turn
                 JOIN tasks task ON task.id = turn.task_id
                 JOIN task_current_stage current ON current.task_id = task.id
@@ -564,6 +604,14 @@ public class SqlitePlanRuntimeStore
                   ON policy.id = task.policy_revision_id
                 JOIN typed_user_wait_result result
                   ON result.operation_id = turn.operation_id
+                LEFT JOIN agent_execution execution
+                  ON execution.id = (
+                    SELECT candidate.id
+                    FROM agent_execution candidate
+                    WHERE candidate.ticket_id = ticket.id
+                      AND candidate.status = 'SUCCEEDED'
+                    ORDER BY candidate.infrastructure_attempt DESC
+                    LIMIT 1)
                 LEFT JOIN plan_self_review_all_attempt_v265 review_attempt
                   ON review_attempt.task_turn_id = turn.id
                 WHERE turn.id = ? AND turn.operation_id = ?
@@ -600,7 +648,11 @@ public class SqlitePlanRuntimeStore
                 """, (rs, row) -> new PlanUserWaitContext(
                         turnDeliveryContext(rs), rs.getString("launch_input"),
                         rs.getString("self_review_id"),
-                        nullableInt(rs, "review_attempt")),
+                        nullableInt(rs, "review_attempt"),
+                        rs.getString("execution_id"),
+                        rs.getString("provider_session_id"),
+                        nullableLong(rs, "cumulative_input_tokens"),
+                        nullableLong(rs, "cumulative_output_tokens")),
                 turnId, operationId, waitKind, waitId,
                 waitKind, waitId, waitKind, waitId);
         if (rows.size() > 1) {
@@ -618,6 +670,15 @@ public class SqlitePlanRuntimeStore
                 WHERE wait_kind = ? AND wait_id = ?
                 """, (rs, row) -> rs.getString("successor_turn_id"),
                 waitKind, waitId).stream().findFirst();
+    }
+
+    public List<String> executionLog(String executionId)
+    {
+        required(executionId, "executionId");
+        return jdbc.query("""
+                SELECT payload FROM agent_execution_log
+                WHERE execution_id = ? ORDER BY seq
+                """, (rs, row) -> rs.getString("payload"), executionId);
     }
 
     public void insertSelfReviewUserWaitAttempt(
@@ -1809,17 +1870,50 @@ public class SqlitePlanRuntimeStore
             TurnDeliveryContext turn,
             String launchInput,
             String selfReviewId,
-            Integer selfReviewAttempt)
+            Integer selfReviewAttempt,
+            String executionId,
+            String providerSessionId,
+            Long cumulativeInputTokens,
+            Long cumulativeOutputTokens)
     {
         public PlanUserWaitContext
         {
             requireNonNull(turn, "turn is null");
             required(launchInput, "launchInput");
+            if (executionId != null && executionId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Plan continuation execution must not be blank");
+            }
+            if (providerSessionId != null && providerSessionId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Plan continuation session must not be blank");
+            }
+            if (executionId == null && providerSessionId != null) {
+                throw new IllegalArgumentException(
+                        "Plan continuation session requires its exact execution");
+            }
+            if ((cumulativeInputTokens == null)
+                    != (cumulativeOutputTokens == null)
+                    || (cumulativeInputTokens != null
+                    && (cumulativeInputTokens < 0 || cumulativeOutputTokens < 0))) {
+                throw new IllegalArgumentException(
+                        "Plan cumulative usage baseline is invalid");
+            }
             if (turn.purpose().equals("PLAN_SELF_REVIEW")
                     && (selfReviewId == null || selfReviewAttempt == null)) {
                 throw new IllegalArgumentException(
                         "Plan self-review continuation owner is incomplete");
             }
+        }
+
+        public PlanUserWaitContext(
+                TurnDeliveryContext turn,
+                String launchInput,
+                String selfReviewId,
+                Integer selfReviewAttempt)
+        {
+            this(turn, launchInput, selfReviewId, selfReviewAttempt, null, null,
+                    0L, 0L);
         }
     }
 

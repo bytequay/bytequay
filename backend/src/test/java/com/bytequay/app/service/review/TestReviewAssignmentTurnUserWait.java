@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -54,10 +55,13 @@ class TestReviewAssignmentTurnUserWait
                 "review-turn-1", "review-operation-1", "round-1",
                 "assignment-1", "head-1", ReviewAssignmentTurnRuntime.INVESTIGATE,
                 "assignment-1", null, 2, 500,
-                launch("review-turn-1", "review-operation-1"));
+                launch("review-turn-1", "review-operation-1"),
+                "review-execution-1");
         when(store.userWaitCandidate(
                 "review-turn-1", "review-operation-1",
                 "QUESTION", "question-1")).thenReturn(Optional.of(candidate));
+        when(store.executionLog("review-execution-1"))
+                .thenReturn(List.of("tool activity before the wait"));
         when(store.continueUserWait(
                 any(), anyString(), anyString(), any(), any()))
                 .thenAnswer(invocation -> {
@@ -85,7 +89,8 @@ class TestReviewAssignmentTurnUserWait
         AgentTurnOperationHandler.LaunchInput launch = JSON.readValue(
                 continuation.launchInput(), AgentTurnOperationHandler.LaunchInput.class);
         assertThat(launch.prompt()).contains(
-                "review the exact commit", "Use the safer option");
+                "review the exact commit", "tool activity before the wait",
+                "Use the safer option");
         assertThat(launch.toolEndpoint().ownerKind())
                 .isEqualTo(DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN);
         assertThat(launch.toolEndpoint().ownerId()).isEqualTo(successor);
@@ -109,6 +114,59 @@ class TestReviewAssignmentTurnUserWait
                 "permission-1", "Allow once")).isNull();
         verify(store, never()).continueUserWait(
                 any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void cliContinuationResumesTheExactSeatAndFreezesACompleteFallback()
+            throws Exception
+    {
+        ReviewAssignmentTurnRuntime.Store store =
+                mock(ReviewAssignmentTurnRuntime.Store.class);
+        ContinuationCandidate candidate = new ContinuationCandidate(
+                "review-turn-1", "review-operation-1", "round-1",
+                "assignment-1", "head-1", ReviewAssignmentTurnRuntime.INVESTIGATE,
+                "assignment-1", null, 1, 500,
+                launchCli("review-turn-1", "review-operation-1"),
+                "review-execution-1");
+        when(store.userWaitSuccessor("QUESTION", "question-1"))
+                .thenReturn(Optional.empty());
+        when(store.userWaitCandidate(
+                "review-turn-1", "review-operation-1",
+                "QUESTION", "question-1")).thenReturn(Optional.of(candidate));
+        when(store.successfulCliSession(
+                "review-turn-1", "review-operation-1",
+                "claude-code", "claude-sonnet-4-5", "/tmp/task-1"))
+                .thenReturn(Optional.of(new ReviewAssignmentTurnRuntime.CliContinuation(
+                        candidate.launchInput(), candidate.executionId(),
+                        "session-review-1")));
+        when(store.executionLog("review-execution-1"))
+                .thenReturn(List.of("tool activity before the wait"));
+        AtomicReference<Admission> admitted = new AtomicReference<>();
+        when(store.continueUserWait(
+                any(), anyString(), anyString(), any(), any()))
+                .thenAnswer(invocation -> {
+                    Admission successor = invocation.getArgument(3);
+                    admitted.set(successor);
+                    return successor.turnId();
+                });
+
+        runtime(store).continueUserWait(
+                "review-turn-1", "review-operation-1",
+                "QUESTION", "question-1", "Use the safer option");
+
+        AgentTurnOperationHandler.LaunchInput launch = JSON.readValue(
+                admitted.get().launchInput(),
+                AgentTurnOperationHandler.LaunchInput.class);
+        assertThat(launch.resumeSessionId()).isEqualTo("session-review-1");
+        assertThat(launch.prompt())
+                .contains("Use the safer option")
+                .doesNotContain("review the exact commit");
+        assertThat(launch.fallbackPrompt())
+                .contains("review the exact commit", "tool activity before the wait",
+                        "Use the safer option");
+        verify(store).successfulCliSession(
+                "review-turn-1", "review-operation-1",
+                "claude-code", "claude-sonnet-4-5", "/tmp/task-1");
     }
 
     private static ReviewAssignmentTurnRuntime runtime(
@@ -137,6 +195,27 @@ class TestReviewAssignmentTurnUserWait
                 new AgentTurnOperationHandler.LaunchInput(
                         1, AgentTurnProviderSession.Transport.API,
                         "openai", "account-1", "gpt-5.6", "high",
+                        "/tmp/task-1", "review role",
+                        "review the exact commit", endpoint));
+    }
+
+    private static String launchCli(String turnId, String operationId)
+            throws Exception
+    {
+        AgentTurnProviderSession.OwnerToolEndpoint endpoint =
+                new AgentTurnProviderSession.OwnerToolEndpoint(
+                        "bytequay",
+                        "http://127.0.0.1:53123/api/v2/review-assignment-turns/"
+                                + turnId + "/operations/" + operationId + "/mcp",
+                        DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN,
+                        turnId, operationId,
+                        AgentTurnProviderSession.ToolProfile
+                                .REVIEW_ASSIGNMENT_READ_ONLY,
+                        "mcp__bytequay__approval_prompt");
+        return JSON.writeValueAsString(
+                new AgentTurnOperationHandler.LaunchInput(
+                        1, AgentTurnProviderSession.Transport.CLI,
+                        "claude-code", null, "claude-sonnet-4-5", "high",
                         "/tmp/task-1", "review role",
                         "review the exact commit", endpoint));
     }

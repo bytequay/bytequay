@@ -41,11 +41,17 @@ import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.ROUND_
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.SELF_REFUTATION;
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.guidanceTarget;
 
-/** MCP bridge exposing the same frozen tools to a read-only CLI investigator. */
+/**
+ * MCP bridge exposing frozen evidence tools to a read-only investigator.
+ * ReviewAssignmentTurns may be standalone, so this endpoint never creates a
+ * Trunk-routed question or permission wait.
+ */
 @Component
 public class InvestigationReviewMcpService
 {
     private static final String PROTOCOL_VERSION = "2024-11-05";
+    private static final Set<String> USER_WAIT_TOOLS = Set.of(
+            "ask_user_question", "approval_prompt");
 
     private final InvestigationReviewTools tools;
     private final McpResponses responses;
@@ -129,6 +135,10 @@ public class InvestigationReviewMcpService
         }
         catch (JsonProcessingException e) {
             return responses.error(id, -32602, "invalid tools/call params: " + e.getMessage());
+        }
+        if (USER_WAIT_TOOLS.contains(params.name())) {
+            return responses.toolResponse(id, responses.deny(
+                    "ReviewAssignmentTurn does not support user waits"));
         }
         JsonNode arguments = params.arguments();
         if (!allowedTools(

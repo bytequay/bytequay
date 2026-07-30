@@ -140,7 +140,8 @@ public final class RemoteFeedbackRuntimeCoordinator
         return createTurn(
                 context, predecessor.semanticAttempt() + 1,
                 predecessor.turnId(), steeringPrompt(
-                        request, ownerStore.attachments(request.id())));
+                        request, ownerStore.attachments(request.id())),
+                request, ownerStore);
     }
 
     public TurnRequest start(String taskId, String batchId)
@@ -456,6 +457,18 @@ public final class RemoteFeedbackRuntimeCoordinator
             String predecessorTurnId,
             String prompt)
     {
+        return createTurn(
+                context, attempt, predecessorTurnId, prompt, null, null);
+    }
+
+    private TurnRequest createTurn(
+            FeedbackContext context,
+            int attempt,
+            String predecessorTurnId,
+            String prompt,
+            Request steeringRequest,
+            SqliteStageSteeringStore steeringStore)
+    {
         String requestId = id("remote-feedback-request",
                 context.batchId() + ":" + attempt);
         String turnId = id("remote-feedback-turn",
@@ -471,6 +484,24 @@ public final class RemoteFeedbackRuntimeCoordinator
         ObjectNode launch = launch(
                 context, model, "STAGE_TURN", turnId, operationId,
                 "STAGE_DEVELOPMENT", stageSystemPrompt(context.roleSkill()), prompt);
+        if (steeringRequest != null) {
+            SqliteStageSteeringStore ownerStore = requireNonNull(
+                    steeringStore, "steeringStore is null");
+            StageCliContinuity.freezeImages(
+                    json, launch, ownerStore.attachments(steeringRequest.id()));
+            applyCliContinuity(
+                    launch, steeringRequest, context, model, prompt,
+                    ownerStore);
+        }
+        else if (predecessorTurnId != null && steering != null) {
+            StageCliContinuity.applyExact(
+                    json, launch, predecessorTurnId, model.kind(), prompt,
+                    steering, new StageCliContinuity.Fence(
+                            context.stageId(), context.stageGeneration(),
+                            context.codeFingerprint(), context.localHeadSha(),
+                            context.baseSha(), context.provider(), context.model(),
+                            context.worktreePath()));
+        }
         return store.insertTurn(new NewTurn(
                 requestId, context.batchId(), turnId, operationId, ticketId,
                 attempt, predecessorTurnId, context.workspaceId(), context.trunkId(),
@@ -543,6 +574,23 @@ public final class RemoteFeedbackRuntimeCoordinator
         endpoint.put("profile", profile);
         endpoint.put("approvalPromptTool", "mcp__bytequay__approval_prompt");
         return launch;
+    }
+
+    private void applyCliContinuity(
+            ObjectNode launch,
+            Request request,
+            FeedbackContext context,
+            WorkModel model,
+            String currentPrompt,
+            SqliteStageSteeringStore ownerStore)
+    {
+        StageCliContinuity.apply(
+                json, launch, request, model.kind(), currentPrompt, ownerStore,
+                new StageCliContinuity.Fence(
+                        context.stageId(), context.stageGeneration(),
+                        context.codeFingerprint(), context.localHeadSha(),
+                        context.baseSha(), context.provider(), context.model(),
+                        context.worktreePath()));
     }
 
     private String initialPrompt(FeedbackContext context)

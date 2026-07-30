@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestDevelopmentFlowBackupAudit
 {
     private static final String DATABASE_PROPERTY = "bytequay.audit.db";
-    private static final String TARGET_VERSION = "293";
+    private static final String TARGET_VERSION = "294";
 
     @Test
     @EnabledIfSystemProperty(named = DATABASE_PROPERTY, matches = ".+")

@@ -132,7 +132,8 @@ public final class TrunkUserWaitContinuation
                         "typed user-wait Trunk disappeared"));
         String commandId = stableId("trunk-continuation", waitKind, waitId);
         String turnId = control.continueUserWait(
-                trunk, continuationInput(waitKind, answer), commandId);
+                trunk, continuationInput(waitKind, answer), commandId,
+                owner.turnId(), owner.operationId());
         // PlanningBaseTurnRuntime reserves the id before its refresh launches
         // the physical ThreadTurn. Leave READY until that exact row exists;
         // the maintenance sweep idempotently retries the same command.

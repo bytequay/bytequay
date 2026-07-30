@@ -36,6 +36,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopment
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.ValidationEvidence;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.ValidationRequest;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Attachment;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalTurn;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
@@ -136,12 +137,16 @@ public final class LocalDevelopmentRuntimeCoordinator
         String turnId = id("local-steering-turn", request.id());
         String operationId = id("local-steering-operation", request.id());
         String ticketId = id("local-steering-ticket", request.id());
-        String prompt = steeringPrompt(request, ownerStore.attachments(request.id()));
+        List<Attachment> attachments = ownerStore.attachments(request.id());
+        String prompt = steeringPrompt(request, attachments);
         WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
         int laneMask = workModel.kind() == WorkModelKind.CLI ? 1 : 2;
         ObjectNode launch = writerLaunch(
                 context.provider(), context.model(), context.roleSkill(), workModel,
                 context.worktreePath(), turnId, operationId, prompt);
+        StageCliContinuity.freezeImages(json, launch, attachments);
+        applyCliContinuity(
+                launch, request, context, workModel, prompt, ownerStore);
         LocalTurn turn = new LocalTurn(
                 localRequestId, localCommandId, turnId, operationId, ticketId,
                 context.workspaceId(), context.trunkId(), context.taskId(),
@@ -188,12 +193,16 @@ public final class LocalDevelopmentRuntimeCoordinator
         String turnId = id("local-wait-turn", request.id());
         String operationId = id("local-wait-operation", request.id());
         String ticketId = id("local-wait-ticket", request.id());
-        String prompt = steeringPrompt(request, ownerStore.attachments(request.id()));
+        List<Attachment> attachments = ownerStore.attachments(request.id());
+        String prompt = steeringPrompt(request, attachments);
         WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
         int laneMask = workModel.kind() == WorkModelKind.CLI ? 1 : 2;
         ObjectNode launch = writerLaunch(
                 context.provider(), context.model(), context.roleSkill(), workModel,
                 context.worktreePath(), turnId, operationId, prompt);
+        StageCliContinuity.freezeImages(json, launch, attachments);
+        applyCliContinuity(
+                launch, request, context, workModel, prompt, ownerStore);
         LocalTurn turn = new LocalTurn(
                 localRequestId, localCommandId, turnId, operationId, ticketId,
                 context.workspaceId(), context.trunkId(), context.taskId(),
@@ -740,6 +749,15 @@ public final class LocalDevelopmentRuntimeCoordinator
         ObjectNode launch = writerLaunch(
                 context.provider(), context.model(), context.roleSkill(),
                 model, context.worktreePath(), turnId, operationId, prompt);
+        if (steering != null) {
+            StageCliContinuity.applyExact(
+                    json, launch, context.predecessorStageTurnId(), model.kind(),
+                    prompt, steering, new StageCliContinuity.Fence(
+                            context.stageId(), context.stageGeneration(),
+                            context.codeFingerprint(), context.headSha(),
+                            context.baseSha(), context.provider(), context.model(),
+                            context.worktreePath()));
+        }
         return new BrainFixTurn(
                 requestId, commandId, turnId, operationId, ticketId,
                 context.episodeId(), context.workspaceId(), context.trunkId(),
@@ -786,6 +804,23 @@ public final class LocalDevelopmentRuntimeCoordinator
         endpoint.put("profile", "STAGE_DEVELOPMENT");
         endpoint.put("approvalPromptTool", "mcp__bytequay__approval_prompt");
         return launch;
+    }
+
+    private void applyCliContinuity(
+            ObjectNode launch,
+            Request request,
+            LocalContext context,
+            WorkModel model,
+            String currentPrompt,
+            SqliteStageSteeringStore ownerStore)
+    {
+        StageCliContinuity.apply(
+                json, launch, request, model.kind(), currentPrompt, ownerStore,
+                new StageCliContinuity.Fence(
+                        context.stageId(), context.stageGeneration(),
+                        context.codeFingerprint(), context.headSha(),
+                        context.baseSha(), context.provider(), context.model(),
+                        context.worktreePath()));
     }
 
     private BrainResult decodeBrainResult(String value)

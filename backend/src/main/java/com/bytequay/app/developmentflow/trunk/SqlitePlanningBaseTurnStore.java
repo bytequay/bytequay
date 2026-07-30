@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.developmentflow.trunk;
 
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -149,6 +152,198 @@ public class SqlitePlanningBaseTurnStore
                 operationId).stream().findFirst();
     }
 
+    public List<ConversationMessage> conversation(String trunkId)
+    {
+        requireText(trunkId, "trunkId");
+        return jdbc.query("""
+                SELECT message.role, message.body
+                FROM thread_message message
+                JOIN thread_turn turn ON turn.id = message.turn_id
+                JOIN trunk_thread_turn_request_receipt request
+                  ON request.turn_id = turn.id
+                WHERE turn.trunk_id = ?
+                  AND turn.purpose = 'TRUNK_CONVERSATION'
+                ORDER BY request.returned_trunk_version, message.seq
+                """, (rs, row) -> new ConversationMessage(
+                rs.getString("role"), rs.getString("body")), trunkId);
+    }
+
+    public List<AgentTurnProviderSession.ImageAttachment> conversationAttachments(
+            String trunkId)
+    {
+        requireText(trunkId, "trunkId");
+        return jdbc.query("""
+                SELECT attachment.content_ref, attachment.media_type,
+                       attachment.digest
+                FROM thread_attachment attachment
+                JOIN thread_turn turn ON turn.id = attachment.turn_id
+                JOIN trunk_thread_turn_request_receipt request
+                  ON request.turn_id = turn.id
+                WHERE turn.trunk_id = ?
+                  AND turn.purpose = 'TRUNK_CONVERSATION'
+                  AND attachment.kind = 'image'
+                ORDER BY request.returned_trunk_version, attachment.id
+                """, (rs, row) -> new AgentTurnProviderSession.ImageAttachment(
+                rs.getString("content_ref"), rs.getString("media_type"),
+                rs.getString("digest")), trunkId);
+    }
+
+    /** The latest Turn must be the successful predecessor and have no live consumer. */
+    public Optional<CliSession> latestSuccessfulCliSession(
+            String trunkId, String provider, String model, String workingDirectory)
+    {
+        requireText(trunkId, "trunkId");
+        requireText(provider, "provider");
+        requireText(model, "model");
+        requireText(workingDirectory, "workingDirectory");
+        return jdbc.query("""
+                SELECT execution.provider_session_id,
+                       json_extract(json_extract(execution.raw_result,
+                           '$.payloadJson'),
+                           '$.providerCumulativeInputTokens')
+                           AS cumulative_input_tokens,
+                       json_extract(json_extract(execution.raw_result,
+                           '$.payloadJson'),
+                           '$.providerCumulativeOutputTokens')
+                           AS cumulative_output_tokens
+                FROM thread_turn turn
+                JOIN trunk_thread_turn_request_receipt request
+                  ON request.turn_id = turn.id
+                JOIN trunk_thread_turn_result_receipt result
+                  ON result.turn_id = turn.id
+                 AND result.acceptance = 'ACCEPTED'
+                 AND result.terminal_status = 'SUCCEEDED'
+                JOIN dispatch_ticket ticket
+                  ON ticket.owner_kind = 'THREAD_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                 AND ticket.status = 'SUCCEEDED'
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                 AND execution.status = 'SUCCEEDED'
+                 AND execution.provider_session_id IS NOT NULL
+                 AND execution.provider = json_extract(
+                     turn.launch_input, '$.provider')
+                WHERE turn.trunk_id = ? AND turn.status = 'SUCCEEDED'
+                  AND turn.purpose = 'TRUNK_CONVERSATION'
+                  AND json_extract(turn.launch_input, '$.transport') = 'CLI'
+                  AND json_extract(turn.launch_input, '$.provider') = ?
+                  AND json_extract(turn.launch_input, '$.model') = ?
+                  AND json_extract(turn.launch_input, '$.workingDirectory') = ?
+                  AND json_extract(
+                      turn.launch_input, '$.toolEndpoint.profile')
+                        = 'TRUNK_CONTROL_READ_ONLY'
+                  AND (? <> 'codex' OR (
+                      json_type(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.providerCumulativeInputTokens') = 'integer'
+                      AND json_type(json_extract(execution.raw_result,
+                          '$.payloadJson'),
+                          '$.providerCumulativeOutputTokens') = 'integer'))
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM trunk_thread_turn_request_receipt later
+                      JOIN thread_turn later_turn
+                        ON later_turn.id = later.turn_id
+                      WHERE later.trunk_id = request.trunk_id
+                        AND later_turn.purpose = 'TRUNK_CONVERSATION'
+                        AND later.returned_trunk_version
+                            > request.returned_trunk_version)
+                ORDER BY execution.infrastructure_attempt DESC
+                LIMIT 1
+                """, (rs, row) -> new CliSession(
+                rs.getString("provider_session_id"),
+                rs.getLong("cumulative_input_tokens"),
+                rs.getLong("cumulative_output_tokens")),
+                trunkId, provider, model, workingDirectory, provider)
+                .stream().findFirst();
+    }
+
+    /** Exact USER_WAIT source; unlike normal completion it has no result receipt. */
+    public Optional<UserWaitSource> userWaitSource(
+            String turnId, String operationId, String trunkId)
+    {
+        requireText(turnId, "turnId");
+        requireText(operationId, "operationId");
+        requireText(trunkId, "trunkId");
+        return jdbc.query("""
+                SELECT turn.launch_input, execution.id AS execution_id,
+                       CASE WHEN execution.provider = json_extract(
+                           turn.launch_input, '$.provider')
+                         THEN execution.provider_session_id END
+                         AS provider_session_id,
+                       CASE WHEN json_type(turn.launch_input,
+                           '$.resumeSessionId') IS NULL THEN 0
+                         ELSE json_extract(turn.launch_input,
+                           '$.priorCumulativeInputTokens') END
+                           AS cumulative_input_tokens,
+                       CASE WHEN json_type(turn.launch_input,
+                           '$.resumeSessionId') IS NULL THEN 0
+                         ELSE json_extract(turn.launch_input,
+                           '$.priorCumulativeOutputTokens') END
+                           AS cumulative_output_tokens,
+                       NOT EXISTS (
+                           SELECT 1
+                           FROM trunk_thread_turn_request_receipt later
+                           JOIN thread_turn later_turn
+                             ON later_turn.id = later.turn_id
+                           WHERE later.trunk_id = request.trunk_id
+                             AND later_turn.purpose = 'TRUNK_CONVERSATION'
+                             AND later.returned_trunk_version
+                                 > request.returned_trunk_version)
+                           AS latest_turn
+                FROM thread_turn turn
+                JOIN trunk_thread_turn_request_receipt request
+                  ON request.turn_id = turn.id
+                JOIN typed_user_wait_result result
+                  ON result.operation_id = turn.operation_id
+                 AND result.owner_kind = 'THREAD_TURN'
+                 AND result.turn_id = turn.id
+                JOIN dispatch_ticket ticket
+                  ON ticket.owner_kind = 'THREAD_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                 AND ticket.status = 'SUCCEEDED'
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                 AND execution.status = 'SUCCEEDED'
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.trunk_id = ? AND turn.status = 'SUCCEEDED'
+                  AND turn.purpose = 'TRUNK_CONVERSATION'
+                  AND ((result.wait_kind = 'QUESTION' AND EXISTS (
+                        SELECT 1 FROM thread_question question
+                        WHERE question.id = result.wait_id
+                          AND question.turn_id = turn.id
+                          AND question.state = 'ANSWERED'
+                          AND question.continuation_state = 'READY'))
+                    OR (result.wait_kind = 'PERMISSION' AND EXISTS (
+                        SELECT 1 FROM permission_request permission
+                        WHERE permission.id = result.wait_id
+                          AND permission.turn_kind = 'THREAD'
+                          AND permission.turn_id = turn.id
+                          AND permission.operation_id = turn.operation_id
+                          AND permission.state <> 'OPEN'
+                          AND permission.continuation_state = 'READY')))
+                ORDER BY execution.infrastructure_attempt DESC
+                LIMIT 1
+                """, (rs, row) -> new UserWaitSource(
+                rs.getString("launch_input"), rs.getString("execution_id"),
+                rs.getString("provider_session_id"),
+                nullableLong(rs, "cumulative_input_tokens"),
+                nullableLong(rs, "cumulative_output_tokens"),
+                rs.getBoolean("latest_turn")),
+                turnId, operationId, trunkId).stream().findFirst();
+    }
+
+    public List<String> executionLog(String executionId)
+    {
+        requireText(executionId, "executionId");
+        return jdbc.query("""
+                SELECT payload FROM agent_execution_log
+                WHERE execution_id = ? ORDER BY seq
+                """, (rs, row) -> rs.getString("payload"), executionId);
+    }
+
     public void markLaunched(
             LaunchCandidate candidate, String turnId, Instant launchedAt)
     {
@@ -247,6 +442,63 @@ public class SqlitePlanningBaseTurnStore
                         "previousBaseSha must not be blank");
             }
         }
+    }
+
+    public record ConversationMessage(String role, String body)
+    {
+        public ConversationMessage
+        {
+            requireText(role, "role");
+            requireText(body, "body");
+        }
+    }
+
+    public record UserWaitSource(
+            String launchInput,
+            String executionId,
+            String providerSessionId,
+            Long cumulativeInputTokens,
+            Long cumulativeOutputTokens,
+            boolean latestTurn)
+    {
+        public UserWaitSource
+        {
+            requireText(launchInput, "launchInput");
+            requireText(executionId, "executionId");
+            if (providerSessionId != null && providerSessionId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "providerSessionId must not be blank");
+            }
+            if ((cumulativeInputTokens == null)
+                    != (cumulativeOutputTokens == null)
+                    || (cumulativeInputTokens != null
+                    && (cumulativeInputTokens < 0 || cumulativeOutputTokens < 0))) {
+                throw new IllegalArgumentException(
+                        "cumulative usage baseline is invalid");
+            }
+        }
+    }
+
+    public record CliSession(
+            String providerSessionId,
+            long cumulativeInputTokens,
+            long cumulativeOutputTokens)
+    {
+        public CliSession
+        {
+            requireText(providerSessionId, "providerSessionId");
+            if (cumulativeInputTokens < 0 || cumulativeOutputTokens < 0) {
+                throw new IllegalArgumentException(
+                        "cumulative usage must be non-negative");
+            }
+        }
+    }
+
+    private static Long nullableLong(ResultSet rs, String name)
+            throws SQLException
+    {
+        long value = rs.getLong(name);
+        return rs.wasNull() ? null : value;
     }
 
     private static void requireText(String value, String name)

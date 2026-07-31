@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.KnowledgeItem;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +24,7 @@ import org.sqlite.SQLiteDataSource;
 import java.nio.file.Path;
 import java.util.List;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -45,7 +45,7 @@ class TestKnowledgeSearchIndex
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("search.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("search.db"));
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         jdbc = new JdbcTemplate(dataSource);

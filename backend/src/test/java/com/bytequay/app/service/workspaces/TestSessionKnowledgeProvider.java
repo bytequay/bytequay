@@ -19,7 +19,6 @@ import com.bytequay.app.repository.sqlite.KnowledgeSearchIndex;
 import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.bytequay.app.service.learning.KnowledgeRetrievalService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,6 +28,7 @@ import org.sqlite.SQLiteDataSource;
 import java.nio.file.Path;
 import java.util.List;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -50,7 +50,7 @@ class TestSessionKnowledgeProvider
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("session.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("session.db"));
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         jdbc = new JdbcTemplate(dataSource);

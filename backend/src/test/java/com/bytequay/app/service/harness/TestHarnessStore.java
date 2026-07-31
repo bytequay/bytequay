@@ -24,7 +24,6 @@ import com.bytequay.app.service.harness.HarnessModels.Rule;
 import com.bytequay.app.service.harness.HarnessModels.RuleStatus;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -34,6 +33,7 @@ import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -48,7 +48,7 @@ class TestHarnessStore
     void setUp()
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("harness.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("harness.db"));
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);

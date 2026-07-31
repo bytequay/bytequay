@@ -22,7 +22,6 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,6 +34,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -60,7 +60,7 @@ class TestDirectoryScopeService
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("directory-scopes.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("directory-scopes.db"));
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         jdbc = new JdbcTemplate(dataSource);

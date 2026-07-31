@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.task.persistence;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
@@ -947,6 +948,59 @@ class TestSqliteTaskStore
                 .containsEntry("minimum_write_approvals", 1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pragma_foreign_key_check", Integer.class)).isZero();
+    }
+
+    @Test
+    void remoteClosedCleanupKeepsItsObservedHeadWithoutASubjectFence()
+    {
+        SQLiteDataSource dataSource = database(tempDir.resolve("remote-closed.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        seedActiveTask(jdbc, "task-closed", "remote-closed", 1);
+        V2TaskStore store = new V2TaskStore(jdbc);
+        TaskManager.State expected = store.findById("task-closed").orElseThrow();
+        TaskManager.State updated = new TaskManager.State(
+                expected.id(), expected.trunkId(), TaskLifecycle.CLEANING,
+                expected.epoch(), expected.version() + 1, "cleanup-closed",
+                null, null, null, TaskManager.TerminalOutcome.REMOTE_CLOSED);
+        ResultFence observation = new ResultFence(
+                1, "remote-closed", 1, "observe-operation-1", 1,
+                null, "head-1", "base-1");
+
+        // Seal the open Stage and hand off to Cleanup inside the command
+        // transaction — the current-Stage foreign key is deferred to commit.
+        new TaskCommandExecutor(new DataSourceTransactionManager(dataSource))
+                .execute("task-closed", () -> {
+                    jdbc.update("""
+                            UPDATE stage
+                            SET checkpoint = 'COMPLETED', end_reason = 'NORMAL',
+                                completed_at_ms = 3, version = version + 1
+                            WHERE id = 'remote-closed'
+                            """);
+                    jdbc.update("""
+                            INSERT INTO stage(
+                                id, task_id, kind, generation, version,
+                                checkpoint, opened_at_ms)
+                            VALUES ('cleanup-closed', 'task-closed', 'CLEANUP',
+                                1, 0, 'WAITING_QUIESCENCE', 4)
+                            """);
+                    return store.commit(
+                            "close-command", "OPEN_REMOTE_CLOSED_CLEANUP", "observer",
+                            1L, 1L, observation, null, "observation-1",
+                            "cleanup-closed", StageKind.CLEANUP, 1L, expected, updated);
+                });
+
+        assertThat(jdbc.queryForObject("""
+                SELECT subject_operation_id FROM task_command_receipt
+                WHERE task_id = 'task-closed'
+                """, String.class)).isNull();
+        assertThat(jdbc.queryForMap("""
+                SELECT source, source_id, observed_head_sha
+                FROM task_terminal_intent WHERE task_id = 'task-closed'
+                """))
+                .containsEntry("source", "REMOTE_OBSERVATION")
+                .containsEntry("source_id", "observation-1")
+                .containsEntry("observed_head_sha", "head-1");
     }
 
     private static SQLiteDataSource database(Path file)

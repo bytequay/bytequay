@@ -1379,6 +1379,21 @@ public final class TaskManager
                 null, null, null, null, null, null, current, updated));
     }
 
+    /**
+     * A Cleanup opening records its evidence as its proof id — the receipt
+     * ledger's CHECK forbids a subject fence there, so the fence reaches only
+     * the terminal intent, which needs the observed head sha. Both the write
+     * and the duplicate comparison normalize through here so a replay matches
+     * whatever the ledger stored.
+     */
+    public static ResultFence receiptSubject(String cause, ResultFence resultFence)
+    {
+        return switch (cause) {
+            case "OPEN_MERGED_CLEANUP", "OPEN_REMOTE_CLOSED_CLEANUP" -> null;
+            default -> resultFence;
+        };
+    }
+
     private static CommandReceipt requireReceipt(
             CommandReceipt receipt,
             String cause,
@@ -1396,7 +1411,8 @@ public final class TaskManager
                 || !receipt.actor().equals(actor)
                 || !same(receipt.expectedEpoch(), expectedEpoch)
                 || !same(receipt.expectedVersion(), expectedVersion)
-                || !same(receipt.resultFence(), resultFence)
+                || !same(receiptSubject(cause, receipt.resultFence()),
+                        receiptSubject(cause, resultFence))
                 || receipt.brainVerdict() != brainVerdict
                 || !same(receipt.proofId(), proofId)
                 || !same(receipt.nextStageId(), nextStageId)

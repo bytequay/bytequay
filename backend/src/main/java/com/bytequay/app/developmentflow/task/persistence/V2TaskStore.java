@@ -1985,7 +1985,8 @@ final class V2TaskStore
             statement.setString(index++, disposition.name());
             setLong(statement, index++, expectedEpoch);
             setLong(statement, index++, expectedVersion);
-            index = bindFence(statement, index, resultFence);
+            index = bindFence(statement, index,
+                    TaskManager.receiptSubject(cause, resultFence));
             statement.setString(index++, name(brainVerdict));
             statement.setString(index++, proofId);
             statement.setString(index++, nextStageId);

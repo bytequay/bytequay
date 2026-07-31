@@ -32,6 +32,7 @@ import type { PullRow } from './model';
 import PullChanges from './PullChanges';
 import PullOverview from './PullOverview';
 import WatchRepoModal from '../repos/AddRepoModal';
+import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import '../css/pulls.css';
 
 /**
@@ -50,6 +51,14 @@ function isLocalPrReviewPublication(value: unknown): value is LocalPrReviewPubli
     && 'commandId' in value
     && 'status' in value
     && 'blocksNewPublication' in value;
+}
+
+/** "bytequay #37" for the submit-review modal's chip — the repository's short
+ *  name plus the PR number, or just the number for a task-origin PR that has
+ *  no remote repository yet. */
+function reviewSubject(repo: string | null, numS: string): string {
+  const name = repo === null ? null : repo.slice(repo.indexOf('/') + 1);
+  return name === null ? numS : `${name} ${numS}`;
 }
 
 /** `owner/name` → the watch modal's two arguments. Null for a task-origin PR,
@@ -314,6 +323,7 @@ export function PullDetailBody({
   const [jumpTarget, setJumpTarget] = useState<{ filePath: string; side: 'LEFT' | 'RIGHT'; line: number | null } | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
   const [watchTarget, setWatchTarget] = useState<{ owner: string; repo: string } | null>(null);
@@ -418,6 +428,11 @@ export function PullDetailBody({
   const submissionBlocked = submitting || publicationBlocked;
   const removePending = (id: string) => {
     void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ });
+  };
+  const discardPending = () => {
+    void Promise.all(pending.map(comment => window.bridge.deleteLocalPrComment(comment.id)))
+      .then(refresh)
+      .catch(() => { /* poll reconciles */ });
   };
   const submitReview = async (body: string, verdict: ReviewVerdict) => {
     if (bundle === null || bundle === undefined) return;
@@ -620,8 +635,16 @@ export function PullDetailBody({
       <SubmitReviewDrawer
         open={submitOpen}
         submitting={submissionBlocked}
+        subject={reviewSubject(bundle?.pr.repo ?? null, det.numS)}
         pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment))}
         onRemovePending={submissionBlocked ? undefined : removePending}
+        onJumpToComment={comment => {
+          if (comment.filePath === null) return;
+          setJumpTarget({ filePath: comment.filePath, side: comment.side, line: comment.lineNumber });
+          setSubTab('changes');
+          setSubmitOpen(false);
+        }}
+        onDiscard={submissionBlocked || pending.length === 0 ? undefined : () => setDiscarding(true)}
         onClose={() => setSubmitOpen(false)}
         onWatchRepo={watchable === null ? undefined : () => setWatchTarget(watchable)}
         onSubmit={async (body, verdict) => {
@@ -629,6 +652,16 @@ export function PullDetailBody({
           setSubmitOpen(false);
         }}
       />
+      {discarding && (
+        <ConfirmDialog
+          title="Discard review"
+          body={`Delete ${pending.length} pending comment${pending.length === 1 ? '' : 's'}? This can't be undone.`}
+          confirmLabel="Discard review"
+          destructive
+          onConfirm={() => { setDiscarding(false); setSubmitOpen(false); discardPending(); }}
+          onCancel={() => setDiscarding(false)}
+        />
+      )}
       {watchTarget !== null && (
         <WatchRepoModal
           owner={watchTarget.owner}

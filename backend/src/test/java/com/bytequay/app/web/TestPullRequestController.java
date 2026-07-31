@@ -230,6 +230,29 @@ class TestPullRequestController
     }
 
     @Test
+    void closingWithAnEmptyComposerAuthorizesABareClose()
+            throws Exception
+    {
+        when(prPublishService.findV2TaskPullRequest("owner/repo", 42))
+                .thenReturn(Optional.of(v2Pr()));
+
+        mvc.perform(post("/prs/comment")
+                        .param("repo", "owner/repo")
+                        .param("number", "42")
+                        .param("id", "99")
+                        .header("Idempotency-Key", "bare-close-command")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"body\":\"\",\"close\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("closed"));
+
+        verify(v2UserRemoteActions).closePullRequest(
+                "bare-close-command", "task-42", "local-pr-42");
+        verify(v2UserRemoteActions, never()).commentAndClose(
+                any(), any(), any(), any());
+    }
+
+    @Test
     void v2ApprovalMergeDequeueAndAutoMergeUseTaskProtocols()
             throws Exception
     {

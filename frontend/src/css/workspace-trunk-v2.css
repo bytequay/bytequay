@@ -173,7 +173,7 @@
   min-width: 0;
   overflow: hidden;
   color: #57606a;
-  font-size: var(--left-nav-nested-font-size);
+  font-size: 14px;
   font-weight: var(--left-nav-font-weight);
   text-overflow: ellipsis;
   white-space: nowrap;

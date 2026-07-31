@@ -28,7 +28,10 @@ export function useGitHubActivityFeed(repo: string | null, number: number | null
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
 
   const refresh = useCallback((force = false) => {
-    if (repo === null || number === null) return;
+    // Hosts render with a placeholder task (repoFullName '') until their
+    // payload lands; `/prs/detail` 400s on anything but owner/name, so wait
+    // for a real repo rather than firing a doomed fetch on every mount.
+    if (repo === null || !/^[^/\s]+\/[^/\s]+$/.test(repo) || number === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     const fetcher = force ? bridge?.refreshPullRequestDetail : bridge?.fetchPullRequestDetail;
     if (fetcher === undefined) return;

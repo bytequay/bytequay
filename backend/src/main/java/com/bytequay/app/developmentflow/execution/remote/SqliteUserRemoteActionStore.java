@@ -536,6 +536,10 @@ public class SqliteUserRemoteActionStore
             SemanticAction semanticAction,
             boolean recovery)
     {
+        // A draft PR is still live on GitHub: it takes comments, reviewers,
+        // title/body edits, a close, and the mark-ready flip itself. Only
+        // MERGED and CLOSED are terminal, so every live clause below accepts
+        // both live states.
         String liveClause = switch (semanticAction) {
             case DELETE_REMOTE_BRANCH -> """
                     AND pull_request.status = 'merged'
@@ -551,7 +555,7 @@ public class SqliteUserRemoteActionStore
                           AND current.stage_id = remote.stage_id
                           AND current.stage_generation = remote.generation
                           AND owner.completed_at_ms IS NULL
-                          AND snapshot.pr_state = 'OPEN')
+                          AND snapshot.pr_state IN ('OPEN', 'DRAFT'))
                         OR
                         (pull_request.status IN ('merged', 'closed')
                           AND snapshot.pr_state = CASE pull_request.status
@@ -568,7 +572,7 @@ public class SqliteUserRemoteActionStore
                           AND current.stage_id = remote.stage_id
                           AND current.stage_generation = remote.generation
                           AND owner.completed_at_ms IS NULL
-                          AND snapshot.pr_state = 'OPEN')
+                          AND snapshot.pr_state IN ('OPEN', 'DRAFT'))
                         OR
                         (pull_request.status = 'closed'
                           AND snapshot.pr_state = 'CLOSED'
@@ -582,7 +586,7 @@ public class SqliteUserRemoteActionStore
                     AND current.stage_id = remote.stage_id
                     AND current.stage_generation = remote.generation
                     AND owner.completed_at_ms IS NULL
-                    AND snapshot.pr_state = 'OPEN'
+                    AND snapshot.pr_state IN ('OPEN', 'DRAFT')
                     """;
             case DEQUEUE, SUBMIT_REVIEW, RERUN_FAILED_CHECKS,
                     SET_DRAFT_STATE, UPDATE_TITLE, UPDATE_BODY,
@@ -598,7 +602,7 @@ public class SqliteUserRemoteActionStore
                     AND current.stage_id = remote.stage_id
                     AND current.stage_generation = remote.generation
                     AND owner.completed_at_ms IS NULL
-                    AND snapshot.pr_state = 'OPEN'
+                    AND snapshot.pr_state IN ('OPEN', 'DRAFT')
                     """;
             case TRIGGER_CI_EMPTY_COMMIT -> (recovery ? "" : """
                     AND code.head_sha = remote.current_head_sha
@@ -608,7 +612,7 @@ public class SqliteUserRemoteActionStore
                     AND current.stage_id = remote.stage_id
                     AND current.stage_generation = remote.generation
                     AND owner.completed_at_ms IS NULL
-                    AND snapshot.pr_state = 'OPEN'
+                    AND snapshot.pr_state IN ('OPEN', 'DRAFT')
                     AND identity.publish_repository_id =
                         binding.head_repository_id
                     AND identity.branch_name = pull_request.branch_name

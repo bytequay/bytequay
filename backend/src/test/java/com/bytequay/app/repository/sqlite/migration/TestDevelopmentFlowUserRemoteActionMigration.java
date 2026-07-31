@@ -254,6 +254,36 @@ class TestDevelopmentFlowUserRemoteActionMigration
     }
 
     @Test
+    void draftV2PrStaysActionableLikeAnyOtherLivePr()
+            throws Exception
+    {
+        String url = upgradedDatabase("draft-user-actions.db");
+        try (Connection connection = connect(url)) {
+            insertSnapshot(connection, 1, 2, "head-1", "base-1", "DRAFT",
+                    "MERGEABLE");
+            acceptSnapshot(connection, 1, 2, "head-1", "base-1");
+        }
+
+        SqliteUserRemoteActionStore store = store(url);
+        Action closed = store.authorize(new AuthorizationRequest(
+                "task-1", "draft-close-command", "pr-1",
+                SemanticAction.CLOSE_PULL_REQUEST, ActionPayload.empty(),
+                null), NOW);
+        Action ready = store.authorize(new AuthorizationRequest(
+                "task-1", "draft-ready-command", "pr-1",
+                SemanticAction.SET_DRAFT_STATE,
+                ActionPayload.selected(null, false), null), NOW.plusMillis(1));
+        Action comment = store.authorize(
+                commentRequest("draft-comment-command", "still a draft"),
+                NOW.plusMillis(2));
+
+        assertThat(closed.status()).isEqualTo(ActionStatus.REQUESTED);
+        assertThat(ready.status()).isEqualTo(ActionStatus.REQUESTED);
+        assertThat(comment.status()).isEqualTo(ActionStatus.REQUESTED);
+        assertThat(closed.headSha()).isEqualTo("head-1");
+    }
+
+    @Test
     void terminalCommandReplayKeepsItsExactResultAndRejectsReuse()
             throws Exception
     {
@@ -598,11 +628,12 @@ class TestDevelopmentFlowUserRemoteActionMigration
     private void migrateSemanticActionProtocol(String url)
             throws Exception
     {
-        Path migrations = tempDir.resolve("v282-v283-migrations");
+        Path migrations = tempDir.resolve("semantic-action-migrations");
         Files.createDirectories(migrations);
         for (String migration : List.of(
                 "V282__user_remote_action_semantic_identity.sql",
-                "V283__push_driven_ci_trigger.sql")) {
+                "V283__push_driven_ci_trigger.sql",
+                "V308__draft_pr_stays_actionable.sql")) {
             Path destination = migrations.resolve(migration);
             if (!Files.exists(destination)) {
                 try (InputStream source = requireNonNull(

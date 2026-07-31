@@ -529,9 +529,18 @@ public class PullRequestController
             @RequestHeader(value = "Idempotency-Key", required = false) String commandId,
             @RequestBody CommentRequest req)
     {
+        // "Close pull request" with an empty composer is a bare close, not a
+        // comment-and-close: COMMENT_AND_CLOSE requires a body to post.
+        boolean bareClose = req.close()
+                && (req.body() == null || req.body().isBlank());
         Optional<PR> v2Pr = v2TaskPullRequest(repo, number);
         if (v2Pr.isPresent()) {
             PR pr = v2Pr.orElseThrow();
+            if (bareClose) {
+                v2UserRemoteActions.closePullRequest(
+                        requireV2CommandId(commandId), pr.taskId(), pr.id());
+                return ImmutableMap.of("result", "closed");
+            }
             if (req.close()) {
                 v2UserRemoteActions.commentAndClose(
                         requireV2CommandId(commandId), pr.taskId(), pr.id(), req.body());
@@ -544,9 +553,10 @@ public class PullRequestController
         PR pr = requireExternalPullRequest(repo, number);
         v2UserRemoteActions.authorizeExternal(
                 requireV2CommandId(commandId), pr.id(),
-                req.close() ? SemanticAction.COMMENT_AND_CLOSE
-                        : SemanticAction.POST_TOP_LEVEL_COMMENT,
-                ActionPayload.body(req.body()));
+                bareClose ? SemanticAction.CLOSE_PULL_REQUEST
+                        : req.close() ? SemanticAction.COMMENT_AND_CLOSE
+                                : SemanticAction.POST_TOP_LEVEL_COMMENT,
+                bareClose ? ActionPayload.empty() : ActionPayload.body(req.body()));
         return ImmutableMap.of("result", req.close() ? "closed" : "commented");
     }
 

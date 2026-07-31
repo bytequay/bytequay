@@ -1041,47 +1041,100 @@
   white-space: nowrap;
 }
 
-/* ── Submit-review drawer ─────────────────────────────────────
-   Right-side slide-over mirroring github.com's "Finish your review"
-   panel — a pending-comment list, a body composer, three verdict radios,
-   Cancel/Submit footer. Not scoped under .shell: it's also mounted directly
-   by the full-page LocalPrReviewScreen route, which renders outside the app
-   shell. */
+/* ── Submit-review modal ──────────────────────────────────────
+   Centered card mirroring github.com's "Finish your review" panel — an
+   overall-comment composer, three verdict cards, a collapsible pending-draft
+   list, Discard/Cancel/Submit footer. Not scoped under .shell: it's also
+   mounted by routes that render outside the app shell. */
 .submit-review-drawer-backdrop {
   position: fixed;
   inset: 0;
   z-index: 45;
   background: rgba(20, 16, 30, 0.24);
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 34px 24px 48px;
+  overflow-y: auto;
 }
 .submit-review-drawer {
-  width: min(420px, 92vw);
-  height: 100%;
+  width: min(704px, 96vw);
+  max-height: calc(100vh - 82px);
   background: var(--bg-elevated);
-  border-left: 1px solid var(--border);
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.16);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 44px rgba(20, 25, 32, 0.16), 0 2px 6px rgba(20, 25, 32, 0.06);
   display: flex;
   flex-direction: column;
-  padding: 16px 20px;
-  gap: 14px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 .submit-review-drawer__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 9px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14.5px;
   color: var(--text-1);
 }
-.submit-review-drawer__pending-badge {
-  font-size: 11px;
+.submit-review-drawer__subject {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 8px;
+}
+/* Scroll the card's middle so the header and the Submit footer stay put. */
+.submit-review-drawer__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
+}
+.submit-review-drawer__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.submit-review-drawer__section-label {
+  font-size: 10.5px;
   font-weight: 700;
-  color: #9a6700;
-  background: #fff8c5;
-  border: 1px solid rgba(212, 167, 44, 0.4);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+.submit-review-drawer__pending-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.submit-review-drawer__chevron {
+  display: inline-flex;
+  color: var(--text-3);
+  transition: transform 0.14s ease;
+}
+.submit-review-drawer__chevron--closed { transform: rotate(-90deg); }
+.submit-review-drawer__pending-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-3);
+  background: var(--bg-base);
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 2px 8px;
 }
 .submit-review-drawer__close {
   margin-left: auto;
@@ -1281,23 +1334,14 @@
   text-overflow: ellipsis;
 }
 
-.submit-review-drawer__body {
-  width: 100%;
-  min-height: 96px;
-  resize: vertical;
-  padding: 10px 12px;
-  border: 1px solid var(--border-mid);
-  border-radius: 8px;
-  background: var(--bg-input);
-  color: var(--text-1);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.5;
+.submit-review-drawer .md-composer__textarea,
+.submit-review-drawer .md-composer__preview {
+  min-height: 112px;
 }
 .submit-review-drawer__verdicts {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 .submit-review-drawer__error {
   margin: 0;
@@ -1316,9 +1360,11 @@
 .submit-review-verdict {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 8px 6px;
-  border-radius: 8px;
+  gap: 11px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
   cursor: pointer;
 }
 .submit-review-verdict:hover {
@@ -1326,6 +1372,23 @@
 }
 .submit-review-verdict input {
   margin-top: 2px;
+}
+/* Selected verdict tints its own card, so the decision reads at a glance
+   in the same colors github.com uses for it. */
+.submit-review-verdict--comment input { accent-color: #0969da; }
+.submit-review-verdict--approve input { accent-color: #1a7f37; }
+.submit-review-verdict--request input { accent-color: #bc4c00; }
+.submit-review-verdict--comment.submit-review-verdict--active {
+  border-color: rgba(9, 105, 218, 0.45);
+  background: rgba(9, 105, 218, 0.05);
+}
+.submit-review-verdict--approve.submit-review-verdict--active {
+  border-color: rgba(26, 127, 55, 0.45);
+  background: rgba(26, 127, 55, 0.05);
+}
+.submit-review-verdict--request.submit-review-verdict--active {
+  border-color: rgba(188, 76, 0, 0.45);
+  background: rgba(188, 76, 0, 0.05);
 }
 .submit-review-verdict__text {
   display: flex;
@@ -1340,32 +1403,56 @@
   color: var(--text-3);
 }
 .submit-review-drawer__foot {
-  margin-top: auto;
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 18px;
   border-top: 1px solid var(--border);
+  background: var(--bg-base);
+}
+.submit-review-drawer__discard {
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid rgba(207, 34, 46, 0.4);
+  border-radius: 8px;
+  background: transparent;
+  color: #cf222e;
+  cursor: pointer;
+}
+.submit-review-drawer__discard:hover {
+  background: #ffebe9;
+  border-color: rgba(207, 34, 46, 0.6);
+}
+.submit-review-drawer__kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+  padding: 1px 6px;
 }
 .submit-review-drawer__cancel {
-  padding: 7px 14px;
+  padding: 6px 14px;
   font-size: 12.5px;
-  font-weight: 500;
-  border: 0;
-  background: transparent;
+  font-weight: 600;
+  border: 1px solid var(--border-mid);
+  background: var(--bg-card);
   color: var(--text-2);
   cursor: pointer;
-  border-radius: 7px;
+  border-radius: 8px;
 }
 .submit-review-drawer__cancel:hover {
   background: var(--bg-hover);
 }
 .submit-review-drawer__submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 7px 14px;
   font-size: 12.5px;
   font-weight: 600;
   border: 1px solid var(--cta-border);
-  border-radius: 7px;
+  border-radius: 8px;
   background: linear-gradient(135deg, var(--cta-from), var(--cta-to));
   color: #fff;
   cursor: pointer;
@@ -1374,6 +1461,7 @@
   background: linear-gradient(135deg, var(--cta-to), var(--cta-border));
 }
 .submit-review-drawer__submit:disabled,
+.submit-review-drawer__discard:disabled,
 .submit-review-drawer__cancel:disabled {
   opacity: 0.55;
   cursor: not-allowed;

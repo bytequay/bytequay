@@ -160,7 +160,7 @@ describe('PullDetailPane', () => {
     await waitFor(() => expect(onComment).toHaveBeenCalledWith('Looks good'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Submit review • 1' }));
-    expect(screen.getByRole('dialog', { name: 'Submit review' }).textContent).toContain('1 pending');
+    expect(screen.getByRole('dialog', { name: 'Submit review' }).textContent).toContain('Pending comments');
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     fireEvent.click(screen.getByRole('button', { name: /Changes/ }));

@@ -119,9 +119,27 @@ mvn verify
    at `src/main/checkstyle/checks.xml`).
 3. **Error Prone** (attached to `maven-compiler-plugin`, config at
    `.mvn/errorprone.config`).
-4. **Tests** — JUnit 5 + Mockito + Spring Boot. ~110 tests today;
-   includes a `TestApplicationContextSmoke` that boots the full bean
-   graph + Flyway migrations + JPA.
+4. **Tests** — JUnit 5 + Mockito + Spring Boot. The backend has more
+   than 3,000 test cases, including migration tests and a
+   `TestApplicationContextSmoke` that boots the full bean graph,
+   Flyway, and JPA.
+
+During development, run the tests for the area you are changing instead
+of waiting for the whole suite after every edit:
+
+```bash
+# One class, one method, or a small related set
+mvn -q -Dtest=TestPRService test
+mvn -q -Dtest=TestIssueOrigin#detectsVersionedIssueMarkers test
+mvn -q -Dtest=TestPRService,TestPullRequestController test
+
+# All non-test verification gates
+mvn -q verify -DskipTests
+```
+
+Run the full `mvn verify` gate before pushing. This is the same division
+used by Trino: focused tests for local iteration, complete coverage at the
+integration gate.
 
 ### Frontend
 
@@ -255,10 +273,19 @@ The backend uses **SQLite** with Flyway-managed migrations.
 
 - **Runtime DB**: `~/Library/Application Support/ByteQuay/bytequay.db`.
   Created on first run; the directory is created automatically.
-- **Test DB**: `${java.io.tmpdir}/bytequay-test-${user.name}.db` (set
+- **Test DBs**: unique SQLite files under `${java.io.tmpdir}` (configured
   in `backend/src/test/resources/application.properties`).
 - **Migrations**: `backend/src/main/resources/db/migration/V##__name.sql`.
   Flyway runs them in numeric order at startup.
+
+Flyway is the database schema version manager, not a separate Maven
+verification step. At application startup it compares the migration files
+with the `flyway_schema_history` table in the SQLite database, validates
+the migrations already recorded there, and applies only newer versions.
+For a normal existing ByteQuay database this is a quick validation plus any
+new migration. Some database tests deliberately start with an empty file,
+so those tests replay the full history; that is why Flyway is much more
+visible during `mvn verify` than during a normal app startup.
 
 ### Adding a migration
 
@@ -330,6 +357,9 @@ please don't unwind them by accident.
   - **Smoke** — `TestApplicationContextSmoke` boots the full context
     end-to-end. Don't add more `@SpringBootTest` classes than needed;
     they're slow.
+- Tests that only need an isolated current SQLite schema should copy one
+  with `MigratedSqliteDatabase`. Invoke Flyway directly only when the
+  migration sequence itself is what the test exercises.
 - New domain logic should ship with tests. New endpoints should ship
   with at least a happy-path slice test.
 

@@ -14,7 +14,6 @@
 package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.PullRequestCommit;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -47,7 +47,7 @@ class TestProjectLearningStore
     void migrate()
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("learning.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("learning.db"));
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         jdbc = new JdbcTemplate(dataSource);

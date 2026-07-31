@@ -30,7 +30,6 @@ import com.bytequay.app.service.learning.ProjectLearningStore;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,6 +41,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -61,7 +61,7 @@ class TestProjectIntelligenceToolHandlers
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("project-intelligence.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("project-intelligence.db"));
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);

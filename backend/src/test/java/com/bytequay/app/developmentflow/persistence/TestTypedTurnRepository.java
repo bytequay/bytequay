@@ -27,7 +27,6 @@ import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.ThreadTu
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.ThreadTurnId;
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnData;
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnId;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -46,6 +45,7 @@ import static com.bytequay.app.developmentflow.persistence.TypedTurnRepository.T
 import static com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnStatus.REQUESTED;
 import static com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnStatus.RUNNING;
 import static com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnStatus.SUCCEEDED;
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -64,7 +64,7 @@ class TestTypedTurnRepository
     void setUp()
     {
         databaseUrl = "jdbc:sqlite:" + tempDir.resolve("typed-turns.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(databaseUrl, "", "").target("223").load().migrate();
+        copyTo(tempDir.resolve("typed-turns.db"), "223");
         jdbc = jdbc();
         seedOwners(jdbc);
         turns = open();

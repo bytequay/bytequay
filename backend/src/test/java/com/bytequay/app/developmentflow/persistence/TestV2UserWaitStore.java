@@ -17,7 +17,6 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore.Grant;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore.PermissionAnswer;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,6 +26,7 @@ import org.sqlite.SQLiteDataSource;
 import java.nio.file.Path;
 import java.time.Instant;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -43,7 +43,7 @@ class TestV2UserWaitStore
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("waits.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("waits.db"));
         SQLiteDataSource source = new SQLiteDataSource();
         source.setUrl(url);
         jdbc = new JdbcTemplate(source);

@@ -20,7 +20,6 @@ import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.workspaces.MemoryItemService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -34,6 +33,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -63,7 +63,7 @@ class TestKnowledgeIngestor
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("knowledge.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        copyTo(tempDir.resolve("knowledge.db"));
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         jdbc = new JdbcTemplate(dataSource);

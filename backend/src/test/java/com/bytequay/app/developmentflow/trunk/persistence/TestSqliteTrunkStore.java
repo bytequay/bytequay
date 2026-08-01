@@ -17,7 +17,7 @@ import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.trunk.TrunkLifecycle;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
@@ -88,7 +88,7 @@ class TestSqliteTrunkStore
     private static SQLiteDataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

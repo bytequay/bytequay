@@ -23,6 +23,7 @@ import com.bytequay.app.developmentflow.stage.StageEndReason;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -53,7 +54,7 @@ class TestV2AggregateHandoffStore
         seedAcceptedProvisioning(jdbc, "task-1", "operation-1", 1);
         seedAcceptedProvisioning(
                 jdbc, "task-rollback", "operation-rollback", 2);
-        Flyway.configure().dataSource(dataSource).target("235").load().migrate();
+        Flyway.configure().dataSource(dataSource).load().migrate();
 
         Stores first = stores(dataSource);
         ProvisionToPlanHandoff handoff = handoff(dataSource, first);
@@ -207,7 +208,7 @@ class TestV2AggregateHandoffStore
     private static SQLiteDataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

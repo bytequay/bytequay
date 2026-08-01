@@ -28,8 +28,8 @@ import com.bytequay.app.developmentflow.persistence.SqliteExecutionEvidencePort;
 import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Admission;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -145,7 +145,7 @@ class TestReviewSessionPurge
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);

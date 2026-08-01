@@ -24,8 +24,8 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -163,7 +163,7 @@ class TestReviewBuildSpawnCommitter
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(file)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("258").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource source = new SQLiteDataSource();
         source.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);

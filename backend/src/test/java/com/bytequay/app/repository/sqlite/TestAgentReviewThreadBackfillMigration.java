@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,7 +34,7 @@ class TestAgentReviewThreadBackfillMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("upgrade.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("170").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             connection.createStatement().executeUpdate("""
@@ -59,7 +59,7 @@ class TestAgentReviewThreadBackfillMigration
                     """);
         }
 
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(exists(connection,
@@ -78,7 +78,7 @@ class TestAgentReviewThreadBackfillMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("local-upgrade.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("170").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             connection.createStatement().executeUpdate("""
@@ -106,7 +106,7 @@ class TestAgentReviewThreadBackfillMigration
                     """);
         }
 
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(exists(connection,
@@ -126,7 +126,7 @@ class TestAgentReviewThreadBackfillMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("round-lifecycle.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("172").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(singleString(connection, """
@@ -163,7 +163,7 @@ class TestAgentReviewThreadBackfillMigration
                     """)).isEqualTo("1");
         }
 
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(singleString(connection, """

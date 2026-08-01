@@ -15,7 +15,7 @@ package com.bytequay.app.developmentflow.persistence;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -126,7 +126,7 @@ class TestSqliteDispatchWakeStore
                 "ticket", "operation", "workspace", "trunk", "task",
                 NOW, VALIDATION, true, false);
         SqliteExecutionTestSupport.insertTicket(database, ticket);
-        Flyway.configure().dataSource(database.url(), "", "").target("231").load().migrate();
+        MigratedSqliteDatabase.migrate(database.url());
         return database;
     }
 

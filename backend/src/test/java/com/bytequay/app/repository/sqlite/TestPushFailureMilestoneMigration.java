@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,12 +34,12 @@ class TestPushFailureMilestoneMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("push-failure.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("218").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         try (Connection connection = DriverManager.getConnection(url)) {
             seedPermanentFailure(connection);
         }
 
-        Flyway.configure().dataSource(url, "", "").target("219").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(singleLong(connection, """

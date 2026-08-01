@@ -24,7 +24,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLo
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ReviewRoundState;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -153,12 +153,12 @@ class TestV2RemoteFeedbackControlService
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(UUID.randomUUID() + ".db")
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         try (var connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         try (var connection = connect(url)) {
             insertRemoteOwner(connection, 1);
             insertSnapshot(connection, 1, 1, "head-1", "base-1", "OPEN",

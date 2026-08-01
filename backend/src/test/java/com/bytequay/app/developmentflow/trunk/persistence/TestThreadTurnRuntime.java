@@ -37,6 +37,7 @@ import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -386,7 +387,7 @@ class TestThreadTurnRuntime
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("reserved Trunk-control");
 
-        Flyway.configure().dataSource(dataSource).target("247").load().migrate();
+        Flyway.configure().dataSource(dataSource).load().migrate();
         assertThat(count(jdbc, "trunk_thread_turn_request_receipt")).isZero();
     }
 
@@ -580,7 +581,7 @@ class TestThreadTurnRuntime
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("247").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;
@@ -590,7 +591,7 @@ class TestThreadTurnRuntime
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("269").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

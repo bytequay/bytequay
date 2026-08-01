@@ -1,3 +1,0 @@
-ALTER TABLE finding ADD COLUMN path TEXT;
-ALTER TABLE finding ADD COLUMN start_line INTEGER;
-ALTER TABLE finding ADD COLUMN end_line INTEGER;

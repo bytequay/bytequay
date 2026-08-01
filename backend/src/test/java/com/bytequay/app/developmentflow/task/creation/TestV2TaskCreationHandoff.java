@@ -20,8 +20,8 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -420,7 +420,7 @@ class TestV2TaskCreationHandoff
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("246").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

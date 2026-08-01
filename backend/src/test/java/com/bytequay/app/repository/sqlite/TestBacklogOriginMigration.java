@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,7 +36,7 @@ class TestBacklogOriginMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("backlog-origin.db");
-        Flyway.configure().dataSource(url, "", "").target("187").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             insert(connection, "manual", "manual", "user", "[\"quality-scan\"]");
@@ -47,7 +47,7 @@ class TestBacklogOriginMigration
             insert(connection, "legacy-agent", "manual", "agent", "[]");
         }
 
-        Flyway.configure().dataSource(url, "", "").target("188").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(origin(connection, "manual")).isEqualTo("user");

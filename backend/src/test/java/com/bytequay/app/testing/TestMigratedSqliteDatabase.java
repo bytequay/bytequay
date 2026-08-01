@@ -39,8 +39,8 @@ class TestMigratedSqliteDatabase
         Path first = tempDir.resolve("first.db");
         Path second = tempDir.resolve("second.db");
         Path latest = tempDir.resolve("latest.db");
-        copyTo(first, "228");
-        copyTo(second, "228");
+        copyTo(first);
+        copyTo(second);
         copyTo(latest);
 
         assertThat(currentVersion(first)).isEqualTo("228");
@@ -51,7 +51,7 @@ class TestMigratedSqliteDatabase
         assertThat(tableExists(first, "copy_marker")).isTrue();
         assertThat(tableExists(second, "copy_marker")).isFalse();
 
-        Flyway.configure().dataSource(url(second), "", "").target("229").load().migrate();
+        Flyway.configure().dataSource(url(second), "", "").load().migrate();
         assertThat(currentVersion(second)).isEqualTo("229");
     }
 

@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,13 +34,13 @@ class TestQuickReviewPendingCommentMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("quick-review.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("219").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             seedReviewDrafts(connection);
         }
 
-        Flyway.configure().dataSource(url, "", "").target("220").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(singleLong(connection, """
@@ -102,7 +102,7 @@ class TestQuickReviewPendingCommentMigration
                     """);
         }
 
-        Flyway.configure().dataSource(url, "", "").target("220").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(singleLong(connection, """

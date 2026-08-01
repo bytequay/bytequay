@@ -118,6 +118,12 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-javaagent:${project.build.directory}/test-agents/byte-buddy-agent.jar</argLine>
+                    <!-- One JVM per two cores. The suite is CPU-bound on Flyway and
+                         SQLite, and every test owns an isolated database file, so
+                         forks scale it down without any shared-state coupling.
+                         0.5C adapts to whatever CI runs on. -->
+                    <forkCount>0.5C</forkCount>
+                    <reuseForks>true</reuseForks>
                 </configuration>
             </plugin>
 

@@ -115,7 +115,7 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   min-width: 0;
   overflow: hidden;
   color: #454c54;
-  font-size: var(--left-nav-nested-font-size);
+  font-size: 14px;
   font-weight: var(--left-nav-font-weight);
   line-height: var(--left-nav-row-line-height);
   text-overflow: ellipsis;

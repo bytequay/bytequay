@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,11 +36,6 @@ class TestPlanAutomationApprovalMigration
         Flyway.configure()
                 .dataSource(url, "", "")
                 .locations("classpath:db/migration")
-                .javaMigrations(
-                        new BackfillTurnLiveness(),
-                        new BackfillLocalReviewSubmissions(new ObjectMapper()),
-                        new NormalizeDeadLifecycleStates())
-                .target("281")
                 .load()
                 .migrate();
         JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(url));

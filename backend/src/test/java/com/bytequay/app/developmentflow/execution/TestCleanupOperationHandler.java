@@ -126,9 +126,13 @@ class TestCleanupOperationHandler
     private static CleanupOperationHandler handler(
             MutableStore store, RecordingEffects effects)
     {
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(NOW);
         return new CleanupOperationHandler(
                 store, effects, ignored -> {},
-                new InMemoryExecutionSupport.MutableClock(NOW),
+                new WorktreeWriterLeaseManager(
+                        new InMemoryExecutionSupport.WorktreeStore(), clock),
+                clock,
                 Duration.ofSeconds(30), Duration.ofSeconds(5));
     }
 

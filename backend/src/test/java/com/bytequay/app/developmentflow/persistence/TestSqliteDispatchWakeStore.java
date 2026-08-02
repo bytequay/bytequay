@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteDispatchWakeStore
 {
     private static final Instant NOW = Instant.parse("2026-07-28T00:00:00Z");
+    private static final String TICKET_ID = "provision-ticket-task";
 
     @TempDir
     private Path tempDir;
@@ -40,6 +41,7 @@ class TestSqliteDispatchWakeStore
     void enqueueJoinsSpringTransactionsAndIsIdempotent()
     {
         SqliteExecutionTestSupport.Database database = database("wake-enqueue.db");
+        Instant ticketCreatedAt = Instant.ofEpochMilli(1);
         database.jdbc().update("""
                 DELETE FROM outbox WHERE aggregate_kind = 'DISPATCH_TICKET'
                 """);
@@ -48,22 +50,24 @@ class TestSqliteDispatchWakeStore
                 new DataSourceTransactionManager(database.dataSource()));
 
         transaction.executeWithoutResult(status -> {
-            wakes.enqueue("ticket", NOW);
+            wakes.enqueue(TICKET_ID, ticketCreatedAt);
             assertThat(wakeCount(database)).isOne();
             status.setRollbackOnly();
         });
         assertThat(wakeCount(database)).isZero();
 
-        wakes.enqueue("ticket", NOW);
-        wakes.enqueue("ticket", NOW);
+        wakes.enqueue(TICKET_ID, ticketCreatedAt);
+        wakes.enqueue(TICKET_ID, ticketCreatedAt);
         assertThat(wakeCount(database)).isOne();
         assertThat(database.jdbc().queryForObject("""
                 SELECT aggregate_id || '|' || topic || '|' || payload || '|' || status
                 FROM outbox WHERE aggregate_kind = 'DISPATCH_TICKET'
                 """, String.class)).isEqualTo(
-                "ticket|V2_DISPATCH_TICKET_REQUESTED|ticket|PENDING");
+                TICKET_ID + "|V2_DISPATCH_TICKET_REQUESTED|" + TICKET_ID
+                        + "|PENDING");
 
-        assertThatThrownBy(() -> wakes.enqueue("ticket", NOW.plusMillis(1)))
+        assertThatThrownBy(() -> wakes.enqueue(
+                TICKET_ID, ticketCreatedAt.plusMillis(1)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("conflicting wake");
 
@@ -109,11 +113,12 @@ class TestSqliteDispatchWakeStore
                 "worker-c", NOW.plusSeconds(30), NOW.plusSeconds(40), 10)).isEmpty();
         assertThat(database.jdbc().queryForObject("""
                 SELECT status || '|' || attempts
-                FROM outbox WHERE aggregate_id = 'ticket'
-                """, String.class)).isEqualTo("DELIVERED|2");
+                FROM outbox WHERE aggregate_id = ?
+                """, String.class, TICKET_ID)).isEqualTo("DELIVERED|2");
         assertThat(database.jdbc().queryForObject("""
-                SELECT delivered_at_ms FROM outbox WHERE aggregate_id = 'ticket'
-                """, Long.class)).isEqualTo(NOW.plusSeconds(12).toEpochMilli());
+                SELECT delivered_at_ms FROM outbox WHERE aggregate_id = ?
+                """, Long.class, TICKET_ID))
+                .isEqualTo(NOW.plusSeconds(12).toEpochMilli());
     }
 
     private SqliteExecutionTestSupport.Database database(String file)
@@ -122,10 +127,6 @@ class TestSqliteDispatchWakeStore
                 SqliteExecutionTestSupport.database(tempDir.resolve(file));
         SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk");
         SqliteExecutionTestSupport.seedTask(database, "trunk", "task", 1);
-        DispatchTicket ticket = SqliteExecutionTestSupport.requestedTaskTicket(
-                "ticket", "operation", "workspace", "trunk", "task",
-                NOW, VALIDATION, true, false);
-        SqliteExecutionTestSupport.insertTicket(database, ticket);
         MigratedSqliteDatabase.migrate(database.url());
         return database;
     }

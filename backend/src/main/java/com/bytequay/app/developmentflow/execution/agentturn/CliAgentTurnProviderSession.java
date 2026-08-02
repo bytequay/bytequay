@@ -36,6 +36,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.Access.READ_ONLY;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.Transport.CLI;
@@ -112,10 +113,12 @@ public final class CliAgentTurnProviderSession
                     .add("--include-partial-messages")
                     .add("--mcp-config", requireNonNull(
                             mcpConfig, "Claude MCP config is null").toString())
-                    .add("--strict-mcp-config")
-                    .add("--permission-prompt-tool",
-                            request.toolEndpoint().approvalPromptTool())
-                    .add("--model", request.model());
+                    .add("--strict-mcp-config");
+            if (request.permissionPromptTool() != null) {
+                argv.add("--permission-prompt-tool",
+                        request.permissionPromptTool());
+            }
+            argv.add("--model", request.model());
             if (request.reasoningEffort() != null) {
                 argv.add("--effort", request.reasoningEffort());
             }
@@ -126,6 +129,13 @@ public final class CliAgentTurnProviderSession
             }
             if (request.access() == READ_ONLY) {
                 argv.add("--tools", CLAUDE_READ_ONLY_TOOLS);
+            }
+            if (!request.preapprovedMcpTools().isEmpty()) {
+                argv.add("--allowedTools", request.preapprovedMcpTools().stream()
+                        .sorted()
+                        .map(tool -> "mcp__" + request.toolEndpoint().serverName()
+                                + "__" + tool)
+                        .collect(Collectors.joining(",")));
             }
             if (request.toolEndpoint().profile()
                     == ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY) {
@@ -391,12 +401,18 @@ public final class CliAgentTurnProviderSession
                             sessionId = started.sessionId();
                             observer.providerSession(provider.id(), sessionId);
                         }
-                        else if (event instanceof StreamEvent.AssistantText assistant
-                                && !assistant.text().isBlank()) {
-                            if (finalText.length() > 0) {
-                                finalText.append("\n\n");
+                        else if (event instanceof StreamEvent.AssistantText assistant) {
+                            if (provider == CliProvider.CODEX) {
+                                // Codex emits progress as completed agent_message
+                                // items before its authoritative final message.
+                                finalText.setLength(0);
+                                finalText.append(assistant.text().strip());
                             }
-                            finalText.append(assistant.text().strip());
+                            // Claude's owner result comes only from its terminal
+                            // result frame, applied below. Its per-tool-round
+                            // frames stay log-only evidence: concatenating them
+                            // let an aborted run (no terminal result) present
+                            // narration as the turn's answer.
                         }
                         else if (event instanceof StreamEvent.TurnDone done) {
                             turnDone = true;
@@ -450,6 +466,11 @@ public final class CliAgentTurnProviderSession
                 // A terminal provider frame is stronger evidence than a
                 // concurrent cancel that closes the output pipe.
             }
+
+            parser.terminalResult().ifPresent(authoritative -> {
+                finalText.setLength(0);
+                finalText.append(authoritative.strip());
+            });
 
             int exit;
             try {
@@ -516,8 +537,10 @@ public final class CliAgentTurnProviderSession
                     request.credentialAccount(), request.model(),
                     request.reasoningEffort(), request.workingDirectory(),
                     request.systemPrompt(), request.fallbackPrompt(),
-                    request.images(), request.toolEndpoint(), request.access(),
-                    request.maxCostUsdMilli(), null, null, 0, 0);
+                    request.images(), request.toolEndpoint(),
+                    request.permissionPromptTool(), request.access(),
+                    request.maxCostUsdMilli(), null, null, 0, 0,
+                    request.preapprovedMcpTools());
         }
 
         private void announceProcess(Process launched)

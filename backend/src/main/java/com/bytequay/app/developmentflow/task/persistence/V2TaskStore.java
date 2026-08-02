@@ -271,6 +271,11 @@ final class V2TaskStore
             "INSERT INTO task_command_receipt(",
             "INSERT INTO task_brain_budget_receipt(");
 
+    private static final String BRAIN_PROTOCOL_FAILURE_RECEIPT_INSERT =
+            RECEIPT_INSERT.replace(
+                    "INSERT INTO task_command_receipt(",
+                    "INSERT INTO task_brain_protocol_failure_receipt_v300(");
+
     private static final String REMOTE_BRAIN_RECEIPT_INSERT = RECEIPT_INSERT.replace(
             "INSERT INTO task_command_receipt(",
             "INSERT INTO remote_task_brain_receipt(");
@@ -370,6 +375,28 @@ final class V2TaskStore
                 WHERE task.id = ? AND task.workflow_version = 'V2'
                 """, (rs, row) -> policy(rs, taskId), taskId)
                 .stream().findFirst();
+    }
+
+    @Override
+    public boolean effectiveAutoApprove(String taskId)
+    {
+        return jdbc.query("""
+                SELECT CASE WHEN automation.id IS NULL
+                           THEN revision.auto_approve = 1
+                           ELSE automation.auto_approve = 1
+                               AND automation.stewardship_exception = 0
+                       END AS allowed
+                FROM tasks task
+                JOIN task_policy_revision revision
+                  ON revision.id = task.policy_revision_id
+                LEFT JOIN task_automation_policy automation
+                  ON automation.id = (
+                    SELECT latest.id FROM task_automation_policy latest
+                    WHERE latest.task_id = task.id
+                    ORDER BY latest.revision DESC LIMIT 1)
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                """, (rs, row) -> rs.getBoolean("allowed"), taskId)
+                .stream().findFirst().orElse(false);
     }
 
     @Override
@@ -588,6 +615,15 @@ final class V2TaskStore
                     taskId, commandId);
             if (budget.isPresent()) {
                 return budget;
+            }
+        }
+        if (tableAvailable("task_brain_protocol_failure_receipt_v300")) {
+            Optional<TaskManager.CommandReceipt> protocol = queryReceipt(
+                    "SELECT * FROM task_brain_protocol_failure_receipt_v300"
+                            + " WHERE task_id = ? AND command_id = ?",
+                    taskId, commandId);
+            if (protocol.isPresent()) {
+                return protocol;
             }
         }
         if (tableAvailable("remote_task_brain_receipt")) {
@@ -1973,6 +2009,8 @@ final class V2TaskStore
                         ? REMOTE_BRAIN_RECEIPT_INSERT : RECEIPT_INSERT;
                 case "ACCEPT_BRAIN_BUDGET_EXHAUSTION" ->
                         BRAIN_BUDGET_RECEIPT_INSERT;
+                case "ACCEPT_BRAIN_PROTOCOL_FAILURE" ->
+                        BRAIN_PROTOCOL_FAILURE_RECEIPT_INSERT;
                 default -> RECEIPT_INSERT;
             };
             PreparedStatement statement = connection.prepareStatement(insert);
@@ -2044,6 +2082,16 @@ final class V2TaskStore
                 return budget;
             }
         }
+        if (tableAvailable("task_brain_protocol_failure_receipt_v300")) {
+            Optional<TaskManager.CommandReceipt> protocol = queryReceipt(
+                    "SELECT * FROM task_brain_protocol_failure_receipt_v300"
+                            + " WHERE task_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    taskId, version);
+            if (protocol.isPresent()) {
+                return protocol;
+            }
+        }
         if (tableAvailable("remote_task_brain_receipt")) {
             return queryReceipt(
                     "SELECT * FROM remote_task_brain_receipt"
@@ -2074,16 +2122,9 @@ final class V2TaskStore
             return false;
         }
         count = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM (
-                    SELECT operation.id, operation.operation_id
-                    FROM ci_repair_operation operation
-                    WHERE operation.kind = 'BRAIN_REVIEW'
-                    UNION ALL
-                    SELECT operation.id, operation.operation_id
-                    FROM branch_sync_dispatch_operation operation
-                    WHERE operation.kind = 'BRAIN_REVIEW') operation
+                SELECT COUNT(*) FROM remote_brain_operation_v248 operation
                 WHERE operation.operation_id = ?
-                  AND (? IS NULL OR operation.id = ?)
+                  AND (? IS NULL OR operation.proof_id = ?)
                 """, Integer.class, fence.operationId(), proofId, proofId);
         return count != null && count == 1;
     }

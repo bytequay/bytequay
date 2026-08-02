@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -49,6 +51,7 @@ public final class WorktreeWriterLeaseManager
     {
         requireNonBlank(worktreePath, "worktreePath");
         CapacityManager.CapacityLease capacity = requireExactWriter(context);
+        requireNotQuarantined(capacity.scope().taskId(), worktreePath);
         Instant now = clock.instant();
         Lease requested = new Lease(
                 worktreePath,
@@ -59,9 +62,11 @@ public final class WorktreeWriterLeaseManager
                 capacity.leaseOwner(),
                 now,
                 capacity.expiresAt());
-        Lease acquired = store.tryAcquire(requested, now)
-                .orElseThrow(() -> new WriterLeaseUnavailableException(
-                        "worktree writer lease is already held: " + worktreePath));
+        Lease acquired = store.tryAcquire(requested, now).orElseGet(() -> {
+            requireNotQuarantined(requested.taskId(), worktreePath);
+            throw new WriterLeaseUnavailableException(
+                    "worktree writer lease is already held: " + worktreePath);
+        });
         try {
             acquired = requirePersistedLease(
                     requested, acquired, capacity, now, true);
@@ -70,6 +75,128 @@ public final class WorktreeWriterLeaseManager
                     () -> live.set(heartbeat(context, live.get())),
                     () -> release(live.get()));
             return acquired;
+        }
+        catch (RuntimeException | Error failure) {
+            try {
+                release(requested);
+            }
+            catch (RuntimeException releaseFailure) {
+                failure.addSuppressed(releaseFailure);
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Narrow cleanup-only bypass for the exact claimed REMOVE_WORKTREE step.
+     * It grants a writer fence only for disposing of the quarantined path.
+     */
+    public CleanupDisposal acquireCleanupDisposal(
+            ExecutionContext context,
+            String worktreePath,
+            String cleanupOperationId,
+            String cleanupStepId)
+    {
+        requireNonBlank(worktreePath, "worktreePath");
+        requireNonBlank(cleanupOperationId, "cleanupOperationId");
+        requireNonBlank(cleanupStepId, "cleanupStepId");
+        CapacityManager.CapacityLease capacity = requireExactWriter(context);
+        WorktreeQuarantine quarantine = store.findOpenQuarantine(
+                capacity.scope().taskId(), worktreePath).orElse(null);
+        if (quarantine == null) {
+            return new CleanupDisposal(
+                    acquire(context, worktreePath), null,
+                    cleanupOperationId, cleanupStepId);
+        }
+        DispatchTicket.DispatchEnvelope envelope = context.envelope();
+        if (!"RUN_CLEANUP_OPERATION".equals(envelope.operationKind())
+                || envelope.family() != DispatchTicket.AsyncFamily.CLEANUP
+                || !envelope.fence().operationId().equals(
+                        capacity.operationId())) {
+            throw new WorktreeQuarantinedException(
+                    "only exact Cleanup disposal may bypass worktree quarantine");
+        }
+        Instant now = clock.instant();
+        Lease requested = new Lease(
+                worktreePath, capacity.scope().taskId(), capacity.operationId(),
+                capacity.scope().taskEpoch(), capacity.writerFencingToken(),
+                capacity.leaseOwner(), now, capacity.expiresAt());
+        Lease acquired = store.tryAcquireCleanupDisposal(
+                        requested, quarantine.id(), cleanupOperationId,
+                        cleanupStepId, now)
+                .orElseThrow(() -> new WriterLeaseUnavailableException(
+                        "cleanup disposal writer lease is unavailable: "
+                                + worktreePath));
+        try {
+            acquired = requirePersistedLease(
+                    requested, acquired, capacity, now, true);
+            AtomicReference<Lease> live = new AtomicReference<>(acquired);
+            context.registerWriterResource(
+                    () -> live.set(heartbeat(context, live.get())),
+                    () -> release(live.get()));
+            return new CleanupDisposal(
+                    acquired, quarantine.id(), cleanupOperationId,
+                    cleanupStepId);
+        }
+        catch (RuntimeException | Error failure) {
+            try {
+                release(requested);
+            }
+            catch (RuntimeException releaseFailure) {
+                failure.addSuppressed(releaseFailure);
+            }
+            throw failure;
+        }
+    }
+
+    /**
+     * Narrow repair-only bypass for one exact durable quarantine-repair
+     * Operation. The quarantine remains open until accepted result delivery.
+     */
+    public QuarantineRepair acquireQuarantineRepair(
+            ExecutionContext context,
+            String worktreePath,
+            String quarantineId,
+            String repairOperationId)
+    {
+        requireNonBlank(worktreePath, "worktreePath");
+        requireNonBlank(quarantineId, "quarantineId");
+        requireNonBlank(repairOperationId, "repairOperationId");
+        CapacityManager.CapacityLease capacity = requireExactWriter(context);
+        DispatchTicket.DispatchEnvelope envelope = context.envelope();
+        if (!"REPAIR_QUARANTINED_WORKTREE".equals(
+                envelope.operationKind())
+                || envelope.family() != DispatchTicket.AsyncFamily.LOCAL_GIT
+                || !envelope.fence().operationId().equals(
+                        capacity.operationId())) {
+            throw new WorktreeQuarantinedException(
+                    "only an exact durable repair may bypass worktree quarantine");
+        }
+        WorktreeQuarantine quarantine = store.findOpenQuarantine(
+                        capacity.scope().taskId(), worktreePath)
+                .filter(candidate -> candidate.id().equals(quarantineId))
+                .orElseThrow(() -> new WorktreeQuarantinedException(
+                        "worktree quarantine is no longer exact: "
+                                + quarantineId));
+        Instant now = clock.instant();
+        Lease requested = new Lease(
+                worktreePath, capacity.scope().taskId(), capacity.operationId(),
+                capacity.scope().taskEpoch(), capacity.writerFencingToken(),
+                capacity.leaseOwner(), now, capacity.expiresAt());
+        Lease acquired = store.tryAcquireQuarantineRepair(
+                        requested, quarantine.id(), repairOperationId, now)
+                .orElseThrow(() -> new WriterLeaseUnavailableException(
+                        "quarantine repair writer lease is unavailable: "
+                                + worktreePath));
+        try {
+            acquired = requirePersistedLease(
+                    requested, acquired, capacity, now, true);
+            AtomicReference<Lease> live = new AtomicReference<>(acquired);
+            context.registerWriterResource(
+                    () -> live.set(heartbeat(context, live.get())),
+                    () -> release(live.get()));
+            return new QuarantineRepair(
+                    acquired, quarantine.id(), repairOperationId);
         }
         catch (RuntimeException | Error failure) {
             try {
@@ -110,7 +237,85 @@ public final class WorktreeWriterLeaseManager
     {
         requireNonNull(expected, "expected is null");
         requireLive(context, expected);
-        return new WriterAuthorization(this, context, expected);
+        return new WriterAuthorization(this, context, expected, null);
+    }
+
+    public WriterAuthorization authorizeCleanupDisposal(
+            ExecutionContext context, CleanupDisposal disposal)
+    {
+        requireNonNull(disposal, "disposal is null");
+        requireLive(context, disposal.lease(), disposal.quarantineId());
+        return new WriterAuthorization(
+                this, context, disposal.lease(), disposal.quarantineId());
+    }
+
+    public WriterAuthorization authorizeQuarantineRepair(
+            ExecutionContext context, QuarantineRepair repair)
+    {
+        requireNonNull(repair, "repair is null");
+        requireLive(context, repair.lease(), repair.quarantineId());
+        return new WriterAuthorization(
+                this, context, repair.lease(), repair.quarantineId());
+    }
+
+    public void settleCleanupDisposal(
+            ExecutionContext context,
+            CleanupDisposal disposal,
+            String absenceEvidence)
+    {
+        requireNonNull(disposal, "disposal is null");
+        requireNonBlank(absenceEvidence, "absenceEvidence");
+        if (disposal.quarantineId() == null) {
+            return;
+        }
+        Lease live = requireLive(
+                context, disposal.lease(), disposal.quarantineId());
+        if (!store.clearForCleanup(
+                live, disposal.quarantineId(), disposal.cleanupOperationId(),
+                disposal.cleanupStepId(), absenceEvidence, clock.instant())) {
+            throw new IllegalStateException(
+                    "exact Cleanup disposal did not clear worktree quarantine");
+        }
+    }
+
+    /**
+     * Freezes a failed worktree restoration while the exact writer lease is
+     * still live. Once recorded, every ordinary V2 writer is denied at this
+     * sole boundary; only exact Cleanup disposal or a separately authorized
+     * durable repair may bypass it, and only accepted exact proof clears it.
+     */
+    public WorktreeQuarantine quarantine(
+            ExecutionContext context,
+            Lease expected,
+            QuarantineEvidence evidence)
+    {
+        requireNonNull(evidence, "evidence is null");
+        Lease live = requireLive(context, requireNonNull(expected, "expected is null"));
+        if (!live.taskId().equals(evidence.taskId())
+                || !live.operationId().equals(evidence.sourceOperationId())
+                || !live.worktreePath().equals(evidence.worktreePath())) {
+            throw new IllegalArgumentException(
+                    "worktree quarantine differs from its exact writer lease");
+        }
+        String id = UUID.nameUUIDFromBytes(
+                ("worktree-quarantine-v318:" + live.operationId())
+                        .getBytes(StandardCharsets.UTF_8)).toString();
+        WorktreeQuarantine requested = new WorktreeQuarantine(
+                id, evidence.taskId(), evidence.stageId(),
+                evidence.sourceOperationId(), evidence.worktreePath(),
+                evidence.expectedBranchName(),
+                evidence.expectedCodeFingerprint(), evidence.expectedHeadSha(),
+                evidence.observedBranchName(), evidence.observedHeadSha(),
+                evidence.observedClean(),
+                evidence.observedCodeFingerprint(), evidence.probeError(),
+                evidence.reason(), clock.instant());
+        WorktreeQuarantine persisted = store.openQuarantine(
+                live, requested, requested.openedAt());
+        if (!requested.equals(persisted)) {
+            throw new IllegalStateException(
+                    "worktree quarantine store returned different evidence");
+        }
+        return persisted;
     }
 
     /** Exact, idempotent release; it cannot delete a replacement lease. */
@@ -152,13 +357,43 @@ public final class WorktreeWriterLeaseManager
 
     private Lease requireLive(ExecutionContext context, Lease expected)
     {
+        return requireLive(context, expected, null);
+    }
+
+    private Lease requireLive(
+            ExecutionContext context, Lease expected, String quarantineBypassId)
+    {
         CapacityManager.CapacityLease capacity = requireExactWriter(context);
         requireCoveredBy(expected, capacity);
+        Optional<WorktreeQuarantine> quarantine = store.findOpenQuarantine(
+                expected.taskId(), expected.worktreePath());
+        if (quarantineBypassId == null) {
+            quarantine.ifPresent(ignored -> {
+                throw new WorktreeQuarantinedException(
+                        "worktree is quarantined after an unproven restoration: "
+                                + ignored.id());
+            });
+        }
+        else if (quarantine.isEmpty()
+                || !quarantineBypassId.equals(
+                        quarantine.orElseThrow().id())) {
+            throw new StaleWriterLeaseException(
+                    "worktree quarantine bypass is no longer exact");
+        }
         Instant now = clock.instant();
         Lease current = store.findExact(expected, now)
                 .orElseThrow(() -> new StaleWriterLeaseException(
                         "worktree writer lease is no longer live"));
         return requirePersistedLease(expected, current, capacity, now, false);
+    }
+
+    private void requireNotQuarantined(String taskId, String worktreePath)
+    {
+        store.findOpenQuarantine(taskId, worktreePath).ifPresent(quarantine -> {
+            throw new WorktreeQuarantinedException(
+                    "worktree is quarantined after an unproven restoration: "
+                            + quarantine.id());
+        });
     }
 
     private static Lease requirePersistedLease(
@@ -225,22 +460,123 @@ public final class WorktreeWriterLeaseManager
         }
     }
 
+    public record QuarantineEvidence(
+            String taskId,
+            String stageId,
+            String sourceOperationId,
+            String worktreePath,
+            String expectedBranchName,
+            String expectedCodeFingerprint,
+            String expectedHeadSha,
+            String observedBranchName,
+            String observedHeadSha,
+            Boolean observedClean,
+            String observedCodeFingerprint,
+            String probeError,
+            String reason)
+    {
+        public QuarantineEvidence
+        {
+            requireNonBlank(taskId, "taskId");
+            requireNonBlank(stageId, "stageId");
+            requireNonBlank(sourceOperationId, "sourceOperationId");
+            requireNonBlank(worktreePath, "worktreePath");
+            requireNonBlank(expectedBranchName, "expectedBranchName");
+            requireNonBlank(expectedCodeFingerprint,
+                    "expectedCodeFingerprint");
+            requireNonBlank(expectedHeadSha, "expectedHeadSha");
+            requireNonBlank(reason, "reason");
+            if ((observedHeadSha == null && probeError == null)
+                    || (observedClean == null && probeError == null)
+                    || (observedCodeFingerprint == null
+                        && probeError == null)) {
+                throw new IllegalArgumentException(
+                        "missing quarantine observation requires a probe error");
+            }
+            if (probeError != null) {
+                requireNonBlank(probeError, "probeError");
+            }
+        }
+    }
+
+    public record WorktreeQuarantine(
+            String id,
+            String taskId,
+            String stageId,
+            String sourceOperationId,
+            String worktreePath,
+            String expectedBranchName,
+            String expectedCodeFingerprint,
+            String expectedHeadSha,
+            String observedBranchName,
+            String observedHeadSha,
+            Boolean observedClean,
+            String observedCodeFingerprint,
+            String probeError,
+            String reason,
+            Instant openedAt)
+    {
+        public WorktreeQuarantine
+        {
+            requireNonBlank(id, "id");
+            requireNonNull(openedAt, "openedAt is null");
+            new QuarantineEvidence(
+                    taskId, stageId, sourceOperationId, worktreePath,
+                    expectedBranchName, expectedCodeFingerprint,
+                    expectedHeadSha, observedBranchName, observedHeadSha,
+                    observedClean, observedCodeFingerprint, probeError, reason);
+        }
+    }
+
+    public record CleanupDisposal(
+            Lease lease,
+            String quarantineId,
+            String cleanupOperationId,
+            String cleanupStepId)
+    {
+        public CleanupDisposal
+        {
+            requireNonNull(lease, "lease is null");
+            requireNonBlank(cleanupOperationId, "cleanupOperationId");
+            requireNonBlank(cleanupStepId, "cleanupStepId");
+            if (quarantineId != null) {
+                requireNonBlank(quarantineId, "quarantineId");
+            }
+        }
+    }
+
+    public record QuarantineRepair(
+            Lease lease,
+            String quarantineId,
+            String repairOperationId)
+    {
+        public QuarantineRepair
+        {
+            requireNonNull(lease, "lease is null");
+            requireNonBlank(quarantineId, "quarantineId");
+            requireNonBlank(repairOperationId, "repairOperationId");
+        }
+    }
+
     /** One-shot proof consumed around one code- or Git-mutating adapter call. */
     public static final class WriterAuthorization
     {
         private final WorktreeWriterLeaseManager manager;
         private final ExecutionContext context;
         private final Lease expected;
+        private final String quarantineBypassId;
         private final AtomicBoolean consumed = new AtomicBoolean();
 
         private WriterAuthorization(
                 WorktreeWriterLeaseManager manager,
                 ExecutionContext context,
-                Lease expected)
+                Lease expected,
+                String quarantineBypassId)
         {
             this.manager = requireNonNull(manager, "manager is null");
             this.context = requireNonNull(context, "context is null");
             this.expected = requireNonNull(expected, "expected is null");
+            this.quarantineBypassId = quarantineBypassId;
         }
 
         public <T> T run(Function<MutationFence, T> mutation)
@@ -250,7 +586,8 @@ public final class WorktreeWriterLeaseManager
                 throw new IllegalStateException(
                         "writer authorization was already consumed");
             }
-            Lease live = manager.requireLive(context, expected);
+            Lease live = manager.requireLive(
+                    context, expected, quarantineBypassId);
             return mutation.apply(new MutationFence(
                     live.worktreePath(),
                     live.taskId(),
@@ -318,6 +655,51 @@ public final class WorktreeWriterLeaseManager
 
         /** Deletes only the same immutable identity. */
         boolean release(Lease expected, Instant releasedAt);
+
+        default Optional<WorktreeQuarantine> findOpenQuarantine(
+                String taskId, String worktreePath)
+        {
+            return Optional.empty();
+        }
+
+        default WorktreeQuarantine openQuarantine(
+                Lease expected,
+                WorktreeQuarantine requested,
+                Instant openedAt)
+        {
+            throw new UnsupportedOperationException(
+                    "worktree quarantine persistence is unavailable");
+        }
+
+        default Optional<Lease> tryAcquireCleanupDisposal(
+                Lease requested,
+                String quarantineId,
+                String cleanupOperationId,
+                String cleanupStepId,
+                Instant now)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<Lease> tryAcquireQuarantineRepair(
+                Lease requested,
+                String quarantineId,
+                String repairOperationId,
+                Instant now)
+        {
+            return Optional.empty();
+        }
+
+        default boolean clearForCleanup(
+                Lease expected,
+                String quarantineId,
+                String cleanupOperationId,
+                String cleanupStepId,
+                String absenceEvidence,
+                Instant clearedAt)
+        {
+            return false;
+        }
     }
 
     public static final class WriterLeaseUnavailableException
@@ -333,6 +715,15 @@ public final class WorktreeWriterLeaseManager
             extends IllegalStateException
     {
         public StaleWriterLeaseException(String message)
+        {
+            super(message);
+        }
+    }
+
+    public static final class WorktreeQuarantinedException
+            extends IllegalStateException
+    {
+        public WorktreeQuarantinedException(String message)
         {
             super(message);
         }

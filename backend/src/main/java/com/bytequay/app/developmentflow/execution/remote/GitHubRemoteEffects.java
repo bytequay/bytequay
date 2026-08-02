@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.execution.provisioning.GitRunnerProvisioningGit;
+import com.bytequay.app.developmentflow.stage.BaseCiHistoryRewriter;
 import com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
@@ -48,6 +49,7 @@ import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandle
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.PUSH_CI_REPAIR;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.REBASE_BRANCH;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.RERUN_CI;
+import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.REWRITE_VALIDATE_BASE_CI_REPAIR;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.VALIDATE_BRANCH;
 import static com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler.VALIDATE_CI_REPAIR;
 import static java.util.Objects.requireNonNull;
@@ -59,6 +61,7 @@ public final class GitHubRemoteEffects
 {
     private final GitRunner git;
     private final GitRunnerProvisioningGit remotes;
+    private final BaseCiHistoryRewriter baseHistory;
     private final CodeFingerprints fingerprints;
     private final List<ValidationCheck> checks;
     private final PullRequestRepository pullRequests;
@@ -68,6 +71,7 @@ public final class GitHubRemoteEffects
     public GitHubRemoteEffects(
             GitRunner git,
             GitRunnerProvisioningGit remotes,
+            BaseCiHistoryRewriter baseHistory,
             CodeFingerprints fingerprints,
             List<ValidationCheck> checks,
             PullRequestRepository pullRequests,
@@ -76,6 +80,7 @@ public final class GitHubRemoteEffects
     {
         this.git = requireNonNull(git, "git is null");
         this.remotes = requireNonNull(remotes, "remotes is null");
+        this.baseHistory = requireNonNull(baseHistory, "baseHistory is null");
         this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
         this.checks = List.copyOf(requireNonNull(checks, "checks is null"));
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -98,9 +103,13 @@ public final class GitHubRemoteEffects
             case RERUN_CI -> rerun(request, mode, execution, writerFence);
             case FETCH_BRANCH -> fetch(request, execution, writerFence);
             case REBASE_BRANCH -> rebase(request, execution, writerFence);
+            case REWRITE_VALIDATE_BASE_CI_REPAIR ->
+                    rewriteAndValidate(request, mode, execution, writerFence);
             case VALIDATE_CI_REPAIR, VALIDATE_BRANCH ->
                     validate(request, execution, writerFence);
-            case PUSH_CI_REPAIR -> push(request, execution, writerFence, false);
+            case PUSH_CI_REPAIR -> push(
+                    request, execution, writerFence,
+                    request.prepublishBranchSyncEpisodeId() != null);
             case PUSH_BRANCH -> push(request, execution, writerFence, true);
             default -> throw new IllegalArgumentException(
                     "Unsupported Remote effect " + request.operationKind());
@@ -244,6 +253,11 @@ public final class GitHubRemoteEffects
         requireNoWriter(writerFence);
         Path worktree = Path.of(request.worktreePath());
         CodeSubject before = requireSubject(request, worktree);
+        if (!preservesBaseRepairHistory(request, worktree)) {
+            return failed(request, before.fingerprint(), before.headSha(),
+                    request.expectedBaseSha(),
+                    "base repair did not preserve the exact Task commit series");
+        }
         List<ValidationFailure> failures = new ArrayList<>();
         for (ValidationCheck check : checks) {
             requireActive(execution);
@@ -264,6 +278,129 @@ public final class GitHubRemoteEffects
                 request.expectedBaseSha(), "validation passed");
     }
 
+    private RemoteEffectOperationHandler.Result rewriteAndValidate(
+            RemoteEffectOperationHandler.Request request,
+            RemoteEffectOperationHandler.Mode mode,
+            ExecutionContext execution,
+            WorktreeWriterLeaseManager.MutationFence writerFence)
+            throws Exception
+    {
+        Path worktree = requireWriter(request, writerFence);
+        requireCleanBranch(request, worktree);
+        requireActive(execution);
+        String currentHead = git.headSha(worktree);
+        if (mode == RemoteEffectOperationHandler.Mode.PROBE
+                && currentHead.equals(request.expectedHeadSha())) {
+            CodeSubject unchanged = requireSubject(request, worktree);
+            RemoteEffectOperationHandler.BaseRewriteEvidence evidence =
+                    new RemoteEffectOperationHandler.BaseRewriteEvidence(
+                            "CI_BASE_REWRITE_V1",
+                            request.baseRepairAuthorizationId(),
+                            request.baseRepairManifestDigest(), null,
+                            List.of(new ValidationFailure(
+                                    "base-repair-reconcile",
+                                    "History rewrite was not observed")));
+            return result(request, FAILED, unchanged.fingerprint(),
+                    unchanged.headSha(), request.expectedBaseSha(),
+                    write(evidence), "base history rewrite was not applied");
+        }
+        if (mode == RemoteEffectOperationHandler.Mode.EXECUTE) {
+            requireSubject(request, worktree);
+        }
+        try {
+            List<String> originals = git.commitShasInRange(
+                    worktree, request.expectedBaseSha(),
+                    request.baseRepairOriginalHeadSha());
+            BaseCiHistoryRewriter.Request rewriteRequest =
+                    new BaseCiHistoryRewriter.Request(
+                            worktree, request.headRef(),
+                            request.expectedBaseSha(),
+                            request.baseRepairOriginalHeadSha(), originals,
+                            request.expectedHeadSha());
+            BaseCiHistoryRewriter.Result rewritten =
+                    mode == RemoteEffectOperationHandler.Mode.PROBE
+                            ? baseHistory.recover(rewriteRequest)
+                            : baseHistory.rewrite(rewriteRequest);
+            CodeSubject beforeValidation = new CodeSubject(
+                    fingerprints.fingerprint(worktree), rewritten.headSha());
+            requireCleanBranch(request, worktree);
+            List<ValidationFailure> failures = new ArrayList<>();
+            for (ValidationCheck check : checks) {
+                requireActive(execution);
+                failures.addAll(check.run(request.taskId(), worktree));
+            }
+            CodeSubject afterValidation = new CodeSubject(
+                    fingerprints.fingerprint(worktree), git.headSha(worktree));
+            if (!beforeValidation.equals(afterValidation)
+                    || git.hasUncommittedChanges(worktree)) {
+                git.resetHard(worktree, rewritten.headSha());
+                afterValidation = new CodeSubject(
+                        fingerprints.fingerprint(worktree), rewritten.headSha());
+                failures.add(new ValidationFailure(
+                        "base-repair-subject",
+                        "Validation changed the code subject"));
+            }
+            RemoteEffectOperationHandler.BaseRewriteEvidence evidence =
+                    new RemoteEffectOperationHandler.BaseRewriteEvidence(
+                            "CI_BASE_REWRITE_V1",
+                            request.baseRepairAuthorizationId(),
+                            request.baseRepairManifestDigest(), rewritten.proof(),
+                            List.copyOf(failures));
+            if (!failures.isEmpty()) {
+                RemoteEffectOperationHandler.Result failed = result(
+                        request, FAILED, afterValidation.fingerprint(),
+                        afterValidation.headSha(), request.expectedBaseSha(),
+                        write(evidence), failures.size()
+                                + " validation failure(s)");
+                restoreStageTurnSubject(request, worktree);
+                return failed;
+            }
+            return succeeded(request, afterValidation.fingerprint(),
+                    afterValidation.headSha(), request.expectedBaseSha(),
+                    write(evidence));
+        }
+        catch (Exception failure) {
+            restoreStageTurnSubject(request, worktree, failure);
+            throw failure;
+        }
+    }
+
+    private void restoreStageTurnSubject(
+            RemoteEffectOperationHandler.Request request, Path worktree)
+            throws IOException, InterruptedException
+    {
+        git.resetHard(worktree, request.expectedHeadSha());
+        requireSubject(request, worktree);
+    }
+
+    private void restoreStageTurnSubject(
+            RemoteEffectOperationHandler.Request request,
+            Path worktree,
+            Exception failure)
+    {
+        boolean interrupted = failure instanceof InterruptedException
+                || Thread.currentThread().isInterrupted();
+        if (interrupted) {
+            Thread.interrupted();
+        }
+        boolean restoreInterrupted = false;
+        try {
+            restoreStageTurnSubject(request, worktree);
+        }
+        catch (InterruptedException restore) {
+            restoreInterrupted = true;
+            failure.addSuppressed(restore);
+        }
+        catch (IOException | RuntimeException restore) {
+            failure.addSuppressed(restore);
+        }
+        finally {
+            if (interrupted || restoreInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     private RemoteEffectOperationHandler.Result push(
             RemoteEffectOperationHandler.Request request,
             ExecutionContext execution,
@@ -274,6 +411,11 @@ public final class GitHubRemoteEffects
         Path worktree = requireWriter(request, writerFence);
         CodeSubject subject = requireSubject(request, worktree);
         requireCleanBranch(request, worktree);
+        if (!preservesBaseRepairHistory(request, worktree)) {
+            return failed(request, subject.fingerprint(), subject.headSha(),
+                    request.expectedBaseSha(),
+                    "base repair history changed after validation");
+        }
         requireActive(execution);
         git.fetchRemote(worktree, "origin");
         Optional<String> observed = git.remoteHeadSha(
@@ -290,8 +432,17 @@ public final class GitHubRemoteEffects
                     "remote head moved outside the exact push authorization");
         }
         try {
-            if (forceWithLease) {
-                git.pushForceWithLease(worktree);
+            if (request.baseRepairAuthorizationId() != null) {
+                GitRunner.GitResult pushed = git.pushRewrittenBranch(
+                        worktree, request.headRef(),
+                        request.forceWithLeaseExpectedSha());
+                pushed.requireSuccess();
+            }
+            else if (forceWithLease) {
+                GitRunner.GitResult pushed = git.pushRewrittenBranch(
+                        worktree, request.headRef(),
+                        request.forceWithLeaseExpectedSha());
+                pushed.requireSuccess();
             }
             else {
                 git.push(worktree);
@@ -313,6 +464,17 @@ public final class GitHubRemoteEffects
         return succeeded(request, subject.fingerprint(), subject.headSha(),
                 request.expectedBaseSha(), forceWithLease
                         ? "force-with-lease push proven" : "CI repair push proven");
+    }
+
+    private boolean preservesBaseRepairHistory(
+            RemoteEffectOperationHandler.Request request, Path worktree)
+            throws IOException, InterruptedException
+    {
+        return request.baseRepairOriginalHeadSha() == null
+                || git.preservesBaseRepairHistory(
+                        worktree, request.expectedBaseSha(),
+                        request.baseRepairOriginalHeadSha(),
+                        request.expectedHeadSha());
     }
 
     private RemoteEffectOperationHandler.Result recoverPush(

@@ -137,6 +137,10 @@ public class SqliteCleanupEffects
                   + (SELECT COUNT(*) FROM branch_sync_episode episode
                      WHERE episode.task_id = ? AND episode.task_epoch = ?
                        AND episode.status NOT IN ('SUCCEEDED','FAILED','STOPPED'))
+                  + (SELECT COUNT(*) FROM local_publish_base_sync_episode episode
+                     WHERE episode.task_id = ? AND episode.task_epoch = ?
+                       AND episode.status NOT IN (
+                           'HANDED_OFF','FAILED','CANCELED','SUPERSEDED'))
                   + (SELECT COUNT(*) FROM remote_mark_ready_operation operation
                      WHERE operation.task_id = ? AND operation.task_epoch = ?
                        AND operation.status NOT IN ('SUCCEEDED','CANCELED'))
@@ -145,6 +149,7 @@ public class SqliteCleanupEffects
                        AND operation.status NOT IN (
                            'SUCCEEDED','FAILED','BLOCKED','CANCELED'))
                 """, operation.taskId(), operation.taskEpoch(),
+                operation.taskId(), operation.taskEpoch(),
                 operation.taskId(), operation.taskEpoch(),
                 operation.taskId(), operation.taskEpoch(),
                 operation.taskId(), operation.taskEpoch(),
@@ -163,6 +168,8 @@ public class SqliteCleanupEffects
                 SELECT COUNT(*) FROM agent_execution execution
                 JOIN dispatch_ticket ticket ON ticket.id = execution.ticket_id
                 WHERE ticket.task_id = ?
+                  AND ticket.async_family = 'AGENT_TURN'
+                  AND execution.finished_at_ms IS NULL
                   AND execution.status IN ('STARTING','RUNNING','UNKNOWN')
                 """, operation.taskId());
         return live == 0

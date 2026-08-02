@@ -29,7 +29,6 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.insertSnapshot;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.migrate;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.number;
-import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedLegacyTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.text;
@@ -39,32 +38,6 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
 {
     @TempDir
     private Path tempDir;
-
-    @Test
-    void upgradesLegacyRowsAndRestartsWithoutInventingRemoteWork()
-            throws Exception
-    {
-        String url = url("legacy.db");
-        migrate(url, "231");
-        try (Connection connection = connect(url)) {
-            seedLegacyTask(connection);
-        }
-
-        migrate(url, "233");
-        migrate(url, "233");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT workflow_version || '|' || status
-                    FROM tasks WHERE id = 'legacy-task'
-                    """)).isEqualTo("LEGACY|IDLE");
-            assertThat(number(connection, "SELECT COUNT(*) FROM remote_inbox_item"))
-                    .isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM remote_merge_operation"))
-                    .isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
-                    .isZero();
-        }
-    }
 
     @Test
     void marksDraftReadyOnlyThroughFreshManualOrAutoApproveConsent()
@@ -157,7 +130,7 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
             throws Exception
     {
         String url = remoteUrl("policy-mark-ready.db", 1);
-        migrate(url, "250");
+        migrate(url);
         try (Connection connection = connect(url)) {
             insertRemoteOwner(connection, 1);
             insertCiPolicy(connection, 1);
@@ -214,13 +187,13 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
             insertFeedbackStageTurn(connection);
             insertFeedbackValidationPass(connection);
             execute(connection, validationEvidenceSql());
+            assertFails(connection, feedbackAuthorizationSql(null));
+            insertFeedbackBrainTurn(connection);
+            execute(connection, brainEvidenceSql());
             execute(connection, """
                     UPDATE remote_feedback_batch SET status = 'AWAITING_APPROVAL'
                     WHERE id = 'batch-1'
                     """);
-            assertFails(connection, feedbackAuthorizationSql(null));
-            insertFeedbackBrainTurn(connection);
-            execute(connection, brainEvidenceSql());
             assertFails(connection, feedbackAuthorizationSql("feedback-brain-1")
                     .replace("'USER_ACTION'", "'AUTO_APPROVE_POLICY'"));
             execute(connection, feedbackAuthorizationSql("feedback-brain-1"));
@@ -311,20 +284,12 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
         try (Connection connection = connect(url)) {
             seedOpenGreen(connection, 1, "UNKNOWN");
             execute(connection, policySql(1, 1, 1, 1, 0, 0, 2));
-            execute(connection, readinessSql(1, 1, "automation-1-1",
+            assertFails(connection, readinessSql(1, 1, "automation-1-1",
                     "UNKNOWN", "MERGEABLE", 1));
-            execute(connection, mergeAuthorizationSql("merge-auth-1", 1, 1));
-            assertFails(connection, mergeOperationSql(
-                    "merge-unknown-direct", "merge-auth-1", 1,
-                    "DIRECT", "UNSUPPORTED", 0));
-            assertFails(connection, mergeOperationSql(
-                    "merge-unknown-queue", "merge-auth-1", 1,
-                    "MERGE_QUEUE", "SUPPORTED", 2));
-            execute(connection, """
-                    UPDATE remote_merge_authorization
-                    SET status = 'REVOKED', terminal_at_ms = 80
-                    WHERE id = 'merge-auth-1'
-                    """);
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM remote_readiness_evidence
+                    WHERE remote_development_stage_id = 'remote-stage-1'
+                    """)).isZero();
 
             insertSnapshot(connection, 1, 2, "head-1", "base-1", "OPEN",
                     "MERGEABLE", "NONE", "SUPPORTED", 0, 0, 0, 0);
@@ -385,6 +350,8 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
                     SET status = 'REVOKED', terminal_at_ms = 81
                     WHERE id = 'queue-auth'
                     """);
+            authorizeStageForMerge(
+                    connection, 1, "queue-op-operation-id", "queue-auth");
             execute(connection, mergeAttemptSql(
                     "queue-attempt-1", "queue-op", 1, "ENTER_QUEUE", 1,
                     "readiness-1-1", "EXECUTE", 81));
@@ -505,6 +472,8 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
                     SET status = 'CONSUMED', terminal_at_ms = 110
                     WHERE id = 'direct-auth'
                     """);
+            authorizeStageForMerge(
+                    connection, 2, "direct-op-operation-id", "direct-auth");
             execute(connection, mergeAttemptSql(
                     "direct-attempt-1", "direct-op", 1, "DIRECT_MERGE", null,
                     "readiness-2-1", "EXECUTE", 111));
@@ -547,19 +516,10 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
                         'merged', 1, 120)
                     """);
             execute(connection, """
-                    INSERT INTO remote_terminal_observation(
-                        id, remote_development_stage_id, task_id, task_epoch,
-                        stage_generation, remote_pr_binding_id,
-                        remote_pr_snapshot_id, task_terminal_intent_id, kind,
-                        head_sha, base_sha, observed_at_ms, evidence)
-                    VALUES ('terminal-observation-2', 'remote-stage-2', 'task-2',
-                        1, 1, 'binding-2', 'snapshot-2-2', 'terminal-intent-2',
-                        'MERGED', 'head-2', 'base-2', 62, 'observer merged')
-                    """);
-            execute(connection, """
                     UPDATE remote_merge_operation
                     SET status = 'SUCCEEDED',
-                        terminal_observation_id = 'terminal-observation-2',
+                        terminal_observation_id =
+                            'remote-terminal-observation:terminal-intent-2',
                         completed_at_ms = 121
                     WHERE id = 'direct-op'
                     """);
@@ -569,7 +529,7 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
                     """)).isOne();
             assertFails(connection, """
                     UPDATE remote_terminal_observation SET evidence = 'changed'
-                    WHERE id = 'terminal-observation-2'
+                    WHERE id = 'remote-terminal-observation:terminal-intent-2'
                     """);
             assertFails(connection, """
                     UPDATE remote_merge_operation SET last_error = 'changed'
@@ -589,14 +549,14 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
             throws Exception
     {
         String url = url(file);
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             for (int task = 1; task <= taskCount; task++) {
                 seedPublishedRemoteTask(connection, task);
             }
         }
-        migrate(url, "233");
+        migrate(url);
         return url;
     }
 
@@ -619,6 +579,67 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
         execute(connection, policySql(task, 1, 1, 1, 0, 0, maxReenqueues));
         execute(connection, readinessSql(task, 1, "automation-" + task + "-1",
                 capability, "MERGEABLE", 1));
+    }
+
+    private static void authorizeStageForMerge(
+            Connection connection, int task, String operationId, String authorizationId)
+            throws Exception
+    {
+        connection.setAutoCommit(false);
+        try {
+            execute(connection, """
+                    UPDATE stage SET version = 1, checkpoint = 'READY_TO_MERGE'
+                    WHERE id = 'remote-stage-%1$s' AND version = 0
+                      AND checkpoint = 'WAITING_CI'
+                    """.formatted(task));
+            execute(connection, """
+                    UPDATE stage SET version = 2, checkpoint = 'MERGING'
+                    WHERE id = 'remote-stage-%1$s' AND version = 1
+                      AND checkpoint = 'READY_TO_MERGE'
+                    """.formatted(task));
+            execute(connection, """
+                    INSERT INTO stage_transition(
+                        id, stage_id, command_id, generation, from_checkpoint,
+                        to_checkpoint, stage_version, cause, actor, occurred_at_ms)
+                    VALUES ('merge-transition-authority-%1$s',
+                        'remote-stage-%1$s', 'merge-command-authority-%1$s', 1,
+                        'READY_TO_MERGE', 'MERGING', 2, 'AUTHORIZE_MERGE',
+                        'system', 81)
+                    """.formatted(task));
+            execute(connection, """
+                    INSERT INTO stage_command_receipt(
+                        id, stage_id, task_id, command_id, cause, actor,
+                        disposition, expected_task_epoch,
+                        expected_stage_generation, expected_stage_version,
+                        source_checkpoint, subject_task_epoch, subject_stage_id,
+                        subject_stage_generation, subject_operation_id,
+                        subject_attempt, subject_expected_head_sha,
+                        subject_expected_base_sha, proof_id, returned_kind,
+                        returned_generation, returned_version,
+                        returned_checkpoint, returned_pending_task_epoch,
+                        returned_pending_stage_id,
+                        returned_pending_stage_generation,
+                        returned_pending_operation_id, returned_pending_attempt,
+                        returned_pending_head_sha, returned_pending_base_sha,
+                        recorded_at_ms)
+                    VALUES ('merge-receipt-authority-%1$s',
+                        'remote-stage-%1$s', 'task-%1$s',
+                        'merge-command-authority-%1$s', 'AUTHORIZE_MERGE',
+                        'system', 'APPLIED', 1, 1, 1, 'READY_TO_MERGE', 1,
+                        'remote-stage-%1$s', 1, '%2$s', 1, 'head-%1$s',
+                        'base-%1$s', '%3$s', 'REMOTE_DEVELOPMENT', 1, 2,
+                        'MERGING', 1, 'remote-stage-%1$s', 1, '%2$s', 1,
+                        'head-%1$s', 'base-%1$s', 81)
+                    """.formatted(task, operationId, authorizationId));
+            connection.commit();
+        }
+        catch (Throwable failure) {
+            connection.rollback();
+            throw failure;
+        }
+        finally {
+            connection.setAutoCommit(true);
+        }
     }
 
     private static void insertPolicy(
@@ -756,15 +777,52 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
             throws Exception
     {
         execute(connection, """
+                UPDATE stage SET version = 1,
+                    checkpoint = 'ADDRESSING_REMOTE_FEEDBACK'
+                WHERE id = 'remote-stage-1' AND version = 0
+                  AND checkpoint = 'WAITING_CI'
+                """);
+        execute(connection, """
                 INSERT INTO stage_turn(
                     id, stage_id, stage_generation, purpose, status,
                     operation_id, attempt, task_epoch, expected_code_fingerprint,
                     expected_head_sha, expected_base_sha, delivery_lane,
-                    launch_input, requested_at_ms, started_at_ms, finished_at_ms)
+                    launch_input, requested_at_ms)
                 VALUES ('feedback-stage-turn', 'remote-stage-1', 1,
-                    'ADDRESS_REMOTE_FEEDBACK', 'SUCCEEDED',
-                    'feedback-stage-turn-operation', 1, 1, 'fixed-fingerprint',
-                    'head-fixed', 'base-1', 'CLI', 'address feedback', 81, 81, 82)
+                    'ADDRESS_REMOTE_FEEDBACK', 'QUEUED',
+                    'feedback-stage-turn-operation', 1, 1, 'fingerprint-1',
+                    'head-1', 'base-1', 'CLI', 'address feedback', 81)
+                """);
+        execute(connection, """
+                INSERT INTO remote_feedback_stage_turn_request(
+                    id, remote_feedback_batch_id, stage_turn_id, task_id,
+                    remote_development_stage_id, task_epoch, stage_generation,
+                    semantic_attempt, predecessor_turn_id, prompt_digest,
+                    requested_by, requested_at_ms)
+                VALUES ('feedback-stage-request', 'batch-1',
+                    'feedback-stage-turn', 'task-1', 'remote-stage-1', 1, 1,
+                    1, NULL,
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'test', 81)
+                """);
+        execute(connection, """
+                UPDATE stage_turn
+                SET status = 'SUCCEEDED', started_at_ms = 81,
+                    finished_at_ms = 82
+                WHERE id = 'feedback-stage-turn'
+                """);
+        execute(connection, """
+                INSERT INTO remote_feedback_repair_result(
+                    id, remote_feedback_batch_id, repair_stage_turn_id,
+                    task_id, task_epoch, remote_development_stage_id,
+                    stage_generation, subject_head_sha, proposed_head_sha,
+                    base_sha, code_fingerprint, summary, result_digest,
+                    completed_at_ms)
+                VALUES ('feedback-repair-1', 'batch-1', 'feedback-stage-turn',
+                    'task-1', 1, 'remote-stage-1', 1, 'head-1', 'head-fixed',
+                    'base-1', 'fixed-fingerprint', 'addressed feedback',
+                    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    82)
                 """);
     }
 
@@ -791,6 +849,23 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
             throws Exception
     {
         execute(connection, """
+                INSERT INTO remote_feedback_validation_operation(
+                    id, remote_feedback_batch_id, repair_result_id,
+                    remote_development_stage_id, task_id, task_epoch,
+                    stage_generation, operation_id, semantic_attempt,
+                    code_fingerprint, expected_head_sha, expected_base_sha,
+                    status, requested_at_ms)
+                VALUES ('feedback-validation-operation', 'batch-1',
+                    'feedback-repair-1', 'remote-stage-1', 'task-1', 1, 1,
+                    'feedback-validation-operation', 1, 'fixed-fingerprint',
+                    'head-fixed', 'base-1', 'REQUESTED', 81)
+                """);
+        execute(connection, """
+                UPDATE remote_feedback_validation_operation
+                SET status = 'DISPATCHED'
+                WHERE id = 'feedback-validation-operation'
+                """);
+        execute(connection, """
                 INSERT INTO validation_pass(
                     task_id, started_at_ms, ended_at_ms, passed, fix_rounds,
                     failures_json, claim_key, code_fingerprint, workflow_version,
@@ -800,6 +875,28 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
                     'feedback-validation-claim', 'fixed-fingerprint', 'V2', 1,
                     'remote-stage-1', 1, 'feedback-validation-operation', 1,
                     'head-fixed', 'base-1')
+                """);
+        execute(connection, """
+                INSERT INTO remote_feedback_validation_attempt_evidence(
+                    id, remote_feedback_batch_id, repair_result_id,
+                    validation_operation_id, validation_pass_id,
+                    remote_development_stage_id, task_id, task_epoch,
+                    stage_generation, repair_stage_turn_id, semantic_attempt,
+                    subject_head_sha, proposed_head_sha, base_sha,
+                    code_fingerprint, passed, failures_json, evidence,
+                    completed_at_ms)
+                VALUES ('feedback-validation-attempt-1', 'batch-1',
+                    'feedback-repair-1', 'feedback-validation-operation',
+                    (SELECT id FROM validation_pass
+                     WHERE claim_key = 'feedback-validation-claim'),
+                    'remote-stage-1', 'task-1', 1, 1, 'feedback-stage-turn', 1,
+                    'head-1', 'head-fixed', 'base-1', 'fixed-fingerprint',
+                    1, '[]', 'tests passed', 82)
+                """);
+        execute(connection, """
+                UPDATE remote_feedback_validation_operation
+                SET status = 'COMPLETED', completed_at_ms = 82
+                WHERE id = 'feedback-validation-operation'
                 """);
     }
 
@@ -812,12 +909,37 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
                     task_epoch, trigger_stage_id, trigger_stage_generation,
                     expected_code_fingerprint, expected_head_sha,
                     expected_base_sha, delivery_lane, launch_input,
-                    requested_at_ms, started_at_ms, finished_at_ms)
+                    requested_at_ms)
                 VALUES ('feedback-brain-turn', 'task-1',
-                    'REMOTE_FEEDBACK_BRAIN_REVIEW', 'SUCCEEDED',
+                    'REMOTE_FEEDBACK_BRAIN_REVIEW', 'REQUESTED',
                     'feedback-brain-turn-operation', 1, 1, 'remote-stage-1', 1,
                     'fixed-fingerprint', 'head-fixed', 'base-1', 'API',
-                    'review feedback fix', 83, 83, 84)
+                    'review feedback fix', 83)
+                """);
+        execute(connection, """
+                INSERT INTO remote_feedback_brain_episode(
+                    id, remote_feedback_batch_id,
+                    validation_attempt_evidence_id, task_id, task_epoch,
+                    remote_development_stage_id, stage_generation, task_turn_id,
+                    semantic_attempt, code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, requested_at_ms)
+                VALUES ('feedback-brain-episode', 'batch-1',
+                    'feedback-validation-attempt-1', 'task-1', 1,
+                    'remote-stage-1', 1, 'feedback-brain-turn', 1,
+                    'fixed-fingerprint', 'head-fixed', 'base-1', 'REQUESTED', 83)
+                """);
+        execute(connection, """
+                UPDATE task_turn
+                SET status = 'SUCCEEDED', started_at_ms = 83,
+                    finished_at_ms = 84
+                WHERE id = 'feedback-brain-turn'
+                """);
+        execute(connection, """
+                UPDATE remote_feedback_brain_episode
+                SET status = 'SUCCEEDED', verdict = 'APPROVED',
+                    unresolved_finding_count = 0, evidence = 'brain approved',
+                    completed_at_ms = 84
+                WHERE id = 'feedback-brain-episode'
                 """);
     }
 

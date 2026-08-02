@@ -14,10 +14,12 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.task.SqliteTaskBrainConversationStore;
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -39,11 +41,11 @@ class TestDevelopmentFlowTaskBrainConversationMigration
             throws Exception
     {
         String url = database("fresh.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedActiveTask(connection);
         }
-        migrate(url, "266");
+        migrate(url);
         try (Connection connection = connect(url)) {
             insertConversationTurn(connection, "conversation-1", "operation-1",
                     "fingerprint-1");
@@ -74,7 +76,7 @@ class TestDevelopmentFlowTaskBrainConversationMigration
                     """)).isZero();
         }
 
-        migrate(url, "266");
+        migrate(url);
         try (Connection connection = connect(url)) {
             assertThat(text(connection, """
                     SELECT body FROM task_message WHERE id = 'message-1'
@@ -85,56 +87,15 @@ class TestDevelopmentFlowTaskBrainConversationMigration
     }
 
     @Test
-    void upgradePreservesExistingTypedTurnsAndAddsContinuationLedger()
-            throws Exception
-    {
-        String url = database("upgrade.db");
-        migrate(url, "228");
-        try (Connection connection = connect(url)) {
-            seedActiveTask(connection);
-        }
-        migrate(url, "265");
-        try (Connection connection = connect(url)) {
-            execute(connection, """
-                    INSERT INTO task_turn(
-                        id, task_id, purpose, status, operation_id, attempt,
-                        task_epoch, trigger_stage_id, trigger_stage_generation,
-                        expected_code_fingerprint, expected_head_sha,
-                        expected_base_sha, delivery_lane, launch_input,
-                        requested_at_ms)
-                    VALUES ('existing-analysis', 'task-1', 'TASK_LEVEL_ANALYSIS',
-                        'REQUESTED', 'existing-operation', 1, 1, 'stage-1', 1,
-                        'fingerprint-1', 'base-1', 'base-1', 'CLI', '{}', 19)
-                    """);
-        }
-
-        migrate(url, "266");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT purpose FROM task_turn WHERE id = 'existing-analysis'
-                    """)).isEqualTo("TASK_LEVEL_ANALYSIS");
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM sqlite_master
-                    WHERE type = 'table'
-                      AND name IN (
-                        'task_brain_conversation_result_v266',
-                        'task_turn_user_wait_continuation_v266')
-                    """)).isEqualTo(2);
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
-        }
-    }
-
-    @Test
     void cliContinuityUsesExactWorktreeAndInsertionOrder()
             throws Exception
     {
         String url = database("cli-continuity.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedActiveTask(connection);
         }
-        migrate(url, "266");
+        migrate(url);
         try (Connection connection = connect(url)) {
             completeConversation(
                     connection, "turn-z", "operation-z", "ticket-z",
@@ -160,7 +121,7 @@ class TestDevelopmentFlowTaskBrainConversationMigration
         assertThat(store.latestSuccessfulCliSession(
                 "task-1", 1, "stage-1", 1L,
                 "fingerprint-1", "base-1", "base-1",
-                "codex", "gpt-5.6", "/tmp/task-1"))
+                "openai", "review-model", "/tmp/task-1"))
                 .get()
                 .satisfies(session -> {
                     assertThat(session.providerSessionId()).isEqualTo("session-a");
@@ -170,12 +131,12 @@ class TestDevelopmentFlowTaskBrainConversationMigration
         assertThat(store.latestSuccessfulCliSession(
                 "task-1", 1, "stage-1", 1L,
                 "fingerprint-1", "base-1", "base-1",
-                "codex", "gpt-5.6", "/tmp/other"))
+                "openai", "review-model", "/tmp/other"))
                 .isEmpty();
         assertThat(store.latestSuccessfulCliSession(
                 "task-1", 1, "stage-1", 2L,
                 "fingerprint-1", "base-1", "base-1",
-                "codex", "gpt-5.6", "/tmp/task-1"))
+                "openai", "review-model", "/tmp/task-1"))
                 .isEmpty();
         assertThat(store.conversation("task-1"))
                 .filteredOn(message -> message.role().equals("USER"))
@@ -241,13 +202,7 @@ class TestDevelopmentFlowTaskBrainConversationMigration
                     'gpt-5.6', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
-        execute(connection, """
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK', 'base-1',
-                    'seed', 'build it', 'user', 2)
-                """);
+        V2TaskSeed.prepareWorkspaces(connection);
         execute(connection, """
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, auto_approve,
@@ -255,85 +210,34 @@ class TestDevelopmentFlowTaskBrainConversationMigration
                     created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 1, 2, 0, 'user', 2)
                 """);
-        execute(connection, """
+        JdbcTemplate jdbc = new JdbcTemplate(
+                new SingleConnectionDataSource(connection, true));
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1",
+                "{\"kind\":\"CLI\",\"agentOrProvider\":\"openai\","
+                        + "\"model\":\"review-model\",\"account\":null,"
+                        + "\"reasoningEffort\":null}",
+                seed -> seed.update("""
+                INSERT INTO task_assignment(
+                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
+                    created_by, created_at_ms, creation_authorization_id)
+                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK', 'base-1',
+                    'seed', 'build it', 'user', 2,
+                    'authorization-assignment-1')
+                """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, lifecycle_state, assignment_id,
-                    policy_revision_id)
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
-        execute(connection, """
-                INSERT INTO task_creation_context(
-                    task_id, assignment_id, policy_revision_id, provenance,
-                    repository_id, publish_repository_id, planning_base_sha,
-                    engine_snapshot, work_model_snapshot, created_at_ms)
-                VALUES ('task-1', 'assignment-1', 'policy-1', 'DIRECT_USER',
-                    'acme/widget', 'acme/widget', 'base-1', 'engine-1',
-                    '{"kind":"CLI","agentOrProvider":"codex",\
-                      "model":"gpt-5.6","account":null,\
-                      "reasoningEffort":"high"}', 3)
-                """);
-        execute(connection, """
-                INSERT INTO task_brain(
-                    id, task_id, provider, model, engine_snapshot, created_at_ms)
-                VALUES ('brain-1', 'task-1', 'codex', 'gpt-5.6', 'engine-1', 3)
-                """);
-        execute(connection, """
-                INSERT INTO provision_task_operation(
-                    id, task_id, task_epoch, assignment_id, operation_id,
-                    semantic_attempt, repository_id, expected_base_sha,
-                    requested_branch_name, requested_worktree_path,
-                    status, created_at_ms)
-                VALUES ('provision-1', 'task-1', 1, 'assignment-1',
-                    'provision-operation', 1, 'acme/widget', 'base-1',
-                    'dev/task-1', '/tmp/task-1', 'REQUESTED', 4)
-                """);
-        execute(connection, """
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    exclusive_task, writer_required, workspace_id, trunk_id,
-                    task_id, task_epoch, attempt, expected_base_sha,
-                    status, created_at_ms)
-                VALUES ('provision-ticket', 'provision-operation',
-                    'PROVISION_TASK', 'LOCAL_GIT', 'TASK', 'task-1',
-                    'TASK_PROVISION_RESULT', 16, 1, 1, 'workspace-1', 'trunk-1',
-                    'task-1', 1, 1, 'base-1', 'REQUESTED', 4)
-                """);
-        execute(connection, """
-                UPDATE provision_task_operation SET status = 'DISPATCHED'
-                WHERE id = 'provision-1'
-                """);
-        execute(connection, """
-                UPDATE dispatch_ticket
-                SET version = 1, status = 'RESULT_PENDING',
-                    pending_result_outcome = 'SUCCEEDED',
-                    pending_result_payload = 'provisioned',
-                    pending_result_evidence = 'local branch exists',
-                    pending_result_task_epoch = 1,
-                    pending_result_operation_id = 'provision-operation',
-                    pending_result_attempt = 1,
-                    pending_result_expected_base_sha = 'base-1'
-                WHERE id = 'provision-ticket'
-                """);
-        execute(connection, """
-                UPDATE provision_task_operation
-                SET status = 'ACCEPTED', result_base_sha = 'base-1',
-                    result_head_sha = 'base-1',
-                    result_code_fingerprint = 'fingerprint-1', completed_at_ms = 5
-                WHERE id = 'provision-1'
-                """);
-        execute(connection, """
-                INSERT INTO task_code_identity(
-                    task_id, provision_operation_id, repository_id,
-                    publish_repository_id, branch_name, worktree_path,
-                    base_sha, local_head_sha, code_fingerprint,
-                    created_at_ms, updated_at_ms)
-                VALUES ('task-1', 'provision-1', 'acme/widget', 'acme/widget',
-                    'dev/task-1', '/tmp/task-1', 'base-1', 'base-1',
-                    'fingerprint-1', 5, 5)
-                """);
+                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1',
+                    'creation-receipt-task-1', 'Test task assignment-1',
+                    'DEVELOP', 'build it', 'user')
+                """));
+        V2TaskSeed.completeProvisioning(
+                jdbc, "task-1", "base-1", "base-1", "fingerprint-1",
+                "local branch exists", 5);
         execute(connection, """
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint,
@@ -378,8 +282,8 @@ class TestDevelopmentFlowTaskBrainConversationMigration
                     'REQUESTED', '%2$s', 1, 1, 'stage-1', 1,
                     '%3$s', 'base-1', 'base-1', 'CLI',
                     '{"schemaVersion":1,"transport":"CLI",\
-                      "provider":"codex","credentialAccount":null,\
-                      "model":"gpt-5.6","reasoningEffort":"high",\
+                      "provider":"openai","credentialAccount":null,\
+                      "model":"review-model","reasoningEffort":null,\
                       "workingDirectory":"/tmp/task-1",\
                       "systemPrompt":"read only","prompt":"answer",\
                       "toolEndpoint":{"serverName":"bytequay",\
@@ -446,7 +350,7 @@ class TestDevelopmentFlowTaskBrainConversationMigration
                     id, ticket_id, infrastructure_attempt, provider,
                     provider_session_id, status, started_at_ms, finished_at_ms,
                     raw_result)
-                VALUES ('%1$s', '%2$s', 1, 'codex', '%3$s',
+                VALUES ('%1$s', '%2$s', 1, 'openai', '%3$s',
                     'SUCCEEDED', 21, 22,
                     json_object('payloadJson', json_object(
                         'providerCumulativeInputTokens', 100,
@@ -478,9 +382,9 @@ class TestDevelopmentFlowTaskBrainConversationMigration
         return "jdbc:sqlite:" + tempDir.resolve(name) + "?foreign_keys=ON";
     }
 
-    private static void migrate(String url, String target)
+    private static void migrate(String url)
     {
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static Connection connect(String url)

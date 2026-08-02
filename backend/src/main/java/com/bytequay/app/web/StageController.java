@@ -199,7 +199,10 @@ public class StageController
     }
 
     public record SteerRequest(
-            String text, List<String> images, StageSteeringService.Mode mode) {}
+            String text,
+            List<String> images,
+            StageSteeringService.Mode mode,
+            String expectedPredecessorStageTurnId) {}
 
     @PostMapping("/api/stages/{stageId}/steer")
     public StageSteeringService.SteerResult steer(
@@ -209,7 +212,8 @@ public class StageController
                 parseStageId(stageId), req == null ? null : req.text(),
                 req == null ? null : req.images(),
                 req == null || req.mode() == null
-                        ? StageSteeringService.Mode.APPEND : req.mode());
+                        ? StageSteeringService.Mode.APPEND : req.mode(),
+                req == null ? null : req.expectedPredecessorStageTurnId());
     }
 
     @PostMapping("/api/stages/{planStageId}/approve")

@@ -20,7 +20,6 @@ import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandle
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.PublishRawResult;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.RemoteReference;
 import com.bytequay.app.developmentflow.task.TaskManager;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -52,8 +51,8 @@ public final class PublishResultDeliveryPort
     private final LocalToRemoteHandoff handoff;
     private final RemoteObservationRuntimeCoordinator observations;
     private final PRService prs;
-    private final TaskStore tasks;
     private final Store store;
+    private final BaseMovedAcceptance baseMoves;
     private final ObjectMapper json;
     private final ObjectReader resultReader;
     private final Clock clock;
@@ -64,8 +63,22 @@ public final class PublishResultDeliveryPort
             LocalToRemoteHandoff handoff,
             RemoteObservationRuntimeCoordinator observations,
             PRService prs,
-            TaskStore tasks,
             Store store,
+            ObjectMapper json,
+            Clock clock)
+    {
+        this(commands, local, handoff, observations, prs, store,
+                BaseMovedAcceptance.noOp(), json, clock);
+    }
+
+    public PublishResultDeliveryPort(
+            TaskCommandExecutor commands,
+            LocalDevelopmentStageManager local,
+            LocalToRemoteHandoff handoff,
+            RemoteObservationRuntimeCoordinator observations,
+            PRService prs,
+            Store store,
+            BaseMovedAcceptance baseMoves,
             ObjectMapper json,
             Clock clock)
     {
@@ -74,8 +87,8 @@ public final class PublishResultDeliveryPort
         this.handoff = requireNonNull(handoff, "handoff is null");
         this.observations = requireNonNull(observations, "observations is null");
         this.prs = requireNonNull(prs, "prs is null");
-        this.tasks = requireNonNull(tasks, "tasks is null");
         this.store = requireNonNull(store, "store is null");
+        this.baseMoves = requireNonNull(baseMoves, "baseMoves is null");
         this.json = requireNonNull(json, "json is null");
         this.resultReader = json.readerFor(PublishRawResult.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -146,6 +159,7 @@ public final class PublishResultDeliveryPort
         PublishRawResult result = decode(rawResult.payloadJson());
         if (result.disposition() != PublishOperationHandler.Disposition.PUBLISHED
                 || result.remote() == null || result.error() != null
+                || result.observedBaseSha() != null
                 || rawResult.evidenceJson() == null
                 || rawResult.evidenceJson().isBlank()) {
             throw new IllegalArgumentException(
@@ -158,10 +172,6 @@ public final class PublishResultDeliveryPort
         prs.recordPublishedInCommand(
                 context.prId(), result.remote().repositoryId(),
                 result.remote().number(), result.remote().url());
-        tasks.markPushed(context.taskId(), now);
-        tasks.linkPullRequest(context.taskId(), result.remote().number(), "draft");
-        tasks.linkTaskToPr(context.taskId(),
-                result.remote().repositoryId() + "#" + result.remote().number());
 
         String remoteStageId = id("remote-stage", context.operationId());
         String commandId = id("accept-published", context.operationId());
@@ -203,12 +213,23 @@ public final class PublishResultDeliveryPort
             Instant now)
     {
         PublishRawResult result = decode(rawResult.payloadJson());
-        PublishOperationHandler.Disposition expected = rawResult.outcome() == FAILED
-                ? PublishOperationHandler.Disposition.FAILED
-                : PublishOperationHandler.Disposition.CANCELED;
-        if (result.disposition() != expected
+        boolean baseMoved = result.disposition()
+                == PublishOperationHandler.Disposition.BASE_MOVED;
+        boolean exactDisposition = rawResult.outcome() == FAILED
+                ? result.disposition() == PublishOperationHandler.Disposition.FAILED
+                        || baseMoved
+                : result.disposition()
+                        == PublishOperationHandler.Disposition.CANCELED;
+        boolean exactObservedBase = baseMoved
+                ? result.observedBaseSha() != null
+                        && !result.observedBaseSha().isBlank()
+                        && !context.expectedBaseSha().equals(
+                                result.observedBaseSha())
+                : result.observedBaseSha() == null;
+        if (!exactDisposition || !exactObservedBase
                 || result.remote() != null
-                || result.error() == null || result.error().isBlank()) {
+                || result.error() == null || result.error().isBlank()
+                || !result.error().equals(rawResult.error())) {
             throw new IllegalArgumentException(
                     "Terminal publish result has the wrong typed payload");
         }
@@ -219,6 +240,16 @@ public final class PublishResultDeliveryPort
                         new StageManager.ResultCommand(
                                 id("accept-publish-failure", context.operationId()),
                                 ACTOR, context.taskId(), toResultFence(fence)));
+        if (baseMoved && stage.accepted()) {
+            baseMoves.afterAccepted(new AcceptedBaseMove(
+                    context.publishOperationId(), context.operationId(),
+                    context.authorizationId(), context.manifestId(),
+                    context.policyRevisionId(), context.autoApprove(),
+                    context.taskId(), context.stageId(), context.taskEpoch(),
+                    context.stageGeneration(), context.attempt(),
+                    context.codeFingerprint(), context.expectedHeadSha(),
+                    context.expectedBaseSha(), result.observedBaseSha(), now));
+        }
         return new Receipt(
                 context.operationId(), rawDigest, rawResult.outcome(),
                 stage.accepted() ? ACCEPTED : SUPERSEDED, null, now);
@@ -336,11 +367,63 @@ public final class PublishResultDeliveryPort
         void insertReceipt(Receipt receipt);
     }
 
+    @FunctionalInterface
+    public interface BaseMovedAcceptance
+    {
+        void afterAccepted(AcceptedBaseMove baseMove);
+
+        static BaseMovedAcceptance noOp()
+        {
+            return ignored -> {};
+        }
+    }
+
+    public record AcceptedBaseMove(
+            String publishOperationId,
+            String operationId,
+            String authorizationId,
+            String manifestId,
+            String policyRevisionId,
+            boolean autoApprove,
+            String taskId,
+            String stageId,
+            long taskEpoch,
+            long stageGeneration,
+            int attempt,
+            String codeFingerprint,
+            String expectedHeadSha,
+            String expectedBaseSha,
+            String observedBaseSha,
+            Instant acceptedAt)
+    {
+        public AcceptedBaseMove
+        {
+            requireText(publishOperationId, "publishOperationId");
+            requireText(operationId, "operationId");
+            requireText(authorizationId, "authorizationId");
+            requireText(manifestId, "manifestId");
+            requireText(policyRevisionId, "policyRevisionId");
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(codeFingerprint, "codeFingerprint");
+            requireText(expectedHeadSha, "expectedHeadSha");
+            requireText(expectedBaseSha, "expectedBaseSha");
+            requireText(observedBaseSha, "observedBaseSha");
+            requireNonNull(acceptedAt, "acceptedAt is null");
+            if (taskEpoch < 1 || stageGeneration < 1 || attempt < 1
+                    || expectedBaseSha.equals(observedBaseSha)) {
+                throw new IllegalArgumentException(
+                        "Accepted base move has an invalid fence");
+            }
+        }
+    }
+
     public record Context(
             String publishOperationId,
             String operationId,
             String authorizationId,
             String manifestId,
+            String policyRevisionId,
             String prId,
             String taskId,
             String stageId,
@@ -368,6 +451,7 @@ public final class PublishResultDeliveryPort
             requireText(operationId, "operationId");
             requireText(authorizationId, "authorizationId");
             requireText(manifestId, "manifestId");
+            requireText(policyRevisionId, "policyRevisionId");
             requireText(prId, "prId");
             requireText(taskId, "taskId");
             requireText(stageId, "stageId");

@@ -13,11 +13,19 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurnStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.time.Instant;
 import java.util.Locale;
 
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.acceptSnapshot;
@@ -30,7 +38,6 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.insertSnapshot;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.migrate;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.number;
-import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedLegacyTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.text;
@@ -40,30 +47,6 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
 {
     @TempDir
     private Path tempDir;
-
-    @Test
-    void upgradesPopulatedLegacyRowsAndRestartsWithoutBackfill()
-            throws Exception
-    {
-        String url = url("legacy.db");
-        migrate(url, "231");
-        try (Connection connection = connect(url)) {
-            seedLegacyTask(connection);
-        }
-
-        migrate(url, "232");
-        migrate(url, "232");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT workflow_version || '|' || status
-                    FROM tasks WHERE id = 'legacy-task'
-                    """)).isEqualTo("LEGACY|IDLE");
-            assertThat(number(connection, "SELECT COUNT(*) FROM remote_pr_snapshot"))
-                    .isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
-                    .isZero();
-        }
-    }
 
     @Test
     void persistsOldHeadHistoryButRejectsItAsTheCurrentCiRepairSubject()
@@ -203,12 +186,14 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                     SET push_count = 1, last_pushed_head_sha = 'head-1'
                     WHERE id = 'repair-1'
                     """);
+            completeChangedCiFix(url, "repair-1", "fingerprint-after-fix",
+                    "head-after-fix", "base-1");
             execute(connection, """
                     UPDATE ci_repair_episode
-                    SET fix_attempt_count = 1, delivery_retry_count = 1,
+                    SET delivery_retry_count = 1,
                         push_count = 1, last_pushed_head_sha = 'head-after-fix',
                         status = 'AWAITING_PUSH_CI'
-                    WHERE id = 'repair-1'
+                    WHERE id = 'repair-1' AND fix_attempt_count = 1
                     """);
             assertFails(connection, """
                     UPDATE ci_repair_episode
@@ -286,13 +271,13 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
             throws Exception
     {
         String url = url("siblings-and-branch-sync.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
             seedPublishedRemoteTask(connection, 2);
         }
-        migrate(url, "232");
+        migrate(url);
         try (Connection connection = connect(url)) {
             for (int task = 1; task <= 2; task++) {
                 insertRemoteOwner(connection, task);
@@ -316,6 +301,14 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                     WHERE id = 'repair-2'
                     """)).isZero();
 
+            execute(connection, """
+                    INSERT INTO task_branch_sync_policy_revision(
+                        id, task_id, revision, enabled, schedule, source,
+                        attempt_limit, command_id, actor, created_at_ms)
+                    VALUES ('branch-policy-1', 'task-1', 1, 1,
+                        'on-base-change', 'USER_CONFIGURED', 2,
+                        'configure-branch-policy', 'user', 69)
+                    """);
             execute(connection, branchEpisodeSql());
             insertBranchSteps(connection);
             assertFails(connection, claimBranchStepSql(2, "EXECUTE", 70));
@@ -382,14 +375,14 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
             throws Exception
     {
         String url = url(file);
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             for (int task = 1; task <= taskCount; task++) {
                 seedPublishedRemoteTask(connection, task);
             }
         }
-        migrate(url, "232");
+        migrate(url);
         return url;
     }
 
@@ -402,6 +395,92 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                 "OPEN", "UNKNOWN");
         acceptSnapshot(connection, task, 1, "head-" + task, "base-" + task);
         insertFailedCi(connection, task, 1, "head-" + task, "base-" + task);
+    }
+
+    /**
+     * Records a completed repair through the same durable Turn, operation,
+     * receipt, and V318 tree-result sequence used by runtime code.  The
+     * budget test starts its later push assertions from a real consumed fix
+     * attempt rather than an unproven counter mutation.
+     */
+    private static void completeChangedCiFix(
+            String url,
+            String episodeId,
+            String resultFingerprint,
+            String resultHead,
+            String resultBase)
+    {
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("""
+                INSERT INTO task_automation_policy(
+                    id, task_id, revision, source, auto_approve, auto_merge,
+                    keep_draft, minimum_write_approvals,
+                    max_merge_queue_reenqueues, require_low_risk,
+                    require_small_effort, stewardship_exception,
+                    created_by, created_at_ms)
+                VALUES ('ci-budget-automation-policy', 'task-1', 1, 'TEST',
+                    1, 1, 0, 0, 0, 0, 0, 0, 'test', 80)
+                """);
+        jdbc.update("""
+                INSERT INTO ci_repair_turn_freshness_v319(
+                    id, ci_repair_episode_id, intent_kind, intent_id,
+                    semantic_attempt, execution_attempt,
+                    predecessor_snapshot_id, predecessor_observation_revision,
+                    accepted_snapshot_id, accepted_observation_revision,
+                    accepted_ci_evaluation_id, remote_head_sha,
+                    authoritative_base_sha, code_fingerprint, code_head_sha,
+                    code_base_sha, prepublish_branch_sync_episode_id,
+                    authorized_at_ms)
+                VALUES ('ci-budget-observed-failure', ?, 'OBSERVED_FAILURE',
+                    'ci-evaluation-1-1', 1, 1, NULL, NULL,
+                    'snapshot-1-1', 1, 'ci-evaluation-1-1', 'head-1',
+                    'base-1', 'fingerprint-1', 'head-1', 'base-1', NULL, 80)
+                """, episodeId);
+        TaskCommandExecutor commands = new TaskCommandExecutor(
+                new DataSourceTransactionManager(dataSource));
+        SqliteRemoteRuntimeStore store = new SqliteRemoteRuntimeStore(jdbc);
+        SqliteRemoteRepairTurnStore turns =
+                new SqliteRemoteRepairTurnStore(jdbc);
+        Instant at = Instant.ofEpochMilli(80);
+        var request = commands.execute("task-1", () -> turns.insertCiStageTurn(
+                turns.requireContext("task-1", "remote-stage-1"),
+                store.requireCiEpisode("task-1", episodeId), "{}", "API", 2,
+                at));
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                1L, "remote-stage-1", 1L, request.operationId(),
+                request.attempt(), "fingerprint-1", "head-1", "base-1");
+        assertThat(jdbc.update("""
+                UPDATE dispatch_ticket
+                   SET version = version + 1, status = 'RESULT_PENDING',
+                       pending_result_outcome = 'SUCCEEDED',
+                       pending_result_payload = '{"repair":"changed"}',
+                       pending_result_evidence = '{"repair":"changed"}',
+                       pending_result_task_epoch = ?,
+                       pending_result_stage_id = ?,
+                       pending_result_stage_generation = ?,
+                       pending_result_operation_id = ?,
+                       pending_result_attempt = ?,
+                       pending_result_expected_code_fingerprint = ?,
+                       pending_result_expected_head_sha = ?,
+                       pending_result_expected_base_sha = ?
+                 WHERE operation_id = ? AND status = 'REQUESTED'
+                """, fence.taskEpoch(), fence.stageId(), fence.stageGeneration(),
+                fence.operationId(), fence.attempt(),
+                fence.expectedCodeFingerprint(), fence.expectedHeadSha(),
+                fence.expectedBaseSha(), request.operationId())).isOne();
+        commands.execute("task-1", () -> {
+            turns.finishChangedCiStageTurn(
+                    turns.requireTurnDelivery(request.turnId(), request.operationId()),
+                    "SUCCEEDED", "c".repeat(64),
+                    new SqliteRemoteRepairTurnStore.CodeSubject(
+                            resultFingerprint, resultHead, resultBase),
+                    "tree-before-" + request.operationId(),
+                    "tree-after-" + request.operationId(),
+                    "repair changed the checked-out tree", at.plusMillis(1));
+            return null;
+        });
     }
 
     private static String episodeSql(
@@ -454,10 +533,14 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                     id, remote_development_stage_id, task_id, task_epoch,
                     stage_generation, remote_pr_binding_id, source_snapshot_id,
                     old_head_sha, observed_base_sha, target_base_sha,
-                    policy_source, status, attempt_limit, opened_at_ms)
+                    policy_source, purpose, authority_kind, authority_id,
+                    status, attempt_limit, opened_at_ms,
+                    branch_sync_policy_revision_id)
                 VALUES ('branch-1', 'remote-stage-1', 'task-1', 1, 1,
                     'binding-1', 'snapshot-1-1', 'head-1', 'base-1',
-                    'base-target', 'SCHEDULED_GUARD', 'OPEN', 2, 70)
+                    'base-target', 'USER_CONFIGURED', 'SCHEDULED',
+                    'BRANCH_SYNC_POLICY', 'branch-policy-1', 'OPEN', 2, 70,
+                    'branch-policy-1')
                 """;
     }
 

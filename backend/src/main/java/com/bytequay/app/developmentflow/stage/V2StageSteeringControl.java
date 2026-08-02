@@ -18,7 +18,16 @@ import java.util.List;
 /** Typed V2 Stage steering boundary; APPEND is the user-facing default. */
 public interface V2StageSteeringControl
 {
-    String steer(String taskId, String stageId, String text, List<String> images, Mode mode);
+    default String steer(
+            String taskId, String stageId, String text,
+            List<String> images, Mode mode)
+    {
+        return steer(taskId, stageId, text, images, mode, null);
+    }
+
+    String steer(
+            String taskId, String stageId, String text, List<String> images,
+            Mode mode, String expectedPredecessorStageTurnId);
 
     enum Mode
     {

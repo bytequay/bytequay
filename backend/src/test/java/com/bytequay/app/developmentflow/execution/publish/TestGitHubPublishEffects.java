@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.execution.publish;
 
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
+import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.BaseMovedException;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.EffectKind;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.MissingEffectException;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.PublishRequest;
@@ -100,6 +101,24 @@ class TestGitHubPublishEffects
                 .isEqualTo(EffectKind.VERIFY_SUBJECT);
         assertThat(effects.verifyBranchBase(request).kind())
                 .isEqualTo(EffectKind.RECONCILE_BRANCH_BASE);
+    }
+
+    @Test
+    void reportsTheObservedBaseWhenTheFrozenRemoteBaseMoved()
+            throws Exception
+    {
+        PublishRequest request = directRequest();
+        Path worktree = Path.of(request.worktreePath());
+        stubOrigin(worktree);
+        when(git.remoteHeadSha(worktree, "origin", "main"))
+                .thenReturn(Optional.of("new-base-sha"));
+
+        assertThatThrownBy(() -> effects.verifyBranchBase(request))
+                .isInstanceOfSatisfying(BaseMovedException.class, moved ->
+                        assertThat(moved.observedBaseSha())
+                                .isEqualTo("new-base-sha"));
+        verify(git, never()).push(any());
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
     }
 
     @Test

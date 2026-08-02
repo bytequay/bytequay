@@ -15,7 +15,9 @@ package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
+import com.bytequay.app.developmentflow.stage.RemoteCiPolicy;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer;
+import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
@@ -94,6 +96,19 @@ class TestDevelopmentFlowStageSteeringMigration
                     VALUES ('ci-episode', 'remote-stage-1', 'task-1', 1, 1,
                         'binding-1', 'ci-evaluation-1-1', 'head-1', 'base-1',
                         'TASK_DETERMINISTIC', 'OPEN', 0, 2, 2, 2, 900)
+                    """);
+            fixture.jdbc().update("""
+                    INSERT INTO ci_repair_turn_freshness_v319(
+                        id, ci_repair_episode_id, intent_kind, intent_id,
+                        semantic_attempt, execution_attempt,
+                        accepted_snapshot_id, accepted_observation_revision,
+                        accepted_ci_evaluation_id, remote_head_sha,
+                        authoritative_base_sha, code_fingerprint,
+                        code_head_sha, code_base_sha, authorized_at_ms)
+                    VALUES ('ci-freshness-1', 'ci-episode',
+                        'OBSERVED_FAILURE', 'ci-evaluation-1-1', 1, 1,
+                        'snapshot-1-1', 1, 'ci-evaluation-1-1', 'head-1',
+                        'base-1', 'fingerprint-1', 'head-1', 'base-1', 901)
                     """);
             var episode = fixture.remote().requireCiEpisode(
                     "task-1", "ci-episode");
@@ -269,10 +284,7 @@ class TestDevelopmentFlowStageSteeringMigration
                 fixture.feedback().finishStageTurn(
                         previous, "CANCELED", "paused", NOW));
         cancelTicket(fixture.jdbc(), "feedback-ticket-1");
-        fixture.jdbc().update("""
-                DELETE FROM dispatch_ticket
-                WHERE task_id = 'task-3' AND id <> 'feedback-ticket-1'
-                """);
+        finishPendingTickets(fixture.jdbc(), "task-3");
 
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(fixture.dataSource());
@@ -299,9 +311,11 @@ class TestDevelopmentFlowStageSteeringMigration
             }
         };
         TaskControlMaintainer withoutOwner = new TaskControlMaintainer(
-                controlStore, controls, List.of(), List.of(), ignored -> {});
+                controlStore, controls, List.of(), List.of(),
+                ticketId -> cancelTicket(fixture.jdbc(), ticketId));
         TaskControlMaintainer withOwner = new TaskControlMaintainer(
-                controlStore, controls, List.of(owner), List.of(), ignored -> {});
+                controlStore, controls, List.of(owner), List.of(),
+                ticketId -> cancelTicket(fixture.jdbc(), ticketId));
 
         tasks.requestPause(new TaskManager.Command(
                 "pause-remote-feedback", "user", "task-3", 1,
@@ -369,8 +383,7 @@ class TestDevelopmentFlowStageSteeringMigration
             throws Exception
     {
         Fixture fixture = fixture();
-        fixture.jdbc().update(
-                "DELETE FROM dispatch_ticket WHERE task_id = 'task-1'");
+        finishPendingTickets(fixture.jdbc(), "task-1");
         Resume resume = acceptResume(
                 fixture, "task-1", StageKind.REMOTE_DEVELOPMENT,
                 NOW.plusMillis(10));
@@ -414,11 +427,22 @@ class TestDevelopmentFlowStageSteeringMigration
 
     private static void consumeRepair(
             Fixture fixture, int taskNumber, String family, String purpose)
+            throws Exception
     {
         String requestId = family.toLowerCase(Locale.ROOT) + "-steering";
         Request request = insertRequest(fixture, taskNumber, requestId, purpose);
         cancelTicket(fixture.jdbc(), request.predecessor().ticketId());
+        if (family.equals("CI_REPAIR")) {
+            authorizeCiSteering(fixture, request);
+        }
         fixture.commands().executeVoid("task-" + taskNumber, () -> {
+            if (family.equals("CI_REPAIR")) {
+                var episode = fixture.remote().findLiveCiEpisode(
+                        request.stageId()).orElseThrow();
+                assertThat(fixture.remote().prepareCiSteeringFence(
+                        request.id(), episode.id(),
+                        request.predecessor().attempt() + 1, NOW)).isTrue();
+            }
             var next = fixture.repairs().insertSteeringTurn(
                     request, "{}", "API", 2, NOW);
             fixture.steering().markAdmitted(
@@ -441,6 +465,72 @@ class TestDevelopmentFlowStageSteeringMigration
                 SELECT COUNT(*) FROM remote_repair_steering_turn_v257
                 WHERE request_id = ? AND status = 'REQUESTED'
                 """, Integer.class, requestId)).isOne();
+    }
+
+    private static void authorizeCiSteering(Fixture fixture, Request request)
+            throws Exception
+    {
+        fixture.commands().executeVoid(request.taskId(), () -> {
+            var episode = fixture.remote().findLiveCiEpisode(
+                    request.stageId()).orElseThrow();
+            assertThat(fixture.remote().prepareCiSteeringFence(
+                    request.id(), episode.id(),
+                    request.predecessor().attempt() + 1, NOW)).isFalse();
+        });
+
+        Instant observedAt = NOW.plusMillis(1);
+        RemoteObservationConsumer consumer = (candidate, acceptance) -> {
+            acceptance.accept();
+            var episode = fixture.remote().findLiveCiEpisode(
+                    request.stageId()).orElseThrow();
+            var proof = fixture.remote().authorizeCiTurn(
+                    candidate, episode, observedAt).orElseThrow();
+            assertThat(proof.intentKind()).isEqualTo("STEERING");
+            assertThat(proof.intentId()).isEqualTo(request.id());
+            return RemoteObservationConsumer.Consumption.ACCEPTED;
+        };
+        ObjectMapper json = new ObjectMapper();
+        RemoteObservationRuntimeCoordinator observations =
+                new RemoteObservationRuntimeCoordinator(
+                        fixture.commands(), fixture.remote(), consumer, json,
+                        Clock.fixed(observedAt, ZoneOffset.UTC));
+        var observationRequest = observations.requestObservation(
+                request.taskId(), request.stageId());
+        var operation = fixture.remote().requireObservation(
+                observationRequest.operationId());
+        RemoteObservationOperationHandler.Observation observation =
+                new RemoteObservationOperationHandler.Observation(
+                        1, "ci-steering-" + request.id(),
+                        operation.expectedHeadSha(), operation.expectedBaseSha(),
+                        RemoteObservationOperationHandler.PrState.OPEN,
+                        RemoteObservationOperationHandler.Mergeability.MERGEABLE,
+                        RemoteObservationOperationHandler.MergeQueueState.NONE,
+                        0, 0, 0, 0, 0, 0,
+                        List.of(new RemoteCiPolicy.Check(
+                                "CHECK_RUN", "ci-steering-build", "build",
+                                RemoteCiPolicy.CheckState.FAILED,
+                                "COMPLETED", "FAILURE", null,
+                                observedAt.toEpochMilli(), "{}")),
+                        "{\"failed\":true}", observedAt.toEpochMilli());
+        String ticketId = fixture.jdbc().queryForObject("""
+                SELECT id FROM dispatch_ticket WHERE operation_id = ?
+                """, String.class, observationRequest.operationId());
+        markTicketResultPending(fixture.jdbc(), ticketId);
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                operation.taskEpoch(), operation.stageId(),
+                operation.stageGeneration(), operation.operationId(),
+                operation.semanticAttempt(), null, operation.expectedHeadSha(),
+                operation.expectedBaseSha());
+        String payload = json.writeValueAsString(observation);
+        assertThat(observations.deliver(
+                new DispatchTicket.OwnerReference(
+                        DispatchTicket.OwnerKind.STAGE, request.stageId(),
+                        RemoteObservationOperationHandler.CALLBACK_ROUTE),
+                fence, new DispatchTicket.DispatchResult(
+                        fence, DispatchTicket.Outcome.SUCCEEDED,
+                        payload, payload, null)).acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+        finishTicket(fixture.jdbc(), ticketId);
     }
 
     private static Request insertRequest(
@@ -517,6 +607,7 @@ class TestDevelopmentFlowStageSteeringMigration
         jdbc.update("""
                 UPDATE dispatch_ticket
                 SET version = version + 1, status = 'RESULT_PENDING',
+                    infrastructure_attempts = 1,
                     pending_result_outcome = 'SUCCEEDED',
                     pending_result_payload = '{}',
                     pending_result_evidence = '{}',
@@ -530,6 +621,30 @@ class TestDevelopmentFlowStageSteeringMigration
                     pending_result_expected_head_sha = expected_head_sha,
                     pending_result_expected_base_sha = expected_base_sha
                 WHERE id = ? AND status = 'REQUESTED'
+                """, ticketId);
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    status, started_at_ms, finished_at_ms, raw_result)
+                SELECT id || '-execution', id, infrastructure_attempts,
+                    'openai', 'SUCCEEDED', 1002, 1003,
+                    json_object(
+                        'fence', json_object(
+                            'taskEpoch', pending_result_task_epoch,
+                            'stageId', pending_result_stage_id,
+                            'stageGeneration', pending_result_stage_generation,
+                            'operationId', pending_result_operation_id,
+                            'attempt', pending_result_attempt,
+                            'expectedCodeFingerprint',
+                                pending_result_expected_code_fingerprint,
+                            'expectedHeadSha', pending_result_expected_head_sha,
+                            'expectedBaseSha', pending_result_expected_base_sha),
+                        'outcome', pending_result_outcome,
+                        'payloadJson', pending_result_payload,
+                        'evidenceJson', pending_result_evidence,
+                        'error', pending_result_error)
+                FROM dispatch_ticket
+                WHERE id = ? AND status = 'RESULT_PENDING'
                 """, ticketId);
     }
 
@@ -566,6 +681,30 @@ class TestDevelopmentFlowStageSteeringMigration
                     delivery_evidence = 'steering won', completed_at_ms = 1000
                 WHERE id = ?
                 """, ticketId);
+    }
+
+    private static void finishPendingTickets(JdbcTemplate jdbc, String taskId)
+    {
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'SUCCEEDED',
+                    pending_result_outcome = NULL,
+                    pending_result_payload = NULL,
+                    pending_result_evidence = NULL,
+                    pending_result_error = NULL,
+                    pending_result_task_epoch = NULL,
+                    pending_result_stage_id = NULL,
+                    pending_result_stage_generation = NULL,
+                    pending_result_operation_id = NULL,
+                    pending_result_attempt = NULL,
+                    pending_result_expected_code_fingerprint = NULL,
+                    pending_result_expected_head_sha = NULL,
+                    pending_result_expected_base_sha = NULL,
+                    delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'fixture delivery completed',
+                    completed_at_ms = 999
+                WHERE task_id = ? AND status = 'RESULT_PENDING'
+                """, taskId);
     }
 
     private static void assertConsumed(
@@ -640,9 +779,11 @@ class TestDevelopmentFlowStageSteeringMigration
             }
         };
         TaskControlMaintainer withoutOwner = new TaskControlMaintainer(
-                controlStore, controls, List.of(), List.of(), ignored -> {});
+                controlStore, controls, List.of(), List.of(),
+                ticketId -> cancelTicket(fixture.jdbc(), ticketId));
         TaskControlMaintainer withOwner = new TaskControlMaintainer(
-                controlStore, controls, List.of(owner), List.of(), ignored -> {});
+                controlStore, controls, List.of(owner), List.of(),
+                ticketId -> cancelTicket(fixture.jdbc(), ticketId));
         tasks.requestPause(new TaskManager.Command(
                 "pause-" + taskId, "user", taskId, 1,
                 taskVersion(fixture.jdbc(), taskId)));
@@ -663,14 +804,14 @@ class TestDevelopmentFlowStageSteeringMigration
     {
         Path file = tempDir.resolve("stage-steering.db");
         String url = "jdbc:sqlite:" + file;
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
             seedPublishedRemoteTask(connection, 2);
             seedPublishedRemoteTask(connection, 3);
         }
-        migrate(url, "232");
+        migrate(url);
         try (Connection connection = connect(url)) {
             for (int task = 1; task <= 3; task++) {
                 insertRemoteOwner(connection, task);
@@ -682,11 +823,23 @@ class TestDevelopmentFlowStageSteeringMigration
             }
             insertFailedCi(connection, 1, 1, "head-1", "base-1");
         }
-        migrate(url, "265");
+        migrate(url);
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url + "?foreign_keys=ON&busy_timeout=30000");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        for (int task = 1; task <= 3; task++) {
+            jdbc.update("""
+                    INSERT INTO task_automation_policy(
+                        id, task_id, revision, source, auto_approve, auto_merge,
+                        keep_draft, minimum_write_approvals,
+                        max_merge_queue_reenqueues, require_low_risk,
+                        require_small_effort, stewardship_exception,
+                        created_by, created_at_ms)
+                    VALUES (?, ?, 1, 'TASK_POLICY_AT_PUBLISH', 1, 0,
+                        0, 0, 1, 0, 0, 0, 'v2-publish-delivery', 52)
+                    """, "automation-policy-" + task, "task-" + task);
+        }
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
         return new Fixture(

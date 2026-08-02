@@ -61,7 +61,8 @@ class TestStageSteeringService
         when(routes.taskForStage(stageId.toString())).thenReturn(Optional.of("task-v2"));
         when(typed.steer(
                 "task-v2", stageId.toString(), "change course", List.of(),
-                V2StageSteeringControl.Mode.APPEND)).thenReturn("stage-turn-v2");
+                V2StageSteeringControl.Mode.APPEND, null))
+                .thenReturn("stage-turn-v2");
 
         StageSteeringService.SteerResult result = service.steer(
                 stageId, " change course ", List.of());
@@ -77,12 +78,14 @@ class TestStageSteeringService
         when(routes.taskForStage(stageId.toString())).thenReturn(Optional.of("task-v2"));
         when(typed.steer(
                 "task-v2", stageId.toString(), "replace it", List.of(),
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE))
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                "predecessor-turn"))
                 .thenReturn("replacement-turn");
 
         assertThat(service.steer(
                 stageId, "replace it", List.of(),
-                StageSteeringService.Mode.CANCEL_AND_REPLACE).turnId())
+                StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                "predecessor-turn").turnId())
                 .isEqualTo("replacement-turn");
     }
 
@@ -99,7 +102,8 @@ class TestStageSteeringService
         assertThatThrownBy(() -> service.steer(stageId, "change course", List.of()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("read-only");
-        verify(typed, never()).steer(any(), any(), any(), any(), any());
+        verify(typed, never()).steer(
+                any(), any(), any(), any(), any(), any());
     }
 
     @Test

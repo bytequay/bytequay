@@ -176,6 +176,23 @@ public record PR(
                 localAddressedThroughAt, origin, repo, author, syncedAt, githubSync, branchDeletedAt);
     }
 
+    /** Pure read-model overlay for terminal state already observed by the
+     *  repository PR sync. It does not mutate the Task-owned PR aggregate. */
+    public PR withRemoteTerminalProjection(
+            String terminalStatus, Instant remoteMergedAt, Instant remoteClosedAt)
+    {
+        if (!STATUS_MERGED.equals(terminalStatus)
+                && !STATUS_CLOSED.equals(terminalStatus)) {
+            throw new IllegalArgumentException(
+                    "Remote terminal projection must be merged or closed");
+        }
+        return new PR(
+                id, taskId, branchName, baseBranch, title, description,
+                terminalStatus, createdAt, pushedAt, remotePrNumber, remotePrUrl,
+                remoteMergedAt, remoteClosedAt, localAddressedThroughAt, origin,
+                repo, author, syncedAt, githubSync, branchDeletedAt);
+    }
+
     /** Copy recording the remote PR identity assigned on push — including the
      *  {@code owner/repo} slug, which a task-origin PR has no other way to
      *  learn (it starts {@code null} and nothing else ever backfills it). */

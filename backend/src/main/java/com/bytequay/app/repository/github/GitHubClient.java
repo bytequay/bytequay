@@ -25,6 +25,8 @@ import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PrCheckRunState;
+import com.bytequay.app.domain.PrCheckRunState.GitHubMetadata;
+import com.bytequay.app.domain.PrCheckRunState.PullRequestSubject;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrReviewThreadMessage;
@@ -51,8 +53,16 @@ import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.PullRequestRepository.ActionsJobLogCapture;
+import com.bytequay.app.repository.PullRequestRepository.ActionsJobLogStatus;
+import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowJob;
+import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowJobSetEvidence;
+import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowJobStep;
+import com.bytequay.app.repository.PullRequestRepository.ActionsWorkflowRun;
+import com.bytequay.app.repository.PullRequestRepository.CheckRunAnnotationEvidence;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -61,6 +71,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -69,12 +80,21 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -100,7 +120,11 @@ public class GitHubClient
     private static final Logger log = LoggerFactory.getLogger(GitHubClient.class);
 
     private static final int PER_PAGE = 50;
+    private static final int BRANCH_RULES_PAGE_SIZE = 100;
+    private static final int BRANCH_RULES_MAX_PAGES = 10;
     private static final String REPOS_SEGMENT = "/repos/";
+    private static final Pattern LINK_HEADER = Pattern.compile(
+            "\\s*<([^<>]+)>\\s*;\\s*rel=\"(next|prev|first|last)\"\\s*");
 
     /** Notification reasons that mean "a pull request wants my attention":
      *  asked to review (incl. re-requests) or directly @-mentioned. */
@@ -471,6 +495,8 @@ public class GitHubClient
         // pages = 500 checks, far past anything we'd realistically see.
         ImmutableList.Builder<PrCheckRunState> out = ImmutableList.builder();
         int collected = 0;
+        Integer strictTotal = null;
+        boolean strictComplete = false;
         for (int page = 1; page <= 5; page++) {
             final int currentPage = page;
             try {
@@ -482,7 +508,25 @@ public class GitHubClient
                         .header("Authorization", authorization(pat))
                         .retrieve()
                         .body(GitHubCheckRunsResponse.class);
-                if (r == null || r.checkRuns() == null || r.checkRuns().isEmpty()) {
+                if (strict && (r == null || r.checkRuns() == null)) {
+                    throw incompleteCheckRunsResponse(collected, strictTotal);
+                }
+                if (r == null || r.checkRuns() == null) {
+                    break;
+                }
+                if (strict) {
+                    if (strictTotal == null) {
+                        strictTotal = r.totalCount();
+                    }
+                    else if (strictTotal != r.totalCount()) {
+                        throw incompleteCheckRunsResponse(collected, strictTotal);
+                    }
+                }
+                if (r.checkRuns().isEmpty()) {
+                    strictComplete = strict && collected == strictTotal;
+                    if (strict && !strictComplete) {
+                        throw incompleteCheckRunsResponse(collected, strictTotal);
+                    }
                     break;
                 }
                 for (GitHubCheckRunsResponse.CheckRun c : r.checkRuns()) {
@@ -493,10 +537,36 @@ public class GitHubClient
                             c.conclusion(),
                             c.htmlUrl(),
                             c.output() != null ? c.output().title() : null,
-                            c.output() != null ? c.output().summary() : null));
+                            c.output() != null ? c.output().summary() : null,
+                            new GitHubMetadata(
+                                    c.headSha(), c.externalId(), c.detailsUrl(),
+                                    c.checkSuite() == null
+                                            ? null : c.checkSuite().id(),
+                                    c.app() == null ? null : c.app().id(),
+                                    c.app() == null ? null : c.app().slug(),
+                                    c.output() == null
+                                            ? null : c.output().annotationsCount(),
+                                    c.pullRequests() == null ? List.of()
+                                            : c.pullRequests().stream()
+                                                    .map(subject -> new PullRequestSubject(
+                                                            subject.number(),
+                                                            subject.head() == null
+                                                                    ? null : subject.head().sha(),
+                                                            subject.base() == null
+                                                                    ? null : subject.base().sha()))
+                                                    .toList())));
                 }
                 collected += r.checkRuns().size();
-                if (collected >= r.totalCount() || r.checkRuns().size() < 100) {
+                if (strict) {
+                    strictComplete = collected == strictTotal;
+                    if (strictComplete) {
+                        break;
+                    }
+                    if (collected > strictTotal || r.checkRuns().size() < 100) {
+                        throw incompleteCheckRunsResponse(collected, strictTotal);
+                    }
+                }
+                else if (collected >= r.totalCount() || r.checkRuns().size() < 100) {
                     break;
                 }
             }
@@ -509,7 +579,19 @@ public class GitHubClient
                 break;
             }
         }
+        if (strict && !strictComplete) {
+            throw incompleteCheckRunsResponse(collected, strictTotal);
+        }
         return out.build();
+    }
+
+    private static ResponseStatusException incompleteCheckRunsResponse(
+            int collected, Integer total)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(502),
+                "GitHub check-runs pagination was incomplete: collected "
+                        + collected + " of " + total);
     }
 
     @Override
@@ -1870,6 +1952,7 @@ public class GitHubClient
             query($owner: String!, $name: String!, $number: Int!) {
               repository(owner: $owner, name: $name) {
                 pullRequest(number: $number) {
+                  baseRefName
                   mergeQueueEntry {
                     state
                   }
@@ -1898,22 +1981,17 @@ public class GitHubClient
                     .body(MergeQueueGqlResponse.class);
             requireMergeQueueResponse(response == null ? null : response.errors(),
                     "fetchMergeQueueInfo");
-            if (response == null
-                    || response.data() == null
-                    || response.data().repository() == null
-                    || response.data().repository().pullRequest() == null) {
+            if (response == null) {
                 throw incompleteMergeQueueResponse("fetchMergeQueueInfo");
             }
-            MergeQueueGqlPr pullRequest = response.data().repository().pullRequest();
-            boolean queueConfigured = pullRequest.mergeQueue() != null
-                    && pullRequest.mergeQueue().id() != null
-                    && !pullRequest.mergeQueue().id().isBlank();
-            String entryState = null;
-            if (pullRequest.mergeQueueEntry() != null) {
-                String state = pullRequest.mergeQueueEntry().state();
-                entryState = state == null || state.isBlank() ? null : state;
+            JsonNode pullRequest = requireMergeQueuePullRequest(response.data());
+            String baseRefName = requireNonBlankText(pullRequest, "baseRefName");
+            PullRequestRepository.MergeQueueInfo info = mergeQueueInfo(pullRequest);
+            if (info.queueConfigured()) {
+                return info;
             }
-            return new PullRequestRepository.MergeQueueInfo(queueConfigured, entryState);
+            return new PullRequestRepository.MergeQueueInfo(
+                    hasMergeQueueRule(pat, pr, baseRefName), null);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -1922,25 +2000,169 @@ public class GitHubClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueGqlResponse(
-            MergeQueueGqlData data, List<MergeQueueGqlError> errors) {}
+            JsonNode data, List<MergeQueueGqlError> errors) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueGqlError(String type, String message) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueGqlData(MergeQueueGqlRepo repository) {}
+    private static JsonNode requireMergeQueuePullRequest(JsonNode data)
+    {
+        JsonNode repository = data == null ? null : data.get("repository");
+        JsonNode pullRequest = repository == null
+                ? null : repository.get("pullRequest");
+        if (data == null || !data.isObject()
+                || repository == null || !repository.isObject()
+                || pullRequest == null || !pullRequest.isObject()
+                || !pullRequest.has("mergeQueue")
+                || !pullRequest.has("mergeQueueEntry")) {
+            throw incompleteMergeQueueResponse("fetchMergeQueueInfo");
+        }
+        return pullRequest;
+    }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueGqlRepo(MergeQueueGqlPr pullRequest) {}
+    private static PullRequestRepository.MergeQueueInfo mergeQueueInfo(JsonNode pullRequest)
+    {
+        JsonNode queue = pullRequest.get("mergeQueue");
+        JsonNode entry = pullRequest.get("mergeQueueEntry");
+        boolean queueConfigured = !queue.isNull();
+        if (queueConfigured) {
+            requireNonBlankText(queue, "id");
+        }
+        String entryState = null;
+        if (!entry.isNull()) {
+            entryState = requireNonBlankText(entry, "state");
+            queueConfigured = true;
+        }
+        return new PullRequestRepository.MergeQueueInfo(
+                queueConfigured, entryState);
+    }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueGqlPr(MergeQueueGqlEntry mergeQueueEntry, MergeQueueGqlQueue mergeQueue) {}
+    private boolean hasMergeQueueRule(
+            String pat, PullRequestRef pr, String baseRefName)
+    {
+        try {
+            boolean mergeQueueConfigured = false;
+            int page = 1;
+            while (true) {
+                int currentPage = page;
+                ResponseEntity<JsonNode> response = gitHubRestClient.get()
+                        .uri(uri -> uri
+                                .path("/repos/{owner}/{repo}/rules/branches/{branch}")
+                                .queryParam("per_page", BRANCH_RULES_PAGE_SIZE)
+                                .queryParam("page", currentPage)
+                                .build(pr.owner(), pr.repo(), baseRefName))
+                        .header("Authorization", authorization(pat))
+                        .retrieve()
+                        .toEntity(JsonNode.class);
+                JsonNode rules = response.getBody();
+                if (rules == null || !rules.isArray()) {
+                    throw incompleteMergeQueueRulesResponse();
+                }
+                for (JsonNode rule : rules) {
+                    JsonNode type = rule.isObject() ? rule.get("type") : null;
+                    if (type == null || !type.isTextual()
+                            || type.textValue().isBlank()) {
+                        throw incompleteMergeQueueRulesResponse();
+                    }
+                    mergeQueueConfigured |= type.textValue().equals("merge_queue");
+                }
+                Integer nextPage = nextBranchRulesPage(
+                        response.getHeaders(), pr, baseRefName, currentPage);
+                if (nextPage == null) {
+                    return mergeQueueConfigured;
+                }
+                if (currentPage >= BRANCH_RULES_MAX_PAGES) {
+                    throw incompleteMergeQueueRulesResponse();
+                }
+                page = nextPage;
+            }
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueGqlEntry(String state) {}
+    private static Integer nextBranchRulesPage(
+            HttpHeaders headers,
+            PullRequestRef pr,
+            String baseRefName,
+            int currentPage)
+    {
+        List<String> values = headers.get(HttpHeaders.LINK);
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        Map<String, Integer> pages = new HashMap<>();
+        String expectedPath = "/repos/" + pr.owner() + "/" + pr.repo()
+                + "/rules/branches/" + baseRefName;
+        for (String value : values) {
+            for (String part : value.split(",")) {
+                Matcher matcher = LINK_HEADER.matcher(part);
+                if (!matcher.matches()) {
+                    throw incompleteMergeQueueRulesResponse();
+                }
+                URI uri;
+                try {
+                    uri = URI.create(matcher.group(1));
+                }
+                catch (IllegalArgumentException e) {
+                    throw incompleteMergeQueueRulesResponse();
+                }
+                var query = UriComponentsBuilder.fromUri(uri)
+                        .build(true)
+                        .getQueryParams();
+                List<String> pageValues = query.get("page");
+                List<String> pageSizeValues = query.get("per_page");
+                if (!expectedPath.equals(uri.getPath())
+                        || pageValues == null || pageValues.size() != 1
+                        || pageSizeValues == null || pageSizeValues.size() != 1
+                        || !pageSizeValues.getFirst().equals(
+                                String.valueOf(BRANCH_RULES_PAGE_SIZE))) {
+                    throw incompleteMergeQueueRulesResponse();
+                }
+                int linkedPage;
+                try {
+                    linkedPage = Integer.parseInt(pageValues.getFirst());
+                }
+                catch (NumberFormatException e) {
+                    throw incompleteMergeQueueRulesResponse();
+                }
+                if (linkedPage < 1
+                        || pages.putIfAbsent(matcher.group(2), linkedPage) != null) {
+                    throw incompleteMergeQueueRulesResponse();
+                }
+            }
+        }
+        Integer next = pages.get("next");
+        Integer previous = pages.get("prev");
+        Integer first = pages.get("first");
+        Integer last = pages.get("last");
+        if ((next != null && next != currentPage + 1)
+                || (previous != null && previous != currentPage - 1)
+                || (first != null && first != 1)
+                || (last != null && last < currentPage)
+                || (next == null && last != null && last > currentPage)
+                || (next != null && last != null && last < next)) {
+            throw incompleteMergeQueueRulesResponse();
+        }
+        return next;
+    }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueGqlQueue(String id) {}
+    private static ResponseStatusException incompleteMergeQueueRulesResponse()
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(502),
+                "GitHub fetchMergeQueueInfo returned incomplete branch rules data");
+    }
+
+    private static String requireNonBlankText(JsonNode object, String field)
+    {
+        JsonNode value = object.isObject() ? object.get(field) : null;
+        if (value == null || !value.isTextual() || value.textValue().isBlank()) {
+            throw incompleteMergeQueueResponse("fetchMergeQueueInfo");
+        }
+        return value.textValue();
+    }
 
     @Override
     public void setPullRequestDraft(String pat, PullRequestRef pr, boolean draft)
@@ -3598,12 +3820,279 @@ public class GitHubClient
      *  job_id is accepted by /actions/jobs/{id}/logs. */
     private static final Pattern ACTIONS_JOB_URL =
             Pattern.compile("/actions/runs/\\d+/job/(\\d+)(?:[/?#]|$)");
+    private static final Pattern CHECK_RUN_API_URL = Pattern.compile(
+            "/repos/([^/]+)/([^/]+)/check-runs/(\\d+)(?:[/?#]|$)");
+    private static final int ACTIONS_ATTEMPT_JOB_MAX_PAGES = 5;
+    private static final int ACTIONS_JOB_LOG_MAX_BYTES = 8 * 1024 * 1024;
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GitHubCheckRunDetail(
             @JsonProperty("id") long id,
             @JsonProperty("details_url") String detailsUrl,
             @JsonProperty("html_url") String htmlUrl) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubActionsWorkflowRun(
+            long id,
+            @JsonProperty("workflow_id") Long workflowId,
+            String path,
+            String event,
+            @JsonProperty("head_sha") String headSha,
+            @JsonProperty("check_suite_id") Long checkSuiteId,
+            @JsonProperty("run_attempt") Integer runAttempt,
+            String status,
+            String conclusion) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubActionsWorkflowJobs(
+            @JsonProperty("total_count") Integer totalCount,
+            List<GitHubActionsWorkflowJob> jobs) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubActionsWorkflowJob(
+            Long id,
+            @JsonProperty("run_id") Long runId,
+            @JsonProperty("run_attempt") Integer runAttempt,
+            @JsonProperty("head_sha") String headSha,
+            @JsonProperty("check_run_url") String checkRunUrl,
+            String name,
+            String status,
+            String conclusion,
+            List<GitHubActionsWorkflowJobStep> steps) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubActionsWorkflowJobStep(
+            Integer number,
+            String name,
+            String status,
+            String conclusion) {}
+
+    @Override
+    public Optional<ActionsWorkflowRun> fetchActionsWorkflowRun(
+            String pat, RepoRef repo, long runId)
+    {
+        try {
+            GitHubActionsWorkflowRun run = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/actions/runs/{id}")
+                            .build(repo.owner(), repo.repo(), runId))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubActionsWorkflowRun.class);
+            if (run == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new ActionsWorkflowRun(
+                    run.id(), run.workflowId(), run.path(), run.event(),
+                    run.headSha(), run.checkSuiteId(), run.runAttempt(),
+                    run.status(), run.conclusion()));
+        }
+        catch (RestClientResponseException e) {
+            int status = e.getStatusCode().value();
+            if (status == 403 || status == 404 || status == 410) {
+                return Optional.empty();
+            }
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public ActionsWorkflowRun fetchActionsWorkflowRunAttemptStrict(
+            String pat, RepoRef repo, long runId, int runAttempt)
+    {
+        requirePositive(runId, "runId");
+        requirePositive(runAttempt, "runAttempt");
+        try {
+            GitHubActionsWorkflowRun run = gitHubRestClient.get()
+                    .uri(u -> u.path(
+                                    "/repos/{owner}/{repo}/actions/runs/{id}/attempts/{attempt}")
+                            .build(repo.owner(), repo.repo(), runId, runAttempt))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitHubActionsWorkflowRun.class);
+            if (!validWorkflowRun(run, runId, runAttempt)) {
+                throw incompleteActionsEvidence(
+                        "workflow run identity did not match run " + runId
+                                + " attempt " + runAttempt);
+            }
+            return new ActionsWorkflowRun(
+                    run.id(), run.workflowId(), run.path(), run.event(),
+                    run.headSha(), run.checkSuiteId(), run.runAttempt(),
+                    run.status(), run.conclusion());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public ActionsWorkflowJobSetEvidence fetchActionsWorkflowAttemptJobsStrict(
+            String pat, RepoRef repo, long runId, int runAttempt)
+    {
+        requirePositive(runId, "runId");
+        requirePositive(runAttempt, "runAttempt");
+        ImmutableList.Builder<ActionsWorkflowJob> jobs = ImmutableList.builder();
+        Set<Long> jobIds = new HashSet<>();
+        Set<Long> checkRunIds = new HashSet<>();
+        int collected = 0;
+        Integer expected = null;
+        for (int page = 1; page <= ACTIONS_ATTEMPT_JOB_MAX_PAGES; page++) {
+            int currentPage = page;
+            GitHubActionsWorkflowJobs response;
+            try {
+                response = gitHubRestClient.get()
+                        .uri(u -> u.path(
+                                        "/repos/{owner}/{repo}/actions/runs/{id}"
+                                                + "/attempts/{attempt}/jobs")
+                                .queryParam("per_page", 100)
+                                .queryParam("page", currentPage)
+                                .build(repo.owner(), repo.repo(), runId,
+                                        runAttempt))
+                        .header("Authorization", authorization(pat))
+                        .retrieve()
+                        .body(GitHubActionsWorkflowJobs.class);
+            }
+            catch (RestClientResponseException e) {
+                throw toReadableException(e);
+            }
+            if (response == null || response.totalCount() == null
+                    || response.jobs() == null || response.jobs().isEmpty()) {
+                throw incompleteActionsEvidence(
+                        "null or empty jobs page " + currentPage);
+            }
+            if (response.totalCount() < 1) {
+                throw incompleteActionsEvidence(
+                        "workflow attempt reported no jobs");
+            }
+            if (expected == null) {
+                expected = response.totalCount();
+            }
+            else if (!expected.equals(response.totalCount())) {
+                throw incompleteActionsEvidence(
+                        "job total changed from " + expected + " to "
+                                + response.totalCount());
+            }
+            if (response.jobs().size() > 100) {
+                throw incompleteActionsEvidence(
+                        "jobs page exceeded the requested page size");
+            }
+            for (GitHubActionsWorkflowJob job : response.jobs()) {
+                ActionsWorkflowJob exact = exactJob(
+                        repo, runId, runAttempt, job);
+                if (!jobIds.add(exact.jobId())
+                        || !checkRunIds.add(exact.checkRunId())) {
+                    throw incompleteActionsEvidence(
+                            "workflow attempt repeated a job identity");
+                }
+                jobs.add(exact);
+            }
+            collected += response.jobs().size();
+            if (collected == expected) {
+                return new ActionsWorkflowJobSetEvidence(
+                        runId, runAttempt, jobs.build(), collected, expected,
+                        true);
+            }
+            if (collected > expected || response.jobs().size() < 100) {
+                throw incompleteActionsEvidence(
+                        "collected " + collected + " of " + expected
+                                + " jobs");
+            }
+        }
+        throw incompleteActionsEvidence(
+                "collected " + collected + " of " + expected
+                        + " jobs before the page cap");
+    }
+
+    private static ActionsWorkflowJob exactJob(
+            RepoRef repo,
+            long runId,
+            int runAttempt,
+            GitHubActionsWorkflowJob job)
+    {
+        if (job == null || job.id() == null || job.id() < 1
+                || job.runId() == null || job.runId() != runId
+                || (job.runAttempt() != null
+                    && job.runAttempt() != runAttempt)
+                || !hasText(job.headSha()) || !hasText(job.name())
+                || !hasText(job.status()) || job.steps() == null) {
+            throw incompleteActionsEvidence(
+                    "workflow job identity was malformed or mismatched");
+        }
+        Long checkRunId = checkRunId(job.checkRunUrl(), repo);
+        if (checkRunId == null) {
+            throw incompleteActionsEvidence(
+                    "workflow job check-run identity was malformed");
+        }
+        ImmutableList.Builder<ActionsWorkflowJobStep> steps =
+                ImmutableList.builder();
+        Set<Integer> numbers = new HashSet<>();
+        for (GitHubActionsWorkflowJobStep step : job.steps()) {
+            if (step == null || step.number() == null || step.number() < 1
+                    || !numbers.add(step.number()) || !hasText(step.name())
+                    || !hasText(step.status())) {
+                throw incompleteActionsEvidence(
+                        "workflow job step identity was malformed");
+            }
+            steps.add(new ActionsWorkflowJobStep(
+                    step.number(), step.name(), step.status(),
+                    step.conclusion()));
+        }
+        return new ActionsWorkflowJob(
+                job.id(), checkRunId, runId, runAttempt, job.headSha(),
+                job.name(), job.status(), job.conclusion(), steps.build());
+    }
+
+    private static boolean validWorkflowRun(
+            GitHubActionsWorkflowRun run, long runId, int runAttempt)
+    {
+        return run != null && run.id() == runId
+                && run.workflowId() != null && run.workflowId() > 0
+                && hasText(run.path()) && hasText(run.event())
+                && hasText(run.headSha())
+                && run.checkSuiteId() != null && run.checkSuiteId() > 0
+                && run.runAttempt() != null
+                && run.runAttempt() == runAttempt
+                && hasText(run.status());
+    }
+
+    private static Long checkRunId(String url, RepoRef repo)
+    {
+        if (url == null) {
+            return null;
+        }
+        Matcher matcher = CHECK_RUN_API_URL.matcher(url);
+        if (!matcher.find()
+                || !matcher.group(1).equalsIgnoreCase(repo.owner())
+                || !matcher.group(2).equalsIgnoreCase(repo.repo())) {
+            return null;
+        }
+        try {
+            long id = Long.parseLong(matcher.group(3));
+            return id > 0 ? id : null;
+        }
+        catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static ResponseStatusException incompleteActionsEvidence(
+            String reason)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(502),
+                "GitHub Actions attempt evidence was incomplete: " + reason);
+    }
+
+    private static boolean hasText(String value)
+    {
+        return value != null && !value.isBlank();
+    }
+
+    private static void requirePositive(long value, String name)
+    {
+        if (value < 1) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
+    }
 
     @Override
     public Optional<String> fetchCheckRunLog(String pat, RepoRef repo, long checkRunId)
@@ -3674,45 +4163,96 @@ public class GitHubClient
             throw toReadableException(e);
         }
 
-        // Step 2: fetch the actual log text for the resolved job_id.
-        // /repos/{owner}/{repo}/actions/jobs/{job_id}/logs replies with
-        // a 302 → presigned blob URL whose body is the raw text log;
-        // Spring's RestClient follows redirects by default so one GET
-        // retrieves the final text.
-        try {
-            String body = gitHubRestClient.get()
-                    .uri(u -> u.path("/repos/{owner}/{repo}/actions/jobs/{id}/logs")
-                            .build(repo.owner(), repo.repo(), jobId))
-                    .header("Authorization", authorization(pat))
-                    .header("Accept", "text/plain, */*")
-                    .retrieve()
-                    .body(String.class);
-            if (body == null || body.isEmpty()) {
-                log.info("[log-diag] check-run {} (job_id={}): /actions/jobs/{}/logs returned {} body",
-                        checkRunId, jobId, jobId, body == null ? "null" : "empty");
-                return Optional.empty();
-            }
-            log.info("[log-diag] check-run {} (job_id={}): log fetched, {} bytes",
-                    checkRunId, jobId, body.length());
-            return Optional.of(body);
+        ActionsJobLogCapture capture = fetchActionsJobLogStrict(
+                pat, repo, jobId);
+        if (capture.status() != ActionsJobLogStatus.COMPLETE) {
+            log.info("[log-diag] check-run {} (job_id={}): {} ({})",
+                    checkRunId, jobId, capture.status(), capture.detail());
+            return Optional.empty();
         }
-        catch (RestClientResponseException e) {
-            int status = e.getStatusCode().value();
-            if (status == 404 || status == 410) {
-                // Job log expired (>90 days) or job already cleaned up —
-                // silent fallback so the UI can show the empty hint.
-                log.info("[log-diag] check-run {} (job_id={}): {} on /actions/jobs/{}/logs — expired or cleaned up",
-                        checkRunId, jobId, status, jobId);
-                return Optional.empty();
-            }
-            if (status == 403) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(403),
-                        "GitHub denied the log fetch (403). Your PAT likely needs the `workflow` scope "
-                                + "(classic PAT) or `Actions: Read` permission (fine-grained PAT).",
-                        e);
-            }
-            throw toReadableException(e);
+        log.info("[log-diag] check-run {} (job_id={}): log fetched, {} bytes",
+                checkRunId, jobId, capture.rawByteLength());
+        return Optional.of(capture.rawText());
+    }
+
+    @Override
+    public ActionsJobLogCapture fetchActionsJobLogStrict(
+            String pat, RepoRef repo, long jobId)
+    {
+        requirePositive(jobId, "jobId");
+        requirePat(pat);
+        return gitHubRestClient.get()
+                .uri(u -> u.path("/repos/{owner}/{repo}/actions/jobs/{id}/logs")
+                        .build(repo.owner(), repo.repo(), jobId))
+                .header("Authorization", authorization(pat))
+                .header("Accept", "text/plain, */*")
+                .exchange((request, response) -> {
+                    int status = response.getStatusCode().value();
+                    if (status == 401 || status == 403
+                            || status == 404 || status == 410) {
+                        return ActionsJobLogCapture.unavailable(
+                                jobId, status == 401 || status == 403
+                                        ? "GitHub denied access to the Actions job log"
+                                        : "GitHub Actions job log is expired or unavailable");
+                    }
+                    if (!response.getStatusCode().is2xxSuccessful()) {
+                        throw actionsJobLogRequestFailure(
+                                response.getStatusCode());
+                    }
+                    long advertisedLength = response.getHeaders()
+                            .getContentLength();
+                    if (advertisedLength > ACTIONS_JOB_LOG_MAX_BYTES) {
+                        return ActionsJobLogCapture.incomplete(
+                                jobId, "GitHub Actions job log exceeds the 8 MiB limit");
+                    }
+                    byte[] bytes = response.getBody().readNBytes(
+                            ACTIONS_JOB_LOG_MAX_BYTES + 1);
+                    if (bytes.length > ACTIONS_JOB_LOG_MAX_BYTES) {
+                        return ActionsJobLogCapture.incomplete(
+                                jobId, "GitHub Actions job log exceeds the 8 MiB limit");
+                    }
+                    if (advertisedLength >= 0
+                            && advertisedLength != bytes.length) {
+                        return ActionsJobLogCapture.incomplete(
+                                jobId, "GitHub Actions job log ended before its advertised length");
+                    }
+                    if (bytes.length == 0) {
+                        return ActionsJobLogCapture.incomplete(
+                                jobId, "GitHub Actions job log was empty");
+                    }
+                    String rawText;
+                    try {
+                        rawText = StandardCharsets.UTF_8.newDecoder()
+                                .onMalformedInput(CodingErrorAction.REPORT)
+                                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                                .decode(ByteBuffer.wrap(bytes))
+                                .toString();
+                    }
+                    catch (CharacterCodingException malformed) {
+                        return ActionsJobLogCapture.incomplete(
+                                jobId, "GitHub Actions job log was not strict UTF-8");
+                    }
+                    return ActionsJobLogCapture.complete(
+                            jobId, rawText, bytes.length, sha256(bytes));
+                });
+    }
+
+    private static ResponseStatusException actionsJobLogRequestFailure(
+            HttpStatusCode status)
+    {
+        return new ResponseStatusException(
+                status, "GitHub Actions job log request failed with status "
+                        + status.value() + ".");
+    }
+
+    private static String sha256(byte[] bytes)
+    {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(bytes));
+        }
+        catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
 
@@ -3768,10 +4308,75 @@ public class GitHubClient
         }
         return body.stream()
                 .filter(annotation -> "failure".equals(annotation.annotationLevel()))
-                .map(annotation -> new PullRequestRepository.CheckRunAnnotation(
-                        annotation.title(), annotation.message(), annotation.path(), annotation.startLine()))
+                .map(GitHubClient::toCheckRunAnnotation)
                 .filter(GitHubClient::hasSourceLocation)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public CheckRunAnnotationEvidence fetchCheckRunAnnotationsStrict(
+            String pat,
+            RepoRef repo,
+            long checkRunId,
+            int expectedAnnotationCount)
+    {
+        if (expectedAnnotationCount < 0) {
+            return new CheckRunAnnotationEvidence(
+                    List.of(), 0, expectedAnnotationCount, false);
+        }
+        ImmutableList.Builder<PullRequestRepository.CheckRunAnnotation>
+                failures = ImmutableList.builder();
+        int observed = 0;
+        for (int page = 1; page <= 10 && observed < expectedAnnotationCount;
+                page++) {
+            List<GitHubCheckRunAnnotation> body;
+            try {
+                int currentPage = page;
+                body = gitHubRestClient.get()
+                        .uri(u -> u.path(
+                                        "/repos/{owner}/{repo}/check-runs/{id}/annotations")
+                                .queryParam("per_page", 100)
+                                .queryParam("page", currentPage)
+                                .build(repo.owner(), repo.repo(), checkRunId))
+                        .header("Authorization", authorization(pat))
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<>() {});
+            }
+            catch (RestClientResponseException e) {
+                int status = e.getStatusCode().value();
+                if (status == 403 || status == 404 || status == 410) {
+                    return new CheckRunAnnotationEvidence(
+                            failures.build(), observed,
+                            expectedAnnotationCount, false);
+                }
+                throw toReadableException(e);
+            }
+            if (body == null) {
+                return new CheckRunAnnotationEvidence(
+                        failures.build(), observed, expectedAnnotationCount,
+                        false);
+            }
+            observed += body.size();
+            body.stream()
+                    .filter(annotation -> "failure".equals(
+                            annotation.annotationLevel()))
+                    .map(GitHubClient::toCheckRunAnnotation)
+                    .forEach(failures::add);
+            if (body.size() < 100) {
+                break;
+            }
+        }
+        return new CheckRunAnnotationEvidence(
+                failures.build(), observed, expectedAnnotationCount,
+                observed == expectedAnnotationCount);
+    }
+
+    private static PullRequestRepository.CheckRunAnnotation toCheckRunAnnotation(
+            GitHubCheckRunAnnotation annotation)
+    {
+        return new PullRequestRepository.CheckRunAnnotation(
+                annotation.title(), annotation.message(), annotation.path(),
+                annotation.startLine());
     }
 
     private static Long extractActionsJobId(String url)

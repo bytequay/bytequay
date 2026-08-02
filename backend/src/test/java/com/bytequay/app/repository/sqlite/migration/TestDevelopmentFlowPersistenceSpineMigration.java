@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -142,9 +145,10 @@ class TestDevelopmentFlowPersistenceSpineMigration
             execute(connection, """
                     INSERT INTO review_assignment_turn(
                         id, assignment_id, purpose, status, operation_id, attempt,
-                        start_commit, delivery_lane, launch_input, requested_at_ms)
+                        start_commit, delivery_lane, launch_input, requested_at_ms,
+                        cost_cap_usd_milli)
                     VALUES ('review-turn', 'review-assignment-1', 'ADVISORY', 'QUEUED',
-                        'op-review', 1, 'head-1', 'API', 'inspect', 10)
+                        'op-review', 1, 'head-1', 'API', 'inspect', 10, 100)
                     """);
 
             assertFails(connection, """
@@ -165,9 +169,10 @@ class TestDevelopmentFlowPersistenceSpineMigration
             assertFails(connection, """
                     INSERT INTO review_assignment_turn(
                         id, assignment_id, purpose, status, operation_id, attempt,
-                        start_commit, delivery_lane, launch_input, requested_at_ms)
+                        start_commit, delivery_lane, launch_input, requested_at_ms,
+                        cost_cap_usd_milli)
                     VALUES ('bad-review-turn', 'review-assignment-1', 'ADVISORY', 'QUEUED',
-                        'op-bad-review', 1, 'stale-head', 'API', 'inspect', 10)
+                        'op-bad-review', 1, 'stale-head', 'API', 'inspect', 10, 100)
                     """);
             assertFails(connection, """
                     INSERT INTO stage_message(id, turn_id, seq, role, body, created_at_ms)
@@ -209,26 +214,34 @@ class TestDevelopmentFlowPersistenceSpineMigration
             assertFails(connection, """
                     INSERT INTO task_assignment(
                         id, trunk_id, kind, planning_base_sha, prompt,
-                        created_by, created_at_ms)
+                        created_by, created_at_ms,
+                        creation_authorization_id)
                     VALUES ('assignment-no-seed', 'thread-1', 'NEW_FROM_TRUNK',
-                        'base-1', 'build', 'user', 10)
+                        'base-1', 'build', 'user', 10,
+                        'authorization-assignment-no-seed')
                     """);
             assertFails(connection, """
                     INSERT INTO task_assignment(
-                        id, trunk_id, kind, created_by, created_at_ms)
-                    VALUES ('assignment-no-issue', 'thread-1', 'ISSUE', 'user', 10)
+                        id, trunk_id, kind, created_by, created_at_ms,
+                        creation_authorization_id)
+                    VALUES ('assignment-no-issue', 'thread-1', 'ISSUE', 'user', 10,
+                        'authorization-assignment-no-issue')
                     """);
             assertFails(connection, """
                     INSERT INTO task_assignment(
-                        id, trunk_id, kind, producer, created_by, created_at_ms)
+                        id, trunk_id, kind, producer, created_by, created_at_ms,
+                        creation_authorization_id)
                     VALUES ('assignment-no-reason', 'thread-1', 'AUTOMATION',
-                        'monitor', 'system', 10)
+                        'monitor', 'system', 10,
+                        'authorization-assignment-no-reason')
                     """);
             assertFails(connection, """
                     INSERT INTO task_assignment(
-                        id, trunk_id, kind, created_by, created_at_ms)
+                        id, trunk_id, kind, created_by, created_at_ms,
+                        creation_authorization_id)
                     VALUES ('assignment-no-evidence', 'thread-1', 'QUALITY_SCAN',
-                        'system', 10)
+                        'system', 10,
+                        'authorization-assignment-no-evidence')
                     """);
 
             assertFails(connection, """
@@ -370,16 +383,16 @@ class TestDevelopmentFlowPersistenceSpineMigration
     }
 
     @Test
-    void v2OwnerDeletionFollowsDeclaredCascades()
+    void v2OwnerDeletionRequiresPurgeAuthorization()
             throws Exception
     {
         String url = migratedV2("owner-delete.db");
         try (Connection connection = connect(url)) {
-            execute(connection, "DELETE FROM threads WHERE id = 'thread-1'");
+            assertFails(connection, "DELETE FROM threads WHERE id = 'thread-1'");
 
-            assertThat(number(connection, "SELECT COUNT(*) FROM tasks")).isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM stage")).isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM task_current_stage")).isZero();
+            assertThat(number(connection, "SELECT COUNT(*) FROM tasks")).isEqualTo(3);
+            assertThat(number(connection, "SELECT COUNT(*) FROM stage")).isEqualTo(3);
+            assertThat(number(connection, "SELECT COUNT(*) FROM task_current_stage")).isOne();
             assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                     .isZero();
         }
@@ -421,7 +434,7 @@ class TestDevelopmentFlowPersistenceSpineMigration
                     VALUES ('push-v2-bad', 'task-v2', 'pr-local', 'head-1', 'fp-1',
                         'user', 'LOCAL_REVIEW', '{}', 'digest', 10, 'V2')
                     """);
-            execute(connection, """
+            assertFails(connection, """
                     INSERT INTO task_push_authorization(
                         token, task_id, pr_id, head_sha, code_fingerprint, actor,
                         basis_kind, payload_json, payload_digest, created_at_ms,
@@ -457,7 +470,7 @@ class TestDevelopmentFlowPersistenceSpineMigration
                         'fp-1', '{}', 'digest', '[]', 10, 'V2', 1, 'stage-v2',
                         1, 'op-round', 1, 'stale-head', 'base-1')
                     """);
-            execute(connection, """
+            assertFails(connection, """
                     INSERT INTO round_gate_authorization(
                         token, task_id, round_id, gate_revision, attempt, actor,
                         code_fingerprint, payload_json, payload_digest, effect_keys_json,
@@ -467,10 +480,6 @@ class TestDevelopmentFlowPersistenceSpineMigration
                     VALUES ('gate-v2', 'task-v2', 'round-v2', 1, 1, 'user',
                         'fp-1', '{}', 'digest', '[]', 10, 'V2', 1, 'stage-v2',
                         1, 'op-round', 1, 'head-1', 'base-1')
-                    """);
-            assertFails(connection, """
-                    UPDATE round_gate_authorization SET expected_head_sha = 'head-2'
-                    WHERE token = 'gate-v2'
                     """);
 
             assertFails(connection, """
@@ -528,18 +537,18 @@ class TestDevelopmentFlowPersistenceSpineMigration
                     INSERT INTO worktree_leases(
                         worktree_path, task_id, agent_kind, acquired_at_ms, expires_at_ms,
                         workflow_version, operation_id, task_epoch, fencing_token, lease_owner)
-                    VALUES ('/tmp/v2', 'task-v2', 'CLI_AGENT', 10, 20, 'V2',
+                    VALUES ('/tmp/task-v2', 'task-v2', 'CLI_AGENT', 10, 20, 'V2',
                         'op-dispatch', 1, 1, 'dispatcher-1')
                     """);
             assertFails(connection, """
                     UPDATE worktree_leases
                     SET task_id = 'task-v2-other'
-                    WHERE worktree_path = '/tmp/v2'
+                    WHERE worktree_path = '/tmp/task-v2'
                     """);
             assertFails(connection, """
                     UPDATE worktree_leases
                     SET expires_at_ms = 21
-                    WHERE worktree_path = '/tmp/v2'
+                    WHERE worktree_path = '/tmp/task-v2'
                     """);
             assertFails(connection, """
                     UPDATE dispatch_ticket
@@ -583,7 +592,7 @@ class TestDevelopmentFlowPersistenceSpineMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(database) + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("222").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         try (Connection connection = connect(url)) {
             execute(connection, """
                     INSERT OR IGNORE INTO workspaces(
@@ -653,24 +662,46 @@ class TestDevelopmentFlowPersistenceSpineMigration
                 WHERE id = 'thread-1'
                 """);
         execute(connection, """
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-v2', 'thread-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'build it', 'user', 2)
+                UPDATE workspaces
+                SET detached_at_ms = NULL
+                WHERE id = 'ws-default'
                 """);
+        execute(connection, """
+                DELETE FROM workspace_creation
+                WHERE workspace_id = 'ws-default'
+                  AND operation_kind = 'reclone'
+                  AND state IN ('queued', 'forking', 'cloning', 'syncing')
+                """);
+        V2TaskSeed.prepareWorkspaces(connection);
         execute(connection, """
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
                 VALUES ('policy-v2', 'thread-1', 1, 'TRUNK', 'user', 2)
                 """);
-        execute(connection, """
+        JdbcTemplate jdbc = new JdbcTemplate(
+                new SingleConnectionDataSource(connection, true));
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-v2", seed -> seed.update("""
+                INSERT INTO task_assignment(
+                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
+                    created_by, created_at_ms, creation_authorization_id)
+                VALUES ('assignment-v2', 'thread-1', 'NEW_FROM_TRUNK',
+                    'base-1', 'seed', 'build it', 'user', 2,
+                    'authorization-assignment-v2')
+                """));
+        V2TaskSeed.insertCreated(jdbc, "task-v2", seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
+                    workflow_version, lifecycle_state, assignment_id,
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES ('task-v2', 'thread-1', 2, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-v2', 'policy-v2')
-                """);
+                    'V2', 'PROVISIONING', 'assignment-v2', 'policy-v2',
+                    'creation-receipt-task-v2', 'Test task assignment-v2',
+                    'DEVELOP', 'build it', 'user')
+                """));
+        V2TaskSeed.completeProvisioning(
+                jdbc, "task-v2", "base-1", "base-1", "fp-1",
+                "exact local Git result", 3);
         execute(connection, """
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)
@@ -693,20 +724,27 @@ class TestDevelopmentFlowPersistenceSpineMigration
                 VALUES ('stage-plan-history', 'task-v2', 'PLAN', 1, 1,
                     'COMPLETED', 2, 3, 'NORMAL')
                 """);
-        execute(connection, """
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-v2-other", seed -> seed.update("""
                 INSERT INTO task_assignment(
                     id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
+                    created_by, created_at_ms,
+                    creation_authorization_id)
                 VALUES ('assignment-v2-other', 'thread-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'other work', 'user', 2)
-                """);
-        execute(connection, """
+                    'base-1', 'seed', 'other work', 'user', 2,
+                    'authorization-assignment-v2-other')
+                """));
+        V2TaskSeed.insertCreated(jdbc, "task-v2-other", seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
+                    workflow_version, lifecycle_state, assignment_id,
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES ('task-v2-other', 'thread-1', 3, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-v2-other', 'policy-v2')
-                """);
+                    'V2', 'PROVISIONING', 'assignment-v2-other', 'policy-v2',
+                    'creation-receipt-task-v2-other',
+                    'Test task assignment-v2-other', 'DEVELOP', 'other work',
+                    'user')
+                """));
         execute(connection, """
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint,
@@ -723,8 +761,12 @@ class TestDevelopmentFlowPersistenceSpineMigration
                     2, 7, 'external', 'acme/widget')
                 """);
         execute(connection, """
-                INSERT INTO agent_run(id, kind, status, started_at_ms)
-                VALUES ('review-run', 'panel_review', 'RUNNING', 2)
+                INSERT INTO agent_run(
+                    id, kind, source, review_round_id, status,
+                    started_at_ms, finished_at_ms, outcome)
+                VALUES ('review-run', 'review_compatibility_header',
+                    'v2_review_assignment_turn_fk', 'review-round-1',
+                    'succeeded', 2, 2, 'completed')
                 """);
         execute(connection, """
                 INSERT INTO review_session(
@@ -738,7 +780,7 @@ class TestDevelopmentFlowPersistenceSpineMigration
                     id, session_id, agent_run_id, trigger, scope, start_commit,
                     status, budget_json, created_at_ms)
                 VALUES ('review-round-1', 'review-session', 'review-run', 'USER',
-                    'FULL', 'head-1', 'RUNNING', '{}', 2)
+                    'FULL', 'head-1', 'RUNNING', '{"cost_cap_cents":100}', 2)
                 """);
         execute(connection, """
                 INSERT INTO reviewer_def(
@@ -764,7 +806,7 @@ class TestDevelopmentFlowPersistenceSpineMigration
 
     private static void migrateTo223(String url)
     {
-        Flyway.configure().dataSource(url, "", "").target("223").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static void execute(Connection connection, String sql)

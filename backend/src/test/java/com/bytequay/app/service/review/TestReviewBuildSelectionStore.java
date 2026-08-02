@@ -16,8 +16,9 @@ package com.bytequay.app.service.review;
 import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
@@ -204,24 +205,34 @@ class TestReviewBuildSelectionStore
                 "v2_task_creation_authority_insert")) {
             jdbc.execute("DROP TRIGGER " + trigger);
         }
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.update("""
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, source_id, repository_id, pr_number,
-                    remote_head_sha, selected_findings_json, created_by,
-                    created_at_ms, base_repository_id, head_repository_id,
-                    base_ref, head_ref, remote_base_sha, repository_route)
-                VALUES ('assignment-1', 'build-thread', 'REVIEW_FINDINGS',
-                    'review-pass', 'acme/widget', 42, 'head-1', '[]', 'test', 5,
-                    'acme/widget', 'acme/widget', 'main', 'feature/review',
-                    'base-1', 'DIRECT')
+                INSERT INTO task_policy_revision(
+                    id, trunk_id, revision, source, created_by, created_at_ms)
+                VALUES ('policy-1', 'build-thread', 1, 'TRUNK', 'test', 5)
                 """);
         ReviewBuildSelectionStore.Finding frozen = selection.findings().getFirst();
-        jdbc.update("""
-                INSERT INTO task_assignment_review_finding(
-                    assignment_id, position, source_review_id, finding_id,
-                    finding_revision, content_digest)
-                VALUES ('assignment-1', 1, 'review-pass', 'finding-1', ?, ?)
-                """, frozen.findingRevision(), frozen.contentDigest());
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1", transaction -> {
+            transaction.update("""
+                    INSERT INTO task_assignment(
+                        id, trunk_id, kind, source_id, repository_id, pr_number,
+                        remote_head_sha, selected_findings_json, created_by,
+                        created_at_ms, base_repository_id, head_repository_id,
+                        base_ref, head_ref, remote_base_sha, repository_route,
+                        creation_authorization_id)
+                    VALUES ('assignment-1', 'build-thread', 'REVIEW_FINDINGS',
+                        'review-pass', 'acme/widget', 42, 'head-1', '[]',
+                        'test', 5, 'acme/widget', 'acme/widget', 'main',
+                        'feature/review', 'base-1', 'DIRECT',
+                        'authorization-assignment-1')
+                    """);
+            transaction.update("""
+                    INSERT INTO task_assignment_review_finding(
+                        assignment_id, position, source_review_id, finding_id,
+                        finding_revision, content_digest)
+                    VALUES ('assignment-1', 1, 'review-pass', 'finding-1', ?, ?)
+                    """, frozen.findingRevision(), frozen.contentDigest());
+        });
 
         jdbc.update("""
                 UPDATE review_findings SET body = 'changed after authorization'
@@ -257,7 +268,7 @@ class TestReviewBuildSelectionStore
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("review-build.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("258").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource source = new SQLiteDataSource();
         source.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);

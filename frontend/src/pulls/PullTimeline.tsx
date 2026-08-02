@@ -340,6 +340,32 @@ export default function PullTimeline({
                 </span>
               </div>
             );
+          case 'milestone': {
+            const palette = item.tone === 'success'
+              ? { background: '#dafbe1', color: '#1a7f37', icon: '✓' }
+              : item.tone === 'attention'
+                ? { background: '#fff8c5', color: '#9a6700', icon: '↻' }
+                : { background: '#eef1f4', color: '#59636e', icon: '·' };
+            return (
+              <div key={item.id} style={iconRowStyle}>
+                <span style={{ width: 26, height: 26, borderRadius: '50%', background: palette.background, border: '2px solid #fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: palette.color, flexShrink: 0 }}>
+                  {palette.icon}
+                </span>
+                <span style={iconRowTextStyle}>
+                  <span style={{ color: '#17191c' }}>{item.label}</span>
+                  {item.sha !== null && <> · {onOpenCommit === undefined ? (
+                    <span style={shaStyle}>{item.sha.slice(0, 7)}</span>
+                  ) : (
+                    <button type="button" onClick={() => onOpenCommit(item.sha!)}
+                      title={`View ${item.sha}`} style={{ ...shaStyle, padding: 0, border: 0, background: 'transparent', color: '#0969da', cursor: 'pointer' }}>
+                      {item.sha.slice(0, 7)}
+                    </button>
+                  )}</>}
+                  {' · '}{item.time}
+                </span>
+              </div>
+            );
+          }
           case 'merged':
             return (
               <div key={item.id} style={iconRowStyle}>

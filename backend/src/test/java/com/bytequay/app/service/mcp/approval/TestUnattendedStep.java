@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestUnattendedStep
@@ -82,6 +83,20 @@ class TestUnattendedStep
         assertThat(result).isInstanceOf(ApprovalStepResult.Resolve.class);
         assertThat(((ApprovalStepResult.Resolve) result).response().toString()).contains("deny");
         verify(notifications).notifyNeedsAttention(eq("thread-1"), eq("task-1"), anyString());
+    }
+
+    @Test
+    void typedTurnNeverConsultsTheRetiredLegacyUnattendedState()
+    {
+        ApprovalContext typed = new ApprovalContext(
+                "thread-1", "task-1", "typed-agent-1",
+                JsonNodeFactory.instance.numberNode(1),
+                "Bash", "call-1", mapper.createObjectNode(),
+                Set.of(SecurityType.CODE_EXEC), true);
+
+        assertThat(step.apply(typed))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+        verifyNoInteractions(turnStore, threads, notifications);
     }
 
     private void stubRunningTurn(boolean attended, String taskId)

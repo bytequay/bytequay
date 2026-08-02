@@ -70,12 +70,103 @@ public record StageDetailData(
      */
     public record RecoveryOptions(
             CiRecovery ci,
-            CleanupRecovery cleanup)
+            CleanupRecovery cleanup,
+            StageTurnRecovery replacement,
+            FailedStageTurnRecovery failure,
+            LocalPublishBaseSyncRecovery localPublishBaseSync,
+            BranchSyncRecovery branchSync,
+            WorktreeQuarantineRecovery worktreeQuarantine)
+    {
+        public RecoveryOptions(CiRecovery ci, CleanupRecovery cleanup)
+        {
+            this(ci, cleanup, null, null, null, null, null);
+        }
+
+        public RecoveryOptions(
+                CiRecovery ci,
+                CleanupRecovery cleanup,
+                StageTurnRecovery replacement)
+        {
+            this(ci, cleanup, replacement, null, null, null, null);
+        }
+
+        public RecoveryOptions(
+                CiRecovery ci,
+                CleanupRecovery cleanup,
+                StageTurnRecovery replacement,
+                FailedStageTurnRecovery failure)
+        {
+            this(ci, cleanup, replacement, failure, null, null, null);
+        }
+    }
+
+    /** One exact undelivered StageTurn that may be canceled and replaced. */
+    public record StageTurnRecovery(String stageTurnId, String reason)
+    {
+    }
+
+    /** One accepted failed Local StageTurn and its exact open blocker. */
+    public record FailedStageTurnRecovery(
+            String stageTurnId, String blockerId, String reason)
+    {
+    }
+
+    /** Exact open manual authority gate for first-publish base synchronization. */
+    public record LocalPublishBaseSyncRecovery(
+            String blockerId,
+            String blockerType,
+            String episodeId,
+            String sourceBaseSha,
+            String targetBaseSha,
+            Integer attemptNo,
+            Integer attemptLimit,
+            String message)
+    {
+        public LocalPublishBaseSyncRecovery(
+                String blockerId, String sourceBaseSha, String targetBaseSha,
+                String message)
+        {
+            this(blockerId, "LOCAL_PUBLISH_BASE_SYNC_REQUIRED", null,
+                    sourceBaseSha, targetBaseSha, null, null, message);
+        }
+    }
+
+    /** Exact immutable BranchSync exhaustion subject and terminal controls. */
+    public record BranchSyncRecovery(
+            String episodeId,
+            String blockerId,
+            String message,
+            int attemptCount,
+            int attemptLimit,
+            List<String> actions)
+    {
+    }
+
+    /** Durable writer quarantine for the exact current StageTurn subject. */
+    public record WorktreeQuarantineRecovery(
+            String quarantineId,
+            String blockerId,
+            String sourceOperationId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String worktreePath,
+            String expectedBranchName,
+            String expectedCodeFingerprint,
+            String expectedHeadSha,
+            String expectedBaseSha,
+            String repairOperationId,
+            String repairStatus,
+            String message,
+            List<String> actions)
     {
     }
 
     public record CiRecovery(
             String episodeId,
+            String blockerId,
+            String blockerType,
+            String message,
             int rerunCount,
             int rerunLimit,
             int fixAttemptCount,
@@ -84,6 +175,20 @@ public record StageDetailData(
             int pushLimit,
             List<String> actions)
     {
+        public CiRecovery(
+                String episodeId,
+                int rerunCount,
+                int rerunLimit,
+                int fixAttemptCount,
+                int fixAttemptLimit,
+                int pushCount,
+                int pushLimit,
+                List<String> actions)
+        {
+            this(episodeId, null, null, null, rerunCount, rerunLimit,
+                    fixAttemptCount, fixAttemptLimit, pushCount, pushLimit,
+                    actions);
+        }
     }
 
     public record CleanupRecovery(

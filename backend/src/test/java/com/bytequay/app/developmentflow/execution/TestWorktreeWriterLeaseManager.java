@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.API;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.CLEANUP;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.REVIEW;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -51,7 +52,7 @@ class TestWorktreeWriterLeaseManager
         capacityManager = new CapacityManager(
                 capacityStore,
                 () -> CapacityManager.CapacityPolicy.initial(
-                        4, 4, Map.of(LOCAL_GIT, 4, REVIEW, 4)),
+                        4, 4, Map.of(LOCAL_GIT, 4, REVIEW, 4, CLEANUP, 4)),
                 clock,
                 Duration.ofMinutes(1));
         worktreeStore = new InMemoryExecutionSupport.WorktreeStore();
@@ -264,6 +265,115 @@ class TestWorktreeWriterLeaseManager
                         WorktreeWriterLeaseManager.WriterLeaseUnavailableException.class);
     }
 
+    @Test
+    void sameHeadDirtyRestoreFailureQuarantinesEveryFutureWriter()
+    {
+        ContextFixture first = writerContext("operation-1", TICKET, OWNER);
+        WorktreeWriterLeaseManager.Lease lease = manager.acquire(
+                first.context(), WORKTREE);
+
+        WorktreeWriterLeaseManager.WorktreeQuarantine quarantine =
+                manager.quarantine(
+                        first.context(), lease,
+                        new WorktreeWriterLeaseManager.QuarantineEvidence(
+                                "task-1", "stage-1", "operation-1", WORKTREE,
+                                "dev/task-1", "fingerprint-1", "head-1",
+                                "dev/task-1", "head-1", false,
+                                "dirty-fingerprint", null,
+                                "exact source head remained dirty"));
+
+        assertThat(quarantine.expectedHeadSha()).isEqualTo("head-1");
+        assertThat(quarantine.observedHeadSha()).isEqualTo("head-1");
+        assertThat(quarantine.observedClean()).isFalse();
+        assertThatThrownBy(() -> manager.authorizeMutation(
+                first.context(), lease))
+                .isInstanceOf(
+                        WorktreeWriterLeaseManager.WorktreeQuarantinedException.class);
+
+        manager.release(lease);
+        capacityManager.release(first.capacity().id(), OWNER);
+        ContextFixture later = writerContext(
+                "operation-2", "ticket-2", "dispatcher-2");
+        assertThatThrownBy(() -> manager.acquire(later.context(), WORKTREE))
+                .isInstanceOf(
+                        WorktreeWriterLeaseManager.WorktreeQuarantinedException.class)
+                .hasMessageContaining(quarantine.id());
+    }
+
+    @Test
+    void onlyExactCleanupDisposalCanBypassAndClearQuarantine()
+    {
+        ContextFixture first = writerContext("operation-1", TICKET, OWNER);
+        WorktreeWriterLeaseManager.Lease source = manager.acquire(
+                first.context(), WORKTREE);
+        manager.quarantine(
+                first.context(), source,
+                new WorktreeWriterLeaseManager.QuarantineEvidence(
+                        "task-1", "stage-1", "operation-1", WORKTREE,
+                        "dev/task-1", "fingerprint-1", "head-1",
+                        "dev/task-1", "hidden-head", true,
+                        "hidden-fingerprint", null, "restore failed"));
+        manager.release(source);
+        capacityManager.release(first.capacity().id(), OWNER);
+
+        ContextFixture cleanup = cleanupContext(
+                "cleanup-operation", "cleanup-ticket", "cleanup-worker");
+        WorktreeWriterLeaseManager.CleanupDisposal disposal =
+                manager.acquireCleanupDisposal(
+                        cleanup.context(), WORKTREE,
+                        "cleanup-row", "remove-worktree-step");
+        assertThat(disposal.quarantineId()).isNotNull();
+        assertThat(manager.authorizeCleanupDisposal(
+                        cleanup.context(), disposal)
+                .run(WorktreeWriterLeaseManager.MutationFence::operationId))
+                .isEqualTo("cleanup-operation");
+        manager.settleCleanupDisposal(
+                cleanup.context(), disposal, "worktree path is absent");
+        manager.release(disposal.lease());
+        capacityManager.release(cleanup.capacity().id(), "cleanup-worker");
+
+        ContextFixture later = writerContext(
+                "operation-2", "ticket-2", "dispatcher-2");
+        assertThat(manager.acquire(later.context(), WORKTREE)).isNotNull();
+    }
+
+    @Test
+    void exactDurableRepairCanBypassButCannotClearQuarantineByAcquisition()
+    {
+        ContextFixture first = writerContext("operation-1", TICKET, OWNER);
+        WorktreeWriterLeaseManager.Lease source = manager.acquire(
+                first.context(), WORKTREE);
+        WorktreeWriterLeaseManager.WorktreeQuarantine quarantine =
+                manager.quarantine(
+                        first.context(), source,
+                        new WorktreeWriterLeaseManager.QuarantineEvidence(
+                                "task-1", "stage-1", "operation-1", WORKTREE,
+                                "dev/task-1", "fingerprint-1", "head-1",
+                                "dev/task-1", "hidden-head", true,
+                                "hidden-fingerprint", null, "restore failed"));
+        manager.release(source);
+        capacityManager.release(first.capacity().id(), OWNER);
+
+        ContextFixture repair = repairContext(
+                "repair-operation", "repair-ticket", "repair-worker");
+        WorktreeWriterLeaseManager.QuarantineRepair capability =
+                manager.acquireQuarantineRepair(
+                        repair.context(), WORKTREE, quarantine.id(),
+                        "repair-row");
+        assertThat(manager.authorizeQuarantineRepair(repair.context(), capability)
+                .run(WorktreeWriterLeaseManager.MutationFence::operationId))
+                .isEqualTo("repair-operation");
+        manager.release(capability.lease());
+        capacityManager.release(repair.capacity().id(), "repair-worker");
+
+        ContextFixture later = writerContext(
+                "operation-2", "ticket-2", "dispatcher-2");
+        assertThatThrownBy(() -> manager.acquire(later.context(), WORKTREE))
+                .isInstanceOf(
+                        WorktreeWriterLeaseManager.WorktreeQuarantinedException.class)
+                .hasMessageContaining(quarantine.id());
+    }
+
     private ContextFixture writerContext(
             String operationId,
             String ticketId,
@@ -279,6 +389,67 @@ class TestWorktreeWriterLeaseManager
                 true,
                 true);
         return context(request, ticketId, owner);
+    }
+
+    private ContextFixture cleanupContext(
+            String operationId,
+            String ticketId,
+            String owner)
+    {
+        CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
+                operationId, V2, Set.of(CLEANUP),
+                new CapacityManager.CapacityScope(
+                        "workspace-1", "trunk-1", "task-1", 3L),
+                false, true, true);
+        CapacityManager.CapacityLease capacity = capacityManager.tryAcquireForTicket(
+                        ticketId, request, owner)
+                .lease().orElseThrow();
+        DispatchTicket.DispatchEnvelope envelope = new DispatchTicket.DispatchEnvelope(
+                "RUN_CLEANUP_OPERATION", DispatchTicket.AsyncFamily.CLEANUP,
+                new DispatchTicket.OwnerReference(
+                        DispatchTicket.OwnerKind.STAGE,
+                        "cleanup-stage", "CLEANUP_OPERATION_RESULT"),
+                new DispatchTicket.OperationFence(
+                        3L, "cleanup-stage", 1L, operationId, 1,
+                        null, null, null),
+                request);
+        ExecutionContext context = new ExecutionContext(
+                envelope, capacity, new ExecutionContext.Cancellation(),
+                new NoopEvidence(), "execution-" + operationId, clock,
+                () -> capacityManager.requireExactLeaseForTicket(
+                        ticketId, capacity.id(), request, owner));
+        return new ContextFixture(context, capacity);
+    }
+
+    private ContextFixture repairContext(
+            String operationId,
+            String ticketId,
+            String owner)
+    {
+        CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
+                operationId, V2, Set.of(LOCAL_GIT),
+                new CapacityManager.CapacityScope(
+                        "workspace-1", "trunk-1", "task-1", 3L),
+                false, true, true);
+        CapacityManager.CapacityLease capacity = capacityManager.tryAcquireForTicket(
+                        ticketId, request, owner)
+                .lease().orElseThrow();
+        DispatchTicket.DispatchEnvelope envelope = new DispatchTicket.DispatchEnvelope(
+                "REPAIR_QUARANTINED_WORKTREE",
+                DispatchTicket.AsyncFamily.LOCAL_GIT,
+                new DispatchTicket.OwnerReference(
+                        DispatchTicket.OwnerKind.STAGE,
+                        "stage-1", "WORKTREE_QUARANTINE_REPAIR_RESULT"),
+                new DispatchTicket.OperationFence(
+                        3L, "stage-1", 2L, operationId, 1,
+                        "fingerprint-1", "head-1", "base-1"),
+                request);
+        ExecutionContext context = new ExecutionContext(
+                envelope, capacity, new ExecutionContext.Cancellation(),
+                new NoopEvidence(), "execution-" + operationId, clock,
+                () -> capacityManager.requireExactLeaseForTicket(
+                        ticketId, capacity.id(), request, owner));
+        return new ContextFixture(context, capacity);
     }
 
     private ContextFixture context(

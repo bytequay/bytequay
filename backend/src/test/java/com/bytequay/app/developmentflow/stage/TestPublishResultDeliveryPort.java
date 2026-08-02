@@ -19,14 +19,17 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.PublishRawResult;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.RemoteReference;
+import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.AcceptedBaseMove;
+import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.BaseMovedAcceptance;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.Context;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.Receipt;
-import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
@@ -63,7 +66,7 @@ class TestPublishResultDeliveryPort
     private LocalToRemoteHandoff handoff;
     private RemoteObservationRuntimeCoordinator observations;
     private PRService prs;
-    private TaskStore tasks;
+    private BaseMovedAcceptance baseMoves;
     private PublishResultDeliveryPort delivery;
 
     @BeforeEach
@@ -74,15 +77,15 @@ class TestPublishResultDeliveryPort
         handoff = mock(LocalToRemoteHandoff.class);
         observations = mock(RemoteObservationRuntimeCoordinator.class);
         prs = mock(PRService.class);
-        tasks = mock(TaskStore.class);
+        baseMoves = mock(BaseMovedAcceptance.class);
         delivery = new PublishResultDeliveryPort(
                 new TaskCommandExecutor(new NoopTransactions()),
-                local, handoff, observations, prs, tasks, store, JSON,
+                local, handoff, observations, prs, store, baseMoves, JSON,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    void successfulPublishCreatesOneRemoteOwnerAndReplaysItsReceipt()
+    void successfulPublishUsesStablePrAndTaskHandoffAndReplaysItsReceipt()
             throws Exception
     {
         StageManager.State remote = new StageManager.State(
@@ -110,9 +113,6 @@ class TestPublishResultDeliveryPort
         verify(prs).recordPublishedInCommand(
                 "pr-1", "acme/widget", 17,
                 "https://github.com/acme/widget/pull/17");
-        verify(tasks).markPushed("task-1", NOW);
-        verify(tasks).linkPullRequest("task-1", 17, "draft");
-        verify(tasks).linkTaskToPr("task-1", "acme/widget#17");
     }
 
     @Test
@@ -165,6 +165,110 @@ class TestPublishResultDeliveryPort
         assertThat(receipt.acceptance()).isEqualTo(ACCEPTED);
         assertThat(store.failed).isEqualTo(FAILED);
         verify(handoff, never()).acceptInCommand(any());
+        verify(baseMoves, never()).afterAccepted(any());
+    }
+
+    @Test
+    void baseMovementUsesTheRealLocalTransitionBackToReview()
+            throws Exception
+    {
+        store.pendingOutcome = FAILED;
+        MemoryStageStore stages = new MemoryStageStore(new StageManager.State(
+                "stage-1", "task-1", StageKind.LOCAL_DEVELOPMENT,
+                1, 4, StageCheckpoint.PUBLISHING, null, resultFence()));
+        LocalDevelopmentStageManager realLocal = new LocalDevelopmentStageManager(
+                new TaskCommandExecutor(new NoopTransactions()),
+                stages, LocalDevelopmentStageManager.EvidenceStore.empty());
+        PublishResultDeliveryPort realDelivery = new PublishResultDeliveryPort(
+                new TaskCommandExecutor(new NoopTransactions()),
+                realLocal, handoff, observations, prs, store, JSON,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        DispatchTicket.DeliveryReceipt receipt = realDelivery.deliver(
+                owner(), fence(), baseMoved("new-base-sha"));
+
+        assertThat(receipt.acceptance()).isEqualTo(ACCEPTED);
+        assertThat(stages.state().checkpoint())
+                .isEqualTo(StageCheckpoint.LOCAL_REVIEW);
+        assertThat(stages.state().pendingResult()).isNull();
+        assertThat(stages.superseded()).isZero();
+    }
+
+    @Test
+    void acceptedBaseMovementNotifiesOnceAcrossRedelivery()
+            throws Exception
+    {
+        store.pendingOutcome = FAILED;
+        StageManager.State localState = new StageManager.State(
+                "stage-1", "task-1", StageKind.LOCAL_DEVELOPMENT,
+                1, 5, StageCheckpoint.LOCAL_REVIEW, null, null);
+        when(local.acceptPublishFailureInCommand(any())).thenReturn(
+                new LocalDevelopmentStageManager.PublishFailureResult(
+                        CommandResult.applied(localState), true));
+        DispatchTicket.DispatchResult result = baseMoved("new-base-sha");
+
+        DispatchTicket.DeliveryReceipt first = delivery.deliver(
+                owner(), fence(), result);
+        DispatchTicket.DeliveryReceipt duplicate = delivery.deliver(
+                owner(), fence(), result);
+
+        assertThat(first.acceptance()).isEqualTo(ACCEPTED);
+        assertThat(duplicate).isEqualTo(first);
+        ArgumentCaptor<AcceptedBaseMove> accepted =
+                ArgumentCaptor.forClass(AcceptedBaseMove.class);
+        verify(baseMoves).afterAccepted(accepted.capture());
+        assertThat(accepted.getValue().operationId()).isEqualTo("operation-1");
+        assertThat(accepted.getValue().expectedBaseSha()).isEqualTo("base-sha");
+        assertThat(accepted.getValue().observedBaseSha())
+                .isEqualTo("new-base-sha");
+        assertThat(accepted.getValue().acceptedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void malformedBaseMovementIsRejectedBeforeAnyDomainWrite()
+            throws Exception
+    {
+        store.pendingOutcome = FAILED;
+
+        assertThatThrownBy(() -> delivery.deliver(
+                owner(), fence(), baseMoved(null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("typed payload");
+        assertThatThrownBy(() -> delivery.deliver(
+                owner(), fence(), baseMoved("base-sha")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("typed payload");
+        DispatchTicket.DispatchResult mismatchedError = baseMoved("new-base-sha");
+        assertThatThrownBy(() -> delivery.deliver(
+                owner(), fence(), new DispatchTicket.DispatchResult(
+                        mismatchedError.fence(), mismatchedError.outcome(),
+                        mismatchedError.payloadJson(), mismatchedError.evidenceJson(),
+                        "different outer error")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("typed payload");
+
+        assertThat(store.failed).isNull();
+        assertThat(store.receipt).isEmpty();
+        verify(local, never()).acceptPublishFailureInCommand(any());
+        verify(baseMoves, never()).afterAccepted(any());
+    }
+
+    @Test
+    void supersededBaseMovementDoesNotNotify()
+            throws Exception
+    {
+        store.pendingOutcome = FAILED;
+        StageManager.State localState = new StageManager.State(
+                "stage-1", "task-1", StageKind.LOCAL_DEVELOPMENT,
+                1, 5, StageCheckpoint.LOCAL_REVIEW, null, null);
+        when(local.acceptPublishFailureInCommand(any())).thenReturn(
+                new LocalDevelopmentStageManager.PublishFailureResult(
+                        CommandResult.superseded(localState), false));
+
+        DispatchTicket.DeliveryReceipt receipt = delivery.deliver(
+                owner(), fence(), baseMoved("new-base-sha"));
+
+        assertThat(receipt.acceptance()).isEqualTo(SUPERSEDED);
+        verify(baseMoves, never()).afterAccepted(any());
     }
 
     @Test
@@ -220,6 +324,19 @@ class TestPublishResultDeliveryPort
                 fence(), SUCCEEDED, JSON.writeValueAsString(payload), "{}", null);
     }
 
+    private static DispatchTicket.DispatchResult baseMoved(
+            String observedBaseSha)
+            throws Exception
+    {
+        String error = "remote base moved after publish authorization";
+        PublishRawResult payload = new PublishRawResult(
+                1, "publish-1", "operation-1", "task-1", "stage-1",
+                PublishOperationHandler.Disposition.BASE_MOVED,
+                null, error, observedBaseSha);
+        return new DispatchTicket.DispatchResult(
+                fence(), FAILED, JSON.writeValueAsString(payload), "{}", error);
+    }
+
     private static RemoteReference remote()
     {
         return new RemoteReference(
@@ -251,6 +368,7 @@ class TestPublishResultDeliveryPort
     {
         return new Context(
                 "publish-1", "operation-1", "authorization-1", "manifest-1",
+                "policy-1",
                 "pr-1", "task-1", "stage-1", 1, 1, 1,
                 "fingerprint", "head-sha", "base-sha",
                 "DISPATCHED", "RESULT_PENDING", SUCCEEDED,
@@ -286,7 +404,8 @@ class TestPublishResultDeliveryPort
         {
             return new Context(
                     context.publishOperationId(), context.operationId(),
-                    context.authorizationId(), context.manifestId(), context.prId(),
+                    context.authorizationId(), context.manifestId(),
+                    context.policyRevisionId(), context.prId(),
                     context.taskId(), context.stageId(), context.taskEpoch(),
                     context.stageGeneration(), context.attempt(),
                     context.codeFingerprint(), context.expectedHeadSha(),
@@ -341,6 +460,98 @@ class TestPublishResultDeliveryPort
         public void insertReceipt(Receipt receipt)
         {
             this.receipt = Optional.of(receipt);
+        }
+    }
+
+    private static final class MemoryStageStore
+            implements StageManager.Store
+    {
+        private StageManager.State state;
+        private int superseded;
+
+        private MemoryStageStore(StageManager.State state)
+        {
+            this.state = state;
+        }
+
+        @Override
+        public Optional<StageManager.OwnerState> findOwner(
+                String taskId, String stageId)
+        {
+            if (!state.taskId().equals(taskId) || !state.id().equals(stageId)) {
+                return Optional.empty();
+            }
+            return Optional.of(new StageManager.OwnerState(
+                    taskId, TaskLifecycle.ACTIVE, 1, stageId, state));
+        }
+
+        @Override
+        public Optional<StageManager.CommandReceipt> findCommandResult(
+                String taskId, String stageId, String commandId)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public StageManager.State commit(
+                String commandId,
+                String cause,
+                String actor,
+                Long expectedTaskEpoch,
+                Long expectedStageGeneration,
+                Long expectedStageVersion,
+                StageCheckpoint sourceCheckpoint,
+                ResultFence subjectFence,
+                String proofId,
+                StageManager.State expected,
+                StageManager.State updated)
+        {
+            assertThat(state).isEqualTo(expected);
+            state = updated;
+            return state;
+        }
+
+        @Override
+        public StageManager.State create(
+                String commandId,
+                String cause,
+                String actor,
+                Long expectedTaskEpoch,
+                Long expectedStageGeneration,
+                Long expectedStageVersion,
+                StageCheckpoint sourceCheckpoint,
+                ResultFence subjectFence,
+                String proofId,
+                StageManager.State state)
+        {
+            throw new AssertionError("failure delivery must not create a Stage");
+        }
+
+        @Override
+        public StageManager.State recordSuperseded(
+                String commandId,
+                String cause,
+                String actor,
+                Long expectedTaskEpoch,
+                Long expectedStageGeneration,
+                Long expectedStageVersion,
+                StageCheckpoint sourceCheckpoint,
+                ResultFence subjectFence,
+                String proofId,
+                StageManager.State current)
+        {
+            superseded++;
+            return current;
+        }
+
+        private StageManager.State state()
+        {
+            return state;
+        }
+
+        private int superseded()
+        {
+            return superseded;
         }
     }
 

@@ -65,6 +65,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -148,6 +149,45 @@ class TestPRService
         assertThat(created.taskId()).isEqualTo("task1");
         assertThat(created.branchName()).isEqualTo("dev/x");
         verify(store).save(any(PR.class));
+    }
+
+    @Test
+    void exactV2BrainAcceptanceOpensTheStablePrForLocalReview()
+    {
+        PR local = pr(PR.STATUS_LOCAL_DRAFTED);
+        when(taskStore.findWorkflowVersion("task1"))
+                .thenReturn(Optional.of("V2"));
+        when(store.findByTaskId("task1")).thenReturn(Optional.of(local));
+
+        PR opened = commands.execute("task1", () ->
+                service.requestUserReviewInCommand(
+                        "task1", "v2-local-runtime"));
+
+        assertThat(opened.status()).isEqualTo(PR.STATUS_LOCAL_OPEN);
+        verifyNoInteractions(devReports);
+        ArgumentCaptor<PRTimelineEntry> event =
+                ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType())
+                .isEqualTo(PRTimelineEntry.TYPE_STATUS);
+        assertThat(event.getValue().actor()).isEqualTo("v2-local-runtime");
+    }
+
+    @Test
+    void repeatedV2BrainAcceptanceKeepsAnOpenLocalReviewStable()
+    {
+        PR local = pr(PR.STATUS_LOCAL_OPEN);
+        when(taskStore.findWorkflowVersion("task1"))
+                .thenReturn(Optional.of("V2"));
+        when(store.findByTaskId("task1")).thenReturn(Optional.of(local));
+
+        PR reopened = commands.execute("task1", () ->
+                service.requestUserReviewInCommand(
+                        "task1", "v2-local-runtime"));
+
+        assertThat(reopened).isSameAs(local);
+        verify(store, never()).save(any());
+        verify(store, never()).addEvent(any());
     }
 
     @Test

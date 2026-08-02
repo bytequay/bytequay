@@ -213,14 +213,14 @@ class TestV2ReadinessNotificationProjector
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             for (int taskNumber : taskNumbers) {
                 seedPublishedRemoteTask(connection, taskNumber);
             }
         }
-        migrate(url, "271");
+        migrate(url);
         SQLiteDataSource source = new SQLiteDataSource();
         source.setUrl(url);
         return new Database(url, source, new JdbcTemplate(source));

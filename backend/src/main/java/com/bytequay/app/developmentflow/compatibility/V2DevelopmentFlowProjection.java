@@ -23,9 +23,13 @@ import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.StageEventDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.beans.trace.LinkedActivePr;
+import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
@@ -53,6 +57,7 @@ public final class V2DevelopmentFlowProjection
     private static final int CONTEXT_TOKEN_LIMIT = 200_000;
     private static final Set<String> TERMINAL_LIFECYCLES =
             Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED");
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final JdbcTemplate jdbc;
     private final V2BranchGuardProjection branchGuards;
@@ -162,12 +167,13 @@ public final class V2DevelopmentFlowProjection
                         false,
                         null,
                         costs,
-                        null),
+                        planCard(task.id())),
                 new TaskBrainViewData.Scrubbers(stageScrubber, userScrubber),
                 List.of(),
                 branchGuards.project(task.id()),
                 null,
-                devPhases(row));
+                devPhases(row),
+                recovery(task.id()));
     }
 
     /** Immutable V2 facts consumed by the legacy-shaped trace presenter. */
@@ -311,7 +317,13 @@ public final class V2DevelopmentFlowProjection
                        brain.model AS agent_model,
                        binding.remote_pr_number,
                        binding.bound_at_ms,
-                       COALESCE(snapshot.pr_state, pr.status) AS pr_state,
+                       CASE
+                           WHEN snapshot.pr_state IN ('MERGED', 'CLOSED')
+                               THEN snapshot.pr_state
+                           WHEN cached_pr.merged_at IS NOT NULL THEN 'MERGED'
+                           WHEN UPPER(cached_pr.state) = 'CLOSED' THEN 'CLOSED'
+                           ELSE COALESCE(snapshot.pr_state, pr.status)
+                       END AS pr_state,
                        snapshot.mergeability,
                        snapshot.effective_approval_count,
                        snapshot.changes_requested_count,
@@ -361,6 +373,9 @@ public final class V2DevelopmentFlowProjection
                 LEFT JOIN task_brain brain ON brain.task_id = task.id
                 LEFT JOIN pr ON pr.task_id = task.id AND pr.origin = 'task'
                 LEFT JOIN remote_pr_binding binding ON binding.task_id = task.id
+                LEFT JOIN pull_requests cached_pr
+                  ON cached_pr.repo = context.repository_id
+                 AND cached_pr.number = binding.remote_pr_number
                 LEFT JOIN remote_development_stage remote ON remote.stage_id = (
                     SELECT candidate.stage_id
                     FROM remote_development_stage candidate
@@ -589,6 +604,749 @@ public final class V2DevelopmentFlowProjection
                         rs.getString("id"), null), taskId)
                 .stream().findFirst().orElse(null);
     }
+
+    /** Latest immutable V2 Plan adapted to the existing Markdown plan card. */
+    private TaskBrainViewData.PlanCard planCard(String taskId)
+    {
+        PlanCardRow row = jdbc.query("""
+                SELECT owner.id AS stage_id, owner.checkpoint,
+                       revision.id AS revision_id, revision.revision,
+                       revision.content, revision.source,
+                       (SELECT COUNT(*) FROM plan_revision counted
+                        WHERE counted.plan_stage_id = owner.id) AS revision_count,
+                       review.status AS review_status,
+                       review.verdict AS review_verdict,
+                       approval.id AS approval_id
+                FROM stage owner
+                JOIN plan_stage plan ON plan.stage_id = owner.id
+                LEFT JOIN plan_revision revision
+                  ON revision.plan_stage_id = owner.id
+                 AND NOT EXISTS (
+                     SELECT 1 FROM plan_revision newer
+                     WHERE newer.plan_stage_id = owner.id
+                       AND newer.revision > revision.revision)
+                LEFT JOIN plan_self_review review
+                  ON review.plan_revision_id = revision.id
+                 AND review.reviewed_digest = revision.content_digest
+                LEFT JOIN plan_approval approval
+                  ON approval.plan_revision_id = revision.id
+                 AND approval.self_review_id = review.id
+                WHERE owner.task_id = ? AND owner.kind = 'PLAN'
+                ORDER BY owner.generation DESC, owner.opened_at_ms DESC, owner.id DESC
+                LIMIT 1
+                """, (rs, ignored) -> new PlanCardRow(
+                        rs.getString("stage_id"), rs.getString("checkpoint"),
+                        rs.getString("revision_id"), rs.getInt("revision"),
+                        rs.getString("content"), rs.getString("source"),
+                        rs.getInt("revision_count"),
+                        rs.getString("review_status"),
+                        rs.getString("review_verdict"),
+                        rs.getString("approval_id")), taskId)
+                .stream().findFirst().orElse(null);
+        if (row == null) {
+            return null;
+        }
+
+        MarkdownPlan content = planContent(first(row.content(), ""));
+        String state = row.approvalId() != null ? "locked"
+                : "SUCCEEDED".equals(row.reviewStatus())
+                        && "CHANGES_REQUESTED".equals(row.reviewVerdict())
+                        ? "revision_required"
+                : "AWAITING_APPROVAL".equals(row.checkpoint())
+                        && "SUCCEEDED".equals(row.reviewStatus())
+                        && "APPROVED".equals(row.reviewVerdict())
+                        ? "awaiting"
+                : "draft";
+        return new TaskBrainViewData.PlanCard(
+                row.stageId(), state,
+                row.revisionId() == null ? "suggested" : "finalized",
+                planSource(row.source(), row.revision()),
+                content.goal(), content.understanding(), content.action(),
+                content.steps(), content.validation(), "await_approval",
+                new TaskBrainViewData.PlanSignals(
+                        "low", "small", content.steps().size(), "", "high"),
+                row.revisionCount(), planFollowups(row.revisionId()),
+                content.guardrails(), null);
+    }
+
+    private List<TaskBrainViewData.PlanFollowup> planFollowups(String revisionId)
+    {
+        if (revisionId == null) {
+            return List.of();
+        }
+        return jdbc.query("""
+                SELECT id, description, created_by, created_at_ms, status
+                FROM plan_followup
+                WHERE plan_revision_id = ? AND kind = 'FOLLOW_UP'
+                ORDER BY created_at_ms, id
+                """, (rs, ignored) -> new TaskBrainViewData.PlanFollowup(
+                        rs.getString("id"), rs.getString("description"),
+                        rs.getString("created_by"),
+                        instant(rs.getLong("created_at_ms")).toString(),
+                        switch (rs.getString("status")) {
+                            case "RESOLVED" -> "addressed";
+                            case "DEFERRED" -> "dismissed";
+                            default -> "open";
+                        }), revisionId);
+    }
+
+    private static MarkdownPlan planContent(String content)
+    {
+        try {
+            JsonNode plan = JSON.readTree(content);
+            if (plan != null && plan.isObject()) {
+                return jsonPlan(plan);
+            }
+        }
+        catch (JsonProcessingException ignored) {
+            // Revisions recorded before the structured protocol used Markdown.
+        }
+        return markdownPlan(content);
+    }
+
+    private static MarkdownPlan jsonPlan(JsonNode plan)
+    {
+        JsonNode intent = plan.path("intent");
+        String understanding = plan.path("understanding").path("summary")
+                .asText("");
+        String goal = firstNonBlank(plan.path("goal").asText(""), understanding);
+        String action = intent.path("summary").asText("");
+        List<String> expectedFiles = textList(
+                intent.path("expectedFilesChanged"));
+        JsonNode stepNodes = intent.path("steps");
+        List<TaskBrainViewData.PlanStep> steps = new ArrayList<>();
+        if (stepNodes.isArray()) {
+            int index = 0;
+            for (JsonNode step : stepNodes) {
+                index++;
+                String stepAction = step.isTextual()
+                        ? step.asText("")
+                        : firstNonBlank(
+                                step.path("action").asText(""),
+                                step.path("step").asText(""),
+                                step.path("description").asText(""),
+                                step.path("text").asText(""),
+                                step.path("summary").asText(""));
+                if (stepAction.isBlank()) {
+                    continue;
+                }
+                stepAction = stepAction.replaceFirst("^\\s*\\d+[.)]\\s+", "");
+                List<String> files = new ArrayList<>();
+                String file = step.path("file").asText("").strip();
+                if (!file.isBlank()) {
+                    files.add(file);
+                }
+                textList(step.path("files")).stream()
+                        .filter(candidate -> !files.contains(candidate))
+                        .forEach(files::add);
+                if (files.isEmpty() && stepNodes.size() == 1) {
+                    files.addAll(expectedFiles);
+                }
+                String detail = firstNonBlank(
+                        step.path("rationale").asText(""),
+                        step.path("detail").asText(""));
+                String risk = step.path("risk").asText("");
+                steps.add(new TaskBrainViewData.PlanStep(
+                        step.path("order").asInt(
+                                step.path("ordinal").asInt(index)),
+                        stepAction,
+                        List.copyOf(files),
+                        detail.isBlank() ? null : detail,
+                        risk.isBlank() ? null : risk));
+            }
+        }
+        return new MarkdownPlan(
+                goal, understanding, action, List.copyOf(steps),
+                text(plan.path("intent").path("validationStrategy")),
+                textList(plan.path("outOfScope")));
+    }
+
+    /** Exact headings emitted by the V2 Plan prompt; not a general Markdown parser. */
+    private static MarkdownPlan markdownPlan(String markdown)
+    {
+        String action = firstLine(section(markdown, "change"));
+        String goal = firstLine(section(markdown, "goal"));
+        if (goal.isBlank()) {
+            goal = firstLine(section(markdown, "plan"));
+        }
+        if (goal.isBlank()) {
+            goal = action;
+        }
+        List<String> files = action.contains("/") && !action.contains(" ")
+                ? List.of(action.replaceFirst(":\\d+$", "")) : List.of();
+        String step = action.isBlank() ? goal
+                : files.isEmpty() ? action : "Update " + action;
+        List<TaskBrainViewData.PlanStep> steps = step.isBlank()
+                ? List.of()
+                : List.of(new TaskBrainViewData.PlanStep(
+                        1, step, files, markdown.isBlank() ? null : markdown, null));
+        return new MarkdownPlan(
+                goal, goal, action, steps,
+                String.join("\n", contentLines(section(markdown, "validation"))),
+                contentLines(section(markdown, "scope guardrails")));
+    }
+
+    private static String text(JsonNode node)
+    {
+        return node.isTextual() ? node.asText("")
+                : String.join("\n", textList(node));
+    }
+
+    private static List<String> textList(JsonNode node)
+    {
+        if (!node.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonNode value : node) {
+            String text = value.asText("").strip();
+            if (!text.isBlank()) {
+                values.add(text);
+            }
+        }
+        return List.copyOf(values);
+    }
+
+    private static String firstNonBlank(String... values)
+    {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static String section(String markdown, String heading)
+    {
+        StringBuilder found = new StringBuilder();
+        boolean selected = false;
+        for (String line : markdown.split("\\R")) {
+            String text = line.strip();
+            if (text.startsWith("## ")) {
+                if (selected) {
+                    break;
+                }
+                selected = text.substring(3).toLowerCase(Locale.ROOT)
+                        .startsWith(heading);
+            }
+            else if (selected) {
+                found.append(line).append('\n');
+            }
+            else if ("plan".equals(heading)
+                    && text.toLowerCase(Locale.ROOT).startsWith("# plan:")) {
+                found.append(text.substring(7)).append('\n');
+            }
+        }
+        return found.toString();
+    }
+
+    private static String firstLine(String section)
+    {
+        List<String> lines = contentLines(section);
+        return lines.isEmpty() ? "" : lines.getFirst();
+    }
+
+    private static List<String> contentLines(String section)
+    {
+        List<String> lines = new ArrayList<>();
+        boolean fenced = false;
+        for (String line : section.split("\\R")) {
+            String text = line.strip();
+            if (text.startsWith("```")) {
+                fenced = !fenced;
+            }
+            else if (!fenced && !text.isBlank()) {
+                text = text.replaceFirst("^[-*]\\s+", "").replace("**", "");
+                if (text.length() > 1 && text.startsWith("`")
+                        && text.endsWith("`")) {
+                    text = text.substring(1, text.length() - 1);
+                }
+                lines.add(text);
+            }
+        }
+        return List.copyOf(lines);
+    }
+
+    private static String planSource(String source, int revision)
+    {
+        return "AGENT".equals(source)
+                ? revision > 1 ? "brain-revision" : "brain"
+                : first(source, "").toLowerCase(Locale.ROOT);
+    }
+
+    private record PlanCardRow(
+            String stageId, String checkpoint, String revisionId, int revision,
+            String content, String source, int revisionCount,
+            String reviewStatus, String reviewVerdict, String approvalId) {}
+
+    private record MarkdownPlan(
+            String goal, String understanding, String action,
+            List<TaskBrainViewData.PlanStep> steps,
+            String validation, List<String> guardrails) {}
+
+    /**
+     * Projects only the exact recoverable Plan-draft failure. The terminal
+     * Plan receipt is the durable predecessor fence; the retry command
+     * revalidates the same facts inside the Task command transaction.
+     */
+    private TaskBrainViewData.RecoveryAction recovery(String taskId)
+    {
+        List<RecoveryCandidate> candidates =
+                tableAvailable("stage_plan_terminal_result")
+                ? jdbc.query("""
+                SELECT owner.id AS stage_id, blocker.id AS blocker_id,
+                       blocker.subject_revision, failed.id AS failed_turn_id
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner
+                  ON owner.id = current.stage_id
+                 AND owner.generation = current.stage_generation
+                JOIN stage_plan_terminal_result terminal
+                  ON terminal.stage_id = owner.id
+                 AND terminal.returned_stage_version = owner.version
+                 AND terminal.cause = 'PLAN_DRAFT_FAILED'
+                JOIN task_turn failed
+                  ON failed.id = terminal.proof_id
+                 AND failed.operation_id = terminal.subject_operation_id
+                JOIN task_blocker blocker
+                  ON blocker.task_id = task.id
+                 AND blocker.stage_id = owner.id
+                 AND blocker.owner_kind = 'STAGE'
+                 AND blocker.owner_id = owner.id
+                 AND blocker.blocker_type = 'OPERATION_FAILED'
+                 AND blocker.status = 'OPEN'
+                 AND (blocker.subject_revision IS NULL
+                      OR blocker.subject_revision = failed.id)
+                WHERE task.id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND current.stage_generation = owner.generation
+                  AND owner.kind = 'PLAN'
+                  AND owner.checkpoint = 'DRAFTING'
+                  AND owner.completed_at_ms IS NULL
+                  AND failed.task_id = task.id
+                  AND failed.task_epoch = task.epoch
+                  AND failed.trigger_stage_id = owner.id
+                  AND failed.trigger_stage_generation = owner.generation
+                  AND failed.purpose = 'PLAN_DRAFT'
+                  AND failed.status = 'FAILED'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM task_turn live
+                      WHERE live.trigger_stage_id = owner.id
+                        AND live.purpose = 'PLAN_DRAFT'
+                        AND live.status IN (
+                            'REQUESTED','QUEUED','CLAIMED','RUNNING'))
+                """, (rs, ignored) -> new RecoveryCandidate(
+                        new TaskBrainViewData.RecoveryAction(
+                                "RETRY_PLAN_DRAFT", rs.getString("stage_id"),
+                                rs.getString("blocker_id"),
+                                rs.getString("failed_turn_id")),
+                        rs.getString("subject_revision")), taskId)
+                : List.of();
+        List<TaskBrainViewData.RecoveryAction> actions = new ArrayList<>(
+                candidates.stream()
+                .filter(candidate -> candidate.subjectRevision() == null
+                        ? candidate.action().blockerId().equals(
+                                PlanRuntimeCoordinator.id(
+                                        "plan-turn-blocker",
+                                candidate.action().failedTurnId()))
+                        : candidate.subjectRevision().equals(
+                                candidate.action().failedTurnId()))
+                .map(RecoveryCandidate::action)
+                .toList());
+        if (tableAvailable("development_brain_protocol_failure_v300")) {
+            actions.addAll(jdbc.query("""
+                SELECT failure.stage_id, failure.blocker_id,
+                       failure.task_turn_id AS failed_turn_id
+                FROM development_brain_protocol_failure_v300 failure
+                JOIN tasks task ON task.id = failure.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN task_blocker blocker ON blocker.id = failure.blocker_id
+                JOIN brain_review_episode episode
+                  ON episode.id = failure.brain_review_episode_id
+                JOIN task_turn failed ON failed.id = failure.task_turn_id
+                JOIN task_current_code_subject_v230 code
+                  ON code.task_id = task.id
+                WHERE failure.task_id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = failure.task_epoch
+                  AND current.stage_id = failure.stage_id
+                  AND current.stage_generation = failure.stage_generation
+                  AND owner.kind = 'LOCAL_DEVELOPMENT'
+                  AND owner.generation = failure.stage_generation
+                  AND owner.version = failure.stage_version
+                  AND owner.checkpoint = 'BRAIN_REVIEW'
+                  AND owner.completed_at_ms IS NULL
+                  AND blocker.task_id = task.id
+                  AND blocker.stage_id IS NULL
+                  AND blocker.owner_kind = 'TASK'
+                  AND blocker.owner_id = task.id
+                  AND blocker.subject_revision = failed.id
+                  AND blocker.blocker_type = 'OPERATION_FAILED'
+                  AND blocker.status = 'OPEN'
+                  AND episode.status = 'FAILED'
+                  AND failed.status = 'FAILED'
+                  AND failed.purpose = 'DEVELOPMENT_BRAIN_REVIEW'
+                  AND code.code_fingerprint = failure.code_fingerprint
+                  AND code.head_sha = failure.head_sha
+                  AND code.base_sha = failure.base_sha
+                  AND NOT EXISTS (
+                      SELECT 1 FROM development_brain_retry_v300 retry
+                      WHERE retry.failure_id = failure.id
+                         OR retry.blocker_id = blocker.id
+                         OR retry.predecessor_turn_id = failed.id)
+                  AND (
+                      NOT EXISTS (
+                          SELECT 1
+                          FROM development_brain_retry_v300 prior_retry
+                          WHERE prior_retry.replacement_episode_id = episode.id
+                             OR prior_retry.replacement_turn_id =
+                                failure.owner_turn_id
+                             OR prior_retry.replacement_operation_id =
+                                failure.owner_operation_id)
+                      OR EXISTS (
+                          SELECT 1
+                          FROM development_brain_retry_v300 prior_retry
+                          JOIN dispatch_ticket source_ticket
+                            ON source_ticket.owner_kind = 'TASK_TURN'
+                           AND source_ticket.owner_id = failed.id
+                           AND source_ticket.operation_id = failed.operation_id
+                          JOIN agent_execution execution
+                            ON execution.ticket_id = source_ticket.id
+                          WHERE prior_retry.replacement_episode_id = episode.id
+                            AND prior_retry.replacement_turn_id =
+                                failure.owner_turn_id
+                            AND prior_retry.replacement_operation_id =
+                                failure.owner_operation_id
+                            AND execution.status = 'SUCCEEDED'
+                            AND execution.infrastructure_attempt =
+                                source_ticket.infrastructure_attempts
+                            AND execution.raw_result IS NOT NULL
+                            AND length(trim(COALESCE(json_extract(
+                                json_extract(execution.raw_result,
+                                    '$.payloadJson'), '$.finalText'), ''),
+                                char(9) || char(10) || char(13) || ' ')) > 0))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM development_brain_result_repair_v311 repair
+                      WHERE repair.source_failure_id = failure.id
+                         OR repair.source_task_turn_id = failed.id)
+                """, (rs, ignored) -> new TaskBrainViewData.RecoveryAction(
+                        "RETRY_DEVELOPMENT_BRAIN_REVIEW",
+                        rs.getString("stage_id"), rs.getString("blocker_id"),
+                        rs.getString("failed_turn_id")), taskId));
+        }
+        if (tableAvailable("remote_repair_brain_failure_receipt_v309")) {
+            actions.addAll(jdbc.query("""
+                WITH failed_operation AS (
+                    SELECT 'CI' AS family, operation.task_id,
+                           operation.task_epoch,
+                           operation.remote_development_stage_id AS stage_id,
+                           operation.stage_generation,
+                           operation.ci_repair_episode_id AS episode_id,
+                           operation.task_turn_id AS failed_turn_id,
+                           operation.operation_id,
+                           operation.expected_code_fingerprint,
+                           operation.expected_head_sha,
+                           operation.expected_base_sha,
+                           operation.status, operation.semantic_attempt,
+                           operation.semantic_attempt AS execution_attempt,
+                           episode.status AS episode_status,
+                           COALESCE(episode.last_pushed_head_sha,
+                                    episode.subject_head_sha) AS remote_head_sha,
+                           episode.subject_base_sha AS remote_base_sha,
+                           NULL AS branch_step_status,
+                           0 AS branch_step_attempt
+                    FROM ci_repair_operation operation
+                    JOIN ci_repair_delivery_receipt delivery
+                     ON delivery.ci_repair_operation_id = operation.id
+                     AND delivery.operation_id = operation.operation_id
+                     AND delivery.acceptance = 'ACCEPTED'
+                     AND delivery.raw_outcome IN ('FAILED', 'CANCELED')
+                    JOIN ci_repair_episode episode
+                      ON episode.id = operation.ci_repair_episode_id
+                     AND episode.remote_development_stage_id =
+                         operation.remote_development_stage_id
+                     AND episode.task_id = operation.task_id
+                     AND episode.task_epoch = operation.task_epoch
+                     AND episode.stage_generation = operation.stage_generation
+                     AND episode.status = 'AWAITING_PUSH_CI'
+                    JOIN remote_development_stage remote
+                      ON remote.stage_id = operation.remote_development_stage_id
+                     AND remote.task_id = operation.task_id
+                     AND remote.generation = operation.stage_generation
+                     AND remote.current_head_sha = COALESCE(
+                         episode.last_pushed_head_sha, episode.subject_head_sha)
+                     AND remote.current_base_sha = episode.subject_base_sha
+                    WHERE operation.kind = 'BRAIN_REVIEW'
+                      AND operation.status IN ('FAILED', 'CANCELED')
+                    UNION ALL
+                    SELECT 'BRANCH', operation.task_id,
+                           operation.task_epoch,
+                           operation.remote_development_stage_id,
+                           operation.stage_generation,
+                           operation.branch_sync_episode_id,
+                           operation.task_turn_id,
+                           operation.operation_id,
+                           operation.expected_code_fingerprint,
+                           operation.expected_head_sha,
+                           operation.expected_base_sha,
+                           operation.status, operation.semantic_attempt,
+                           operation.semantic_attempt AS execution_attempt,
+                           episode.status, episode.old_head_sha,
+                           episode.observed_base_sha, step.status,
+                           step.attempt_count
+                    FROM branch_sync_dispatch_operation operation
+                    JOIN branch_sync_delivery_receipt delivery
+                     ON delivery.branch_sync_dispatch_operation_id = operation.id
+                     AND delivery.operation_id = operation.operation_id
+                     AND delivery.acceptance = 'ACCEPTED'
+                     AND delivery.raw_outcome IN ('FAILED', 'CANCELED')
+                    JOIN branch_sync_episode episode
+                      ON episode.id = operation.branch_sync_episode_id
+                     AND episode.remote_development_stage_id =
+                         operation.remote_development_stage_id
+                     AND episode.task_id = operation.task_id
+                     AND episode.task_epoch = operation.task_epoch
+                     AND episode.stage_generation = operation.stage_generation
+                     AND episode.status = 'BRAIN_REVIEW'
+                    JOIN branch_sync_effect_step step
+                      ON step.id = operation.branch_sync_effect_step_id
+                     AND step.branch_sync_episode_id = episode.id
+                     AND step.kind = 'BRAIN_REVIEW'
+                     AND step.status = 'FAILED'
+                     AND step.attempt_count = operation.semantic_attempt
+                    JOIN remote_development_stage remote
+                      ON remote.stage_id = operation.remote_development_stage_id
+                     AND remote.task_id = operation.task_id
+                     AND remote.generation = operation.stage_generation
+                     AND remote.current_head_sha = episode.old_head_sha
+                     AND remote.current_base_sha = episode.observed_base_sha
+                    WHERE operation.kind = 'BRAIN_REVIEW'
+                      AND operation.status IN ('FAILED', 'CANCELED')
+                    UNION ALL
+                    SELECT 'CI', operation.task_id,
+                           operation.task_epoch,
+                           operation.remote_development_stage_id,
+                           operation.stage_generation,
+                           operation.ci_repair_episode_id,
+                           operation.task_turn_id, operation.operation_id,
+                           operation.expected_code_fingerprint,
+                           operation.expected_head_sha,
+                           operation.expected_base_sha, operation.status,
+                           operation.semantic_attempt,
+                           operation.execution_attempt, episode.status,
+                           COALESCE(episode.last_pushed_head_sha,
+                                    episode.subject_head_sha),
+                           episode.subject_base_sha, NULL, 0
+                    FROM remote_repair_brain_replacement_operation_v309 operation
+                    JOIN remote_repair_brain_replacement_delivery_v309 delivery
+                      ON delivery.replacement_operation_id = operation.id
+                     AND delivery.operation_id = operation.operation_id
+                     AND delivery.acceptance = 'ACCEPTED'
+                     AND delivery.raw_outcome IN ('FAILED', 'CANCELED')
+                    JOIN ci_repair_episode episode
+                      ON episode.id = operation.ci_repair_episode_id
+                     AND episode.remote_development_stage_id =
+                         operation.remote_development_stage_id
+                     AND episode.task_id = operation.task_id
+                     AND episode.task_epoch = operation.task_epoch
+                     AND episode.stage_generation = operation.stage_generation
+                     AND episode.status = 'AWAITING_PUSH_CI'
+                    JOIN remote_development_stage remote
+                      ON remote.stage_id = operation.remote_development_stage_id
+                     AND remote.task_id = operation.task_id
+                     AND remote.generation = operation.stage_generation
+                     AND remote.current_head_sha = COALESCE(
+                         episode.last_pushed_head_sha, episode.subject_head_sha)
+                     AND remote.current_base_sha = episode.subject_base_sha
+                    WHERE operation.family = 'CI'
+                      AND operation.status IN ('FAILED', 'CANCELED')
+                    UNION ALL
+                    SELECT 'BRANCH', operation.task_id,
+                           operation.task_epoch,
+                           operation.remote_development_stage_id,
+                           operation.stage_generation,
+                           operation.branch_sync_episode_id,
+                           operation.task_turn_id, operation.operation_id,
+                           operation.expected_code_fingerprint,
+                           operation.expected_head_sha,
+                           operation.expected_base_sha, operation.status,
+                           operation.semantic_attempt,
+                           operation.execution_attempt, episode.status,
+                           episode.old_head_sha, episode.observed_base_sha,
+                           step.status, step.attempt_count
+                    FROM remote_repair_brain_replacement_operation_v309 operation
+                    JOIN remote_repair_brain_replacement_delivery_v309 delivery
+                      ON delivery.replacement_operation_id = operation.id
+                     AND delivery.operation_id = operation.operation_id
+                     AND delivery.acceptance = 'ACCEPTED'
+                     AND delivery.raw_outcome IN ('FAILED', 'CANCELED')
+                    JOIN branch_sync_episode episode
+                      ON episode.id = operation.branch_sync_episode_id
+                     AND episode.remote_development_stage_id =
+                         operation.remote_development_stage_id
+                     AND episode.task_id = operation.task_id
+                     AND episode.task_epoch = operation.task_epoch
+                     AND episode.stage_generation = operation.stage_generation
+                     AND episode.status = 'BRAIN_REVIEW'
+                    JOIN branch_sync_effect_step step
+                      ON step.id = operation.branch_sync_effect_step_id
+                     AND step.branch_sync_episode_id = episode.id
+                     AND step.kind = 'BRAIN_REVIEW'
+                     AND step.status = 'FAILED'
+                     AND step.attempt_count = operation.semantic_attempt
+                    JOIN remote_development_stage remote
+                      ON remote.stage_id = operation.remote_development_stage_id
+                     AND remote.task_id = operation.task_id
+                     AND remote.generation = operation.stage_generation
+                     AND remote.current_head_sha = episode.old_head_sha
+                     AND remote.current_base_sha = episode.observed_base_sha
+                    WHERE operation.family = 'BRANCH'
+                      AND operation.status IN ('FAILED', 'CANCELED')
+                )
+                SELECT operation.stage_id, blocker.id AS blocker_id,
+                       failed.id AS failed_turn_id
+                FROM failed_operation operation
+                JOIN tasks task ON task.id = operation.task_id
+                JOIN task_applied_protocol_snapshot_v309 current_task
+                  ON current_task.task_id = task.id
+                 AND current_task.returned_version = (
+                     SELECT MAX(latest.returned_version)
+                     FROM task_applied_protocol_snapshot_v309 latest
+                     WHERE latest.task_id = task.id
+                       AND latest.returned_version <= task.aggregate_version)
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = operation.stage_id
+                JOIN task_current_code_subject_v230 code
+                  ON code.task_id = task.id
+                JOIN task_turn failed
+                  ON failed.id = operation.failed_turn_id
+                 AND failed.operation_id = operation.operation_id
+                JOIN task_blocker blocker
+                  ON blocker.task_id = task.id
+                 AND blocker.stage_id IS NULL
+                 AND blocker.owner_kind = 'TASK'
+                 AND blocker.owner_id = task.id
+                 AND blocker.subject_revision = failed.id
+                 AND blocker.blocker_type = 'REMOTE_REPAIR_BRAIN_FAILED'
+                 AND blocker.status = 'OPEN'
+                JOIN remote_repair_brain_failure_receipt_v309 failure
+                  ON failure.family = operation.family
+                 AND failure.task_id = task.id
+                 AND failure.task_epoch = operation.task_epoch
+                 AND failure.remote_development_stage_id = operation.stage_id
+                 AND failure.stage_generation = operation.stage_generation
+                 AND failure.task_turn_id = failed.id
+                 AND failure.operation_id = operation.operation_id
+                 AND failure.semantic_attempt = operation.semantic_attempt
+                 AND failure.execution_attempt = operation.execution_attempt
+                 AND failure.expected_code_fingerprint =
+                     operation.expected_code_fingerprint
+                 AND failure.expected_head_sha = operation.expected_head_sha
+                 AND failure.expected_base_sha = operation.expected_base_sha
+                 AND failure.blocker_id = blocker.id
+                 AND failure.raw_outcome = operation.status
+                JOIN task_brain_protocol_failure_receipt_v300 receipt
+                  ON receipt.task_id = task.id
+                 AND receipt.proof_id = blocker.id
+                 AND receipt.subject_task_epoch = operation.task_epoch
+                 AND receipt.subject_stage_id = operation.stage_id
+                 AND receipt.subject_stage_generation =
+                     operation.stage_generation
+                 AND receipt.subject_operation_id = operation.operation_id
+                 AND receipt.subject_attempt = operation.execution_attempt
+                 AND receipt.subject_expected_code_fingerprint =
+                     operation.expected_code_fingerprint
+                 AND receipt.subject_expected_head_sha =
+                     operation.expected_head_sha
+                 AND receipt.subject_expected_base_sha =
+                     operation.expected_base_sha
+                 AND receipt.returned_trunk_id = task.thread_id
+                 AND receipt.returned_lifecycle = 'ACTIVE'
+                 AND receipt.returned_epoch = task.epoch
+                 AND receipt.returned_version = failure.cleared_task_version
+                 AND receipt.returned_current_stage_id = current.stage_id
+                 AND receipt.returned_pending_operation_id IS NULL
+                WHERE task.id = ?
+                  AND operation.family = 'BRANCH'
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = operation.task_epoch
+                  AND task.aggregate_version >= failure.cleared_task_version
+                  AND current_task.returned_pending_operation_id IS NULL
+                  AND current.stage_id = operation.stage_id
+                  AND current.stage_generation = operation.stage_generation
+                  AND owner.kind = 'REMOTE_DEVELOPMENT'
+                  AND owner.generation = operation.stage_generation
+                  AND owner.completed_at_ms IS NULL
+                  AND remote.generation = operation.stage_generation
+                  AND remote.current_head_sha = operation.remote_head_sha
+                  AND remote.current_base_sha = operation.remote_base_sha
+                  AND code.code_fingerprint IS
+                      operation.expected_code_fingerprint
+                  AND code.head_sha = operation.expected_head_sha
+                  AND code.base_sha = operation.expected_base_sha
+                  AND ((operation.family = 'CI'
+                        AND operation.episode_status = 'AWAITING_PUSH_CI'
+                        AND failed.purpose = 'REMOTE_CI_BRAIN_REVIEW')
+                    OR (operation.family = 'BRANCH'
+                        AND operation.episode_status = 'BRAIN_REVIEW'
+                        AND operation.branch_step_status = 'FAILED'
+                        AND operation.branch_step_attempt =
+                            operation.semantic_attempt
+                        AND failed.purpose = 'BRANCH_SYNC_BRAIN_REVIEW'))
+                  AND failed.task_id = task.id
+                  AND failed.task_epoch = task.epoch
+                  AND failed.trigger_stage_id = operation.stage_id
+                  AND failed.trigger_stage_generation =
+                      operation.stage_generation
+                  AND failed.attempt = operation.execution_attempt
+                  AND failed.status IN ('FAILED', 'CANCELED')
+                  AND failed.expected_code_fingerprint IS
+                      operation.expected_code_fingerprint
+                  AND failed.expected_head_sha = operation.expected_head_sha
+                  AND failed.expected_base_sha = operation.expected_base_sha
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM remote_repair_brain_retry_command_v309 retry
+                      WHERE retry.task_id = task.id
+                        AND (retry.blocker_id = blocker.id
+                             OR retry.failed_turn_id = failed.id))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM task_turn live
+                      WHERE live.task_id = task.id
+                        AND live.trigger_stage_id = operation.stage_id
+                        AND live.trigger_stage_generation =
+                            operation.stage_generation
+                        AND live.purpose IN (
+                            'REMOTE_CI_BRAIN_REVIEW',
+                            'BRANCH_SYNC_BRAIN_REVIEW')
+                        AND live.status IN (
+                            'REQUESTED','QUEUED','CLAIMED','RUNNING'))
+                """, (rs, ignored) -> new TaskBrainViewData.RecoveryAction(
+                        "RETRY_REMOTE_REPAIR_BRAIN_REVIEW",
+                        rs.getString("stage_id"), rs.getString("blocker_id"),
+                        rs.getString("failed_turn_id")), taskId));
+        }
+        return actions.size() == 1 ? actions.getFirst() : null;
+    }
+
+    private boolean tableAvailable(String table)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table' AND name = ?
+                """, Integer.class, table);
+        return count != null && count == 1;
+    }
+
+    private record RecoveryCandidate(
+            TaskBrainViewData.RecoveryAction action, String subjectRevision) {}
 
     private List<TaskBrainViewData.DevPhase> devPhases(Projection row)
     {

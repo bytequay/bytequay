@@ -19,6 +19,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteStageResumeRearm
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -34,6 +35,20 @@ final class LocalTaskResumeOwner
     private final SqliteStageResumeRearmStore store;
     private final TaskCommandExecutor commands;
     private final TaskManager tasks;
+    private final LocalPublishBaseSyncRuntimeCoordinator baseSync;
+
+    @Autowired
+    LocalTaskResumeOwner(
+            SqliteStageResumeRearmStore store,
+            TaskCommandExecutor commands,
+            TaskManager tasks,
+            LocalPublishBaseSyncRuntimeCoordinator baseSync)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.commands = requireNonNull(commands, "commands is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.baseSync = requireNonNull(baseSync, "baseSync is null");
+    }
 
     LocalTaskResumeOwner(
             SqliteStageResumeRearmStore store,
@@ -43,6 +58,7 @@ final class LocalTaskResumeOwner
         this.store = requireNonNull(store, "store is null");
         this.commands = requireNonNull(commands, "commands is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.baseSync = null;
     }
 
     @Override
@@ -66,9 +82,7 @@ final class LocalTaskResumeOwner
                                 store.materializeLocalTurn(intent, now);
                         case VALIDATING -> store.materializeValidation(intent, now);
                         case BRAIN_REVIEW -> materializeBrainReview(intent, now);
-                        case LOCAL_REVIEW -> store.materializePassiveWait(
-                                intent, kind(), StageCheckpoint.LOCAL_REVIEW,
-                                now);
+                        case LOCAL_REVIEW -> materializeLocalReview(intent, now);
                         case PUBLISHING -> store.recoverPublish(intent, now);
                         default -> store.diagnose(
                                 intent, "LOCAL_RESUME_CURSOR_UNSUPPORTED",
@@ -83,6 +97,18 @@ final class LocalTaskResumeOwner
                                 "LOCAL_RESUME_PREDECESSOR_AMBIGUOUS",
                                 ambiguous.getMessage(), now));
             }
+        }
+    }
+
+    private void materializeLocalReview(
+            SqliteStageResumeRearmStore.Intent intent, Instant now)
+    {
+        store.materializePassiveWait(
+                intent, kind(), StageCheckpoint.LOCAL_REVIEW, now);
+        if (baseSync != null) {
+            baseSync.resumePausedInCommand(
+                    intent.handoffId(), intent.taskId(), intent.stageId(),
+                    intent.taskEpoch(), intent.stageGeneration(), now);
         }
     }
 

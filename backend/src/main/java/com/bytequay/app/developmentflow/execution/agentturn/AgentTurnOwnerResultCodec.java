@@ -56,11 +56,22 @@ public final class AgentTurnOwnerResultCodec
             throw new IllegalArgumentException("Agent Turn result fence is stale");
         }
         AgentTurnOperationHandler.RawResult payload;
-        try {
-            payload = reader.readValue(rawResult.payloadJson());
+        if (rawResult.outcome() == DispatchTicket.Outcome.CANCELED
+                && rawResult.payloadJson() == null) {
+            payload = new AgentTurnOperationHandler.RawResult(
+                    1, owner.id(), owner.kind(), null, null, null, null, "",
+                    0, 0, 0, null,
+                    AgentTurnOperationHandler.Disposition.PROVIDER_CANCELED,
+                    rawResult.error());
         }
-        catch (JsonProcessingException | IllegalArgumentException e) {
-            throw new IllegalArgumentException("Agent Turn result payload is invalid", e);
+        else {
+            try {
+                payload = reader.readValue(rawResult.payloadJson());
+            }
+            catch (JsonProcessingException | IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Agent Turn result payload is invalid", e);
+            }
         }
         if (!owner.id().equals(payload.turnId()) || owner.kind() != payload.ownerKind()) {
             throw new IllegalArgumentException("Agent Turn result owner is stale");
@@ -147,9 +158,11 @@ public final class AgentTurnOwnerResultCodec
             if (owner.kind() != DispatchTicket.OwnerKind.STAGE_TURN
                     || outcome != DispatchTicket.Outcome.SUCCEEDED
                     || !Objects.equals(expectedBaseSha, output.baseSha())
-                    || !Objects.equals(expectedBaseSha, output.mergeBaseSha())) {
+                    || !Objects.equals(expectedBaseSha, output.mergeBaseSha())
+                    || output.sourceTreeSha() == null
+                    || output.resultTreeSha() == null) {
                 throw new IllegalArgumentException(
-                        "Agent Turn output is not based on its exact frozen base");
+                        "Agent Turn output lacks exact frozen base/tree proof");
             }
             return output;
         }

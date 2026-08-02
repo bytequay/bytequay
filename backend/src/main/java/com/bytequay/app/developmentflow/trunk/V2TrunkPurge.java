@@ -227,6 +227,21 @@ public final class V2TrunkPurge
                     WHERE task.thread_id = ? AND task.workflow_version = 'V2')
                 """, trunkId);
         jdbc.update("""
+                DELETE FROM local_stage_turn_delivery_receipt
+                WHERE stage_turn_id IN (
+                    SELECT turn.id
+                    FROM stage_turn turn
+                    JOIN stage owner ON owner.id = turn.stage_id
+                    JOIN tasks task ON task.id = owner.task_id
+                    WHERE task.thread_id = ? AND task.workflow_version = 'V2')
+                """, trunkId);
+        jdbc.update("""
+                DELETE FROM local_stage_turn_request
+                WHERE task_id IN (
+                    SELECT id FROM tasks
+                    WHERE thread_id = ? AND workflow_version = 'V2')
+                """, trunkId);
+        jdbc.update("""
                 DELETE FROM stage_initial_result_request
                 WHERE task_id IN (
                     SELECT id FROM tasks

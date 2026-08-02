@@ -41,6 +41,7 @@ import com.bytequay.app.service.review.TaskReviewSnapshotRuntime;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -110,8 +111,7 @@ class TestV2LocalReviewControl
             throws Exception
     {
         Fixture fixture = fixture("task-review-delivery.db");
-        Flyway.configure().dataSource(fixture.jdbc().getDataSource())
-                .target("286").load().migrate();
+        Flyway.configure().dataSource(fixture.jdbc().getDataSource()).load().migrate();
         seedTaskReviewSnapshot(fixture.jdbc());
 
         ObjectMapper json = new ObjectMapper();
@@ -147,9 +147,11 @@ class TestV2LocalReviewControl
             round.set(inserted);
             fixture.jdbc().update("""
                     INSERT INTO agent_run(
-                        id, kind, review_round_id, status, iterations,
-                        started_at_ms)
-                    VALUES (?, 'panel_review', ?, 'RUNNING', 0, 30)
+                        id, kind, source, review_round_id, status,
+                        started_at_ms, finished_at_ms, outcome)
+                    VALUES (?, 'review_compatibility_header',
+                        'v2_review_assignment_turn_fk', ?, 'succeeded',
+                        30, 30, 'completed')
                     """, inserted.agentRunId(), inserted.id());
             fixture.jdbc().update("""
                     INSERT INTO review_round(
@@ -279,10 +281,23 @@ class TestV2LocalReviewControl
                 .isEqualTo("DISPATCHED");
         assertThat(fixture.jdbc().queryForObject("""
                 SELECT COUNT(*) FROM dispatch_ticket
+                JOIN stage_turn ON stage_turn.id = dispatch_ticket.owner_id
                 WHERE owner_kind = 'STAGE_TURN'
                   AND callback_route = 'STAGE_TURN_RESULT'
                   AND writer_required = 1
+                  AND stage_turn.purpose = 'ADDRESS_LOCAL_FEEDBACK'
                 """, Integer.class)).isOne();
+        String writerSystemPrompt = new ObjectMapper().readTree(
+                fixture.jdbc().queryForObject("""
+                        SELECT launch_input FROM stage_turn WHERE id = ?
+                        """, String.class, first.turnId()))
+                .path("systemPrompt").asText();
+        assertThat(writerSystemPrompt)
+                .contains("Return exactly one raw JSON object")
+                .contains("first non-whitespace character must be '{'")
+                .contains("last non-whitespace character must be '}'")
+                .contains("Do not wrap it in Markdown fences")
+                .contains("or add prose before or after it");
 
         V2LocalReviewControl restarted = fixture.restartedControl();
         V2LocalReviewControl.Submission duplicate = restarted.submit(
@@ -449,8 +464,8 @@ class TestV2LocalReviewControl
                 WHERE thread_id = ? ORDER BY revision
                 """, String.class, comment.id()))
                 .containsExactly(
-                        "SUPERSEDED|fp-1|report-1",
-                        "PENDING|fp-2|report-2");
+                        "SUPERSEDED|fingerprint-1|report-1",
+                        "PENDING|fingerprint-2|report-2");
         assertThat(fixture.jdbc().queryForObject("""
                 SELECT COUNT(*) FROM task_blocker
                 WHERE blocker_type = 'LOCAL_FEEDBACK_OPEN' AND status = 'OPEN'
@@ -687,13 +702,19 @@ class TestV2LocalReviewControl
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name) + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         try (Connection connection = DriverManager.getConnection(url)) {
             execute(connection, "PRAGMA foreign_keys = ON");
-            TestDevelopmentFlowLocalPublishProtocolMigration
-                    .seedApprovedLocalSubject(connection);
+            DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk(connection);
+            DevelopmentFlowRemoteProtocolFixture.seedLocalDevelopmentTask(
+                    connection, 1);
+            DevelopmentFlowRemoteProtocolFixture.seedApprovedEvidence(
+                    connection, 1);
+            execute(connection, """
+                    UPDATE pr SET title = 'Implement feature'
+                    WHERE id = 'pr-1'
+                    """);
         }
-        Flyway.configure().dataSource(url, "", "").target("259").load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
@@ -746,7 +767,7 @@ class TestV2LocalReviewControl
                     start_options_json, status, requested_at_ms)
                 VALUES ('operation-1', 'review-1', 'pr-1', NULL, NULL,
                     'main', 'Implement feature', 'Description', 'task-1', 1,
-                    '/tmp/task-1', 'fp-1', 'head-1', 'base-1',
+                    '/tmp/task-1', 'fingerprint-1', 'head-1', 'base-1',
                     '{}', 'REQUESTED', 21)
                 """);
     }
@@ -756,12 +777,12 @@ class TestV2LocalReviewControl
         return new SnapshotResult(
                 1, "operation-1", "review-1", "pr-1", "task-1",
                 null, null, "main", "Implement feature", "Description", 1,
-                "/tmp/task-1", "fp-1", "head-1", "base-1", true,
+                "/tmp/task-1", "fingerprint-1", "head-1", "base-1", true,
                 "diff --git a/src/Main.java b/src/Main.java\n+change\n",
                 List.of(new DiffFile(
                         "src/Main.java", "M", 0, 0, null)),
                 Map.of("src/Main.java", "change\n"),
-                "fp-1", "head-1", 22, 23);
+                "fingerprint-1", "head-1", 22, 23);
     }
 
     private static Object reviewTurnPrompt()
@@ -778,7 +799,7 @@ class TestV2LocalReviewControl
     {
         return new DispatchTicket.OperationFence(
                 1L, null, null, "operation-1", 1,
-                "fp-1", "head-1", "base-1");
+                "fingerprint-1", "head-1", "base-1");
     }
 
     private static void seedReviewSession(JdbcTemplate jdbc, String reviewId)
@@ -805,10 +826,12 @@ class TestV2LocalReviewControl
     {
         jdbc.update("""
                 INSERT INTO agent_run(
-                    id, kind, review_round_id, status, iterations,
-                    started_at_ms)
-                VALUES (?, 'panel_review', ?, 'QUEUED', 0, ?)
-                """, runId, roundId, createdAt);
+                    id, kind, source, review_round_id, status,
+                    started_at_ms, finished_at_ms, outcome)
+                VALUES (?, 'review_compatibility_header',
+                    'v2_review_assignment_turn_fk', ?, 'succeeded',
+                    ?, ?, 'completed')
+                """, runId, roundId, createdAt, createdAt);
         jdbc.update("""
                 INSERT INTO review_round(
                     id, session_id, agent_run_id, trigger, scope,
@@ -834,11 +857,6 @@ class TestV2LocalReviewControl
             String findingId)
     {
         String objectiveId = "objective-" + findingId;
-        jdbc.update("""
-                UPDATE agent_run
-                SET status = 'SUCCEEDED', iterations = 1, finished_at_ms = 22
-                WHERE id = ? AND review_round_id = ?
-                """, runId, roundId);
         jdbc.update("""
                 UPDATE review_round
                 SET end_commit = 'head-1', status = 'COMPLETED',
@@ -876,6 +894,7 @@ class TestV2LocalReviewControl
     }
 
     private static void advanceHead(JdbcTemplate jdbc)
+            throws Exception
     {
         jdbc.update("""
                 INSERT INTO stage_turn(
@@ -883,11 +902,116 @@ class TestV2LocalReviewControl
                     operation_id, attempt, task_epoch,
                     expected_code_fingerprint, expected_head_sha,
                     expected_base_sha, delivery_lane, launch_input,
-                    requested_at_ms, started_at_ms, finished_at_ms)
+                    requested_at_ms)
                 VALUES ('development-turn-2', 'local-stage-1', 1,
-                    'IMPLEMENT_LOCAL_DEVELOPMENT', 'SUCCEEDED',
+                    'IMPLEMENT_LOCAL_PLAN', 'QUEUED',
                     'development-turn-operation-2', 1, 1,
-                    'fp-1', 'head-1', 'base-1', 'CLI', 'implement', 30, 30, 31)
+                    'fingerprint-1', 'head-1', 'base-1', 'API', '{}', 30)
+                """);
+        jdbc.update("""
+                INSERT INTO local_stage_turn_request(
+                    id, command_id, stage_turn_id, task_id,
+                    local_development_stage_id, task_epoch, stage_generation,
+                    kind, queue_mode, prompt_digest, requested_by,
+                    requested_at_ms)
+                VALUES ('development-request-2', 'development-command-2',
+                    'development-turn-2', 'task-1', 'local-stage-1', 1, 1,
+                    'IMPLEMENTATION', 'IMMEDIATE', ?, 'fixture', 30)
+                """, "e".repeat(64));
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, writer_required, workspace_id, trunk_id,
+                    task_id, task_epoch, stage_id, stage_generation, attempt,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, created_at_ms)
+                VALUES ('development-ticket-2', 'development-turn-operation-2',
+                    'EXECUTE_STAGE_TURN', 'AGENT_TURN', 'STAGE_TURN',
+                    'development-turn-2', 'STAGE_TURN_RESULT', 2, 1, 1,
+                    'workspace-1', 'trunk-1', 'task-1', 1, 'local-stage-1', 1,
+                    1, 'fingerprint-1', 'head-1', 'base-1', 'REQUESTED', 30)
+                """);
+
+        ObjectMapper json = new ObjectMapper();
+        var output = json.createObjectNode();
+        output.put("codeFingerprint", "fingerprint-2");
+        output.put("headSha", "head-2");
+        output.put("baseSha", "base-1");
+        output.put("clean", true);
+        output.put("mergeBaseSha", "base-1");
+        output.put("sourceTreeSha", "source-tree-2");
+        output.put("resultTreeSha", "result-tree-2");
+        output.put("sourceHeadMergeBaseSha", "head-1");
+        output.put("candidateParentSha", "head-1");
+        output.put("branchName", "dev/task-1");
+        var payload = json.createObjectNode();
+        payload.put("schemaVersion", 1);
+        payload.put("turnId", "development-turn-2");
+        payload.put("ownerKind", "STAGE_TURN");
+        payload.put("purpose", "IMPLEMENT_LOCAL_PLAN");
+        payload.put("transport", "API");
+        payload.put("provider", "openai");
+        payload.put("finalText", "new head");
+        payload.put("inputTokens", 1);
+        payload.put("outputTokens", 1);
+        payload.put("costUsdMilli", 0);
+        payload.put("disposition", "PROVIDER_SUCCEEDED");
+        payload.set("outputCodeSubject", output);
+        var writerFence = json.createObjectNode();
+        writerFence.put("worktreePath", "/tmp/task-1");
+        writerFence.put("taskId", "task-1");
+        writerFence.put("operationId", "development-turn-operation-2");
+        writerFence.put("taskEpoch", 1);
+        writerFence.put("fencingToken", 1);
+        var evidence = json.createObjectNode();
+        evidence.put("schemaVersion", 1);
+        evidence.put("disposition", "PROVIDER_SUCCEEDED");
+        evidence.set("writerFence", writerFence);
+        evidence.set("outputCodeSubject", output);
+        var fence = json.createObjectNode();
+        fence.put("taskEpoch", 1);
+        fence.put("stageId", "local-stage-1");
+        fence.put("stageGeneration", 1);
+        fence.put("operationId", "development-turn-operation-2");
+        fence.put("attempt", 1);
+        fence.put("expectedCodeFingerprint", "fingerprint-1");
+        fence.put("expectedHeadSha", "head-1");
+        fence.put("expectedBaseSha", "base-1");
+        var raw = json.createObjectNode();
+        raw.set("fence", fence);
+        raw.put("outcome", "SUCCEEDED");
+        raw.put("payloadJson", payload.toString());
+        raw.put("evidenceJson", evidence.toString());
+        raw.putNull("error");
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = 1, status = 'RESULT_PENDING',
+                    infrastructure_attempts = 1, started_at_ms = 30,
+                    pending_result_outcome = 'SUCCEEDED',
+                    pending_result_payload = ?, pending_result_evidence = ?,
+                    pending_result_task_epoch = 1,
+                    pending_result_stage_id = 'local-stage-1',
+                    pending_result_stage_generation = 1,
+                    pending_result_operation_id = 'development-turn-operation-2',
+                    pending_result_attempt = 1,
+                    pending_result_expected_code_fingerprint = 'fingerprint-1',
+                    pending_result_expected_head_sha = 'head-1',
+                    pending_result_expected_base_sha = 'base-1'
+                WHERE id = 'development-ticket-2'
+                """, payload.toString(), evidence.toString());
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    status, started_at_ms, finished_at_ms, raw_result)
+                VALUES ('development-execution-2', 'development-ticket-2', 1,
+                    'openai', 'SUCCEEDED', 30, 31, ?)
+                """, raw.toString());
+        jdbc.update("""
+                UPDATE stage_turn
+                SET status = 'SUCCEEDED', started_at_ms = 30,
+                    finished_at_ms = 31
+                WHERE id = 'development-turn-2'
                 """);
         jdbc.update("""
                 INSERT INTO dev_report(
@@ -900,10 +1024,47 @@ class TestV2LocalReviewControl
                     source_base_sha)
                 VALUES ('report-2', 'task-1', 'new head', 31, 'V2',
                     'local-stage-1', 1, 1, 'development-turn-2', 2,
-                    'fp-2', 'head-2', 'base-1', 'change code', 'one commit',
+                    'fingerprint-2', 'head-2', 'base-1', 'change code', 'one commit',
                     'one file', 'pending', 'none', 'none', 'turn:2',
-                    'fp-1', 'head-1', 'base-1')
+                    'fingerprint-1', 'head-1', 'base-1')
                 """);
+        jdbc.update("""
+                INSERT INTO validation_operation(
+                    id, local_development_stage_id, task_id, task_epoch,
+                    stage_generation, dev_report_id, operation_id,
+                    semantic_attempt, code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, requested_at_ms)
+                VALUES ('validation-operation-2', 'local-stage-1', 'task-1', 1,
+                    1, 'report-2', 'validation-operation-id-2', 1,
+                    'fingerprint-2', 'head-2', 'base-1', 'REQUESTED', 31)
+                """);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, writer_required, workspace_id, trunk_id,
+                    task_id, task_epoch, stage_id, stage_generation, attempt,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, created_at_ms)
+                VALUES ('validation-ticket-2', 'validation-operation-id-2',
+                    'VALIDATE_LOCAL_DEVELOPMENT', 'VALIDATION', 'STAGE',
+                    'local-stage-1', 'STAGE_VALIDATION_RESULT', 4, 1, 0,
+                    'workspace-1', 'trunk-1', 'task-1', 1, 'local-stage-1', 1,
+                    1, 'fingerprint-2', 'head-2', 'base-1', 'REQUESTED', 31)
+                """);
+        jdbc.update("""
+                UPDATE validation_operation SET status = 'DISPATCHED'
+                WHERE id = 'validation-operation-2'
+                """);
+        jdbc.update("""
+                INSERT INTO local_stage_turn_delivery_receipt(
+                    stage_turn_id, operation_id, raw_outcome,
+                    raw_result_digest, acceptance, dev_report_id,
+                    validation_operation_id, recorded_at_ms)
+                VALUES ('development-turn-2', 'development-turn-operation-2',
+                    'SUCCEEDED', ?, 'ACCEPTED', 'report-2',
+                    'validation-operation-2', 31)
+                """, "f".repeat(64));
     }
 
     private static void succeedFeedbackTurn(Fixture fixture, String turnId)

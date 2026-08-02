@@ -301,6 +301,7 @@ class TestV2StageUserWaitContinuation
                 StageKind.REMOTE_DEVELOPMENT,
                 StageCheckpoint.WAITING_CI, null, true, remote);
         RemoteRepairTurnRuntime repairs = harness.remoteRepairs().getObject();
+        when(repairs.prepareCiSteeringInCommand(any())).thenReturn(true);
         when(repairs.admitSteeringInCommand(any())).thenReturn(
                 new SqliteRemoteRepairTurnStore.TurnRequest(
                         "CI", "repair-row", "episode-1", "step-1",
@@ -315,6 +316,7 @@ class TestV2StageUserWaitContinuation
 
         assertThat(accepted.status()).isEqualTo("ADMITTED");
         assertThat(accepted.successorTurnId()).isEqualTo("remote-next");
+        verify(repairs).prepareCiSteeringInCommand(any());
         verify(repairs).admitSteeringInCommand(any());
         verify(harness.local(), never())
                 .admitUserWaitContinuationInCommand(any(), anyLong());

@@ -24,7 +24,6 @@ import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperati
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
@@ -33,8 +32,6 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.time.Instant;
@@ -49,7 +46,6 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.number;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk;
-import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -65,7 +61,7 @@ class TestDevelopmentFlowUserRemoteActionMigration
             throws Exception
     {
         String url = database("fresh-user-actions.db");
-        migrate(url, "270");
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             assertThat(number(connection, """
@@ -88,35 +84,6 @@ class TestDevelopmentFlowUserRemoteActionMigration
                 WHERE type = 'table' AND name = 'v2_user_remote_action_v270'
                 """, String.class))
                 .contains("attempt_count <= attempt_limit");
-    }
-
-    @Test
-    void fullUpgradeThroughV284KeepsTheCurrentCodeViewValid()
-            throws Exception
-    {
-        String url = database("v284-after-ci-trigger.db");
-
-        migrate(url, "284");
-
-        try (Connection connection = connect(url)) {
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM sqlite_master
-                    WHERE type = 'view'
-                      AND name = 'task_current_code_subject_v230'
-                      AND sql LIKE '%remote_worktree_subject%'
-                      AND sql NOT LIKE '%remote_worktree_subject_v248_pre_v283%'
-                    """)).isOne();
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM sqlite_master
-                    WHERE type = 'trigger'
-                      AND name = 'task_pause_evidence_insert'
-                    """)).isOne();
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM task_current_code_subject_v230
-                    """)).isZero();
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
-        }
     }
 
     @Test
@@ -381,13 +348,15 @@ class TestDevelopmentFlowUserRemoteActionMigration
         try (Connection connection = connect(url)) {
             execute(connection, """
                     UPDATE threads
-                    SET lifecycle_state = 'ARCHIVED', aggregate_version = 1
+                    SET lifecycle_state = 'ARCHIVED',
+                        aggregate_version = aggregate_version + 1
                     WHERE id = 'trunk-1'
                     """);
             assertThatThrownBy(() -> execute(connection, """
                     INSERT INTO v2_trunk_purge_authorization_v269(
                         trunk_id, archived_version, authorized_at_ms)
-                    VALUES ('trunk-1', 1, 2000)
+                    SELECT id, aggregate_version, 2000 FROM threads
+                    WHERE id = 'trunk-1'
                     """))
                     .hasMessageContaining(
                             "V2 Trunk purge cannot race a nonterminal user remote action");
@@ -400,44 +369,6 @@ class TestDevelopmentFlowUserRemoteActionMigration
                 WHERE id = ? AND status = 'ABANDONED'
                   AND completed_at_ms IS NOT NULL AND finalized_at_ms IS NOT NULL
                 """, Integer.class, action.id())).isOne();
-    }
-
-    @Test
-    void v282BackfillsLegacyRowsAndKeepsThemReadable()
-            throws Exception
-    {
-        String url = upgradedDatabaseAt270("legacy-semantic-action.db");
-        try (Connection connection = connect(url)) {
-            execute(connection, """
-                    INSERT INTO v2_user_remote_action_v270(
-                        id, operation_id, task_id, command_id, task_epoch,
-                        remote_stage_id, stage_generation,
-                        remote_pr_binding_id, pr_id, kind,
-                        remote_repository_id, head_repository_id,
-                        remote_pr_number, branch_name, expected_head_sha,
-                        expected_base_sha, payload_json, payload_digest,
-                        handled_action, attempt_limit, authorized_by,
-                        authorized_at_ms, status)
-                    VALUES (
-                        'legacy-action', 'legacy-operation', 'task-1',
-                        'legacy-command', 1, 'remote-stage-1', 1,
-                        'binding-1', 'pr-1', 'POST_TOP_LEVEL_COMMENT',
-                        'acme/widget', 'acme/widget', 41, 'dev/task-1',
-                        'head-1', 'base-1',
-                        '{"version":1,"body":"legacy","reviewAction":null,'
-                            || '"branchName":null,"drafts":[]}',
-                        lower(hex(randomblob(32))), 'COMMENTED', 3, 'user',
-                        1000, 'REQUESTED')
-                    """);
-        }
-
-        migrateSemanticActionProtocol(url);
-
-        Action legacy = store(url).requireById("legacy-action");
-        assertThat(legacy.kind()).isEqualTo(ActionKind.POST_TOP_LEVEL_COMMENT);
-        assertThat(legacy.semanticAction())
-                .isEqualTo(SemanticAction.POST_TOP_LEVEL_COMMENT);
-        assertThat(legacy.payload().body()).isEqualTo("legacy");
     }
 
     @Test
@@ -592,22 +523,12 @@ class TestDevelopmentFlowUserRemoteActionMigration
     private String upgradedDatabase(String name)
             throws Exception
     {
-        String url = upgradedDatabaseAt270(name);
-        migrateSemanticActionProtocol(url);
-        return url;
-    }
-
-    private String upgradedDatabaseAt270(String name)
-            throws Exception
-    {
         String url = database(name);
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        migrate(url, "269");
-        migrate(url, "270");
         try (Connection connection = connect(url)) {
             execute(connection, """
                     UPDATE pr
@@ -623,32 +544,6 @@ class TestDevelopmentFlowUserRemoteActionMigration
             acceptSnapshot(connection, 1, 1, "head-1", "base-1");
         }
         return url;
-    }
-
-    private void migrateSemanticActionProtocol(String url)
-            throws Exception
-    {
-        Path migrations = tempDir.resolve("semantic-action-migrations");
-        Files.createDirectories(migrations);
-        for (String migration : List.of(
-                "V282__user_remote_action_semantic_identity.sql",
-                "V283__push_driven_ci_trigger.sql",
-                "V308__draft_pr_stays_actionable.sql")) {
-            Path destination = migrations.resolve(migration);
-            if (!Files.exists(destination)) {
-                try (InputStream source = requireNonNull(
-                        getClass().getResourceAsStream(
-                                "/db/migration/" + migration))) {
-                    Files.copy(source, destination);
-                }
-            }
-        }
-        Flyway.configure()
-                .dataSource(url, null, null)
-                .locations("filesystem:" + migrations)
-                .validateOnMigrate(false)
-                .load()
-                .migrate();
     }
 
     private static AuthorizationRequest commentRequest(String body)

@@ -53,8 +53,9 @@ export function buildEmptyBrainView(taskId: string): TaskBrainViewData {
       health: { behindBy: 0, mergeable: true, checksGreen: true },
       lastRunId: null, lastCheckedAt: null,
     },
-    liveRound: null,
-    devPhases: [],
+  liveRound: null,
+  devPhases: [],
+  recovery: null,
   };
 }
 
@@ -283,5 +284,6 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     { key: 'validation', status: 'done', meta: null, badgeRunId: null },
     { key: 'brainReview', status: 'future', meta: 'next', badgeRunId: null },
   ],
+  recovery: null,
   };
 }

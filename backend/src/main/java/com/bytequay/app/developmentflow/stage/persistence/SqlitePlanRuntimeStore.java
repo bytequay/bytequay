@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage.persistence;
 
+import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.PlanStageManager;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
 import static java.util.Objects.requireNonNull;
 
 /** Exact persistence boundary for the V2 Plan TaskTurn protocol. */
@@ -429,6 +431,143 @@ public class SqlitePlanRuntimeStore
                             + rows.size());
         }
         return rows.getFirst();
+    }
+
+    public Optional<PlanDraftRetryReceipt> findPlanDraftRetryReceipt(
+            String taskId, String commandId)
+    {
+        return jdbc.query("""
+                SELECT retry.command_id, retry.actor, retry.reason,
+                    retry.task_id, retry.expected_task_epoch, retry.stage_id,
+                    retry.expected_stage_generation, retry.expected_stage_version,
+                    retry.returned_stage_version, retry.blocker_id,
+                    retry.predecessor_turn_id, retry.subject_operation_id,
+                    retry.replacement_turn_id, retry.pending_operation_id,
+                    retry.replacement_ticket_id, retry.requested_at_ms
+                FROM stage_plan_draft_retry_request_v297 retry
+                WHERE retry.task_id = ? AND retry.command_id = ?
+                """, (rs, row) -> planDraftRetryReceipt(rs), taskId, commandId)
+                .stream().findFirst();
+    }
+
+    public PlanDraftRetryContext requirePlanDraftRetryContext(
+            String taskId, String failedTurnId, String blockerId)
+    {
+        List<PlanDraftRetryContext> rows = jdbc.query("""
+                SELECT task.id AS task_id, task.epoch AS task_epoch,
+                    task.thread_id AS trunk_id, trunk.workspace_id,
+                    stage.id AS stage_id, stage.generation AS stage_generation,
+                    stage.version AS stage_version, blocker.id AS blocker_id,
+                    blocker.subject_revision AS blocker_subject_revision,
+                    failed.id AS failed_turn_id,
+                    failed.operation_id AS failed_operation_id,
+                    failed.attempt AS failed_attempt,
+                    failed.expected_code_fingerprint AS code_fingerprint,
+                    failed.expected_head_sha AS head_sha,
+                    failed.expected_base_sha AS base_sha,
+                    COALESCE(
+                        json_extract(failed.launch_input, '$.fallbackPrompt'),
+                        json_extract(failed.launch_input, '$.prompt'))
+                        AS frozen_prompt,
+                    context.work_model_snapshot, brain.provider, brain.model,
+                    brain.role_skill, code.worktree_path
+                FROM tasks task
+                JOIN threads trunk ON trunk.id = task.thread_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                JOIN plan_stage plan ON plan.stage_id = stage.id
+                JOIN task_blocker blocker
+                  ON blocker.task_id = task.id AND blocker.stage_id = stage.id
+                JOIN task_turn failed ON failed.id = ?
+                JOIN stage_plan_terminal_result terminal
+                  ON terminal.stage_id = stage.id
+                 AND terminal.proof_id = failed.id
+                 AND terminal.subject_operation_id = failed.operation_id
+                JOIN plan_task_turn_delivery_receipt delivery
+                  ON delivery.task_turn_id = failed.id
+                 AND delivery.operation_id = failed.operation_id
+                JOIN task_creation_context context ON context.task_id = task.id
+                JOIN task_brain brain ON brain.task_id = task.id
+                JOIN task_code_identity code ON code.task_id = task.id
+                JOIN task_current_code_subject_v230 subject
+                  ON subject.task_id = task.id
+                WHERE task.id = ? AND blocker.id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND current.stage_generation = stage.generation
+                  AND stage.kind = 'PLAN'
+                  AND stage.checkpoint = 'DRAFTING'
+                  AND stage.completed_at_ms IS NULL
+                  AND stage.end_reason IS NULL
+                  AND plan.task_id = task.id
+                  AND plan.generation = stage.generation
+                  AND plan.opened_for_epoch = task.epoch
+                  AND blocker.owner_kind = 'STAGE'
+                  AND blocker.owner_id = stage.id
+                  AND blocker.blocker_type = 'OPERATION_FAILED'
+                  AND blocker.status = 'OPEN'
+                  AND (blocker.subject_revision = failed.id
+                    OR blocker.subject_revision IS NULL)
+                  AND 1 = (
+                      SELECT COUNT(*)
+                      FROM task_blocker open_failure
+                      WHERE open_failure.task_id = task.id
+                        AND open_failure.stage_id = stage.id
+                        AND open_failure.owner_kind = 'STAGE'
+                        AND open_failure.owner_id = stage.id
+                        AND open_failure.blocker_type = 'OPERATION_FAILED'
+                        AND open_failure.status = 'OPEN')
+                  AND failed.task_id = task.id
+                  AND failed.task_epoch = task.epoch
+                  AND failed.trigger_stage_id = stage.id
+                  AND failed.trigger_stage_generation = stage.generation
+                  AND failed.purpose = 'PLAN_DRAFT'
+                  AND failed.status = 'FAILED'
+                  AND failed.expected_code_fingerprint =
+                      subject.code_fingerprint
+                  AND failed.expected_head_sha = subject.head_sha
+                  AND failed.expected_base_sha = subject.base_sha
+                  AND terminal.cause = 'PLAN_DRAFT_FAILED'
+                  AND terminal.checkpoint = 'DRAFTING'
+                  AND terminal.returned_stage_version = stage.version
+                  AND delivery.acceptance = 'ACCEPTED'
+                  AND delivery.domain_result IN (
+                      'PROTOCOL_BLOCKED', 'TURN_FAILED')
+                """, (rs, row) -> new PlanDraftRetryContext(
+                        new BrainLaunchContext(
+                                rs.getString("task_id"),
+                                rs.getString("trunk_id"),
+                                rs.getString("workspace_id"),
+                                rs.getString("work_model_snapshot"),
+                                rs.getString("provider"),
+                                rs.getString("model"),
+                                rs.getString("role_skill"),
+                                rs.getString("worktree_path")),
+                        rs.getLong("task_epoch"), rs.getString("stage_id"),
+                        rs.getLong("stage_generation"),
+                        rs.getLong("stage_version"),
+                        rs.getString("blocker_id"),
+                        rs.getString("blocker_subject_revision"),
+                        rs.getString("failed_turn_id"),
+                        rs.getString("failed_operation_id"),
+                        rs.getInt("failed_attempt"),
+                        rs.getString("code_fingerprint"),
+                        rs.getString("head_sha"), rs.getString("base_sha"),
+                        rs.getString("frozen_prompt")),
+                failedTurnId, taskId, blockerId);
+        if (rows.size() != 1) {
+            throw new CommandRejectedException(
+                    INVALID_STATE,
+                    "Plan draft recovery target is stale, unrelated, or ambiguous");
+        }
+        PlanDraftRetryContext context = rows.getFirst();
+        if (context.blockerSubjectRevision() == null
+                && !blockerId.equals(id("plan-turn-blocker", failedTurnId))) {
+            throw new CommandRejectedException(
+                    INVALID_STATE,
+                    "Legacy Plan blocker does not match its failed TaskTurn");
+        }
+        return context;
     }
 
     public Optional<ReviewSubmission> findReviewSubmission(String turnId)
@@ -977,11 +1116,12 @@ public class SqlitePlanRuntimeStore
         jdbc.update("""
                 INSERT INTO task_blocker(
                     id, task_id, stage_id, owner_kind, owner_id,
-                    blocker_type, status, payload_json, opened_at_ms)
-                VALUES (?, ?, ?, 'STAGE', ?, ?, 'OPEN', ?, ?)
+                    subject_revision, blocker_type, status, payload_json,
+                    opened_at_ms)
+                VALUES (?, ?, ?, 'STAGE', ?, ?, ?, 'OPEN', ?, ?)
                 """,
                 id("plan-turn-blocker", context.turnId()), context.taskId(),
-                context.stageId(), context.stageId(),
+                context.stageId(), context.stageId(), context.turnId(),
                 required(blockerType, "blockerType"),
                 "{\"message\":" + quote(description) + "}",
                 openedAt.toEpochMilli());
@@ -1553,6 +1693,25 @@ public class SqlitePlanRuntimeStore
                 instant(rs, "recorded_at_ms"));
     }
 
+    private static PlanDraftRetryReceipt planDraftRetryReceipt(ResultSet rs)
+            throws SQLException
+    {
+        return new PlanDraftRetryReceipt(
+                rs.getString("command_id"), rs.getString("actor"),
+                rs.getString("reason"), rs.getString("task_id"),
+                rs.getLong("expected_task_epoch"), rs.getString("stage_id"),
+                rs.getLong("expected_stage_generation"),
+                rs.getLong("expected_stage_version"),
+                rs.getLong("returned_stage_version"),
+                rs.getString("blocker_id"),
+                rs.getString("predecessor_turn_id"),
+                rs.getString("subject_operation_id"),
+                rs.getString("replacement_turn_id"),
+                rs.getString("pending_operation_id"),
+                rs.getString("replacement_ticket_id"),
+                instant(rs, "requested_at_ms"));
+    }
+
     private static String concernSummary(String concernsJson)
     {
         return "[]".equals(concernsJson) ? null : concernsJson;
@@ -1676,6 +1835,48 @@ public class SqlitePlanRuntimeStore
             String draftOperationId,
             String draftTicketId,
             Instant recordedAt) {}
+
+    public record PlanDraftRetryContext(
+            BrainLaunchContext brain,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            long stageVersion,
+            String blockerId,
+            String blockerSubjectRevision,
+            String failedTurnId,
+            String failedOperationId,
+            int failedAttempt,
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            String frozenPrompt)
+    {
+        public ResultFence failedFence()
+        {
+            return new ResultFence(
+                    taskEpoch, stageId, stageGeneration, failedOperationId,
+                    failedAttempt, codeFingerprint, headSha, baseSha);
+        }
+    }
+
+    public record PlanDraftRetryReceipt(
+            String commandId,
+            String actor,
+            String reason,
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            long expectedStageVersion,
+            long returnedStageVersion,
+            String blockerId,
+            String failedTurnId,
+            String failedOperationId,
+            String replacementTurnId,
+            String replacementOperationId,
+            String replacementTicketId,
+            Instant requestedAt) {}
 
     public record TurnRequest(
             String turnId,

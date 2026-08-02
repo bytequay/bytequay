@@ -102,6 +102,8 @@ public final class TaskPolicyRevisionRedriver
                       AND EXISTS (
                         SELECT 1
                         FROM remote_development_stage remote
+                        JOIN remote_pr_snapshot snapshot
+                          ON snapshot.id = remote.accepted_snapshot_id
                         JOIN task_automation_policy policy
                           ON policy.task_id = task.id
                          AND policy.revision = (
@@ -116,6 +118,7 @@ public final class TaskPolicyRevisionRedriver
                          AND readiness.base_sha = remote.current_base_sha
                         WHERE remote.stage_id = owner.id
                           AND remote.generation = owner.generation
+                          AND snapshot.merge_queue_capability <> 'UNKNOWN'
                           AND (
                             readiness.id IS NULL
                             OR (owner.checkpoint = 'WAITING_REMOTE_REVIEW'

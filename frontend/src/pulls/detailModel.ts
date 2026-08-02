@@ -133,6 +133,8 @@ export type TimelineItem =
       name: string | null; trigger: string | null }
   | { kind: 'ci-harness'; id: string; at: number; time: string; message: string;
       phase: string | null; status: string | null; sha: string | null }
+  | { kind: 'milestone'; id: string; at: number; time: string; label: string;
+      tone: 'neutral' | 'attention' | 'success'; sha: string | null }
   | { kind: 'review-activity'; id: string; at: number; time: string; author: string;
       activity: 'started' | 'addressing-started' | 'failed'; scope: TimelineReviewScope;
       iteration: number | null; roundId: string | null; reason: string | null }
@@ -210,14 +212,15 @@ function duplicateLocalReviewIds(bundle: LocalPRBundle): Set<string> {
  * Maps the local timeline + comments to the template's card shapes: commit
  * rows, review lifecycle rows, review cards, local conversation threads,
  * remote PR-level comment cards, aggregate CI transitions, sparse local CI
- * Harness milestones, and a synthetic merged row. Event types with no template
- * counterpart (amend/branch/status/follow-up/plan-finalized, plus `comment`
+ * Harness and V2 lifecycle milestones, and a synthetic merged row. Event types with no template
+ * counterpart (amend/branch/follow-up/plan-finalized, plus `comment`
  * events which render from `comments`) are omitted.
  */
 export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
   const seenCommits = new Set<string>();
   let lastAggregateCi: string | null = null;
+  let hasMergedEvent = false;
   const remoteCommentIds = new Map<string, number>();
   const submittedCommentIds = activelySubmittedCommentIds(bundle.timeline);
   const duplicateReviews = duplicateLocalReviewIds(bundle);
@@ -262,6 +265,53 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
       });
       continue;
     }
+    if (event.eventType === 'status') {
+      const target = str(event.payload, 'to');
+      if (target === 'local-open') {
+        items.push({
+          kind: 'milestone', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          label: 'Development completed · local review opened', tone: 'success',
+          sha: str(event.payload, 'sha'),
+        });
+      }
+      else if (target === 'remote-drafted') {
+        items.push({
+          kind: 'milestone', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          label: 'First push completed · draft pull request opened', tone: 'success',
+          sha: str(event.payload, 'sha'),
+        });
+      }
+      else if (target === 'remote-open') {
+        items.push({
+          kind: 'milestone', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          label: 'Draft pull request marked ready for review', tone: 'success',
+          sha: str(event.payload, 'sha'),
+        });
+      }
+      else if (target === 'merged') {
+        hasMergedEvent = true;
+        items.push({
+          kind: 'merged', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          author: displayName(bundle.pr.author ?? 'you'),
+          sha: str(event.payload, 'sha'), base: bundle.pr.baseBranch,
+        });
+      }
+      else if (target === 'closed') {
+        items.push({
+          kind: 'milestone', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          label: 'Pull request closed without merge', tone: 'attention',
+          sha: str(event.payload, 'sha'),
+        });
+      }
+      else if (target === 'cleanup-started' || target === 'cleanup-completed') {
+        items.push({
+          kind: 'milestone', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          label: target === 'cleanup-started' ? 'Cleanup started' : 'Cleanup completed',
+          tone: target === 'cleanup-completed' ? 'success' : 'neutral', sha: null,
+        });
+      }
+      continue;
+    }
     if (event.eventType === 'ci' && event.actor === 'ci-harness') {
       items.push({
         kind: 'ci-harness', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
@@ -274,6 +324,29 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
     if (event.eventType === 'ci') {
       const status = str(event.payload, 'status');
       if (status === null) continue;
+      if (status === 'repair_started' || status === 'repair_addressed'
+          || status === 'repair_succeeded' || status === 'repair_exhausted'
+          || status === 'repair_stopped') {
+        const classification = str(event.payload, 'classification');
+        const reason = str(event.payload, 'reason');
+        const label = status === 'repair_started'
+          ? `CI repair started${classification === null ? '' : ` · ${classification.toLowerCase().replaceAll('_', ' ')}`}`
+          : status === 'repair_addressed'
+            ? 'CI repair addressed the failing head'
+            : status === 'repair_succeeded'
+              ? 'CI repair completed'
+              : status === 'repair_exhausted'
+                ? 'CI repair budget exhausted'
+                : `CI repair stopped${reason === null ? '' : ` · ${reason}`}`;
+        items.push({
+          kind: 'milestone', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          label,
+          tone: status === 'repair_addressed' || status === 'repair_succeeded'
+            ? 'success' : 'attention',
+          sha: str(event.payload, 'headSha'),
+        });
+        continue;
+      }
       const signature = JSON.stringify([
         status, str(event.payload, 'headSha'), num(event.payload, 'checkCount'),
         str(event.payload, 'name'), str(event.payload, 'trigger'),
@@ -317,10 +390,12 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
       const isBrainLifecycleReview = event.actor === 'brain'
         && event.isLocalOnly
         && normalizedScope !== null;
+      const structuredSummary = event.payload?.['structuredSummary'] === true;
       // Brain review bodies are raw turn transcripts, not authored review
       // summaries. Structured concerns already render as local comment
       // cards, so repeating the transcript here leaks progress narration.
-      const visibleBody = !isBrainLifecycleReview && body !== null && body.trim().length > 0
+      const visibleBody = (!isBrainLifecycleReview || structuredSummary)
+          && body !== null && body.trim().length > 0
         ? body
         : null;
       if (verdict === null && visibleBody === null) continue;
@@ -390,7 +465,7 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
     });
   }
   items.sort((a, b) => a.at - b.at);
-  if (bundle.pr.status === 'merged') {
+  if (bundle.pr.status === 'merged' && !hasMergedEvent) {
     const lastSha = bundle.commits[bundle.commits.length - 1]?.sha ?? null;
     const at = bundle.pr.mergedAt ?? items[items.length - 1]?.at ?? bundle.pr.createdAt;
     items.push({

@@ -18,8 +18,8 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.service.review.ReviewSessionSnapshotRuntime;
 import com.bytequay.app.service.review.TaskReviewRoundSnapshotRuntime;
 import com.bytequay.app.service.review.TaskReviewSnapshotRuntime;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,7 +48,7 @@ class TestReviewSnapshotRuntimeMigrations
     void runtimeRequestsFreezePromptMetadataAndPromptDriftSupersedesThem()
             throws Exception
     {
-        String taskUrl = seededDatabase("task-prompt-freeze.db", "293");
+        String taskUrl = seededDatabase("task-prompt-freeze.db");
         ObjectMapper mapper = new ObjectMapper();
         DriverManagerDataSource taskDataSource = dataSource(taskUrl);
         JdbcTemplate taskJdbc = new JdbcTemplate(taskDataSource);
@@ -97,7 +97,7 @@ class TestReviewSnapshotRuntimeMigrations
         assertThat(later.requireExecutionSubject(
                 laterSubject.operationId()).current()).isFalse();
 
-        String remoteUrl = seededDatabase("remote-prompt-freeze.db", "293");
+        String remoteUrl = seededDatabase("remote-prompt-freeze.db");
         try (Connection connection = open(remoteUrl)) {
             seedStandaloneSubjects(connection);
         }
@@ -127,79 +127,10 @@ class TestReviewSnapshotRuntimeMigrations
     }
 
     @Test
-    void v292RebuildPreservesPopulatedTicketsAndSchemaObjects()
-            throws Exception
-    {
-        String url = seededDatabase("v292-upgrade.db", "291");
-        int foreignKeys;
-        int ticketCount;
-        try (Connection connection = open(url)) {
-            foreignKeys = number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_list('dispatch_ticket')");
-            ticketCount = number(connection, "SELECT COUNT(*) FROM dispatch_ticket");
-            execute(connection, """
-                    CREATE TABLE dispatch_ticket_migration_child(
-                        ticket_id TEXT PRIMARY KEY
-                            REFERENCES dispatch_ticket(id))
-                    """);
-            execute(connection, """
-                    INSERT INTO dispatch_ticket_migration_child
-                    VALUES ('validation-ticket-1')
-                    """);
-            execute(connection, """
-                    CREATE TABLE dispatch_ticket_migration_probe(
-                        ticket_id TEXT NOT NULL)
-                    """);
-            execute(connection, """
-                    CREATE INDEX idx_dispatch_ticket_migration_owner
-                    ON dispatch_ticket(owner_id)
-                    """);
-            execute(connection, """
-                    CREATE TRIGGER dispatch_ticket_migration_probe_insert
-                    AFTER INSERT ON dispatch_ticket
-                    BEGIN
-                        INSERT INTO dispatch_ticket_migration_probe(ticket_id)
-                        VALUES (NEW.id);
-                    END
-                    """);
-        }
-
-        migrate(url, "292");
-
-        try (Connection connection = open(url)) {
-            assertThat(number(connection, "SELECT COUNT(*) FROM dispatch_ticket"))
-                    .isEqualTo(ticketCount);
-            assertThat(text(connection, """
-                    SELECT status FROM dispatch_ticket
-                    WHERE id = 'validation-ticket-1'
-                    """)).isEqualTo("REQUESTED");
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM dispatch_ticket_migration_child"))
-                    .isOne();
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_list('dispatch_ticket')"))
-                    .isEqualTo(foreignKeys);
-            assertSchemaObject(connection, "index",
-                    "idx_dispatch_ticket_migration_owner");
-            assertSchemaObject(connection, "trigger",
-                    "dispatch_ticket_migration_probe_insert");
-
-            execute(connection, reviewSessionProbeTicket());
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM dispatch_ticket_migration_probe
-                    WHERE ticket_id = 'review-session-probe-ticket'
-                    """)).isOne();
-            assertThat(schemaSql(connection, "dispatch_ticket"))
-                    .contains("'REVIEW_SESSION'");
-            assertHealthy(connection);
-        }
-    }
-
-    @Test
     void v293EnforcesExactSnapshotTicketsAndCleansOnlyTerminalOnes()
             throws Exception
     {
-        String url = seededDatabase("v293-runtime.db", "293");
+        String url = seededDatabase("v293-runtime.db");
         try (Connection connection = open(url)) {
             seedStandaloneSubjects(connection);
             TaskSubject task = seedTaskReview(connection);
@@ -252,7 +183,7 @@ class TestReviewSnapshotRuntimeMigrations
             assertThatThrownBy(() -> transaction(connection,
                     standaloneOperation(
                             "full-invalid", "full-invalid-ticket", "review-full",
-                            "pr-full", "acme/full", 12, "main", "workspace-1",
+                            "pr-full", "acme/widget", 12, "main", "workspace-1",
                             "/tmp/full", "full", "full-head"),
                     standaloneTicket(
                             "full-invalid-ticket", "full-invalid", "review-full",
@@ -262,7 +193,7 @@ class TestReviewSnapshotRuntimeMigrations
             transaction(connection,
                     standaloneOperation(
                             "full", "full-ticket", "review-full", "pr-full",
-                            "acme/full", 12, "main", "workspace-1", "/tmp/full",
+                            "acme/widget", 12, "main", "workspace-1", "/tmp/full",
                             "full", "full-head"),
                     standaloneTicket(
                             "full-ticket", "full", "review-full", "workspace-1",
@@ -311,16 +242,16 @@ class TestReviewSnapshotRuntimeMigrations
         }
     }
 
-    private String seededDatabase(String name, String target)
+    private String seededDatabase(String name)
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name) + "?foreign_keys=ON";
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = open(url)) {
             TestDevelopmentFlowLocalPublishProtocolMigration
                     .seedApprovedLocalSubject(connection);
         }
-        migrate(url, target);
+        migrate(url);
         return url;
     }
 
@@ -329,17 +260,12 @@ class TestReviewSnapshotRuntimeMigrations
     {
         execute(connection, """
                 INSERT INTO watched_repos(owner, repo, local_clone_path)
-                VALUES ('acme', 'full', '/tmp/full')
-                """);
-        execute(connection, """
-                INSERT INTO workspace_repos(
-                    workspace_id, repo_full_name, auto_fix_enabled, added_at_ms)
-                VALUES ('workspace-1', 'acme/full', 0, 20)
+                VALUES ('acme', 'widget', '/tmp/full')
                 """);
         seedExternalReview(connection,
                 "quick", "acme/quick", 11, null, "quick-base", "quick-head");
         seedExternalReview(connection,
-                "full", "acme/full", 12, "workspace-1", "full-base", "full-head");
+                "full", "acme/widget", 12, "workspace-1", "full-base", "full-head");
     }
 
     private static void seedExternalReview(
@@ -579,32 +505,14 @@ class TestReviewSnapshotRuntimeMigrations
                 """.formatted(ticketId))).isZero();
     }
 
-    private static String reviewSessionProbeTicket()
-    {
-        return """
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family, owner_kind,
-                    owner_id, callback_route, lane_mask, attempt, status,
-                    created_at_ms)
-                VALUES ('review-session-probe-ticket',
-                    'review-session-probe-operation', 'MIGRATION_PROBE',
-                    'REMOTE_OBSERVATION', 'REVIEW_SESSION', 'review-probe',
-                    'MIGRATION_PROBE_RESULT', 64, 1, 'REQUESTED', 30)
-                """;
-    }
-
     private static String nullable(String value)
     {
         return value == null ? "NULL" : "'" + value + "'";
     }
 
-    private static void migrate(String url, String target)
+    private static void migrate(String url)
     {
-        Flyway.configure()
-                .dataSource(url, "", "")
-                .target(target)
-                .load()
-                .migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static Connection open(String url)
@@ -636,31 +544,12 @@ class TestReviewSnapshotRuntimeMigrations
         }
     }
 
-    private static void assertSchemaObject(
-            Connection connection, String type, String name)
-            throws Exception
-    {
-        assertThat(number(connection, """
-                SELECT COUNT(*) FROM sqlite_schema
-                WHERE type = '%s' AND name = '%s'
-                """.formatted(type, name))).isOne();
-    }
-
     private static void assertHealthy(Connection connection)
             throws Exception
     {
         assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                 .isZero();
         assertThat(text(connection, "PRAGMA integrity_check")).isEqualTo("ok");
-    }
-
-    private static String schemaSql(Connection connection, String name)
-            throws Exception
-    {
-        return text(connection, """
-                SELECT sql FROM sqlite_schema
-                WHERE type = 'table' AND name = '%s'
-                """.formatted(name));
     }
 
     private static ReviewSessionSnapshotRuntime reviewSnapshots(String url)

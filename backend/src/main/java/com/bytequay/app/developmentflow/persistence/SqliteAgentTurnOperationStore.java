@@ -75,7 +75,8 @@ public class SqliteAgentTurnOperationStore
                        code.code_fingerprint AS current_code_fingerprint,
                        code.head_sha AS current_head_sha,
                        code.base_sha AS current_base_sha,
-                       brain.provider AS brain_provider, brain.model AS brain_model
+                       brain.provider AS brain_provider, brain.model AS brain_model,
+                       identity.branch_name
                 FROM task_turn turn
                 JOIN tasks task ON task.id = turn.task_id
                 JOIN threads thread ON thread.id = task.thread_id
@@ -85,6 +86,7 @@ public class SqliteAgentTurnOperationStore
                 LEFT JOIN stage owner ON owner.id = turn.trigger_stage_id
                 LEFT JOIN task_current_code_subject_v230 code ON code.task_id = task.id
                 WHERE turn.id = ? AND task.workflow_version = 'V2'
+                  AND turn.purpose <> 'REMOTE_CI_BRAIN_REVIEW'
                 """,
                 (rs, row) -> exactTurn(
                         DispatchTicket.OwnerKind.TASK_TURN, rs),
@@ -109,7 +111,8 @@ public class SqliteAgentTurnOperationStore
                        code.code_fingerprint AS current_code_fingerprint,
                        code.head_sha AS current_head_sha,
                        code.base_sha AS current_base_sha,
-                       NULL AS brain_provider, NULL AS brain_model
+                       NULL AS brain_provider, NULL AS brain_model,
+                       identity.branch_name
                 FROM stage_turn turn
                 JOIN stage owner ON owner.id = turn.stage_id
                 JOIN tasks task ON task.id = owner.task_id
@@ -152,6 +155,7 @@ public class SqliteAgentTurnOperationStore
                 SET status = 'RUNNING', started_at_ms = COALESCE(started_at_ms, ?),
                     error_message = NULL
                 WHERE id = ? AND operation_id = ?
+                  AND purpose <> 'REMOTE_CI_BRAIN_REVIEW'
                   AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
                   AND EXISTS (
                     SELECT 1
@@ -221,6 +225,7 @@ public class SqliteAgentTurnOperationStore
                  AND lease.operation_id = ticket.operation_id
                 LEFT JOIN task_current_stage current ON current.task_id = task.id
                 WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.purpose <> 'REMOTE_CI_BRAIN_REVIEW'
                   AND turn.status = 'RUNNING'
                   AND task.workflow_version = 'V2'
                   AND task.epoch = turn.task_epoch
@@ -389,7 +394,8 @@ public class SqliteAgentTurnOperationStore
                 rs.getString("current_head_sha"),
                 rs.getString("current_base_sha"),
                 rs.getString("brain_provider"),
-                rs.getString("brain_model"));
+                rs.getString("brain_model"),
+                rs.getString("branch_name"));
     }
 
     private static Long nullableLong(ResultSet rs, String column)

@@ -659,7 +659,10 @@ export function TaskBrainRoute({
         spineTrailer={planTimelineNode}
         trailer={(
           <>
-            {data.rightRail.approval !== null && (
+            {/* A closed Task has nothing left to decide. Its blockers can
+                outlive Cleanup, and rendering one here offers the user an
+                action against a Task that no longer runs. */}
+            {data.rightRail.approval !== null && !task.terminal && (
               <DecisionNode tone={data.rightRail.approval.tone ?? 'approve'}>
                 <div className="sp-appr">
                   <div className="sp-appr__head">
@@ -740,6 +743,8 @@ export function TaskBrainRoute({
         workspaceName,
         metaLine: task.statusLabel,
         finished,
+        closed: task.terminal && task.prNumber === null ? true
+          : task.statusLabel === 'CANCELLED' || task.statusLabel === 'CLOSED',
       }}
       threadLabel={trunkLabel}
       threadId={threadId}

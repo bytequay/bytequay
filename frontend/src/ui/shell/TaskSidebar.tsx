@@ -29,6 +29,14 @@ import type { WorkUnitTaskDto } from '../../types';
  *  phase hasn't reached COMPLETED. Keeps IN_REVIEW (shipped, awaiting merge)
  *  visible for navigation, unlike the trunk's tighter latest-active test. */
 export function isTaskActive(t: WorkUnitTaskDto): boolean {
+  // A task the user closed is terminal on the runtime axis immediately, but
+  // its phase still names the Stage it was cancelled in until Cleanup
+  // finishes. Testing the phase alone left a closed task listed as in-flight
+  // for that whole window.
+  if (t.status === 'CANCELED' || t.status === 'REMOTE_CLOSED'
+      || t.status === 'ARCHIVED') {
+    return false;
+  }
   return t.phase !== 'COMPLETED' && t.status !== 'COMPLETED' && t.status !== 'ERRORED';
 }
 
@@ -98,6 +106,9 @@ type TaskSidebarTask = {
   statusPill?: ReactNode;
   metaLine?: ReactNode;
   finished?: boolean;
+  /** Terminal without shipping (closed / cancelled). Distinct from
+   *  `finished`, which is also true for a Task that merged. */
+  closed?: boolean;
 };
 
 /**
@@ -205,7 +216,10 @@ function TaskIdentityRow({ task }: { task: TaskSidebarTask }) {
     <div className="workspace-task-row-wrap">
       <div className="workspace-task-row" title={task.title}
         aria-label={`Task ${task.taskNumber ?? 1}: ${task.title}`}>
-        <span aria-hidden><BrainIcon /></span>
+        <span aria-hidden>
+          {task.closed === true ? <ClosedIcon />
+            : task.finished === true ? <CheckCircleIcon /> : <BrainIcon />}
+        </span>
         <span>{task.title}</span>
       </div>
     </div>
@@ -403,6 +417,17 @@ function BrainIcon() {
       strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3a4 4 0 0 0-4 4 3.5 3.5 0 0 0-2 6.5A3.5 3.5 0 0 0 9 20a3 3 0 0 0 6 0 3.5 3.5 0 0 0 3-6.5A3.5 3.5 0 0 0 16 7a4 4 0 0 0-4-4Z" />
       <path d="M12 3v18" />
+    </svg>
+  );
+}
+
+/** A slashed circle: the Task stopped without shipping. */
+function ClosedIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="m6 18 12-12" />
     </svg>
   );
 }

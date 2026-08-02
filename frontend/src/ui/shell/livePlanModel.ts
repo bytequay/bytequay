@@ -518,8 +518,13 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
           : task.currentPhase === 'AWAITING_REMOTE_REVIEW'
             ? 'sleep'
             : 'future';
+  // Only the PR's own state may claim a merge. A closed Task also reaches
+  // phase COMPLETED, so deriving the label from the phase alone reported
+  // "merged" for a Task the user cancelled with its PR still open.
   const mergeMeta = prStatus === 'queued' ? 'queued'
-    : mergeStatus === 'done' ? (prStatus === 'closed' ? 'closed' : 'merged')
+    : mergeStatus === 'done'
+      ? (prStatus === 'merged' ? 'merged'
+        : prStatus === 'closed' ? 'closed' : 'not merged')
       : mergeStatus === 'awaiting' ? 'ready to merge'
         : mergeStatus === 'sleep' ? 'awaiting' : undefined;
 

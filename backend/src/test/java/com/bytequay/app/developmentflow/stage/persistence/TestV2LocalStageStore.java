@@ -46,7 +46,6 @@ import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -90,7 +89,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc, "legacy-wrong");
-        Flyway.configure().dataSource(dataSource).load().migrate();
         freezeContextBaseForMigratedFixture(jdbc, "master");
         seedImplementationRequest(jdbc);
         DataSourceTransactionManager transactions =
@@ -159,7 +157,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database("development-report-rollback.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedImplementationRequest(jdbc);
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);
@@ -261,7 +258,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         ResultFence source = new ResultFence(
                 1, "local-stage", 1, "implementation-operation", 1,
                 "fingerprint-old", "head-old", "head-old");
@@ -328,7 +324,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =
@@ -416,7 +411,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =
@@ -466,7 +460,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database("brain-pr-rollback.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =
@@ -523,7 +516,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =
@@ -605,7 +597,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedBrainReview(jdbc);
 
         DataSourceTransactionManager transactions =
@@ -671,7 +662,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database("brain-v300-upgrade.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         ObjectMapper mapper = new ObjectMapper();
         String launchInput = brainLaunch(
                 mapper, "brain-turn", "brain-operation",
@@ -718,7 +708,6 @@ class TestV2LocalStageStore
         persistFinishedAgentExecution(
                 jdbc, mapper, "brain-ticket", 2, malformed);
 
-        Flyway.configure().dataSource(dataSource).load().migrate();
         SqliteLocalDevelopmentRuntimeStore runtimeStore =
                 new SqliteLocalDevelopmentRuntimeStore(jdbc);
         LocalDevelopmentRuntimeCoordinator owner = runtime(
@@ -1146,7 +1135,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database("brain-invalid-" + name + ".db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedBrainReview(jdbc);
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);
@@ -1192,7 +1180,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database("brain-receipt-invariants.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedBrainReview(jdbc);
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);
@@ -1265,7 +1252,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database("brain-continuation-v300.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         ObjectMapper mapper = new ObjectMapper();
         seedBrainReview(jdbc, brainLaunch(
                 mapper, "brain-turn", "brain-operation",
@@ -1408,7 +1394,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         ObjectMapper mapper = new ObjectMapper();
         var originalLaunch = mapper.createObjectNode();
         originalLaunch.put("schemaVersion", 1);
@@ -1602,7 +1587,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         freezeContextBaseForMigratedFixture(jdbc, "master");
 
         ObjectMapper mapper = new ObjectMapper();
@@ -1881,7 +1865,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database(databaseName);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         ObjectMapper mapper = new ObjectMapper();
         seedBrainReview(jdbc, brainLaunch(
                 mapper, "brain-turn", "brain-operation",
@@ -2112,7 +2095,6 @@ class TestV2LocalStageStore
         SQLiteDataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
-        Flyway.configure().dataSource(dataSource).load().migrate();
         seedImplementationRequest(jdbc);
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);

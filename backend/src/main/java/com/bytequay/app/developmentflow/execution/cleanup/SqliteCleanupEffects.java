@@ -228,6 +228,16 @@ public class SqliteCleanupEffects
             int canceledWaits = userWaits.cancelOpenWaitsForTask(
                     operation.taskId(), "cleanup", "Cleanup canceled request",
                     Instant.ofEpochMilli(now));
+            // A blocker is an interaction awaiting the user too. Cleanup only
+            // resolved the ones it opened itself, so a Stage- or Episode-owned
+            // blocker outlived the Task and kept offering an action against a
+            // Task that can no longer run.
+            int sealedBlockers = jdbc.update("""
+                    UPDATE task_blocker
+                       SET status = 'RESOLVED', resolved_at_ms = ?,
+                           resolution_evidence = 'cleanup: Task reached terminal'
+                     WHERE task_id = ? AND status = 'OPEN'
+                    """, now, operation.taskId());
             int notifications = count("""
                     SELECT COUNT(*) FROM notifications
                      WHERE task_id = ? AND status = 'DISMISSED'
@@ -260,7 +270,8 @@ public class SqliteCleanupEffects
                     "all Task/Stage permission prompts canceled", now);
             return success(null, "dismissed notifications=" + notifications
                     + ", permissions=" + permissions
-                    + ", typed waits=" + canceledWaits);
+                    + ", typed waits=" + canceledWaits
+                    + ", blockers=" + sealedBlockers);
         });
     }
 

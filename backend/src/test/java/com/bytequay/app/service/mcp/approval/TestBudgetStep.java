@@ -62,10 +62,30 @@ class TestBudgetStep
                 .notifyPermissionAutoAllowed(anyString(), anyString(), anyString(), anyString(), anyInt());
     }
 
+    @Test
+    void typedTurnSkipsTheRetiredLegacyBudgetSession()
+    {
+        assertThat(step.apply(typedCtx("Bash")))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+
+        verify(threads, never()).tryConsumeToolBudget(
+                anyString(), anyString(), anyString());
+        verify(threads, never()).notifyPermissionAutoAllowed(
+                anyString(), anyString(), anyString(), anyString(), anyInt());
+    }
+
     private ApprovalContext ctx(String toolName)
     {
         return new ApprovalContext(
                 "thread-1", "task-1", "stage-1", JsonNodeFactory.instance.numberNode(1),
                 toolName, "call-1", mapper.createObjectNode(), Set.of());
+    }
+
+    private ApprovalContext typedCtx(String toolName)
+    {
+        return new ApprovalContext(
+                "thread-1", "task-1", "v2-stage-turn:turn-1:operation-1",
+                JsonNodeFactory.instance.numberNode(1), toolName, "call-1",
+                mapper.createObjectNode(), Set.of(), true);
     }
 }

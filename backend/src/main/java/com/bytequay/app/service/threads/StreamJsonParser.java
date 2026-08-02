@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
@@ -46,6 +47,7 @@ public class StreamJsonParser
         implements CliStreamParser
 {
     private final ObjectMapper mapper;
+    private String terminalResult;
 
     public StreamJsonParser(ObjectMapper mapper)
     {
@@ -78,9 +80,20 @@ public class StreamJsonParser
             case StreamLine.User user -> parseUserMessage(user, now);
             case StreamLine.Assistant assistant -> parseAssistantMessage(assistant, now);
             case StreamLine.StreamEvent se -> parseStreamEvent(se, now);
-            case StreamLine.Result result -> parseResult(result, now);
+            case StreamLine.Result result -> {
+                if (result.result() != null) {
+                    terminalResult = result.result();
+                }
+                yield parseResult(result, now);
+            }
             case StreamLine.Unknown ignored -> ImmutableList.of();
         };
+    }
+
+    @Override
+    public Optional<String> terminalResult()
+    {
+        return Optional.ofNullable(terminalResult);
     }
 
     private static List<StreamEvent> parseSystem(StreamLine.System sys, Instant now)

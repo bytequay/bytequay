@@ -215,6 +215,96 @@ describe('buildTimeline', () => {
     );
   });
 
+  it('maps the durable V2 development lifecycle without exposing a raw Brain transcript', () => {
+    const items = buildTimeline(bundle({
+      pr: { origin: 'task', taskId: 'task-1', status: 'remote-open' },
+      timeline: [
+        event({ id: 'dev-commit', actor: 'v2-local-runtime', payload: {
+          sha: 'dev-head', message: 'Implement the task',
+        } }),
+        event({ id: 'local-open', eventType: 'status', createdAt: 1_100,
+          payload: { from: 'local-drafted', to: 'local-open' } }),
+        event({ id: 'brain-start', eventType: 'review', actor: 'brain', isLocalOnly: true,
+          createdAt: 1_200, payload: { reviewEvent: 'started', scope: 'dev', iteration: 1 } }),
+        event({ id: 'brain-finish', eventType: 'review', actor: 'brain', isLocalOnly: true,
+          createdAt: 1_300, payload: { reviewEvent: 'finished', scope: 'dev', iteration: 1,
+            verdict: 'CHANGES_REQUESTED', structuredSummary: true,
+            body: 'One issue remains.\n\nFindings:\n- Keep the fallback null-safe.' } }),
+        event({ id: 'first-push', eventType: 'pull-request-created', createdAt: 1_400,
+          payload: { phase: 'created', branch: 'feature/x', baseBranch: 'main', number: 17 } }),
+        event({ id: 'remote-drafted', eventType: 'status', createdAt: 1_400,
+          payload: { from: 'local-open', to: 'remote-drafted' } }),
+        event({ id: 'repair-start', eventType: 'ci', actor: 'ci-fix', createdAt: 1_500,
+          payload: { status: 'repair_started', classification: 'TASK_DETERMINISTIC', headSha: 'dev-head' } }),
+        event({ id: 'repair-addressed', eventType: 'ci', actor: 'ci-fix', createdAt: 1_600,
+          payload: { status: 'repair_addressed', headSha: 'repair-head' } }),
+        event({ id: 'repair-commit', actor: 'ci-fix', createdAt: 1_600,
+          payload: { sha: 'repair-head', message: 'Repair CI failure' } }),
+        event({ id: 'repair-terminal', eventType: 'ci', actor: 'ci-fix', createdAt: 1_650,
+          payload: { status: 'repair_succeeded', headSha: 'repair-head' } }),
+        event({ id: 'ready', eventType: 'status', createdAt: 1_700,
+          payload: { from: 'remote-drafted', to: 'remote-open', sha: 'repair-head' } }),
+        event({ id: 'merge', eventType: 'status', createdAt: 1_800,
+          payload: { from: 'remote-open', to: 'merged', sha: 'repair-head' } }),
+        event({ id: 'cleanup-start', eventType: 'status', createdAt: 1_900,
+          payload: { to: 'cleanup-started' } }),
+        event({ id: 'cleanup-complete', eventType: 'status', createdAt: 2_000,
+          payload: { to: 'cleanup-completed' } }),
+      ],
+    }));
+
+    expect(items.map(item => item.id)).toEqual([
+      'dev-commit', 'local-open', 'brain-start', 'brain-finish', 'first-push',
+      'remote-drafted', 'repair-start', 'repair-addressed', 'repair-commit',
+      'repair-terminal', 'ready', 'merge', 'cleanup-start', 'cleanup-complete',
+    ]);
+    expect(items[1]).toMatchObject({ kind: 'milestone', label: 'Development completed · local review opened' });
+    expect(items[3]).toMatchObject({
+      kind: 'review', verdict: 'changes',
+      body: 'One issue remains.\n\nFindings:\n- Keep the fallback null-safe.',
+    });
+    expect(items[4]).toMatchObject({ kind: 'pull-request', pullRequest: { phase: 'created', number: 17 } });
+    expect(items[5]).toMatchObject({ kind: 'milestone', label: 'First push completed · draft pull request opened' });
+    expect(items[6]).toMatchObject({ kind: 'milestone', label: 'CI repair started · task deterministic' });
+    expect(items[7]).toMatchObject({ kind: 'milestone', label: 'CI repair addressed the failing head' });
+    expect(items[8]).toMatchObject({ kind: 'commit', message: 'Repair CI failure', sha: 'repair-head' });
+    expect(items[9]).toMatchObject({ kind: 'milestone', label: 'CI repair completed', tone: 'success' });
+    expect(items[10]).toMatchObject({ kind: 'milestone', label: 'Draft pull request marked ready for review' });
+    expect(items[11]).toMatchObject({ kind: 'merged', sha: 'repair-head' });
+    expect(items[12]).toMatchObject({ kind: 'milestone', label: 'Cleanup started' });
+    expect(items[13]).toMatchObject({ kind: 'milestone', label: 'Cleanup completed' });
+  });
+
+  it('shows exhausted, stopped, and remotely closed terminal outcomes', () => {
+    const items = buildTimeline(bundle({
+      pr: { origin: 'task', taskId: 'task-1', status: 'closed' },
+      timeline: [
+        event({ id: 'exhausted', eventType: 'ci', actor: 'ci-fix', createdAt: 1_000,
+          payload: { status: 'repair_exhausted', reason: 'budget exhausted' } }),
+        event({ id: 'stopped', eventType: 'ci', actor: 'ci-fix', createdAt: 1_100,
+          payload: { status: 'repair_stopped', reason: 'user canceled' } }),
+        event({ id: 'closed', eventType: 'status', createdAt: 1_200,
+          payload: { from: 'remote-open', to: 'closed', sha: 'final-head' } }),
+      ],
+    }));
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'exhausted', kind: 'milestone',
+        label: 'CI repair budget exhausted', tone: 'attention',
+      }),
+      expect.objectContaining({
+        id: 'stopped', kind: 'milestone',
+        label: 'CI repair stopped · user canceled', tone: 'attention',
+      }),
+      expect.objectContaining({
+        id: 'closed', kind: 'milestone',
+        label: 'Pull request closed without merge', tone: 'attention',
+        sha: 'final-head',
+      }),
+    ]);
+  });
+
   it('keeps review lifecycle rows and maps concluded verdicts', () => {
     const items = buildTimeline(bundle({
       timeline: [

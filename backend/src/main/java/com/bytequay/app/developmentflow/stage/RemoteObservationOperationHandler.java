@@ -172,6 +172,7 @@ public final class RemoteObservationOperationHandler
             PrState prState,
             Mergeability mergeability,
             MergeQueueState mergeQueueState,
+            MergeQueueCapability mergeQueueCapability,
             int effectiveApprovalCount,
             int writeApprovalCount,
             int changesRequestedCount,
@@ -182,12 +183,13 @@ public final class RemoteObservationOperationHandler
             List<FeedbackFact> feedback,
             String viewerLogin,
             Boolean viewerCanMerge,
+            RemoteCiProvenance ciProvenance,
             String rawEvidence,
             long observedAtMs)
     {
         public Observation
         {
-            if (schemaVersion < 1 || schemaVersion > 2) {
+            if (schemaVersion < 1 || schemaVersion > 5) {
                 throw new IllegalArgumentException(
                         "Unsupported Remote observation schema");
             }
@@ -197,11 +199,22 @@ public final class RemoteObservationOperationHandler
             requireNonNull(prState, "prState is null");
             requireNonNull(mergeability, "mergeability is null");
             requireNonNull(mergeQueueState, "mergeQueueState is null");
+            mergeQueueCapability = mergeQueueCapability == null
+                    ? MergeQueueCapability.UNKNOWN : mergeQueueCapability;
             checks = List.copyOf(requireNonNull(checks, "checks is null"));
             feedback = feedback == null ? List.of() : List.copyOf(feedback);
-            if (schemaVersion == 2) {
+            if (schemaVersion >= 2) {
                 requireText(viewerLogin, "viewerLogin");
                 requireNonNull(viewerCanMerge, "viewerCanMerge is null");
+            }
+            if ((schemaVersion >= 3) != (ciProvenance != null)) {
+                throw new IllegalArgumentException(
+                        "Remote CI provenance must match observation schema");
+            }
+            if (ciProvenance != null
+                    && ciProvenance.schemaVersion() != schemaVersion) {
+                throw new IllegalArgumentException(
+                        "Remote CI provenance version must match observation schema");
             }
             if (effectiveApprovalCount < 0 || writeApprovalCount < 0
                     || changesRequestedCount < 0 || requestedReviewerCount < 0
@@ -210,6 +223,69 @@ public final class RemoteObservationOperationHandler
                 throw new IllegalArgumentException(
                         "Remote observation counts are invalid");
             }
+        }
+
+        /** Compatibility constructor for results created before queue capability. */
+        public Observation(
+                int schemaVersion,
+                String observationKey,
+                String headSha,
+                String baseSha,
+                PrState prState,
+                Mergeability mergeability,
+                MergeQueueState mergeQueueState,
+                int effectiveApprovalCount,
+                int writeApprovalCount,
+                int changesRequestedCount,
+                int requestedReviewerCount,
+                int unresolvedThreadCount,
+                int unresolvedCommentCount,
+                List<RemoteCiPolicy.Check> checks,
+                List<FeedbackFact> feedback,
+                String viewerLogin,
+                Boolean viewerCanMerge,
+                RemoteCiProvenance ciProvenance,
+                String rawEvidence,
+                long observedAtMs)
+        {
+            this(schemaVersion, observationKey, headSha, baseSha, prState,
+                    mergeability, mergeQueueState, MergeQueueCapability.UNKNOWN,
+                    effectiveApprovalCount, writeApprovalCount,
+                    changesRequestedCount, requestedReviewerCount,
+                    unresolvedThreadCount, unresolvedCommentCount, checks,
+                    feedback, viewerLogin, viewerCanMerge, ciProvenance,
+                    rawEvidence, observedAtMs);
+        }
+
+        /** Compatibility constructor for version-two results already in flight. */
+        public Observation(
+                int schemaVersion,
+                String observationKey,
+                String headSha,
+                String baseSha,
+                PrState prState,
+                Mergeability mergeability,
+                MergeQueueState mergeQueueState,
+                int effectiveApprovalCount,
+                int writeApprovalCount,
+                int changesRequestedCount,
+                int requestedReviewerCount,
+                int unresolvedThreadCount,
+                int unresolvedCommentCount,
+                List<RemoteCiPolicy.Check> checks,
+                List<FeedbackFact> feedback,
+                String viewerLogin,
+                Boolean viewerCanMerge,
+                String rawEvidence,
+                long observedAtMs)
+        {
+            this(schemaVersion, observationKey, headSha, baseSha, prState,
+                    mergeability, mergeQueueState, MergeQueueCapability.UNKNOWN,
+                    effectiveApprovalCount,
+                    writeApprovalCount, changesRequestedCount,
+                    requestedReviewerCount, unresolvedThreadCount,
+                    unresolvedCommentCount, checks, feedback, viewerLogin,
+                    viewerCanMerge, null, rawEvidence, observedAtMs);
         }
 
         /** Compatibility constructor for version-one results already in flight. */
@@ -233,11 +309,12 @@ public final class RemoteObservationOperationHandler
                 long observedAtMs)
         {
             this(schemaVersion, observationKey, headSha, baseSha, prState,
-                    mergeability, mergeQueueState, effectiveApprovalCount,
+                    mergeability, mergeQueueState, MergeQueueCapability.UNKNOWN,
+                    effectiveApprovalCount,
                     writeApprovalCount, changesRequestedCount,
                     requestedReviewerCount, unresolvedThreadCount,
                     unresolvedCommentCount, checks, feedback, null, null,
-                    rawEvidence, observedAtMs);
+                    null, rawEvidence, observedAtMs);
         }
 
         /** Compatibility constructor for observations produced before feedback identities. */
@@ -260,11 +337,12 @@ public final class RemoteObservationOperationHandler
                 long observedAtMs)
         {
             this(schemaVersion, observationKey, headSha, baseSha, prState,
-                    mergeability, mergeQueueState, effectiveApprovalCount,
+                    mergeability, mergeQueueState, MergeQueueCapability.UNKNOWN,
+                    effectiveApprovalCount,
                     writeApprovalCount, changesRequestedCount,
                     requestedReviewerCount, unresolvedThreadCount,
                     unresolvedCommentCount, checks, List.of(), null, null,
-                    rawEvidence, observedAtMs);
+                    null, rawEvidence, observedAtMs);
         }
     }
 
@@ -356,6 +434,13 @@ public final class RemoteObservationOperationHandler
         QUEUED,
         DEQUEUED,
         MERGED
+    }
+
+    public enum MergeQueueCapability
+    {
+        UNKNOWN,
+        UNSUPPORTED,
+        SUPPORTED
     }
 
     private static void requireText(String value, String name)

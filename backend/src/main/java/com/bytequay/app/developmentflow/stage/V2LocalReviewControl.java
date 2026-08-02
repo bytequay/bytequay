@@ -1894,7 +1894,10 @@ public final class V2LocalReviewControl
         String system = "You are the code-writing Stage owner for V2 Local "
                 + "Development. Work only in the supplied Task worktree and "
                 + "address the frozen review batch. Do not push, publish, merge, "
-                + "or mutate another Task.";
+                + "or mutate another Task. Return exactly one raw JSON object. "
+                + "Its first non-whitespace character must be '{' and its last "
+                + "non-whitespace character must be '}'. Do not wrap it in "
+                + "Markdown fences or add prose before or after it.";
         if (subject.roleSkill() != null && !subject.roleSkill().isBlank()) {
             system += "\n\nRole skill:\n" + subject.roleSkill();
         }

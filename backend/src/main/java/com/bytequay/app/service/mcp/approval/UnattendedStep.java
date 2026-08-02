@@ -75,6 +75,11 @@ public class UnattendedStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
+        // Exact V2 policy and durable waits own typed decisions. ThreadTurn
+        // initiator state and legacy ThreadService notifications do not.
+        if (ctx.isTypedV2Owner()) {
+            return ApprovalStepResult.cont();
+        }
         if (!isUnattended(ctx.threadId())) {
             return ApprovalStepResult.cont();
         }

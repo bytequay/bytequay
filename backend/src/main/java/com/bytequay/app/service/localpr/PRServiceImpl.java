@@ -905,7 +905,7 @@ class PRServiceImpl
     public PR requestUserReview(String prId, String actor)
     {
         PR pr = require(prId);
-        PR flipped = transition(prId, PR.STATUS_LOCAL_OPEN, actor);
+        PR flipped = transition(pr, PR.STATUS_LOCAL_OPEN, actor);
         // Guarantee a DevReport exists once local-open fires, even via the
         // PRSyncService fallback path that bypasses record_dev_report —
         // a placeholder here is a no-op if the agent already recorded one.
@@ -914,9 +914,45 @@ class PRServiceImpl
     }
 
     @Override
+    @Transactional
+    public PR requestUserReviewInCommand(String taskId, String actor)
+    {
+        requireText(taskId, "taskId");
+        String workflow = taskStore.findWorkflowVersion(taskId)
+                .orElseThrow(() -> conflict(
+                        "Task " + taskId + " has no immutable workflow route"));
+        if (!"V2".equals(workflow)) {
+            throw conflict("Historical " + workflow + " Task " + taskId
+                    + " cannot enter V2 Local Review");
+        }
+        TaskCommandExecutor.requireCurrent(taskId);
+        PR pr = store.findByTaskId(taskId)
+                .orElseThrow(() -> conflict(
+                        "Task " + taskId + " has no stable local PR"));
+        if (!PR.ORIGIN_TASK.equals(pr.origin())) {
+            throw conflict("Task " + taskId
+                    + " local PR is not awaiting exact Brain approval");
+        }
+        if (PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
+            return pr;
+        }
+        if (!PR.STATUS_LOCAL_DRAFTED.equals(pr.status())) {
+            throw conflict("Task " + taskId
+                    + " local PR is not awaiting exact Brain approval");
+        }
+        // Exact Brain acceptance already proves a typed, revisioned V2
+        // DevReport. The legacy one-row placeholder API is not valid here.
+        return transition(pr, PR.STATUS_LOCAL_OPEN, actor);
+    }
+
+    @Override
     public PR transition(String prId, String newStatus, String actor)
     {
-        PR pr = require(prId);
+        return transition(require(prId), newStatus, actor);
+    }
+
+    private PR transition(PR pr, String newStatus, String actor)
+    {
         requireText(newStatus, "newStatus");
         if (!pr.canTransitionTo(newStatus)) {
             throw new IllegalArgumentException(

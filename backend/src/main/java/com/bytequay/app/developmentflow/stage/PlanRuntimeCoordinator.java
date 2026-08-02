@@ -23,6 +23,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.EditedRevision;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.McpContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanCandidate;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanDraftRetryContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanEditContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanEditReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanSubmission;
@@ -75,6 +76,14 @@ public final class PlanRuntimeCoordinator
 
     private static final String PLAN_DRAFT = "PLAN_DRAFT";
     private static final String PLAN_SELF_REVIEW = "PLAN_SELF_REVIEW";
+    private static final String REVIEW_SUBMISSION_INSTRUCTIONS = """
+            Submit exactly one accepted self-review through record_plan_self_review
+            with the matching task_id, a typed verdict, and explicit concerns,
+            follow_ups, and stewardship arrays. APPROVED requires concerns=[]; put
+            non-blocking caveats in follow_ups or stewardship. A rejected call that recorded
+            nothing may be corrected and retried until one submission is accepted. Final
+            prose is never a verdict. Do not edit files or create remote effects.
+            """;
     private final TaskCommandExecutor commands;
     private final TaskManager tasks;
     private final PlanStageManager plan;
@@ -214,6 +223,66 @@ public final class PlanRuntimeCoordinator
         return receipt(
                 DispatchTicket.Acceptance.valueOf(delivered.acceptance()),
                 turnReceiptJson(delivered));
+    }
+
+    /** Replaces one exact failed ACTIVE Plan draft without resuming its provider session. */
+    public PlanDraftRetryReceipt retryFailedDraft(
+            String taskId,
+            String failedTurnId,
+            String blockerId,
+            String commandId,
+            String actor,
+            String reason)
+    {
+        required(taskId, "taskId");
+        required(failedTurnId, "failedTurnId");
+        required(blockerId, "blockerId");
+        required(commandId, "commandId");
+        required(actor, "actor");
+        required(reason, "reason");
+        SqlitePlanRuntimeStore.PlanDraftRetryReceipt existing =
+                store.findPlanDraftRetryReceipt(taskId, commandId).orElse(null);
+        if (existing != null) {
+            requireSameDraftRetry(
+                    taskId, failedTurnId, blockerId, actor, reason, existing);
+            return retryReceipt(existing);
+        }
+        return commands.execute(taskId, () -> {
+            TaskCommandExecutor.requireCurrent(taskId);
+            SqlitePlanRuntimeStore.PlanDraftRetryReceipt duplicate =
+                    store.findPlanDraftRetryReceipt(taskId, commandId).orElse(null);
+            if (duplicate != null) {
+                requireSameDraftRetry(
+                        taskId, failedTurnId, blockerId, actor, reason, duplicate);
+                return retryReceipt(duplicate);
+            }
+            PlanDraftRetryContext context =
+                    store.requirePlanDraftRetryContext(
+                            taskId, failedTurnId, blockerId);
+            String source = taskId + ":" + commandId;
+            Instant now = clock.instant();
+            TurnRequest replacement = turn(
+                    context.brain(), context.taskEpoch(), context.stageId(),
+                    context.stageGeneration(), context.codeFingerprint(),
+                    context.headSha(), context.baseSha(), PLAN_DRAFT,
+                    id("plan-draft-retry-turn", source),
+                    id("plan-draft-retry-operation", source),
+                    id("plan-draft-retry-ticket", source),
+                    required(context.frozenPrompt(), "frozen Plan prompt"), now);
+            store.insertTurn(replacement);
+            CommandResult<StageManager.State> requested = plan.retryDraftInCommand(
+                    new StageManager.Command(
+                            commandId, actor, taskId, context.taskEpoch(),
+                            context.stageId(), context.stageGeneration(),
+                            context.stageVersion()),
+                    failedTurnId, blockerId, replacement.turnId(),
+                    context.failedFence(), replacement.fence(), reason);
+            requireApplied(requested, "Plan draft retry");
+            return store.findPlanDraftRetryReceipt(taskId, commandId)
+                    .map(PlanRuntimeCoordinator::retryReceipt)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Accepted Plan draft retry receipt is missing"));
+        });
     }
 
     /** Admits the stable same-purpose Plan TaskTurn after a durable user wait. */
@@ -1086,6 +1155,37 @@ public final class PlanRuntimeCoordinator
         }
     }
 
+    private static void requireSameDraftRetry(
+            String taskId,
+            String failedTurnId,
+            String blockerId,
+            String actor,
+            String reason,
+            SqlitePlanRuntimeStore.PlanDraftRetryReceipt receipt)
+    {
+        if (!taskId.equals(receipt.taskId())
+                || !failedTurnId.equals(receipt.failedTurnId())
+                || !blockerId.equals(receipt.blockerId())
+                || !actor.equals(receipt.actor())
+                || !reason.equals(receipt.reason())) {
+            throw new IllegalArgumentException(
+                    "Plan draft retry command id was used for another recovery");
+        }
+    }
+
+    private static PlanDraftRetryReceipt retryReceipt(
+            SqlitePlanRuntimeStore.PlanDraftRetryReceipt receipt)
+    {
+        return new PlanDraftRetryReceipt(
+                receipt.commandId(), receipt.actor(), receipt.reason(),
+                receipt.taskId(), receipt.taskEpoch(), receipt.stageId(),
+                receipt.stageGeneration(), receipt.expectedStageVersion(),
+                receipt.returnedStageVersion(), receipt.blockerId(),
+                receipt.failedTurnId(), receipt.failedOperationId(),
+                receipt.replacementTurnId(), receipt.replacementOperationId(),
+                receipt.replacementTicketId(), receipt.requestedAt());
+    }
+
     private ProvisionReceipt acceptProvisioningInCommand(
             ProvisionTaskOperationHandler.ProvisionEvidence evidence,
             String evidenceJson)
@@ -1386,10 +1486,7 @@ public final class PlanRuntimeCoordinator
                 + " for Task " + taskId + " with digest "
                 + submission.contentDigest() + ".\n\n"
                 + submission.content()
-                + "\n\nPerform exactly one self-review. Call "
-                + "record_plan_self_review exactly once with the matching task_id, "
-                + "a typed verdict, and explicit concern, follow-up, and Project "
-                + "Stewardship arrays. Do not edit files or create remote effects.";
+                + "\n\n" + REVIEW_SUBMISSION_INSTRUCTIONS;
     }
 
     private static String reviewRetryPrompt(
@@ -1399,9 +1496,7 @@ public final class PlanRuntimeCoordinator
                 + candidate.revision() + " of Task " + taskId + " with digest "
                 + candidate.contentDigest() + ". The first execution failed: "
                 + predecessorError + ".\n\n" + candidate.content()
-                + "\n\nCall record_plan_self_review exactly once with a typed "
-                + "verdict and explicit concern, follow-up, and Project "
-                + "Stewardship arrays. Do not edit files or create remote effects.";
+                + "\n\n" + REVIEW_SUBMISSION_INSTRUCTIONS;
     }
 
     private static String continuationPrompt(
@@ -1708,6 +1803,24 @@ public final class PlanRuntimeCoordinator
     }
 
     public record McpAuthorization(String taskId, String purpose) {}
+
+    public record PlanDraftRetryReceipt(
+            String commandId,
+            String actor,
+            String reason,
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            long expectedStageVersion,
+            long returnedStageVersion,
+            String blockerId,
+            String failedTurnId,
+            String failedOperationId,
+            String replacementTurnId,
+            String replacementOperationId,
+            String replacementTicketId,
+            Instant requestedAt) {}
 
     public record PlanEditCommand(
             String requestId,

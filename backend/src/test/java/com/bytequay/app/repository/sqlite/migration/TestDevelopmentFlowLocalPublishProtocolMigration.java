@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
@@ -23,12 +24,15 @@ import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
@@ -37,6 +41,8 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -56,7 +62,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         try (Connection connection = connect(url)) {
             seedApprovedLocalSubject(connection, false, worktree.toString());
         }
-        migrate(url, "280");
+        migrate(url);
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
@@ -150,7 +156,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     """);
         }
 
-        migrate(url, "238");
+        migrate(url);
         try (Connection connection = connect(url)) {
             assertFails(connection, probeStepSql(1, 99));
             execute(connection, claimStepSql(1, 100));
@@ -232,8 +238,8 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     "batch-2", "revision-2", "digest-2", "second comment", 23));
         }
 
-        migrate(url, "230");
-        migrate(url, "230");
+        migrate(url);
+        migrate(url);
         try (Connection connection = connect(url)) {
             assertThat(number(connection, """
                     SELECT COUNT(*) FROM local_feedback_batch
@@ -258,7 +264,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         // V2StageStore's result-request evidence became part of the manager
         // contract in V235; bring this real-store command fixture to that
         // additive schema before exercising the manager.
-        migrate(url, "235");
+        migrate(url);
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
@@ -307,45 +313,6 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     }
 
     @Test
-    void upgradesPopulatedV227AndKeepsLegacyStoresWritableAcrossRestart()
-            throws Exception
-    {
-        String url = url("legacy-upgrade.db");
-        migrate(url, "227");
-        try (Connection connection = connect(url)) {
-            seedLegacyRows(connection);
-        }
-
-        migrate(url, "228");
-        migrate(url, "228");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT workflow_version FROM dev_report WHERE id = 'legacy-report'
-                    """)).isEqualTo("LEGACY");
-            assertThat(text(connection, """
-                    SELECT local_development_stage_id FROM dev_report
-                    WHERE id = 'legacy-report'
-                    """)).isNull();
-            execute(connection, """
-                    UPDATE dev_report
-                    SET summary = 'updated through the legacy upsert path',
-                        decisions_json = '[{"what":"keep legacy writable"}]',
-                        created_at_ms = 10
-                    WHERE id = 'legacy-report'
-                    """);
-            assertThat(text(connection, """
-                    SELECT summary FROM dev_report WHERE id = 'legacy-report'
-                    """)).isEqualTo("updated through the legacy upsert path");
-            assertThat(number(connection, "SELECT COUNT(*) FROM validation_pass")).isOne();
-            assertThat(number(connection, "SELECT COUNT(*) FROM local_review_submission")).isOne();
-            assertThat(number(connection, "SELECT COUNT(*) FROM local_review_brain_handoff")).isOne();
-            assertThat(number(connection, "SELECT COUNT(*) FROM task_push_authorization")).isOne();
-            assertThat(number(connection, "SELECT COUNT(*) FROM publish_authorization")).isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
-        }
-    }
-
-    @Test
     void v2WorktreeLeaseRequiresTheProvisionedOrEstablishedTaskPath()
             throws Exception
     {
@@ -353,13 +320,13 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         try (Connection connection = connect(provisioningUrl)) {
             seedProvisioningLeaseOwners(connection);
             assertFails(connection, worktreeLeaseSql(
-                    "task-provision-2", "provision-operation-2", 2,
+                    "task-provision-2", "provision-operation-task-provision-2", 2,
                     "/tmp/provision-1"));
             assertFails(connection, worktreeLeaseSql(
-                    "task-provision-1", "provision-operation-1", 1,
+                    "task-provision-1", "provision-operation-task-provision-1", 1,
                     "/tmp/wrong-path"));
             execute(connection, worktreeLeaseSql(
-                    "task-provision-1", "provision-operation-1", 1,
+                    "task-provision-1", "provision-operation-task-provision-1", 1,
                     "/tmp/provision-1"));
         }
 
@@ -445,10 +412,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                         state_changed_at_ms = 22
                     WHERE id = 'revision-1'
                     """);
-            execute(connection, """
-                    UPDATE local_feedback_batch
-                    SET status = 'FROZEN', frozen_at_ms = 22 WHERE id = 'batch-1'
-                    """);
+            freezeBatch(connection, "batch-1", 22);
             assertFails(connection, """
                     UPDATE local_feedback_batch_item SET frozen_body = 'changed'
                     WHERE batch_id = 'batch-1' AND position = 1
@@ -665,7 +629,21 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     UPDATE remote_pr_binding SET remote_pr_number = 43 WHERE id = 'binding-1'
                     """);
             assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
-            execute(connection, "DELETE FROM tasks WHERE id = 'task-1'");
+            connection.setAutoCommit(false);
+            try {
+                execute(connection, """
+                        DELETE FROM task_creation_receipt WHERE task_id = 'task-1'
+                        """);
+                execute(connection, "DELETE FROM tasks WHERE id = 'task-1'");
+                connection.commit();
+            }
+            catch (Throwable failure) {
+                connection.rollback();
+                throw failure;
+            }
+            finally {
+                connection.setAutoCommit(true);
+            }
             assertThat(number(connection, "SELECT COUNT(*) FROM publish_operation")).isZero();
             assertThat(number(connection, "SELECT COUNT(*) FROM remote_pr_binding")).isZero();
             assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
@@ -677,11 +655,11 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
             throws Exception
     {
         String url = url("exact-operation-lanes.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedApprovedLocalSubject(connection);
         }
-        migrate(url, "229");
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             execute(connection, manifestSql("manifest-1", 1, 1));
@@ -743,7 +721,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                         'validation-operation-id-extra-lane', 2,
                         'fp-1', 'head-1', 'base-1', 'REQUESTED', 33)
                     """);
-            execute(connection, """
+            assertFails(connection, """
                     INSERT INTO dispatch_ticket(
                         id, operation_id, operation_kind, async_family,
                         owner_kind, owner_id, callback_route, lane_mask,
@@ -775,7 +753,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                         'validation-operation-id-writer', 3,
                         'fp-1', 'head-1', 'base-1', 'REQUESTED', 34)
                     """);
-            execute(connection, """
+            assertFails(connection, """
                     INSERT INTO dispatch_ticket(
                         id, operation_id, operation_kind, async_family,
                         owner_kind, owner_id, callback_route, lane_mask,
@@ -806,7 +784,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         try (Connection connection = connect(url)) {
             seedApprovedLocalSubject(connection);
         }
-        migrate(url, "239");
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             execute(connection, manifestSql("manifest-1", 1, 1));
@@ -878,7 +856,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         try (Connection connection = connect(url)) {
             seedApprovedLocalSubject(connection);
         }
-        migrate(url, "241");
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             seedSuccessfulPublish(connection);
@@ -910,26 +888,88 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     }
 
     @Test
-    void sqlitePublishDeliveryStoreTerminalizesTheExactFailedOperation()
+    void v313AllowsSupersededPublishResultToSnapshotPublishingStage()
+            throws Exception
+    {
+        String url = url("superseded-publish-receipt.db");
+        migrate(url, "312");
+        List<List<String>> existingReceipts;
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection);
+            seedSuccessfulPublish(connection);
+            existingReceipts = receiptRows(connection);
+            assertThat(existingReceipts).isNotEmpty();
+            assertFails(connection, supersededPublishStageReceiptSql());
+        }
+
+        migrate(url, "313");
+        try (Connection connection = connect(url)) {
+            assertThat(receiptRows(connection)).isEqualTo(existingReceipts);
+            assertThat(triggerNames(connection, "stage_command_receipt"))
+                    .containsExactly(
+                            "stage_command_receipt_immutable",
+                            "stage_command_receipt_insert",
+                            "stage_command_receipt_local_id_collision",
+                            "stage_command_receipt_v230_feedback_proof");
+            execute(connection, """
+                    INSERT INTO stage_transition(
+                        id, stage_id, command_id, generation, from_checkpoint,
+                        to_checkpoint, stage_version, cause, actor, occurred_at_ms)
+                    VALUES ('unauthorized-publish-transition', 'local-stage-1',
+                        'accept-published-applied', 1, 'PUBLISHING',
+                        'PUBLISHING', 2, 'ACCEPT_PUBLISHED',
+                        'v2-publish-delivery', 59)
+                    """);
+            assertFails(connection, appliedNonAuthorizePublishingReceiptSql());
+            execute(connection, supersededPublishStageReceiptSql());
+            assertThat(text(connection, """
+                    SELECT disposition || '|' || returned_checkpoint
+                    FROM stage_command_receipt
+                    WHERE id = 'superseded-publish-stage-receipt'
+                    """)).isEqualTo("SUPERSEDED|PUBLISHING");
+        }
+    }
+
+    @Test
+    void sqlitePublishFailureTerminalizesOperationAndReturnsStageToReview()
             throws Exception
     {
         String url = migrated("publish-delivery-store.db");
         try (Connection connection = connect(url)) {
             seedApprovedLocalSubject(connection);
         }
-        migrate(url, "241");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedDispatchedFailedPublish(connection);
         }
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
-        SqlitePublishResultStore store = new SqlitePublishResultStore(
-                new JdbcTemplate(dataSource));
-
-        var context = store.requireContext("publish-operation-id-1");
-        store.completeFailure(
-                context, DispatchTicket.Outcome.FAILED,
-                "definite GitHub rejection", Instant.ofEpochMilli(50));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        SqlitePublishResultStore store = new SqlitePublishResultStore(jdbc);
+        try (StageStores stores = stageStores(dataSource)) {
+            new TransactionTemplate(new DataSourceTransactionManager(dataSource))
+                    .executeWithoutResult(ignored -> {
+                        var context = store.requireContext("publish-operation-id-1");
+                        store.completeFailure(
+                                context, DispatchTicket.Outcome.FAILED,
+                                "definite GitHub rejection",
+                                Instant.ofEpochMilli(50));
+                        StageManager.State current = stores.stage().findOwner(
+                                "task-1", "local-stage-1").orElseThrow().stage();
+                        ResultFence fence = new ResultFence(
+                                1, "local-stage-1", 1,
+                                "publish-operation-id-1", 1,
+                                "fp-1", "head-1", "base-1");
+                        stores.stage().commit(
+                                "accept-publish-failure", "ACCEPT_PUBLISH_FAILURE",
+                                "v2-publish-delivery", null, null, null, null,
+                                fence, null, current,
+                                new StageManager.State(
+                                        current.id(), current.taskId(), current.kind(),
+                                        current.generation(), current.version() + 1,
+                                        StageCheckpoint.LOCAL_REVIEW, null, null));
+                    });
+        }
 
         try (Connection connection = connect(url)) {
             assertThat(text(connection, """
@@ -943,6 +983,17 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                       AND revoked_at_ms = 50
                       AND consumed_at_ms IS NULL
                     """)).isEqualTo(1);
+            assertThat(text(connection, """
+                    SELECT checkpoint || '|' || version
+                    FROM stage WHERE id = 'local-stage-1'
+                    """)).isEqualTo("LOCAL_REVIEW|2");
+            assertThat(text(connection, """
+                    SELECT cause || '|' || disposition || '|'
+                        || returned_checkpoint
+                    FROM stage_command_receipt
+                    WHERE command_id = 'accept-publish-failure'
+                    """)).isEqualTo(
+                            "ACCEPT_PUBLISH_FAILURE|APPLIED|LOCAL_REVIEW");
         }
     }
 
@@ -1028,7 +1079,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     .replace("'SUPERSEDED'", "'DUPLICATE'"));
 
             execute(connection, """
-                    UPDATE threads SET lifecycle_state = 'IDLE', aggregate_version = 1
+                    UPDATE threads SET lifecycle_state = 'IDLE', aggregate_version = 2
                     WHERE id = 'trunk-1'
                     """);
             execute(connection, """
@@ -1036,7 +1087,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                         id, trunk_id, command_id, from_state, to_state,
                         aggregate_version, cause, actor, occurred_at_ms)
                     VALUES ('trunk-transition-1', 'trunk-1', 'trunk-command-1',
-                        'ACTIVE', 'IDLE', 1, 'MARK_IDLE', 'user', 60)
+                        'ACTIVE', 'IDLE', 2, 'MARK_IDLE', 'user', 60)
                     """);
             execute(connection, trunkReceiptSql("trunk-applied-1", "trunk-command-1"));
 
@@ -1116,9 +1167,10 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     """);
             execute(connection, """
                     INSERT INTO task_terminal_intent(
-                        id, task_id, kind, source, accepted, recorded_at_ms)
+                        id, task_id, kind, source, source_id,
+                        accepted, recorded_at_ms)
                     VALUES ('cancel-intent-1', 'task-1', 'CANCELED',
-                        'USER_CANCEL', 1, 60)
+                        'USER_CANCEL', 'cancel-request-command-1', 1, 60)
                     """);
             execute(connection, """
                     INSERT INTO task_transition(
@@ -1141,10 +1193,27 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                         'local-stage-1', 'CANCELED', 60)
                     """);
             execute(connection, """
+                    INSERT INTO task_terminal_acceptance(
+                        id, task_terminal_intent_id, task_id, task_epoch, kind,
+                        source_kind, source_id, accepted_by, accepted_at_ms, evidence)
+                    VALUES ('cancel-acceptance-1', 'cancel-intent-1', 'task-1', 1,
+                        'CANCELED', 'USER_CANCEL', 'cancel-request-command-1',
+                        'user', 60, 'accepted explicit Task cancellation')
+                    """);
+            execute(connection, """
                     INSERT INTO task_quiescence_barrier(
                         id, task_id, task_epoch, reason, status, requested_at_ms)
                     VALUES ('cancel-barrier-1', 'task-1', 1, 'CANCEL',
                         'REQUESTED', 61)
+                    """);
+            execute(connection, """
+                    UPDATE dispatch_ticket
+                    SET version = version + 1, status = 'CANCELED',
+                        cancel_requested_at_ms = 61,
+                        delivery_acceptance = 'SUPERSEDED',
+                        delivery_evidence = 'Task cancellation quiesced validation',
+                        completed_at_ms = 61
+                    WHERE id = 'validation-ticket-1'
                     """);
             execute(connection, """
                     UPDATE task_quiescence_barrier
@@ -1241,10 +1310,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                 execute(connection, canceledCleanupOpeningReceiptSql(
                         "cleanup-opening-receipt-1", "cancel-barrier-1"));
 
-                execute(connection, """
-                        UPDATE stage SET version = 1, checkpoint = 'CLEANING'
-                        WHERE id = 'cleanup-stage-1'
-                        """);
+                seedActiveCleanupOperation(connection);
                 execute(connection, """
                         INSERT INTO stage_transition(
                             id, stage_id, command_id, generation,
@@ -1255,6 +1321,10 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                             'cancel-cleanup-quiescence/open-canceled-cleanup-command-1',
                             1, 'WAITING_QUIESCENCE', 'CLEANING', 1,
                             'ACCEPT_CLEANUP_QUIESCENCE', 'user', 65)
+                        """);
+                execute(connection, """
+                        UPDATE stage SET version = 1, checkpoint = 'CLEANING'
+                        WHERE id = 'cleanup-stage-1'
                         """);
                 assertFails(connection, cleanupQuiescenceReceiptSql(
                         "wrong-cleanup-quiescence", null));
@@ -1285,6 +1355,93 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         }
     }
 
+    private static void seedActiveCleanupOperation(Connection connection)
+            throws SQLException
+    {
+        execute(connection, """
+                INSERT INTO cleanup_stage(
+                    stage_id, task_id, task_epoch, generation,
+                    terminal_acceptance_id, task_terminal_intent_id,
+                    terminal_reason, task_policy_revision_id,
+                    remote_pr_disposition, local_branch_requirement,
+                    remote_branch_requirement, opened_at_ms)
+                VALUES ('cleanup-stage-1', 'task-1', 1, 1,
+                    'cancel-acceptance-1', 'cancel-intent-1', 'CANCELED',
+                    'policy-1', 'NO_REMOTE_PR', 'REQUIRED',
+                    'NOT_APPLICABLE', 64)
+                """);
+        execute(connection, """
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, writer_required, workspace_id, trunk_id,
+                    task_id, task_epoch, stage_id, stage_generation, attempt,
+                    status, created_at_ms)
+                VALUES ('cleanup-ticket-1', 'cleanup-operation-id-1',
+                    'RUN_CLEANUP_OPERATION', 'CLEANUP', 'STAGE',
+                    'cleanup-stage-1', 'CLEANUP_OPERATION_RESULT', 256, 1, 1,
+                    'workspace-1', 'trunk-1', 'task-1', 1,
+                    'cleanup-stage-1', 1, 1, 'REQUESTED', 65)
+                """);
+        execute(connection, """
+                INSERT INTO cleanup_operation(
+                    id, cleanup_stage_id, task_id, task_epoch,
+                    stage_generation, terminal_acceptance_id,
+                    dispatch_ticket_id, operation_id, semantic_attempt,
+                    status, step_count, requested_at_ms)
+                VALUES ('cleanup-operation-1', 'cleanup-stage-1', 'task-1', 1,
+                    1, 'cancel-acceptance-1', 'cleanup-ticket-1',
+                    'cleanup-operation-id-1', 1, 'REQUESTED', 11, 65)
+                """);
+        String[] kinds = {
+                "PROVE_NO_NEW_ADMISSIONS", "RECONCILE_OPEN_WORK",
+                "STOP_PROVIDER_SESSIONS", "RECONCILE_VALIDATION",
+                "SEAL_REVIEW_STATE", "DISMISS_TASK_INTERACTIONS",
+                "RELEASE_RUNTIME_LEASES", "REMOVE_WORKTREE",
+                "DELETE_LOCAL_BRANCH", "DELETE_REMOTE_BRANCH",
+                "RECORD_FINAL_EVIDENCE"};
+        for (int ordinal = 1; ordinal <= kinds.length; ordinal++) {
+            String requirement = ordinal == 10 ? "NOT_APPLICABLE" : "REQUIRED";
+            execute(connection, """
+                    INSERT INTO cleanup_step(
+                        id, cleanup_operation_id, task_id, task_epoch,
+                        cleanup_stage_id, stage_generation, ordinal, kind,
+                        requirement, idempotency_key, status, attempt_limit)
+                    VALUES ('cancel-cleanup-step-%1$s', 'cleanup-operation-1',
+                        'task-1', 1, 'cleanup-stage-1', 1, %1$s, '%2$s',
+                        '%3$s', 'cleanup-operation-1:%2$s', 'REQUESTED', %4$s)
+                    """.formatted(
+                    ordinal,
+                    kinds[ordinal - 1],
+                    requirement,
+                    ordinal == 1 ? 1 : 3));
+        }
+        execute(connection, """
+                INSERT INTO capacity_lease(
+                    id, ticket_id, operation_id, workflow_source, lane_mask,
+                    trunk_control, exclusive_task, writer_required, workspace_id,
+                    trunk_id, task_id, task_epoch, holder, fencing_token,
+                    acquired_at_ms, heartbeat_at_ms, expires_at_ms)
+                VALUES ('cleanup-lease-1', 'cleanup-ticket-1',
+                    'cleanup-operation-id-1', 'V2', 256, 0, 1, 1,
+                    'workspace-1', 'trunk-1', 'task-1', 1, 'cleanup-worker', 1,
+                    65, 65, 1000)
+                """);
+        execute(connection, """
+                UPDATE dispatch_ticket
+                SET version = 1, status = 'CLAIMED', claim_purpose = 'EXECUTE',
+                    claim_owner = 'cleanup-worker',
+                    capacity_lease_id = 'cleanup-lease-1',
+                    claim_expires_at_ms = 900
+                WHERE id = 'cleanup-ticket-1'
+                """);
+        execute(connection, """
+                UPDATE cleanup_operation
+                SET status = 'ACTIVE', started_at_ms = 65
+                WHERE id = 'cleanup-operation-1'
+                """);
+    }
+
     private String url(String file)
     {
         return "jdbc:sqlite:" + tempDir.resolve(file) + "?foreign_keys=ON";
@@ -1293,13 +1450,23 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     private String migrated(String file)
     {
         String url = url(file);
-        migrate(url, "228");
+        migrate(url);
         return url;
+    }
+
+    private static void migrate(String url)
+    {
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static void migrate(String url, String target)
     {
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        Flyway.configure()
+                .dataSource(url, "", "")
+                .target(target)
+                .cleanDisabled(true)
+                .load()
+                .migrate();
     }
 
     private static Connection connect(String url)
@@ -1327,78 +1494,63 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     'IDLE', 'claude-sonnet-4.6', 0, 0, 0, 1, 1,
                     'workspace-provision', 'build', 2, 'V2', 'ACTIVE')
                 """);
+        JdbcTemplate jdbc = singleConnectionJdbc(connection);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         for (int index = 1; index <= 2; index++) {
-            execute(connection, """
-                    INSERT INTO task_assignment(
-                        id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                        created_by, created_at_ms)
-                    VALUES ('assignment-provision-%1$s', 'trunk-provision',
-                        'NEW_FROM_TRUNK', 'base-%1$s', 'seed', 'build it', 'user', 2)
-                    """.formatted(index));
-            execute(connection, """
+            String assignmentId = "assignment-provision-" + index;
+            String taskId = "task-provision-" + index;
+            String policyId = "policy-provision-" + index;
+            String planningBaseSha = "base-" + index;
+            String authorizationId = "authorization-" + assignmentId;
+            String branchName = "dev/provision-" + index;
+            String worktreePath = "/tmp/provision-" + index;
+            String provisionId = "provision-" + taskId;
+            String provisionTicketId = "provision-ticket-" + taskId;
+            String provisionOperationId = "provision-operation-" + taskId;
+            String capacityId = "capacity-provision-" + index;
+            String workerId = "worker-" + index;
+            jdbc.update("""
                     INSERT INTO task_policy_revision(
                         id, trunk_id, revision, source, auto_approve,
                         created_by, created_at_ms)
-                    VALUES ('policy-provision-%1$s', 'trunk-provision', %1$s,
-                        'TRUNK', 0, 'user', 2)
-                    """.formatted(index));
-            execute(connection, """
-                    INSERT INTO tasks(
-                        id, thread_id, seq, status, phase, created_at_ms,
-                        workflow_version, lifecycle_state, assignment_id,
-                        policy_revision_id)
-                    VALUES ('task-provision-%1$s', 'trunk-provision', %1$s,
-                        'IDLE', 'PLANNING', 2, 'V2', 'PROVISIONING',
-                        'assignment-provision-%1$s', 'policy-provision-%1$s')
-                    """.formatted(index));
-            execute(connection, """
-                    INSERT INTO task_creation_context(
-                        task_id, assignment_id, policy_revision_id, provenance,
-                        repository_id, publish_repository_id, planning_base_sha,
-                        engine_snapshot, work_model_snapshot, created_at_ms)
-                    VALUES ('task-provision-%1$s', 'assignment-provision-%1$s',
-                        'policy-provision-%1$s', 'DIRECT_USER', 'acme/widget',
-                        'acme/widget', 'base-%1$s', 'engine-v1', 'model-v1', 3)
-                    """.formatted(index));
-            execute(connection, """
-                    INSERT INTO provision_task_operation(
-                        id, task_id, task_epoch, assignment_id, operation_id,
-                        semantic_attempt, repository_id, expected_base_sha,
-                        requested_branch_name, requested_worktree_path,
-                        status, created_at_ms)
-                    VALUES ('provision-%1$s', 'task-provision-%1$s', 1,
-                        'assignment-provision-%1$s', 'provision-operation-%1$s',
-                        1, 'acme/widget', 'base-%1$s', 'dev/provision-%1$s',
-                        '/tmp/provision-%1$s', 'REQUESTED', 4)
-                    """.formatted(index));
-            execute(connection, """
-                    INSERT INTO dispatch_ticket(
-                        id, operation_id, operation_kind, async_family,
-                        owner_kind, owner_id, callback_route, lane_mask,
-                        exclusive_task, writer_required, workspace_id, trunk_id,
-                        task_id, task_epoch, attempt, expected_base_sha,
-                        status, created_at_ms)
-                    VALUES ('provision-ticket-%1$s', 'provision-operation-%1$s',
-                        'PROVISION_TASK', 'LOCAL_GIT', 'TASK',
-                        'task-provision-%1$s', 'TASK_PROVISION_RESULT', 16, 1, 1,
-                        'workspace-provision', 'trunk-provision',
-                        'task-provision-%1$s', 1, 1, 'base-%1$s', 'REQUESTED', 4)
-                    """.formatted(index));
-            execute(connection, """
+                    VALUES (?, 'trunk-provision', ?, 'TRUNK', 0, 'user', 2)
+                    """, policyId, index);
+            V2TaskSeed.insertAuthorized(jdbc, assignmentId, transaction ->
+                    transaction.update("""
+                    INSERT INTO task_assignment(
+                        id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
+                        created_by, created_at_ms,
+                        creation_authorization_id)
+                    VALUES (?, 'trunk-provision', 'NEW_FROM_TRUNK', ?, 'seed',
+                        'build it', 'user', 2, ?)
+                    """, assignmentId, planningBaseSha, authorizationId));
+            insertCreatedTask(
+                    jdbc,
+                    taskId,
+                    assignmentId,
+                    policyId,
+                    index,
+                    branchName,
+                    worktreePath);
+            jdbc.update("""
                     UPDATE provision_task_operation SET status = 'DISPATCHED'
-                    WHERE id = 'provision-%s'
-                    """.formatted(index));
-            execute(connection, """
+                    WHERE id = ?
+                    """, provisionId);
+            jdbc.update("""
                     INSERT INTO capacity_lease(
                         id, ticket_id, operation_id, workflow_source, lane_mask,
                         trunk_control, exclusive_task, writer_required,
                         workspace_id, trunk_id, task_id, task_epoch, holder,
                         fencing_token, acquired_at_ms, heartbeat_at_ms, expires_at_ms)
-                    VALUES ('capacity-provision-%1$s', 'provision-ticket-%1$s',
-                        'provision-operation-%1$s', 'V2', 16, 0, 1, 1,
-                        'workspace-provision', 'trunk-provision',
-                        'task-provision-%1$s', 1, 'worker-%1$s', %1$s, 5, 5, 100)
-                    """.formatted(index));
+                    VALUES (?, ?, ?, 'V2', 16, 0, 1, 1,
+                        'workspace-provision', 'trunk-provision', ?, 1, ?, ?, 5, 5, 100)
+                    """,
+                    capacityId,
+                    provisionTicketId,
+                    provisionOperationId,
+                    taskId,
+                    workerId,
+                    index);
         }
     }
 
@@ -1443,62 +1595,6 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                 VALUES ('%s', '%s', 'CLI_AGENT', 31, 90, 'V2', '%s', 1, %s,
                     'worker-%s')
                 """.formatted(path, taskId, operationId, fencingToken, fencingToken);
-    }
-
-    private static void seedLegacyRows(Connection connection)
-            throws SQLException
-    {
-        execute(connection, """
-                INSERT INTO workspaces(
-                    id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
-                VALUES ('legacy-workspace', 'Legacy', '', 0, 1, 1)
-                """);
-        execute(connection, """
-                INSERT INTO threads(
-                    id, kind, provider, title, status, model, cost_usd_milli,
-                    tokens_in, tokens_out, created_at_ms, updated_at_ms, workspace_id,
-                    flow, parallel_slots, turn_version)
-                VALUES ('legacy-trunk', 'CLI_AGENT', 'claude-code', 'Legacy trunk',
-                    'IDLE', 'claude-sonnet-4.6', 0, 0, 0, 1, 1,
-                    'legacy-workspace', 'build', 1, 'LEGACY')
-                """);
-        execute(connection, """
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms, workflow_version)
-                VALUES ('legacy-task', 'legacy-trunk', 1, 'IDLE', 'PLANNING', 2, 'LEGACY')
-                """);
-        execute(connection, """
-                INSERT INTO dev_report(
-                    id, task_id, summary, decisions_json, invariants_json,
-                    tricky_spots_json, test_map_json, followups_json, created_at_ms)
-                VALUES ('legacy-report', 'legacy-task', 'legacy summary', '[]', '[]',
-                    '[]', '[]', '[]', 3)
-                """);
-        execute(connection, """
-                INSERT INTO validation_pass(
-                    task_id, started_at_ms, claim_key, code_fingerprint)
-                VALUES ('legacy-task', 3, 'legacy-validation', 'legacy-fp')
-                """);
-        execute(connection, """
-                INSERT INTO local_review_submission(
-                    id, task_id, pr_id, submission_seq, root_ids_json,
-                    root_snapshot_json, submitted_through_ms, created_at_ms)
-                VALUES ('legacy-submission', 'legacy-task', 'legacy-pr', 1,
-                    '["root"]', '{"root":"body"}', 3, 3)
-                """);
-        execute(connection, """
-                INSERT INTO local_review_brain_handoff(
-                    validation_claim_key, task_id, through_sequence,
-                    code_fingerprint, created_at_ms)
-                VALUES ('legacy-handoff', 'legacy-task', 1, 'legacy-fp', 3)
-                """);
-        execute(connection, """
-                INSERT INTO task_push_authorization(
-                    token, task_id, pr_id, head_sha, code_fingerprint, actor,
-                    basis_kind, payload_json, payload_digest, created_at_ms)
-                VALUES ('legacy-push', 'legacy-task', 'legacy-pr', 'legacy-head',
-                    'legacy-fp', 'user', 'LEGACY', '{}', 'digest', 3)
-                """);
     }
 
     static void seedApprovedLocalSubject(Connection connection)
@@ -1589,7 +1685,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     validation_evidence_id, task_turn_id, semantic_attempt,
                     code_fingerprint, expected_head_sha, expected_base_sha,
                     status, requested_at_ms)
-                VALUES ('brain-episode-1', 'brain-1', 'task-1', 1,
+                VALUES ('brain-episode-1', 'brain-task-1', 'task-1', 1,
                     'local-stage-1', 1, 'report-1', 'validation-evidence-1',
                     'brain-turn-1', 1, 'fp-1', 'head-1', 'base-1',
                     'REQUESTED', 12)
@@ -1611,13 +1707,30 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
             Connection connection, boolean fork, String worktreePath)
             throws SQLException
     {
-        String upstreamRepository = fork ? "'acme/widget'" : "NULL";
-        String publishRepository = fork ? "jack/widget" : "acme/widget";
         execute(connection, """
                 INSERT INTO workspaces(
                     id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
                 VALUES ('workspace-1', 'Workspace', '', 0, 1, 1)
                 """);
+        if (fork) {
+            execute(connection, """
+                    INSERT INTO workspaces(
+                        id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
+                    VALUES ('workspace-upstream', 'Upstream', '', 0, 1, 1)
+                    """);
+            execute(connection, """
+                    INSERT INTO workspace_repos(
+                        workspace_id, repo_full_name, default_base_branch, added_at_ms)
+                    VALUES ('workspace-1', 'jack/widget', 'main', 1),
+                        ('workspace-upstream', 'acme/widget', 'main', 1)
+                    """);
+            execute(connection, """
+                    INSERT INTO workspace_relation(
+                        workspace_id, upstream_workspace_id,
+                        created_at_ms, updated_at_ms)
+                    VALUES ('workspace-1', 'workspace-upstream', 1, 1)
+                    """);
+        }
         execute(connection, """
                 INSERT INTO threads(
                     id, kind, provider, title, status, model, cost_usd_milli,
@@ -1627,100 +1740,47 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     'claude-sonnet-4.6', 0, 0, 0, 1, 1, 'workspace-1',
                     'build', 2, 'V2', 'ACTIVE')
                 """);
-        execute(connection, """
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'build it', 'user', 2)
-                """);
-        execute(connection, """
+        JdbcTemplate jdbc = singleConnectionJdbc(connection);
+        V2TaskSeed.prepareWorkspaces(jdbc);
+        jdbc.update("""
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, auto_approve,
                     created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 1, 'user', 2)
                 """);
-        execute(connection, """
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
-                VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
-        execute(connection, """
-                INSERT INTO task_creation_context(
-                    task_id, assignment_id, policy_revision_id, provenance,
-                    repository_id, upstream_repository_id, publish_repository_id,
-                    planning_base_sha,
-                    engine_snapshot, work_model_snapshot, created_at_ms)
-                VALUES ('task-1', 'assignment-1', 'policy-1', 'DIRECT_USER',
-                    'acme/widget', %s, '%s', 'base-1',
-                    'engine-v1',
-                    '{"kind":"API","agentOrProvider":"openai","model":"review-model","account":null,"reasoningEffort":null}',
-                    3)
-                """.formatted(upstreamRepository, publishRepository));
-        execute(connection, """
-                INSERT INTO task_brain(
-                    id, task_id, provider, model, engine_snapshot, created_at_ms)
-                VALUES ('brain-1', 'task-1', 'openai', 'review-model', 'engine-v1', 3)
-                """);
-        execute(connection, """
-                INSERT INTO provision_task_operation(
-                    id, task_id, task_epoch, assignment_id, operation_id,
-                    semantic_attempt, repository_id, expected_base_sha,
-                    requested_branch_name, requested_worktree_path,
-                    status, created_at_ms)
-                VALUES ('provision-1', 'task-1', 1, 'assignment-1',
-                    'provision-operation-1', 1, 'acme/widget', 'base-1',
-                    'dev/task-1', '%s', 'REQUESTED', 4)
-                """.formatted(worktreePath));
-        execute(connection, """
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    exclusive_task, writer_required, workspace_id, trunk_id,
-                    task_id, task_epoch, attempt, expected_base_sha,
-                    status, created_at_ms)
-                VALUES ('provision-ticket-1', 'provision-operation-1',
-                    'PROVISION_TASK', 'LOCAL_GIT', 'TASK', 'task-1',
-                    'TASK_PROVISION_RESULT', 16, 1, 1, 'workspace-1', 'trunk-1',
-                    'task-1', 1, 1, 'base-1', 'REQUESTED', 4)
-                """);
-        execute(connection, """
-                UPDATE provision_task_operation SET status = 'DISPATCHED'
-                WHERE id = 'provision-1'
-                """);
-        execute(connection, """
-                UPDATE dispatch_ticket
-                SET version = 1, status = 'RESULT_PENDING',
-                    pending_result_outcome = 'SUCCEEDED',
-                    pending_result_payload = 'provisioned',
-                    pending_result_evidence = 'local branch exists',
-                    pending_result_task_epoch = 1,
-                    pending_result_operation_id = 'provision-operation-1',
-                    pending_result_attempt = 1,
-                    pending_result_expected_base_sha = 'base-1'
-                WHERE id = 'provision-ticket-1'
-                """);
-        execute(connection, """
-                UPDATE provision_task_operation
-                SET status = 'ACCEPTED', result_base_sha = 'base-1',
-                    result_head_sha = 'base-1', result_code_fingerprint = 'fp-initial',
-                    completed_at_ms = 5
-                WHERE id = 'provision-1'
-                """);
-        execute(connection, """
-                INSERT INTO task_code_identity(
-                    task_id, provision_operation_id, repository_id,
-                    upstream_repository_id, publish_repository_id,
-                    branch_name, worktree_path,
-                    base_sha, local_head_sha, code_fingerprint,
-                    created_at_ms, updated_at_ms)
-                VALUES ('task-1', 'provision-1', 'acme/widget', %s, '%s',
-                    'dev/task-1', '%s', 'base-1', 'base-1',
-                    'fp-initial', 5, 5)
-                """.formatted(
-                        upstreamRepository, publishRepository, worktreePath));
+        String assignmentSql;
+        if (fork) {
+            assignmentSql = """
+                    INSERT INTO task_assignment(
+                        id, trunk_id, kind, repository_id, pr_number,
+                        remote_head_sha, created_by, created_at_ms,
+                        base_repository_id, head_repository_id, base_ref, head_ref,
+                        remote_base_sha, repository_route,
+                        creation_authorization_id)
+                    VALUES ('assignment-1', 'trunk-1', 'EXISTING_OWN_PR',
+                        'jack/widget', 1, 'head-1', 'user', 2,
+                        'acme/widget', 'jack/widget', 'main', 'dev/task-1',
+                        'base-1', 'FORK', 'authorization-assignment-1')
+                    """;
+        }
+        else {
+            assignmentSql = """
+                    INSERT INTO task_assignment(
+                        id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
+                        created_by, created_at_ms, creation_authorization_id)
+                    VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
+                        'base-1', 'seed', 'build it', 'user', 2,
+                        'authorization-assignment-1')
+                    """;
+        }
+        V2TaskSeed.insertAuthorized(
+                jdbc, "assignment-1", transaction -> transaction.update(assignmentSql));
+        insertCreatedTask(
+                jdbc, "task-1", "assignment-1", "policy-1", 1,
+                "dev/task-1", worktreePath);
+        V2TaskSeed.completeProvisioning(
+                jdbc, "task-1", "base-1", fork ? "head-1" : "base-1",
+                "fp-initial", "local branch exists", 5);
         execute(connection, """
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)
@@ -1764,14 +1824,100 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     id, task_id, summary, created_at_ms, workflow_version,
                     local_development_stage_id, task_epoch, stage_generation,
                     stage_turn_id, revision, code_fingerprint, head_sha, base_sha,
+                    source_code_fingerprint, source_head_sha, source_base_sha,
                     implemented_intent, commit_summary, file_summary,
                     validation_summary, known_risks, unresolved_concerns, context_refs)
                 VALUES ('report-1', 'task-1', 'implemented feature', 7, 'V2',
                     'local-stage-1', 1, 1, 'development-turn-1', 1,
-                    'fp-1', 'head-1', 'base-1', 'implement feature',
+                    'fp-1', 'head-1', 'base-1', 'fp-1', 'head-1', 'base-1',
+                    'implement feature',
                     'one commit', 'two files', 'tests pending', 'none', 'none',
                     'turn:development-turn-1')
                 """);
+    }
+
+    private static JdbcTemplate singleConnectionJdbc(Connection connection)
+    {
+        return new JdbcTemplate(new SingleConnectionDataSource(connection, true));
+    }
+
+    private static void insertCreatedTask(
+            JdbcTemplate jdbc,
+            String taskId,
+            String assignmentId,
+            String policyId,
+            int sequence,
+            String branchName,
+            String worktreePath)
+    {
+        String creationReceiptId = "creation-receipt-" + taskId;
+        V2TaskSeed.insertCreated(jdbc, taskId, transaction -> {
+            transaction.update("""
+                    INSERT INTO tasks(
+                        id, thread_id, seq, status, phase, created_at_ms,
+                        workflow_version, lifecycle_state, assignment_id,
+                        policy_revision_id, creation_receipt_id, name, task_type,
+                        linked_issue_number, opening_prompt, origin)
+                    SELECT ?, assignment.trunk_id, ?, 'IDLE', 'PLANNING', 2,
+                        'V2', 'PROVISIONING', assignment.id,
+                        authorization.policy_revision_id, ?,
+                        authorization.task_name, authorization.task_type,
+                        authorization.linked_issue_number,
+                        authorization.opening_prompt, authorization.task_origin
+                    FROM task_assignment assignment
+                    JOIN trunk_task_creation_authorization authorization
+                      ON authorization.id = assignment.creation_authorization_id
+                    WHERE assignment.id = ?
+                      AND authorization.policy_revision_id = ?
+                    """,
+                    taskId,
+                    sequence,
+                    creationReceiptId,
+                    assignmentId,
+                    policyId);
+            transaction.update("""
+                    INSERT INTO task_creation_context(
+                        task_id, assignment_id, policy_revision_id,
+                        authorization_id, provenance, repository_id,
+                        upstream_repository_id, publish_repository_id,
+                        base_source, base_repository_id, base_ref,
+                        planning_base_sha, assignment_base_sha,
+                        assignment_head_sha, engine_snapshot,
+                        work_model_snapshot, created_at_ms, task_name, task_type,
+                        linked_issue_number, opening_prompt, task_origin)
+                    SELECT task.id, task.assignment_id, task.policy_revision_id,
+                        authorization.id, authorization.provenance,
+                        authorization.repository_id,
+                        authorization.upstream_repository_id,
+                        authorization.publish_repository_id,
+                        authorization.base_source,
+                        authorization.base_repository_id, authorization.base_ref,
+                        authorization.planning_base_sha,
+                        authorization.assignment_base_sha,
+                        authorization.assignment_head_sha,
+                        authorization.engine_snapshot,
+                        authorization.work_model_snapshot, task.created_at_ms,
+                        authorization.task_name, authorization.task_type,
+                        authorization.linked_issue_number,
+                        authorization.opening_prompt, authorization.task_origin
+                    FROM tasks task
+                    JOIN task_assignment assignment
+                      ON assignment.id = task.assignment_id
+                    JOIN trunk_task_creation_authorization authorization
+                      ON authorization.id = assignment.creation_authorization_id
+                    WHERE task.id = ?
+                    """, taskId);
+            transaction.update("""
+                    INSERT INTO task_provision_target(
+                        task_id, repository_id, publish_repository_id,
+                        branch_name, worktree_path, created_at_ms)
+                    SELECT task.id, context.repository_id,
+                        context.publish_repository_id, ?, ?, task.created_at_ms
+                    FROM tasks task
+                    JOIN task_creation_context context ON context.task_id = task.id
+                    WHERE task.id = ?
+                    """, branchName, worktreePath, taskId);
+        });
     }
 
     private static String commentRevisionSql(
@@ -1863,8 +2009,9 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     stage_generation, dev_report_id, pr_id, policy_revision_id,
                     revision, code_fingerprint, head_sha, base_sha, route,
                     base_repository_id, head_repository_id, publish_repository_id,
-                    branch_name, head_ref, base_branch, worktree_clean, commits_ahead,
-                    branch_verified, base_verified, permission_clear, pr_title,
+                    branch_name, head_ref, base_branch, require_clean_worktree,
+                    minimum_commits_ahead, require_branch_match,
+                    require_base_match, require_publish_permission, pr_title,
                     pr_body, pr_content_revision, pr_content_digest, created_at_ms)
                 VALUES ('%s', 'local-stage-1', 'task-1', 1, 1, 'report-1',
                     'pr-1', 'policy-1', %s, 'fp-1', 'head-1', 'base-1',
@@ -1906,8 +2053,9 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     stage_generation, dev_report_id, pr_id, policy_revision_id,
                     revision, code_fingerprint, head_sha, base_sha, route,
                     base_repository_id, head_repository_id, publish_repository_id,
-                    branch_name, head_ref, base_branch, worktree_clean, commits_ahead,
-                    branch_verified, base_verified, permission_clear, pr_title,
+                    branch_name, head_ref, base_branch, require_clean_worktree,
+                    minimum_commits_ahead, require_branch_match,
+                    require_base_match, require_publish_permission, pr_title,
                     pr_body, pr_content_revision, pr_content_digest, created_at_ms)
                 VALUES ('%s', 'local-stage-1', 'task-1', 1, 1, 'report-1',
                     'pr-1', 'policy-1', 1, 'fp-1', 'head-1', 'base-1',
@@ -2043,6 +2191,50 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     'acme/widget', 'acme/widget', 42, 'https://example/pr/42',
                     'dev/task-1', '%s', 'base-1', 'binding proof', 51)
                 """.formatted(id, headSha);
+    }
+
+    private static String supersededPublishStageReceiptSql()
+    {
+        return """
+                INSERT INTO stage_command_receipt(
+                    id, stage_id, task_id, command_id, cause, actor, disposition,
+                    subject_task_epoch, subject_stage_id,
+                    subject_stage_generation, subject_operation_id,
+                    subject_attempt, subject_expected_code_fingerprint,
+                    subject_expected_head_sha, subject_expected_base_sha,
+                    returned_kind, returned_generation, returned_version,
+                    returned_checkpoint, returned_pending_task_epoch,
+                    returned_pending_stage_id, returned_pending_stage_generation,
+                    returned_pending_operation_id, returned_pending_attempt,
+                    returned_pending_code_fingerprint, returned_pending_head_sha,
+                    returned_pending_base_sha, recorded_at_ms)
+                VALUES ('superseded-publish-stage-receipt', 'local-stage-1',
+                    'task-1', 'accept-published-superseded', 'ACCEPT_PUBLISHED',
+                    'v2-publish-delivery', 'SUPERSEDED', 1, 'local-stage-1', 1,
+                    'publish-operation-id-1', 1, 'fp-1', 'head-1', 'base-1',
+                    'LOCAL_DEVELOPMENT', 1, 1, 'PUBLISHING', 1,
+                    'local-stage-1', 1, 'publish-operation-id-1', 1,
+                    'fp-1', 'head-1', 'base-1', 60)
+                """;
+    }
+
+    private static String appliedNonAuthorizePublishingReceiptSql()
+    {
+        return """
+                INSERT INTO stage_command_receipt(
+                    id, stage_id, task_id, command_id, cause, actor, disposition,
+                    subject_task_epoch, subject_stage_id,
+                    subject_stage_generation, subject_operation_id,
+                    subject_attempt, subject_expected_code_fingerprint,
+                    subject_expected_head_sha, subject_expected_base_sha,
+                    returned_kind, returned_generation, returned_version,
+                    returned_checkpoint, recorded_at_ms)
+                VALUES ('unauthorized-publish-stage-receipt', 'local-stage-1',
+                    'task-1', 'accept-published-applied', 'ACCEPT_PUBLISHED',
+                    'v2-publish-delivery', 'APPLIED', 1, 'local-stage-1', 1,
+                    'publish-operation-id-1', 1, 'fp-1', 'head-1', 'base-1',
+                    'LOCAL_DEVELOPMENT', 1, 2, 'PUBLISHING', 60)
+                """;
     }
 
     private static void seedSuccessfulPublish(Connection connection)
@@ -2209,7 +2401,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     expected_version, returned_lifecycle, returned_version,
                     recorded_at_ms)
                 VALUES ('%s', 'trunk-1', '%s', 'MARK_IDLE', 'user',
-                    'APPLIED', 0, 'IDLE', 1, 60)
+                    'APPLIED', 1, 'IDLE', 2, 60)
                 """.formatted(id, commandId);
     }
 
@@ -2304,6 +2496,44 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         try (var statement = connection.createStatement()) {
             statement.execute(sql);
         }
+    }
+
+    private static List<List<String>> receiptRows(Connection connection)
+            throws SQLException
+    {
+        List<List<String>> rows = new ArrayList<>();
+        try (var statement = connection.createStatement();
+                var result = statement.executeQuery(
+                        "SELECT * FROM stage_command_receipt ORDER BY id")) {
+            int columns = result.getMetaData().getColumnCount();
+            while (result.next()) {
+                List<String> row = new ArrayList<>(columns);
+                for (int column = 1; column <= columns; column++) {
+                    row.add(result.getString(column));
+                }
+                rows.add(row);
+            }
+        }
+        return rows;
+    }
+
+    private static List<String> triggerNames(Connection connection, String table)
+            throws SQLException
+    {
+        List<String> names = new ArrayList<>();
+        try (var statement = connection.prepareStatement("""
+                SELECT name FROM sqlite_master
+                WHERE type = 'trigger' AND tbl_name = ?
+                ORDER BY name
+                """)) {
+            statement.setString(1, table);
+            try (var result = statement.executeQuery()) {
+                while (result.next()) {
+                    names.add(result.getString(1));
+                }
+            }
+        }
+        return names;
     }
 
     private static long number(Connection connection, String sql)

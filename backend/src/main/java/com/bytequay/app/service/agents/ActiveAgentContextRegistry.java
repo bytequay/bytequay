@@ -49,8 +49,19 @@ public class ActiveAgentContextRegistry
             PermissionResolver.RunningScope scope,
             TypedOwner typedOwner)
     {
+        put(threadId, agentKey, context, scope, typedOwner, null);
+    }
+
+    public void put(
+            String threadId,
+            String agentKey,
+            ResolvedAgentContext context,
+            PermissionResolver.RunningScope scope,
+            TypedOwner typedOwner,
+            String worktreePath)
+    {
         active.put(new Key(threadId, agentKey),
-                new Entry(context, scope, typedOwner));
+                new Entry(context, scope, typedOwner, worktreePath));
     }
 
     public Optional<ResolvedAgentContext> find(String threadId, String agentKey)
@@ -71,6 +82,13 @@ public class ActiveAgentContextRegistry
     {
         return Optional.ofNullable(active.get(new Key(threadId, agentKey)))
                 .map(Entry::typedOwner);
+    }
+
+    public Optional<String> findWorktreePath(String threadId, String agentKey)
+    {
+        return Optional.ofNullable(active.get(new Key(threadId, agentKey)))
+                .map(Entry::worktreePath)
+                .filter(path -> !path.isBlank());
     }
 
     /** Attaches the live provider stop hook after its session is open. */
@@ -117,6 +135,7 @@ public class ActiveAgentContextRegistry
         private final ResolvedAgentContext context;
         private final PermissionResolver.RunningScope scope;
         private final TypedOwner typedOwner;
+        private final String worktreePath;
         private final AtomicReference<Runnable> stop = new AtomicReference<>();
         private final AtomicReference<String> stopReason = new AtomicReference<>();
         private final AtomicBoolean stopInvoked = new AtomicBoolean();
@@ -124,11 +143,13 @@ public class ActiveAgentContextRegistry
         private Entry(
                 ResolvedAgentContext context,
                 PermissionResolver.RunningScope scope,
-                TypedOwner typedOwner)
+                TypedOwner typedOwner,
+                String worktreePath)
         {
             this.context = context;
             this.scope = scope;
             this.typedOwner = typedOwner;
+            this.worktreePath = worktreePath;
         }
 
         private ResolvedAgentContext context()
@@ -144,6 +165,11 @@ public class ActiveAgentContextRegistry
         private TypedOwner typedOwner()
         {
             return typedOwner;
+        }
+
+        private String worktreePath()
+        {
+            return worktreePath;
         }
 
         private boolean attachStop(Runnable callback)

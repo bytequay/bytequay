@@ -21,10 +21,15 @@ import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.local.GitRunner;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -37,15 +42,19 @@ import java.util.function.Function;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.STAGE_TURN;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.TASK_TURN;
+import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.STAGE_OPERATION_KIND;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.TASK_OPERATION_KIND;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.TASK_OUTCOME_SUMMARY_OPERATION_KIND;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -68,11 +77,18 @@ class TestAgentTurnOperationHandler
         fingerprints = mock(CodeFingerprints.class);
         git = mock(GitRunner.class);
         when(fingerprints.fingerprint(Path.of(WORKTREE)))
-                .thenReturn("fingerprint-2");
-        when(git.headSha(Path.of(WORKTREE))).thenReturn("head-2");
+                .thenReturn("fingerprint-1");
+        when(git.headSha(Path.of(WORKTREE))).thenReturn("head-1");
+        when(git.currentBranch(Path.of(WORKTREE))).thenReturn("dev/task-1");
+        when(git.inProgressOperations(Path.of(WORKTREE)))
+                .thenReturn(List.of());
         when(git.hasUncommittedChanges(Path.of(WORKTREE))).thenReturn(false);
         when(git.mergeBase(Path.of(WORKTREE), "head-2", "base-1"))
                 .thenReturn(Optional.of("base-1"));
+        when(git.commitTreeSha(Path.of(WORKTREE), "head-1"))
+                .thenReturn("tree-1");
+        when(git.commitTreeSha(Path.of(WORKTREE), "head-2"))
+                .thenReturn("tree-2");
         provider = new FakeProvider();
     }
 
@@ -95,6 +111,8 @@ class TestAgentTurnOperationHandler
         assertThat(provider.request.prompt()).isEqualTo("review exact revision");
         assertThat(provider.request.systemPrompt()).isEqualTo("brain role");
         assertThat(provider.request.workingDirectory()).isEqualTo(Path.of(WORKTREE));
+        assertThat(provider.request.permissionPromptTool())
+                .isEqualTo("mcp__bytequay__approval_prompt");
         verify(writers, never()).acquire(any(), any());
         verify(context).providerSession("codex", "session-1");
         verify(context).processStarted(123, "test/provider");
@@ -133,6 +151,7 @@ class TestAgentTurnOperationHandler
         assertThat(provider.request.toolEndpoint().ownerKind()).isEqualTo(TASK_TURN);
         assertThat(provider.request.toolEndpoint().profile())
                 .isEqualTo(AgentTurnProviderSession.ToolProfile.TASK_BRAIN_READ_ONLY);
+        assertThat(provider.request.permissionPromptTool()).isNull();
         assertThat(envelope.capacityRequest().exclusiveTask()).isFalse();
         verify(writers, never()).acquire(any(), any());
         AgentTurnOwnerResultCodec.OwnerResult decoded =
@@ -149,22 +168,150 @@ class TestAgentTurnOperationHandler
         for (String purpose : List.of(
                 "REMOTE_CI_BRAIN_REVIEW", "BRANCH_SYNC_BRAIN_REVIEW")) {
             provider = new FakeProvider();
+            provider.result = successfulRemoteBrain();
             ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
             AgentTurnOperationHandler.ExactTurn turn = withPurpose(
                     turn(TASK_TURN, launchInput()), purpose);
-            provider.onStart = () -> assertThat(contexts.find(
-                            "trunk-1",
-                            AgentTurnOperationHandler.mcpAgentKey(
-                                    TASK_TURN, "task-turn-1", "operation-1"))
-                    .orElseThrow().toolNames())
-                    .contains("read_remote_pr_status")
-                    .doesNotContain("approval_prompt", "ask_user_question");
+            provider.onStart = () -> {
+                String agentKey = AgentTurnOperationHandler.mcpAgentKey(
+                        TASK_TURN, "task-turn-1", "operation-1");
+                assertThat(contexts.find("trunk-1", agentKey)
+                        .orElseThrow().toolNames())
+                        .contains("read_remote_pr_status")
+                        .doesNotContain("approval_prompt", "ask_user_question");
+                assertThat(contexts.findScope("trunk-1", agentKey)
+                        .orElseThrow().taskId()).isEqualTo("task-1");
+                assertThat(contexts.findScope("trunk-1", agentKey)
+                        .orElseThrow().stageId()).isNull();
+            };
 
             DispatchTicket.DispatchResult result = handler(turn, contexts)
                     .execute(context(envelope(TASK_TURN, false)));
 
             assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+            assertThat(provider.request.permissionPromptTool()).isNull();
+            assertThat(provider.request.preapprovedMcpTools())
+                    .contains("read_remote_pr_status", "read_dev_report")
+                    .doesNotContain("approval_prompt", "ask_user_question", "run_checks");
         }
+    }
+
+    @Test
+    void developmentBrainResultRepairHasNoToolsPermissionOrContinuation()
+            throws Exception
+    {
+        ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(TASK_TURN, launchInput()),
+                "DEVELOPMENT_BRAIN_RESULT_REPAIR");
+        provider.onStart = () -> assertThat(contexts.find(
+                        "trunk-1",
+                        AgentTurnOperationHandler.mcpAgentKey(
+                                TASK_TURN, "task-turn-1", "operation-1"))
+                .orElseThrow().toolNames()).isEmpty();
+
+        DispatchTicket.DispatchResult result = handler(turn, contexts)
+                .execute(context(envelope(TASK_TURN, false)));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        assertThat(provider.request.access())
+                .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
+        assertThat(provider.request.permissionPromptTool()).isNull();
+        assertThat(provider.request.preapprovedMcpTools()).isEmpty();
+        assertThat(provider.request.resumeSessionId()).isNull();
+        assertThat(provider.request.fallbackPrompt()).isNull();
+        assertThat(provider.request.priorCumulativeInputTokens()).isZero();
+        assertThat(provider.request.priorCumulativeOutputTokens()).isZero();
+        verify(writers, never()).acquire(any(), any());
+    }
+
+    @Test
+    void remoteRepairResultNormalizationIsFreshToolFreeAndStrict()
+            throws Exception
+    {
+        ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
+        AgentTurnOperationHandler.ExactTurn turn = withBrainIdentity(
+                withPurpose(
+                        turn(TASK_TURN, toolFreeLaunchInput()),
+                        REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE),
+                "claude", "claude-opus-4-1");
+        provider.result = successfulRemoteStage();
+        provider.onStart = () -> assertThat(contexts.find(
+                        "trunk-1",
+                        AgentTurnOperationHandler.mcpAgentKey(
+                                TASK_TURN, "task-turn-1", "operation-1"))
+                .orElseThrow().toolNames()).isEmpty();
+
+        DispatchTicket.DispatchResult result = handler(turn, contexts)
+                .execute(context(envelope(TASK_TURN, false)));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        assertThat(provider.request.access())
+                .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
+        assertThat(provider.request.toolEndpoint().approvalPromptTool()).isNull();
+        assertThat(provider.request.permissionPromptTool()).isNull();
+        assertThat(provider.request.images()).isEmpty();
+        assertThat(provider.request.resumeSessionId()).isNull();
+        assertThat(provider.request.fallbackPrompt()).isNull();
+        assertThat(provider.request.priorCumulativeInputTokens()).isZero();
+        assertThat(provider.request.priorCumulativeOutputTokens()).isZero();
+        verify(writers, never()).acquire(any(), any());
+
+        provider.onStart = () -> {};
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-2", "{\"schemaVersion\":1,\"summary\":\"fixed\"} prose",
+                1, 1, 0, 124L, null);
+        DispatchTicket.DispatchResult malformed = handler(turn)
+                .execute(context(envelope(TASK_TURN, false)));
+        assertThat(malformed.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(MAPPER.readTree(malformed.payloadJson()).path("disposition")
+                .asText()).isEqualTo("OWNER_OUTPUT_MALFORMED");
+    }
+
+    @Test
+    void remoteRepairResultNormalizationRejectsContinuationAndImages()
+            throws Exception
+    {
+        String resumed = launchInput().replace(
+                "\"toolEndpoint\"",
+                "\"resumeSessionId\":\"session-1\","
+                        + "\"fallbackPrompt\":\"history\",\"toolEndpoint\"");
+        String withImage = launchInput().replace(
+                "\"toolEndpoint\"",
+                "\"images\":[{\"path\":\"/tmp/input.png\","
+                        + "\"mediaType\":\"image/png\","
+                        + "\"digest\":\""
+                        + "0".repeat(64)
+                        + "\"}],\"toolEndpoint\"");
+
+        for (String input : List.of(resumed, withImage)) {
+            AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                    turn(TASK_TURN, input),
+                    REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE);
+            DispatchTicket.DispatchResult result = handler(turn)
+                    .execute(context(envelope(TASK_TURN, false)));
+
+            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+            assertThat(result.error()).contains("fresh text-only turn");
+        }
+        assertThat(provider.opens).isZero();
+    }
+
+    @Test
+    void remoteRepairResultNormalizationRejectsAnApprovalGate()
+            throws Exception
+    {
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(TASK_TURN, launchInput()),
+                REMOTE_REPAIR_RESULT_NORMALIZATION_PURPOSE);
+
+        DispatchTicket.DispatchResult result = handler(turn)
+                .execute(context(envelope(TASK_TURN, false)));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(result.error()).contains("exact typed Turn");
+        assertThat(provider.opens).isZero();
     }
 
     @Test
@@ -184,6 +331,8 @@ class TestAgentTurnOperationHandler
         assertThat(decoded.payload().outputCodeSubject()).isNull();
         assertThat(provider.request.access())
                 .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
+        assertThat(provider.request.permissionPromptTool())
+                .isEqualTo("mcp__bytequay__approval_prompt");
         verify(writers, never()).acquire(any(), any());
         verifyNoInteractions(fingerprints, git);
     }
@@ -226,7 +375,9 @@ class TestAgentTurnOperationHandler
         WorktreeWriterLeaseManager.Lease lease = authorizeStageMutation(
                 context, insideAuthorization);
         when(git.hasUncommittedChanges(Path.of(WORKTREE)))
-                .thenReturn(true, false);
+                .thenReturn(false, true, false);
+        when(fingerprints.fingerprint(Path.of(WORKTREE)))
+                .thenReturn("fingerprint-1", "fingerprint-2");
         doAnswer(invocation -> {
             assertThat(insideAuthorization).isTrue();
             provider.events.add("stage");
@@ -240,21 +391,30 @@ class TestAgentTurnOperationHandler
                     provider.events.add("commit");
                     return Optional.of("head-2");
                 });
+        AtomicBoolean firstHeadProbe = new AtomicBoolean(true);
         when(git.headSha(Path.of(WORKTREE))).thenAnswer(invocation -> {
             assertThat(insideAuthorization).isTrue();
+            if (firstHeadProbe.getAndSet(false)) {
+                return "head-1";
+            }
             provider.events.add("observe");
             return "head-2";
         });
         provider.result = successful();
-        provider.onStart = () -> assertThat(contexts.find(
-                        "trunk-1",
-                        AgentTurnOperationHandler.mcpAgentKey(
-                                STAGE_TURN, "stage-turn-1", "operation-1"))
-                .orElseThrow().toolNames())
-                .contains("run_checks", "ask_user_question")
-                .doesNotContain(
-                        "record_local_review", "record_dev_report",
-                        "record_pr_check", "record_review_verdict");
+        provider.onStart = () -> {
+            String agentKey = AgentTurnOperationHandler.mcpAgentKey(
+                    STAGE_TURN, "stage-turn-1", "operation-1");
+            assertThat(contexts.find("trunk-1", agentKey)
+                    .orElseThrow().toolNames())
+                    .contains("run_checks", "ask_user_question")
+                    .doesNotContain(
+                            "record_local_review", "record_dev_report",
+                            "record_pr_check", "record_review_verdict");
+            assertThat(contexts.findWorktreePath("trunk-1", agentKey))
+                    .contains(WORKTREE);
+            assertThat(contexts.findScope("trunk-1", agentKey)
+                    .orElseThrow().stageId()).isEqualTo("stage-1");
+        };
 
         DispatchTicket.DispatchResult result = handler.execute(context);
 
@@ -281,7 +441,8 @@ class TestAgentTurnOperationHandler
                         envelope.owner(), envelope.fence(), result);
         assertThat(decoded.requireOutputCodeSubject("base-1")).isEqualTo(
                 new AgentTurnOperationHandler.OutputCodeSubject(
-                        "fingerprint-2", "head-2", "base-1", true, "base-1"));
+                        "fingerprint-2", "head-2", "base-1", true, "base-1",
+                        "tree-1", "tree-2"));
         assertThatThrownBy(() -> decoded.requireOutputCodeSubject("other-base"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exact frozen base");
@@ -299,16 +460,559 @@ class TestAgentTurnOperationHandler
         when(git.headSha(Path.of(WORKTREE))).thenReturn("head-1");
         when(git.mergeBase(Path.of(WORKTREE), "head-1", "base-1"))
                 .thenReturn(Optional.of("base-1"));
+        when(fingerprints.fingerprint(Path.of(WORKTREE)))
+                .thenReturn("fingerprint-1");
 
         DispatchTicket.DispatchResult result = handler(turn).execute(context);
 
         AgentTurnOwnerResultCodec.OwnerResult decoded =
                 new AgentTurnOwnerResultCodec(MAPPER).decode(
                         envelope.owner(), envelope.fence(), result);
-        assertThat(decoded.requireOutputCodeSubject("base-1").headSha())
-                .isEqualTo("head-1");
+        AgentTurnOperationHandler.OutputCodeSubject output =
+                decoded.requireOutputCodeSubject("base-1");
+        assertThat(output.headSha()).isEqualTo("head-1");
+        assertThat(output.sourceTreeSha()).isEqualTo("tree-1");
+        assertThat(output.resultTreeSha()).isEqualTo("tree-1");
         verify(git, never()).stageAll(any(), any());
         verify(git, never()).commit(any(), any());
+    }
+
+    @Test
+    void remoteCiEmptyCommitIsRestoredUnderTheWriterFence()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = successfulRemoteStage();
+        when(git.headSha(Path.of(WORKTREE)))
+                .thenReturn("head-1", "empty-head", "head-1", "head-1");
+        when(git.commitTreeSha(Path.of(WORKTREE), "empty-head"))
+                .thenReturn("tree-1");
+        when(git.mergeBase(Path.of(WORKTREE), "head-1", "base-1"))
+                .thenReturn(Optional.of("base-1"));
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        AgentTurnOperationHandler.OutputCodeSubject output =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result)
+                        .requireOutputCodeSubject("base-1");
+        assertThat(output.headSha()).isEqualTo("head-1");
+        assertThat(output.sourceTreeSha()).isEqualTo("tree-1");
+        assertThat(output.resultTreeSha()).isEqualTo("tree-1");
+        assertThat(output.discardedNoChangeHeadSha()).isEqualTo("empty-head");
+        assertThat(output.restoredHeadSha()).isEqualTo("head-1");
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+    }
+
+    @Test
+    void remoteCiEmptyCommitRestoreFailureFailsClosed()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = successfulRemoteStage();
+        when(git.headSha(Path.of(WORKTREE)))
+                .thenReturn("head-1", "empty-head", "empty-head");
+        when(fingerprints.fingerprint(Path.of(WORKTREE)))
+                .thenReturn("fingerprint-1", "fingerprint-2");
+        when(git.commitTreeSha(Path.of(WORKTREE), "empty-head"))
+                .thenReturn("tree-1");
+        doAnswer(invocation -> {
+            throw new IOException("reset failed");
+        }).when(git).resetHard(Path.of(WORKTREE), "head-1");
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                .asText()).isEqualTo("WORKTREE_RESTORE_FAILED");
+        assertThat(result.error()).contains("restore failed");
+        ArgumentCaptor<WorktreeWriterLeaseManager.QuarantineEvidence> evidence =
+                ArgumentCaptor.forClass(
+                        WorktreeWriterLeaseManager.QuarantineEvidence.class);
+        verify(writers).quarantine(
+                eq(context), any(),
+                evidence.capture());
+        assertThat(evidence.getValue().observedHeadSha())
+                .isEqualTo("empty-head");
+        assertThat(evidence.getValue().observedClean()).isTrue();
+        assertThat(evidence.getValue().observedCodeFingerprint())
+                .isEqualTo("fingerprint-2");
+        assertThat(evidence.getValue().expectedCodeFingerprint())
+                .isEqualTo("fingerprint-1");
+    }
+
+    @Test
+    void detachedSourceIsCleanedBeforeSwitchingBackToTheTaskBranch()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = turn(
+                STAGE_TURN, launchInput(STAGE_TURN));
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        when(git.currentBranch(Path.of(WORKTREE)))
+                .thenReturn(null, null, "dev/task-1");
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        InOrder order = inOrder(git);
+        order.verify(git).resetHard(Path.of(WORKTREE), "HEAD");
+        order.verify(git).cleanUntracked(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+        order.verify(git).switchBranch(Path.of(WORKTREE), "dev/task-1");
+        order.verify(git).resetHard(Path.of(WORKTREE), "head-1");
+    }
+
+    @Test
+    void lingeringGitOperationStateIsQuarantinedInsteadOfAccepted()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = turn(
+                STAGE_TURN, launchInput(STAGE_TURN));
+        ExecutionContext context = context(envelope);
+        WorktreeWriterLeaseManager.Lease lease = authorizeStageMutation(
+                context, new AtomicBoolean());
+        when(git.inProgressOperations(Path.of(WORKTREE)))
+                .thenReturn(List.of("rebase-merge"));
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        verify(writers).quarantine(
+                eq(context), eq(lease), any());
+    }
+
+    @Test
+    void remoteCiRestoreWithExpectedHeadButDirtyWorktreeIsQuarantined()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = successfulRemoteStage();
+        when(git.headSha(Path.of(WORKTREE)))
+                .thenReturn("head-1", "empty-head", "head-1", "head-1");
+        when(git.commitTreeSha(Path.of(WORKTREE), "empty-head"))
+                .thenReturn("tree-1");
+        when(git.hasUncommittedChanges(Path.of(WORKTREE)))
+                .thenReturn(false, false, false, true, true);
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        ArgumentCaptor<WorktreeWriterLeaseManager.QuarantineEvidence> evidence =
+                ArgumentCaptor.forClass(
+                        WorktreeWriterLeaseManager.QuarantineEvidence.class);
+        verify(writers).quarantine(
+                eq(context), any(),
+                evidence.capture());
+        assertThat(evidence.getValue().observedHeadSha()).isEqualTo("head-1");
+        assertThat(evidence.getValue().observedClean()).isFalse();
+    }
+
+    @Test
+    void failedStageProviderRestoresTrackedAndUntrackedOutput()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = turn(
+                STAGE_TURN, launchInput(STAGE_TURN));
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.FAILED,
+                "session-1", "", 1, 1, 0, 123L, "provider failed");
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                .asText()).isEqualTo("PROVIDER_FAILED");
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+        verify(git, times(2)).cleanUntracked(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+        verify(writers, never()).quarantine(any(), any(), any());
+    }
+
+    @Test
+    void canceledStageProviderAlsoRestoresItsSource()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = turn(
+                STAGE_TURN, launchInput(STAGE_TURN));
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.CANCELED,
+                "session-1", "", 1, 1, 0, 123L, "provider canceled");
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.CANCELED);
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+        verify(git, times(2)).cleanUntracked(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+    }
+
+    @Test
+    void malformedRemoteCiOutputFreezesCandidateBeforeRestoringSource()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-1", "I fixed it, but this is not JSON", 1, 1, 0,
+                123L, null);
+        when(git.hasUncommittedChanges(Path.of(WORKTREE)))
+                .thenReturn(false, true, false, false);
+        when(git.headSha(Path.of(WORKTREE)))
+                .thenReturn("head-1", "head-2", "head-1");
+        when(git.mergeBase(Path.of(WORKTREE), "head-2", "head-1"))
+                .thenReturn(Optional.of("head-1"));
+        when(git.commitParentShas(Path.of(WORKTREE), "head-2"))
+                .thenReturn(List.of("head-1"));
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        AgentTurnOwnerResultCodec.OwnerResult decoded =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result);
+        assertThat(decoded.payload().disposition())
+                .isEqualTo(AgentTurnOperationHandler.Disposition
+                        .OWNER_OUTPUT_MALFORMED);
+        assertThat(decoded.payload().finalText())
+                .isEqualTo("I fixed it, but this is not JSON");
+        assertThat(decoded.payload().outputCodeSubject()).isNotNull().satisfies(output -> {
+            assertThat(output.headSha()).isEqualTo("head-2");
+            assertThat(output.sourceTreeSha()).isEqualTo("tree-1");
+            assertThat(output.resultTreeSha()).isEqualTo("tree-2");
+            assertThat(output.sourceHeadMergeBaseSha()).isEqualTo("head-1");
+            assertThat(output.candidateParentSha()).isEqualTo("head-1");
+        });
+        assertThat(result.error()).startsWith("OWNER_OUTPUT_MALFORMED:");
+        verify(git).stageAll(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+        verify(git).commit(
+                Path.of(WORKTREE),
+                "ByteQuay checkpoint: REMOTE_CI_REPAIR");
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+        verify(git).commitParentShas(Path.of(WORKTREE), "head-2");
+        verify(git, times(2)).cleanUntracked(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+    }
+
+    @Test
+    void malformedRemoteCiMultiCommitCandidateFailsAndRestoresSource()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-1", "I fixed it, but this is not JSON", 1, 1, 0,
+                123L, null);
+        when(git.headSha(Path.of(WORKTREE)))
+                .thenReturn("head-1", "head-2", "head-1");
+        when(git.mergeBase(Path.of(WORKTREE), "head-2", "head-1"))
+                .thenReturn(Optional.of("head-1"));
+        when(git.commitParentShas(Path.of(WORKTREE), "head-2"))
+                .thenReturn(List.of("intermediate-head"));
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                .asText()).isEqualTo("WORKTREE_OUTPUT_REJECTED");
+        assertThat(result.error()).contains("exactly one direct child");
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+        verify(git, times(2)).cleanUntracked(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+        verify(writers, never()).quarantine(any(), any(), any());
+    }
+
+    @Test
+    void validRemoteCiResultRetainsMultiCommitOutput()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = successfulRemoteStage();
+        when(git.headSha(Path.of(WORKTREE)))
+                .thenReturn("head-1", "head-2");
+        when(git.mergeBase(Path.of(WORKTREE), "head-2", "head-1"))
+                .thenReturn(Optional.of("head-1"));
+        when(git.commitParentShas(Path.of(WORKTREE), "head-2"))
+                .thenReturn(List.of("intermediate-head"));
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        AgentTurnOperationHandler.OutputCodeSubject output =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result)
+                        .requireOutputCodeSubject("base-1");
+        assertThat(output.headSha()).isEqualTo("head-2");
+        assertThat(output.sourceHeadMergeBaseSha()).isEqualTo("head-1");
+        assertThat(output.candidateParentSha()).isNull();
+        verify(git, never()).commitParentShas(any(), any());
+    }
+
+    @Test
+    void remoteStageStrictJsonRejectsTrailingFencesAndDuplicateKeys()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        for (String malformed : List.of(
+                "{\"schemaVersion\":1,\"summary\":\"fixed\"} trailing prose",
+                "```json\n{\"schemaVersion\":1,\"summary\":\"fixed\"}\n```",
+                "{\"schemaVersion\":1,\"summary\":\"first\","
+                        + "\"summary\":\"second\"}")) {
+            ExecutionContext context = context(envelope);
+            authorizeStageMutation(context, new AtomicBoolean());
+            provider.result = new AgentTurnProviderSession.Result(
+                    AgentTurnProviderSession.Completion.SUCCEEDED,
+                    "session-1", malformed, 1, 1, 0, 123L, null);
+
+            DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+            assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                    .asText()).isEqualTo("OWNER_OUTPUT_MALFORMED");
+        }
+    }
+
+    @Test
+    void malformedRemoteStageRestoreFailureUsesTheCentralQuarantine()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-1", "not strict JSON", 1, 1, 0, 123L, null);
+        doAnswer(invocation -> {
+            throw new IOException("reset failed");
+        }).when(git).resetHard(Path.of(WORKTREE), "head-1");
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                .asText()).isEqualTo("WORKTREE_RESTORE_FAILED");
+        ArgumentCaptor<WorktreeWriterLeaseManager.QuarantineEvidence> evidence =
+                ArgumentCaptor.forClass(
+                        WorktreeWriterLeaseManager.QuarantineEvidence.class);
+        verify(writers).quarantine(
+                eq(context), any(),
+                evidence.capture());
+        assertThat(evidence.getValue().reason())
+                .contains("restore failed");
+    }
+
+    @Test
+    void malformedRemoteBrainOutputBecomesOneTypedProviderFailure()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(TASK_TURN, false);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(TASK_TURN, launchInput()),
+                "REMOTE_CI_BRAIN_REVIEW");
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-1", "APPROVED in prose", 1, 1, 0, 123L, null);
+
+        DispatchTicket.DispatchResult result = handler(turn)
+                .execute(context(envelope));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        AgentTurnOwnerResultCodec.OwnerResult decoded =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result);
+        assertThat(decoded.payload().disposition())
+                .isEqualTo(AgentTurnOperationHandler.Disposition
+                        .OWNER_OUTPUT_MALFORMED);
+        assertThat(decoded.payload().finalText()).isEqualTo("APPROVED in prose");
+        assertThat(result.error()).startsWith("OWNER_OUTPUT_MALFORMED:");
+        verify(writers, never()).acquire(any(), any());
+    }
+
+    @Test
+    void remoteBrainStrictJsonRejectsTrailingAndDuplicateFields()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(TASK_TURN, false);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(TASK_TURN, launchInput()),
+                "REMOTE_CI_BRAIN_REVIEW");
+        for (String malformed : List.of(
+                "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
+                        + "\"summary\":\"safe\",\"findings\":[]} prose",
+                "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
+                        + "\"verdict\":\"CHANGES_REQUESTED\","
+                        + "\"summary\":\"unsafe\",\"findings\":[\"fix\"]}")) {
+            provider.result = new AgentTurnProviderSession.Result(
+                    AgentTurnProviderSession.Completion.SUCCEEDED,
+                    "session-1", malformed, 1, 1, 0, 123L, null);
+
+            DispatchTicket.DispatchResult result = handler(turn)
+                    .execute(context(envelope));
+
+            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+            assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                    .asText()).isEqualTo("OWNER_OUTPUT_MALFORMED");
+        }
+        verify(writers, never()).acquire(any(), any());
+    }
+
+    @Test
+    void checkpointFailureRestoresBeforeInfrastructureRetry()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = turn(
+                STAGE_TURN, launchInput(STAGE_TURN));
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        when(git.hasUncommittedChanges(Path.of(WORKTREE)))
+                .thenReturn(false, true, false);
+        doAnswer(invocation -> {
+            throw new IOException("stage failed");
+        }).when(git).stageAll(
+                Path.of(WORKTREE), List.of(".bytequay-hooks"));
+
+        assertThatThrownBy(() -> handler(turn).execute(context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("checkpoint");
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+        verify(writers, never()).quarantine(any(), any(), any());
+    }
+
+    @Test
+    void outputCaptureFailureRestoresBeforeInfrastructureRetry()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = turn(
+                STAGE_TURN, launchInput(STAGE_TURN));
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        doAnswer(invocation -> {
+            throw new IOException("tree probe failed");
+        }).when(git).commitTreeSha(Path.of(WORKTREE), "head-1");
+
+        assertThatThrownBy(() -> handler(turn).execute(context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("capture");
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+        verify(writers, never()).quarantine(any(), any(), any());
+    }
+
+    @Test
+    void remoteCiRejectsResetToBaseWithUnrelatedNewChange()
+            throws Exception
+    {
+        assertRemoteCiHistoryRewriteRejected("base-1");
+    }
+
+    @Test
+    void remoteCiRejectsAmendedOrSquashedTaskHistory()
+            throws Exception
+    {
+        assertRemoteCiHistoryRewriteRejected("older-task-ancestor");
+    }
+
+    private void assertRemoteCiHistoryRewriteRejected(String lineageBase)
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        AgentTurnOperationHandler.ExactTurn turn = withPurpose(
+                turn(STAGE_TURN, launchInput(STAGE_TURN)),
+                "REMOTE_CI_REPAIR");
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        provider.result = successfulRemoteStage();
+        when(git.headSha(Path.of(WORKTREE)))
+                .thenReturn("head-1", "rewritten-head", "head-1");
+        when(git.commitTreeSha(Path.of(WORKTREE), "rewritten-head"))
+                .thenReturn("rewritten-tree");
+        when(git.mergeBase(Path.of(WORKTREE), "rewritten-head", "base-1"))
+                .thenReturn(Optional.of("base-1"));
+        when(git.mergeBase(Path.of(WORKTREE), "rewritten-head", "head-1"))
+                .thenReturn(Optional.of(lineageBase));
+
+        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                .asText()).isEqualTo("WORKTREE_OUTPUT_REJECTED");
+        assertThat(result.error()).contains("rewrote or discarded");
+        verify(git).resetHard(Path.of(WORKTREE), "head-1");
+        verify(writers, never()).quarantine(any(), any(), any());
+    }
+
+    @Test
+    void oldWriterResultWithoutTreeProofFailsClosed()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
+        ExecutionContext context = context(envelope);
+        authorizeStageMutation(context, new AtomicBoolean());
+        DispatchTicket.DispatchResult result = handler(
+                turn(STAGE_TURN, launchInput(STAGE_TURN))).execute(context);
+        ObjectNode payload = (ObjectNode) MAPPER.readTree(result.payloadJson());
+        ObjectNode evidence = (ObjectNode) MAPPER.readTree(result.evidenceJson());
+        ((ObjectNode) payload.path("outputCodeSubject"))
+                .remove(List.of("sourceTreeSha", "resultTreeSha"));
+        ((ObjectNode) evidence.path("outputCodeSubject"))
+                .remove(List.of("sourceTreeSha", "resultTreeSha"));
+        DispatchTicket.DispatchResult legacy = new DispatchTicket.DispatchResult(
+                result.fence(), result.outcome(), MAPPER.writeValueAsString(payload),
+                MAPPER.writeValueAsString(evidence), result.error());
+        AgentTurnOwnerResultCodec.OwnerResult decoded =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), legacy);
+
+        assertThatThrownBy(() -> decoded.requireOutputCodeSubject("base-1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tree proof");
     }
 
     @Test
@@ -794,11 +1498,39 @@ class TestAgentTurnOperationHandler
                 stage ? "STAGE_DEVELOPMENT" : "TASK_BRAIN_READ_ONLY");
     }
 
+    private static String toolFreeLaunchInput()
+            throws JsonProcessingException
+    {
+        ObjectNode launch = (ObjectNode) MAPPER.readTree(launchInput());
+        ((ObjectNode) launch.path("toolEndpoint"))
+                .remove("approvalPromptTool");
+        return MAPPER.writeValueAsString(launch);
+    }
+
     private static AgentTurnProviderSession.Result successful()
     {
         return new AgentTurnProviderSession.Result(
                 AgentTurnProviderSession.Completion.SUCCEEDED,
                 "session-1", "approved", 11, 7, 3, 123L, null);
+    }
+
+    private static AgentTurnProviderSession.Result successfulRemoteStage()
+    {
+        return new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-1",
+                "{\"schemaVersion\":1,\"summary\":\"fixed CI\"}",
+                11, 7, 3, 123L, null);
+    }
+
+    private static AgentTurnProviderSession.Result successfulRemoteBrain()
+    {
+        return new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-1",
+                "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
+                        + "\"summary\":\"safe\",\"findings\":[]}",
+                11, 7, 3, 123L, null);
     }
 
     private static final class FakeProvider

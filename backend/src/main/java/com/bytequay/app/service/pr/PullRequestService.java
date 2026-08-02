@@ -23,6 +23,7 @@ import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PrRawDetail;
@@ -464,6 +465,32 @@ public class PullRequestService
         int writeApprovals = collaboratorPermissions.countWriteApprovals(pat, repoRef, fetched.reviews());
         return PullRequestDetailMapper.toPullRequestDetail(repo, number, fetched, viewerCanWrite, writeApprovals);
     }
+
+    /** Latest terminal GitHub state already held by the background list sync.
+     *  This is a pure cache read for UI projection; it grants no workflow
+     *  transition or remote-effect authority. */
+    public Optional<CachedTerminalState> findCachedTerminalState(
+            String repo, int number)
+    {
+        return store.findIdByRepoAndNumber(repo, number)
+                .flatMap(store::findById)
+                .flatMap(remote -> {
+                    if (remote.mergedAt() != null
+                            || "merged".equalsIgnoreCase(remote.state())) {
+                        return Optional.of(new CachedTerminalState(
+                                PR.STATUS_MERGED, remote.mergedAt(),
+                                remote.closedAt()));
+                    }
+                    if ("closed".equalsIgnoreCase(remote.state())) {
+                        return Optional.of(new CachedTerminalState(
+                                PR.STATUS_CLOSED, null, remote.closedAt()));
+                    }
+                    return Optional.empty();
+                });
+    }
+
+    public record CachedTerminalState(
+            String status, Instant mergedAt, Instant closedAt) {}
 
     /**
      * Refreshes one PR's detail. Tries a cheap conditional GET first

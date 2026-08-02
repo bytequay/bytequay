@@ -91,7 +91,7 @@ class TestDevelopmentFlowMergeRuntimeMigration
                     "SELECT COUNT(*) FROM remote_merge_effect_attempt")).isZero();
         }
 
-        migrate(url, "274");
+        migrate(url);
         try (Connection connection = connect(url)) {
             assertThat(number(connection, """
                     SELECT COUNT(*) FROM dispatch_ticket
@@ -121,12 +121,12 @@ class TestDevelopmentFlowMergeRuntimeMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("merge-method-upgrade.db")
                 + "?foreign_keys=ON";
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        migrate(url, "244");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedReady(connection, 1, "UNSUPPORTED", 0);
             execute(connection, """
@@ -152,7 +152,7 @@ class TestDevelopmentFlowMergeRuntimeMigration
                     """);
         }
 
-        migrate(url, "274");
+        migrate(url);
         try (Connection connection = connect(url)) {
             assertThat(text(connection, """
                     SELECT authorization.merge_method || '|' || operation.merge_method
@@ -666,14 +666,14 @@ class TestDevelopmentFlowMergeRuntimeMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(file) + "?foreign_keys=ON";
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             for (int task = 1; task <= tasks; task++) {
                 seedPublishedRemoteTask(connection, task);
             }
         }
-        migrate(url, "274");
+        migrate(url);
         return url;
     }
 

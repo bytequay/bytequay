@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowInvariantAuditor;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -29,7 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestDevelopmentFlowBackupAudit
 {
     private static final String DATABASE_PROPERTY = "bytequay.audit.db";
-    private static final String TARGET_VERSION = "294";
+    // Keep this explicit: test resources intentionally contain V999 fixtures
+    // that must never be applied to an operator's copied live database.
+    private static final String TARGET_VERSION = "320";
 
     @Test
     @EnabledIfSystemProperty(named = DATABASE_PROPERTY, matches = ".+")
@@ -53,10 +54,6 @@ class TestDevelopmentFlowBackupAudit
         Flyway flyway = Flyway.configure()
                 .dataSource(url, "", "")
                 .locations("classpath:db/migration")
-                .javaMigrations(
-                        new BackfillTurnLiveness(),
-                        new BackfillLocalReviewSubmissions(new ObjectMapper()),
-                        new NormalizeDeadLifecycleStates())
                 .target(TARGET_VERSION)
                 .cleanDisabled(true)
                 .baselineOnMigrate(false)

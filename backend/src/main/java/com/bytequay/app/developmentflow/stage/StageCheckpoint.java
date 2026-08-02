@@ -69,9 +69,10 @@ public enum StageCheckpoint
                     || target == ADDRESSING_BRAIN_FINDINGS;
             case ADDRESSING_BRAIN_FINDINGS -> target == IMPLEMENTING;
             case LOCAL_REVIEW -> target == ADDRESSING_LOCAL_FEEDBACK
+                    || target == IMPLEMENTING
                     || target == PUBLISHING;
             case ADDRESSING_LOCAL_FEEDBACK -> target == IMPLEMENTING;
-            case PUBLISHING -> target == COMPLETED;
+            case PUBLISHING -> target == LOCAL_REVIEW || target == COMPLETED;
             case WAITING_CI -> target == AWAITING_READY;
             case AWAITING_READY -> target == WAITING_REMOTE_REVIEW
                     || target == WAITING_CI;

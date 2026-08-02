@@ -70,7 +70,10 @@ describe('TaskBrainRoute', () => {
     const base = buildMockBrainView(0);
     const view: TaskBrainViewData = {
       ...base,
-      task: { ...base.task, id: taskId },
+      task: {
+        ...base.task, id: taskId, paused: true,
+        currentPhase: 'NEEDS_ATTENTION', statusLabel: 'NEEDS ATTENTION',
+      },
       rightRail: {
         ...base.rightRail,
         approval: {
@@ -96,8 +99,176 @@ describe('TaskBrainRoute', () => {
     render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
 
     expect(await screen.findByText('Task needs attention')).toBeTruthy();
-    expect(screen.getByText('operation failed — blocker-1')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('operation failed — blocker-1')).toBeTruthy());
     expect(document.querySelector('.sp-appr__actions')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Resume/ })).toBeNull();
+  });
+
+  it('retries the exact failed Plan draft without resuming the Task', async () => {
+    const taskId = 'task-plan-retry';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: taskId, paused: true,
+        currentPhase: 'NEEDS_ATTENTION', statusLabel: 'NEEDS ATTENTION',
+      },
+      recovery: {
+        kind: 'RETRY_PLAN_DRAFT', stageId: 'plan-1',
+        blockerId: 'blocker-1', failedTurnId: 'turn-1',
+      },
+      rightRail: {
+        ...base.rightRail,
+        approval: {
+          tone: 'ask', stageId: 'plan-1', stageTitle: 'Task needs attention',
+          reasonShort: 'operation failed', pendingArtifact: 'blocker-1',
+          primaryAction: null,
+        },
+      },
+    };
+    const recoverV2Plan = vi.fn().mockResolvedValue({});
+    const resumePausedTask = vi.fn().mockResolvedValue({});
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getPrForTask: vi.fn().mockResolvedValue(null),
+      getLocalPrBundle: vi.fn().mockResolvedValue(null),
+      listNotificationsForThread: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+      recoverV2Plan,
+      resumePausedTask,
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Retry Plan · NEEDS ATTENTION',
+    }));
+    await waitFor(() => expect(recoverV2Plan).toHaveBeenCalledWith(
+      taskId,
+      'turn-1',
+      expect.objectContaining({
+        blockerId: 'blocker-1',
+        reason: 'Explicit Retry Plan action from the Task run control',
+      }),
+    ));
+    expect(resumePausedTask).not.toHaveBeenCalled();
+  });
+
+  it('retries the exact malformed Development Brain review and disables ordinary Brain messages', async () => {
+    const taskId = 'task-brain-review-retry';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: taskId, paused: true,
+        currentPhase: 'NEEDS_ATTENTION', statusLabel: 'NEEDS ATTENTION',
+      },
+      recovery: {
+        kind: 'RETRY_DEVELOPMENT_BRAIN_REVIEW', stageId: 'local-stage-1',
+        blockerId: 'brain-blocker-1', failedTurnId: 'brain-turn-1',
+      },
+    };
+    const recoverV2DevelopmentBrainReview = vi.fn().mockResolvedValue({});
+    const resumePausedTask = vi.fn().mockResolvedValue({});
+    const sendBrainMessage = vi.fn().mockResolvedValue({});
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getPrForTask: vi.fn().mockResolvedValue(null),
+      getLocalPrBundle: vi.fn().mockResolvedValue(null),
+      listNotificationsForThread: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+      recoverV2DevelopmentBrainReview,
+      resumePausedTask,
+      sendBrainMessage,
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
+
+    const composer = await screen.findByRole('textbox', { name: 'Message' });
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(true));
+    fireEvent.change(composer, { target: { value: 'start another Brain turn' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(sendBrainMessage).not.toHaveBeenCalled();
+
+    const retry = await screen.findByRole('button', {
+      name: 'Retry Brain review · NEEDS ATTENTION',
+    });
+    fireEvent.click(retry);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Retry Brain review',
+    }));
+    await waitFor(() => expect(recoverV2DevelopmentBrainReview).toHaveBeenCalledTimes(1));
+    const firstCommandId = recoverV2DevelopmentBrainReview.mock.calls[0][2].commandId;
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Retry Brain review · NEEDS ATTENTION',
+    }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Retry Brain review',
+    }));
+    await waitFor(() => expect(recoverV2DevelopmentBrainReview).toHaveBeenCalledTimes(2));
+    expect(recoverV2DevelopmentBrainReview).toHaveBeenLastCalledWith(
+      taskId,
+      'brain-turn-1',
+      {
+        blockerId: 'brain-blocker-1',
+        commandId: firstCommandId,
+        reason: 'Explicit Retry Development Brain review action from the Task run control',
+      },
+    );
+    expect(resumePausedTask).not.toHaveBeenCalled();
+  });
+
+  it('retries the exact failed Remote repair Brain review without resuming the Task', async () => {
+    const taskId = 'task-remote-brain-retry';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: taskId, paused: true,
+        currentPhase: 'NEEDS_ATTENTION', statusLabel: 'NEEDS ATTENTION',
+      },
+      recovery: {
+        kind: 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW', stageId: 'remote-stage-1',
+        blockerId: 'remote-brain-blocker-1', failedTurnId: 'remote-brain-turn-1',
+      },
+    };
+    const recoverV2RemoteRepairBrainReview = vi.fn().mockResolvedValue({});
+    const resumePausedTask = vi.fn().mockResolvedValue({});
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getPrForTask: vi.fn().mockResolvedValue(null),
+      getLocalPrBundle: vi.fn().mockResolvedValue(null),
+      listNotificationsForThread: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+      recoverV2RemoteRepairBrainReview,
+      resumePausedTask,
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Retry Brain review · NEEDS ATTENTION',
+    }));
+    await waitFor(() => expect(screen.getByText('Retry Remote repair Brain review?')).toBeTruthy());
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Retry Brain review',
+    }));
+    await waitFor(() => expect(recoverV2RemoteRepairBrainReview).toHaveBeenCalledWith(
+      taskId,
+      'remote-brain-turn-1',
+      expect.objectContaining({
+        blockerId: 'remote-brain-blocker-1',
+        reason: 'Explicit Retry Remote repair Brain review action from the Task run control',
+      }),
+    ));
+    expect(resumePausedTask).not.toHaveBeenCalled();
   });
 
   it('inherits the per-thread auto-approve default for a task whose backend value is off', async () => {
@@ -217,7 +388,7 @@ describe('TaskBrainRoute', () => {
     const changesTab = (await screen.findAllByRole('button', { name: /Changes/ }))
       .find(button => button.closest('.workspace-task-v2__pr') !== null) as HTMLButtonElement;
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
-    expect(screen.getByRole('button', { name: 'Toggle PR panel' }).getAttribute('aria-pressed')).toBe('true');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Toggle PR panel' }).getAttribute('aria-pressed')).toBe('true'));
     expect(fetchPrDiffFiles).not.toHaveBeenCalled();
 
     const fetchesBeforeReview = getLocalPrBundle.mock.calls.length;
@@ -246,14 +417,14 @@ describe('TaskBrainRoute', () => {
     const hash = window.location.hash;
     fireEvent.click(screen.getByRole('button', { name: 'Maximize pull request details' }));
     const dialog = screen.getByRole('dialog', { name: 'Pull request details' });
-    expect(document.querySelector('.workspace-task-v2')).toBe(taskPage);
-    expect(within(dialog).getByRole('button', { name: /Changes/ })).toBe(changesTab);
+    await waitFor(() => expect(document.querySelector('.workspace-task-v2')).toBe(taskPage));
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: /Changes/ })).toBe(changesTab));
     expect(changesTab.style.fontWeight).toBe('600');
     expect(window.location.hash).toBe(hash);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close pull request details' }));
     expect(screen.queryByRole('dialog', { name: 'Pull request details' })).toBeNull();
-    expect(document.querySelector('.workspace-task-v2')).toBe(taskPage);
+    await waitFor(() => expect(document.querySelector('.workspace-task-v2')).toBe(taskPage));
   });
 
   it('owns Local Review approval in the conversation, not the right Overview panel', async () => {
@@ -305,7 +476,7 @@ describe('TaskBrainRoute', () => {
     const approve = await screen.findByRole('button', { name: 'Approve & ship' });
     expect(approve.closest('.workspace-task-v2__conversation')).toBeTruthy();
     const prPane = document.querySelector('.workspace-task-v2__pr') as HTMLElement;
-    expect(within(prPane).getByText('All checks have passed')).toBeTruthy();
+    await waitFor(() => expect(within(prPane).getByText('All checks have passed')).toBeTruthy());
     expect(prPane.querySelector('.merge-box')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Submit review • 0' }));
     const reviewDialog = screen.getByRole('dialog', { name: 'Submit review' });
@@ -315,7 +486,7 @@ describe('TaskBrainRoute', () => {
     ));
     fireEvent.click(approve);
     expect(await screen.findByRole('dialog')).toBeTruthy();
-    expect(screen.getByText('Push to GitHub')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Push to GitHub')).toBeTruthy());
     expect(approveNotification).not.toHaveBeenCalled();
   });
 
@@ -390,8 +561,11 @@ describe('TaskBrainRoute', () => {
     render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
 
     await screen.findByText('Build the meter');
-    expect(document.querySelector('.plan-feed-event__copy strong')?.textContent)
-      .toBe('Plan drafting');
+    // The steps render before the card's own copy settles, so reading the
+    // label synchronously off the first match races the last update.
+    await waitFor(() => expect(
+      document.querySelector('.plan-feed-event__copy strong')?.textContent)
+      .toBe('Plan drafting'));
   });
 
   it('labels a finalized plan as under Brain review until approval unlocks', async () => {
@@ -425,8 +599,11 @@ describe('TaskBrainRoute', () => {
     />);
 
     await screen.findByText('Build the meter');
-    expect(document.querySelector('.plan-feed-event__copy strong')?.textContent)
-      .toBe('Brain reviewing plan');
+    // The label also depends on the Task runs load, which lands after the
+    // plan steps render.
+    await waitFor(() => expect(
+      document.querySelector('.plan-feed-event__copy strong')?.textContent)
+      .toBe('Brain reviewing plan'));
     const approveButton = screen.getByRole('button', { name: /Approve & start dev/ }) as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'View review log' }));
@@ -486,8 +663,8 @@ describe('TaskBrainRoute', () => {
 
     await screen.findByText('Build the meter');
     // Auto-approve lives in the plan card's policy toolbar, not the top bar.
-    expect(document.querySelector('.plan-pipeline-card')).toBeTruthy();
-    expect(screen.getByText('Auto-approve')).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.plan-pipeline-card')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Auto-approve')).toBeTruthy());
     // The old top-bar button (with its dynamic "Auto-approve on/off" label) is gone.
     expect(screen.queryByText(/^Auto-approve (on|off)$/)).toBeNull();
   });
@@ -543,6 +720,177 @@ describe('TaskBrainRoute', () => {
 });
 
 describe('StageDetailRoute', () => {
+  it('mounts quarantine-only recovery and disables ordinary Stage controls', async () => {
+    const now = '2026-08-02T00:00:00Z';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task,
+        id: 'task-quarantined',
+        paused: true,
+        terminal: false,
+        currentPhase: 'IMPLEMENTING',
+        statusLabel: 'Development',
+      },
+    };
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-quarantined', taskNumber: 1, title: 'Quarantined task',
+        branch: 'dev/task-quarantined', repoFullName: 'bytequay/app',
+        prNumber: null, prDraft: false, currentPhase: 'IMPLEMENTING',
+        agentRuntime: 'CLI', agentModel: 'codex',
+      },
+      stage: {
+        id: 'stage-current', type: 'DEVELOPMENT_STAGE', state: 'OPEN',
+        openedAt: now, closedAt: null, callerStageId: null,
+        iterationCount: 0, currentIterationNumber: null, agentActive: false,
+        config: { internalReviewEnabled: false },
+        metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 'stage-thread',
+      iterations: [], conversation: [], realtimeCi: null, ciFixHistory: [],
+      pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null,
+      liveRound: null, devPhases: [],
+      recovery: {
+        replacement: null,
+        failure: null,
+        ci: null,
+        cleanup: null,
+        localPublishBaseSync: null,
+        branchSync: null,
+        worktreeQuarantine: {
+          quarantineId: 'quarantine-1',
+          blockerId: 'worktree-blocker',
+          sourceOperationId: 'source-operation',
+          taskEpoch: 3,
+          stageId: 'stage-current',
+          stageGeneration: 5,
+          worktreePath: '/worktrees/task-quarantined',
+          expectedBranchName: 'dev/task-quarantined',
+          expectedCodeFingerprint: 'fingerprint-1',
+          expectedHeadSha: 'head-1',
+          expectedBaseSha: 'base-1',
+          repairOperationId: null,
+          repairStatus: null,
+          message: 'The exact worktree could not be restored',
+          actions: ['REPAIR_WORKTREE'],
+        },
+      },
+    };
+    const steerStage = vi.fn().mockResolvedValue({});
+    const pauseTask = vi.fn().mockResolvedValue({});
+    const resumePausedTask = vi.fn().mockResolvedValue({});
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      steerStage,
+      pauseTask,
+      resumePausedTask,
+    };
+
+    render(<StageDetailRoute
+      threadId="t1" taskId="task-quarantined" stageId="stage-current" />);
+
+    expect(await screen.findByText('Task worktree is quarantined')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Repair worktree' })).toBeTruthy());
+    const composer = screen.getByRole('textbox', { name: 'Message' });
+    expect((composer as HTMLTextAreaElement).disabled).toBe(true);
+    fireEvent.change(composer, { target: { value: 'ordinary stage turn' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(steerStage).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /^Resume ·/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    expect(screen.getByRole('button', { name: /^development$/i })
+      .getAttribute('aria-haspopup')).toBeNull();
+    expect(pauseTask).not.toHaveBeenCalled();
+    expect(resumePausedTask).not.toHaveBeenCalled();
+  });
+
+  it('edits task policy from the plan overlay and saves it before approval', async () => {
+    const now = '2026-07-21T00:00:00Z';
+    const base = buildMockBrainView(0);
+    const plan: PlanCardDto = {
+      planStageId: 'stage-plan', state: 'awaiting', status: 'finalized', source: 'brain',
+      understandingSummary: 'Keep the policy editable from the Plan stage', intentSummary: 'wire the overlay',
+      steps: [{ ordinal: 1, action: 'Persist the selected task policy' }],
+      validationStrategy: 'route test', pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 1, expectedGain: 'x' },
+      revisionCount: 1, followups: [],
+    };
+    const view: TaskBrainViewData = {
+      ...base,
+      task: { ...base.task, id: 'task-plan-policy' },
+      rightRail: { ...base.rightRail, plan },
+    };
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-plan-policy', taskNumber: 1, title: 'Plan policy task',
+        branch: 'dev/plan-policy', repoFullName: 'bytequay/app', prNumber: null,
+        prDraft: false, currentPhase: 'PLANNING', agentRuntime: 'CLI', agentModel: 'codex',
+      },
+      stage: {
+        id: 'stage-plan', type: 'PLAN_STAGE', state: 'OPEN', openedAt: now,
+        closedAt: null, callerStageId: null, iterationCount: 0,
+        currentIterationNumber: null, agentActive: false,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
+      conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
+      devPhases: [],
+    };
+    let resolveAutoMerge!: (value: { enabled: boolean }) => void;
+    let resolveMinApprovals!: (value: { minApprovals: number }) => void;
+    const setTaskAutoApprove = vi.fn().mockResolvedValue({ enabled: true });
+    const setTaskAutoMerge = vi.fn(() => new Promise(resolve => { resolveAutoMerge = resolve; }));
+    const setTaskMinApprovals = vi.fn(() => new Promise(resolve => { resolveMinApprovals = resolve; }));
+    const approvePlan = vi.fn().mockResolvedValue({ devStageId: 'stage-dev' });
+    const onOpenStage = vi.fn();
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([]),
+      getTaskAutoApprove: vi.fn().mockResolvedValue({ enabled: false }),
+      getTaskAutoMerge: vi.fn().mockResolvedValue({ enabled: false }),
+      getTaskMinApprovals: vi.fn().mockResolvedValue({ minApprovals: 0 }),
+      setTaskAutoApprove,
+      setTaskAutoMerge,
+      setTaskMinApprovals,
+      approvePlan,
+    };
+
+    render(<StageDetailRoute
+      threadId="t1" taskId="task-plan-policy" stageId="stage-plan" onOpenStage={onOpenStage}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Plan awaiting your review/ }));
+    const onButtons = screen.getAllByText('On', { selector: '.ppc-seg-cell' });
+    expect(onButtons).toHaveLength(2);
+    onButtons.forEach(button => expect((button as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(screen.getByText('2', { selector: '.ppc-seg-cell' }));
+    fireEvent.click(onButtons[1]);
+    await waitFor(() => onButtons.forEach(button => expect(button.getAttribute('aria-pressed')).toBe('true')));
+    expect(setTaskAutoMerge).toHaveBeenCalledWith('t1', 'task-plan-policy', true);
+    expect(setTaskAutoApprove).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('Approve & start dev'));
+    expect(approvePlan).not.toHaveBeenCalled();
+    resolveMinApprovals({ minApprovals: 2 });
+    resolveAutoMerge({ enabled: true });
+    await waitFor(() => expect(approvePlan).toHaveBeenCalledWith('stage-plan'));
+    expect(onOpenStage).toHaveBeenCalledWith('stage-dev');
+  });
+
   it('requires confirmation and uses the explicit retry action for exhausted CI', async () => {
     const now = '2026-07-21T00:00:00Z';
     const base = buildMockBrainView(0);
@@ -593,6 +941,314 @@ describe('StageDetailRoute', () => {
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry CI' }));
     await waitFor(() => expect(retryFailedCi).toHaveBeenCalledWith('t1', 'task-ci'));
     expect(resumePausedTask).not.toHaveBeenCalled();
+  });
+
+  it('retries the exact failed Plan draft from the Stage route', async () => {
+    const now = '2026-07-21T00:00:00Z';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: 'task-plan', paused: true, terminal: false,
+        currentPhase: 'NEEDS_ATTENTION', statusLabel: 'NEEDS ATTENTION',
+      },
+      recovery: {
+        kind: 'RETRY_PLAN_DRAFT', stageId: 'stage-plan',
+        blockerId: 'blocker-plan', failedTurnId: 'turn-plan',
+      },
+    };
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-plan', taskNumber: 1, title: 'Plan task', branch: 'dev/plan-task',
+        repoFullName: 'bytequay/app', prNumber: null, prDraft: false,
+        currentPhase: 'NEEDS_ATTENTION', agentRuntime: 'CLI', agentModel: 'codex',
+      },
+      stage: {
+        id: 'stage-plan', type: 'PLAN_STAGE', state: 'OPEN', openedAt: now,
+        closedAt: null, callerStageId: null, iterationCount: 0,
+        currentIterationNumber: null, agentActive: false,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
+      conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
+      devPhases: [],
+    };
+    const recoverV2Plan = vi.fn().mockResolvedValue({});
+    const resumePausedTask = vi.fn().mockResolvedValue({});
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      recoverV2Plan,
+      resumePausedTask,
+    };
+
+    render(<StageDetailRoute threadId="t1" taskId="task-plan" stageId="stage-plan" />);
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Retry Plan · NEEDS ATTENTION',
+    }));
+    await waitFor(() => expect(recoverV2Plan).toHaveBeenCalledWith(
+      'task-plan',
+      'turn-plan',
+      expect.objectContaining({
+        blockerId: 'blocker-plan',
+        reason: 'Explicit Retry Plan action from the Stage run control',
+      }),
+    ));
+    expect(resumePausedTask).not.toHaveBeenCalled();
+  });
+
+  it('retries the exact malformed Development Brain review from its active Local Stage', async () => {
+    const now = '2026-07-21T00:00:00Z';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: 'task-brain-stage', paused: true, terminal: false,
+        currentPhase: 'NEEDS_ATTENTION', statusLabel: 'NEEDS ATTENTION',
+      },
+      recovery: {
+        kind: 'RETRY_DEVELOPMENT_BRAIN_REVIEW', stageId: 'stage-brain-review',
+        blockerId: 'brain-blocker-stage', failedTurnId: 'brain-turn-stage',
+      },
+    };
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-brain-stage', taskNumber: 1, title: 'Development task',
+        branch: 'dev/brain-stage', repoFullName: 'bytequay/app', prNumber: null,
+        prDraft: false, currentPhase: 'NEEDS_ATTENTION', agentRuntime: 'CLI', agentModel: 'codex',
+      },
+      stage: {
+        id: 'stage-brain-review', type: 'DEVELOPMENT_STAGE', state: 'OPEN', openedAt: now,
+        closedAt: null, callerStageId: null, iterationCount: 0,
+        currentIterationNumber: null, agentActive: false,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
+      conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
+      devPhases: [],
+      recovery: { replacement: null, failure: null, ci: null, cleanup: null },
+    };
+    const recoverV2DevelopmentBrainReview = vi.fn().mockResolvedValue({});
+    const steerStage = vi.fn().mockResolvedValue({ turnId: 'unexpected' });
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      recoverV2DevelopmentBrainReview,
+      steerStage,
+    };
+
+    render(<StageDetailRoute
+      threadId="t1" taskId="task-brain-stage" stageId="stage-brain-review" />);
+
+    const composer = await screen.findByRole('textbox', { name: 'Message' });
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(true));
+    fireEvent.change(composer, { target: { value: 'steer around the failed review' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(steerStage).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Retry Brain review · NEEDS ATTENTION',
+    }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Retry Brain review',
+    }));
+    await waitFor(() => expect(recoverV2DevelopmentBrainReview).toHaveBeenCalledWith(
+      'task-brain-stage',
+      'brain-turn-stage',
+      expect.objectContaining({
+        blockerId: 'brain-blocker-stage',
+        reason: 'Explicit Retry Development Brain review action from the Stage run control',
+      }),
+    ));
+    expect(steerStage).not.toHaveBeenCalled();
+  });
+
+  it('replaces the exact stalled stage directly even while it is projected as active', async () => {
+    const now = '2026-07-21T00:00:00Z';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: 'task-retry-stage', paused: false, terminal: false,
+        currentPhase: 'IMPLEMENTING', statusLabel: 'Development',
+      },
+    };
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-retry-stage', taskNumber: 1, title: 'Development task',
+        branch: 'dev/retry-stage', repoFullName: 'bytequay/app', prNumber: null,
+        prDraft: false, currentPhase: 'IMPLEMENTING', agentRuntime: 'CLI', agentModel: 'codex',
+      },
+      stage: {
+        id: 'stage-retry', type: 'DEVELOPMENT_STAGE', state: 'OPEN', openedAt: now,
+        closedAt: null, callerStageId: null, iterationCount: 0,
+        currentIterationNumber: null, agentActive: true,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
+      conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
+      devPhases: [],
+      recovery: {
+        replacement: { stageTurnId: 'turn-stalled', reason: 'Strict stage result could not be delivered' },
+        ci: null,
+        cleanup: null,
+      },
+    };
+    const steerStage = vi.fn().mockResolvedValue({ turnId: 'turn-replacement' });
+    const pauseTask = vi.fn().mockResolvedValue(undefined);
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      steerStage,
+      pauseTask,
+    };
+
+    render(<StageDetailRoute threadId="t1" taskId="task-retry-stage" stageId="stage-retry" />);
+
+    const composer = await screen.findByRole('textbox', { name: 'Message' });
+    // The composer renders before the recovery projection lands, so it is
+    // briefly enabled.
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(true));
+    fireEvent.change(composer, { target: { value: 'start another turn' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(steerStage).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Retry stage/ }));
+    expect(steerStage).not.toHaveBeenCalled();
+    expect(within(screen.getByRole('dialog')).getByText('Strict stage result could not be delivered'))
+      .toBeTruthy();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry stage' }));
+
+    await waitFor(() => expect(steerStage).toHaveBeenCalledWith(
+      'stage-retry',
+      'Retry this stage from its durable context; complete the assigned work, run required validation, and return the strict stage result.',
+      [],
+      'CANCEL_AND_REPLACE',
+      'turn-stalled',
+    ));
+    expect(pauseTask).not.toHaveBeenCalled();
+  });
+
+  it('retries an accepted failed stage turn through its exact recovery command', async () => {
+    const now = '2026-07-21T00:00:00Z';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: 'task-failed-stage', paused: false, terminal: false,
+        currentPhase: 'IMPLEMENTING', statusLabel: 'Development',
+      },
+    };
+    const failedDetail: StageDetailData = {
+      task: {
+        id: 'task-failed-stage', taskNumber: 1, title: 'Development task',
+        branch: 'dev/failed-stage', repoFullName: 'bytequay/app', prNumber: null,
+        prDraft: false, currentPhase: 'IMPLEMENTING', agentRuntime: 'CLI', agentModel: 'claude',
+      },
+      stage: {
+        id: 'stage-failed', type: 'DEVELOPMENT_STAGE', state: 'OPEN', openedAt: now,
+        closedAt: null, callerStageId: null, iterationCount: 0,
+        currentIterationNumber: null, agentActive: false,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
+      conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
+      devPhases: [],
+      recovery: {
+        replacement: null,
+        failure: {
+          stageTurnId: 'turn-failed', blockerId: 'blocker-failed',
+          reason: "You've hit your session limit · resets 12:40am (Asia/Singapore)",
+        },
+        ci: null,
+        cleanup: null,
+      },
+    };
+    const activeDetail: StageDetailData = {
+      ...failedDetail,
+      stage: { ...failedDetail.stage, agentActive: true },
+      recovery: {
+        replacement: null,
+        failure: null,
+        ci: null,
+        cleanup: null,
+      },
+    };
+    let currentDetail = activeDetail;
+    let onStageEvent: ((event: { name: string; data: Record<string, unknown> }) => void) | undefined;
+    const recoverV2Stage = vi.fn().mockResolvedValue({});
+    const steerStage = vi.fn().mockResolvedValue({ turnId: 'unexpected' });
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getStageDetail: vi.fn().mockImplementation(() => Promise.resolve(currentDetail)),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      subscribeStageStream: vi.fn((
+        _stageId: string,
+        listener: (event: { name: string; data: Record<string, unknown> }) => void,
+      ) => {
+        onStageEvent = listener;
+        return () => {};
+      }),
+      recoverV2Stage,
+      steerStage,
+    };
+
+    render(<StageDetailRoute threadId="t1" taskId="task-failed-stage" stageId="stage-failed" />);
+
+    const composer = await screen.findByRole('textbox', { name: 'Message' });
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(composer, { target: { value: 'queued before the failure' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findByText('queued before the failure')).toBeTruthy();
+    expect(steerStage).not.toHaveBeenCalled();
+
+    currentDetail = failedDetail;
+    onStageEvent?.({ name: 'TurnDone', data: {} });
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(true));
+    await waitFor(() => expect(screen.getByText('queued before the failure')).toBeTruthy());
+    expect(steerStage).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Retry stage/ }));
+    expect(recoverV2Stage).not.toHaveBeenCalled();
+    expect(within(screen.getByRole('dialog')).getByText(
+      /The failed provider session will not be resumed/,
+    )).toBeTruthy();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry stage' }));
+
+    await waitFor(() => expect(recoverV2Stage).toHaveBeenCalledWith(
+      'task-failed-stage',
+      'turn-failed',
+      {
+        blockerId: 'blocker-failed',
+        commandId: expect.stringMatching(/:blocker-failed$/),
+        reason: 'Explicit Retry action from the Local Stage run control',
+      },
+    ));
+    expect(steerStage).not.toHaveBeenCalled();
   });
 
   it('keeps the changed-files card before later stage turns', async () => {
@@ -698,7 +1354,7 @@ describe('StageDetailRoute', () => {
     render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-remote" />);
 
     const card = (await screen.findByText('Changed 1 file')).closest('.workspace-task-files-card');
-    const marker = screen.getByText('Steered by you');
+    const marker = await screen.findByText('Steered by you');
     const steeringMessage = screen.getByText('Why is the stage still working?');
     expect(card?.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card?.compareDocumentPosition(steeringMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -777,8 +1433,8 @@ describe('StageDetailRoute', () => {
     fireEvent.change(box, { target: { value: 'fix the import' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-1', 'fix the import', []));
-    expect(screen.getByText('fix the import')).toBeTruthy();
-    expect(screen.getByText('You · sending')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('fix the import')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('You · sending')).toBeTruthy());
 
     acceptSteer({ turnId: 'x' });
     await waitFor(() => expect(screen.getByText('You · queued')).toBeTruthy());

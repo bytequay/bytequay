@@ -41,7 +41,7 @@ class TestV2AgentRunProjection
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("v2-runs.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
-        DevelopmentFlowRemoteProtocolFixture.migrate(url, "228");
+        DevelopmentFlowRemoteProtocolFixture.migrate(url);
         try (Connection connection =
                 DevelopmentFlowRemoteProtocolFixture.connect(url)) {
             DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk(
@@ -49,7 +49,7 @@ class TestV2AgentRunProjection
             DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask(
                     connection, 1);
         }
-        DevelopmentFlowRemoteProtocolFixture.migrate(url, "267");
+        DevelopmentFlowRemoteProtocolFixture.migrate(url);
         try (Connection connection =
                 DevelopmentFlowRemoteProtocolFixture.connect(url)) {
             DevelopmentFlowRemoteProtocolFixture.insertRemoteOwner(

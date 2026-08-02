@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -43,11 +46,13 @@ class TestDevelopmentFlowPlanProtocolMigration
                         semantic_attempt, repository_id, expected_base_sha,
                         requested_branch_name, requested_worktree_path,
                         status, result_base_sha, result_head_sha,
-                        result_code_fingerprint, created_at_ms, completed_at_ms)
+                        result_code_fingerprint, created_at_ms, completed_at_ms,
+                        base_source, base_repository_id, base_ref)
                     VALUES ('born-terminal', 'task-1', 1, 'assignment-1',
                         'born-terminal-operation', 1, 'acme/widget', 'base-1',
                         'dev/task-1', '/tmp/task-1', 'ACCEPTED',
-                        'base-1', 'base-1', 'fp-1', 4, 5)
+                        'base-1', 'base-1', 'fp-1', 4, 5,
+                        'PLANNING_SNAPSHOT', 'acme/widget', 'main')
                     """);
             seedAcceptedProvisioning(connection);
 
@@ -60,16 +65,19 @@ class TestDevelopmentFlowPlanProtocolMigration
                     VALUES ('task-1', 'provision-1', 'acme/widget', 'acme/widget',
                         'dev/task-1', '/tmp/task-1', 'base-1', 'base-1', 'fp-1', 5, 5)
                     """);
+            settleProvisioningTicket(connection);
 
             assertFails(connection, """
                     INSERT INTO provision_task_operation(
                         id, task_id, task_epoch, assignment_id, operation_id,
                         semantic_attempt, repository_id, expected_base_sha,
                         requested_branch_name, requested_worktree_path,
-                        status, created_at_ms)
+                        status, created_at_ms, base_source,
+                        base_repository_id, base_ref)
                     VALUES ('provision-stale', 'task-1', 2, 'assignment-1',
                         'operation-stale', 2, 'acme/widget', 'base-1',
-                        'dev/task-1', '/tmp/task-1', 'REQUESTED', 6)
+                        'dev/task-1', '/tmp/task-1', 'REQUESTED', 6,
+                        'PLANNING_SNAPSHOT', 'acme/widget', 'main')
                     """);
             assertFails(connection, """
                     INSERT INTO task_code_identity(
@@ -108,13 +116,15 @@ class TestDevelopmentFlowPlanProtocolMigration
 
             execute(connection, """
                     INSERT INTO provision_task_operation(
-                        id, task_id, task_epoch, assignment_id, operation_id,
-                        semantic_attempt, repository_id, expected_base_sha,
-                        requested_branch_name, requested_worktree_path,
-                        status, created_at_ms)
+                    id, task_id, task_epoch, assignment_id, operation_id,
+                    semantic_attempt, repository_id, expected_base_sha,
+                    requested_branch_name, requested_worktree_path,
+                    status, created_at_ms, base_source,
+                    base_repository_id, base_ref)
                     VALUES ('provision-stale-result', 'task-1', 1, 'assignment-1',
                         'operation-stale-result', 2, 'acme/widget', 'base-1',
-                        'dev/task-1', '/tmp/task-1', 'REQUESTED', 7)
+                        'dev/task-1', '/tmp/task-1', 'REQUESTED', 7,
+                        'PLANNING_SNAPSHOT', 'acme/widget', 'main')
                     """);
             seedProvisioningTicket(connection, "ticket-stale-result", "task-1",
                     "operation-stale-result", 2, "base-1", null);
@@ -130,7 +140,9 @@ class TestDevelopmentFlowPlanProtocolMigration
                     UPDATE provision_task_operation
                     SET status = 'ACCEPTED', result_base_sha = 'base-1',
                         result_head_sha = 'base-1',
-                        result_code_fingerprint = 'fp-stale', completed_at_ms = 8
+                        result_code_fingerprint = 'fp-stale',
+                        result_evidence = 'exact local Git result',
+                        completed_at_ms = 8
                     WHERE id = 'provision-stale-result'
                     """);
         }
@@ -161,6 +173,7 @@ class TestDevelopmentFlowPlanProtocolMigration
                     VALUES ('review-1', 'revision-1', 'task-turn-1', 1,
                         'digest-1', 'REQUESTED', 8)
                     """);
+            seedInitialSelfReviewAttempt(connection, "review-1");
             assertFails(connection, """
                     INSERT INTO plan_self_review(
                         id, plan_revision_id, task_turn_id, task_epoch,
@@ -221,7 +234,7 @@ class TestDevelopmentFlowPlanProtocolMigration
                     VALUES ('revision-gap', 'stage-plan-1', 4, 'gap', 'digest-gap',
                         'AGENT', 'agent', 12)
                     """);
-            execute(connection, """
+            assertFails(connection, """
                     INSERT INTO task_turn(
                         id, task_id, purpose, status, operation_id, attempt, task_epoch,
                         trigger_stage_id, trigger_stage_generation, delivery_lane,
@@ -237,7 +250,7 @@ class TestDevelopmentFlowPlanProtocolMigration
                     VALUES ('review-retroactive', 'revision-2', 'task-turn-retroactive', 1,
                         'digest-2', 'REQUESTED', 12)
                     """);
-            execute(connection, """
+            assertFails(connection, """
                     INSERT INTO task_turn(
                         id, task_id, purpose, status, operation_id, attempt, task_epoch,
                         trigger_stage_id, trigger_stage_generation, delivery_lane,
@@ -267,10 +280,10 @@ class TestDevelopmentFlowPlanProtocolMigration
             assertThat(number(connection,
                     "SELECT COUNT(*) FROM plan_approval WHERE id = 'approval-1'"))
                     .isOne();
-            execute(connection, "DELETE FROM tasks WHERE id = 'task-1'");
+            assertFails(connection, "DELETE FROM tasks WHERE id = 'task-1'");
             assertThat(number(connection,
                     "SELECT COUNT(*) FROM tasks WHERE id = 'task-1'"))
-                    .isZero();
+                    .isOne();
             assertThat(number(connection,
                     "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
         }
@@ -299,6 +312,7 @@ class TestDevelopmentFlowPlanProtocolMigration
                     VALUES ('review-1', 'revision-1', 'task-turn-1', 1,
                         'digest-1', 'REQUESTED', 8)
                     """);
+            seedInitialSelfReviewAttempt(connection, "review-1");
             execute(connection, """
                     UPDATE task_turn
                     SET status = 'SUCCEEDED', started_at_ms = 8, finished_at_ms = 9
@@ -411,59 +425,89 @@ class TestDevelopmentFlowPlanProtocolMigration
         String url = migrated("existing-pr.db");
         try (Connection connection = connect(url)) {
             seedProvisioningTask(connection);
-            execute(connection, """
+            V2TaskSeed.prepareWorkspaces(connection);
+            JdbcTemplate jdbc = jdbc(connection);
+            V2TaskSeed.insertAuthorized(jdbc, "assignment-pr", seed -> seed.update("""
                     INSERT INTO task_assignment(
                         id, trunk_id, kind, repository_id, pr_number,
-                        remote_head_sha, created_by, created_at_ms)
+                        remote_base_sha, remote_head_sha, repository_route,
+                        base_repository_id, head_repository_id, base_ref,
+                        head_ref, created_by, created_at_ms,
+                        creation_authorization_id)
                     VALUES ('assignment-pr', 'trunk-1', 'EXISTING_OWN_PR',
-                        'acme/widget', 42, 'remote-head-1', 'user', 3)
-                    """);
-            execute(connection, """
-                    INSERT INTO tasks(
-                        id, thread_id, seq, status, phase, created_at_ms,
-                        workflow_version, lifecycle_state, assignment_id, policy_revision_id)
-                    VALUES ('task-pr', 'trunk-1', 2, 'IDLE', 'PLANNING', 3,
-                        'V2', 'PROVISIONING', 'assignment-pr', 'policy-1')
-                    """);
-            assertFails(connection, """
-                    INSERT INTO task_creation_context(
-                        task_id, assignment_id, policy_revision_id, provenance,
-                        repository_id, publish_repository_id, assignment_head_sha, engine_snapshot,
-                        work_model_snapshot, created_at_ms)
-                    VALUES ('task-pr', 'assignment-pr', 'policy-1', 'DIRECT_USER',
-                        'acme/widget', 'acme/widget', 'wrong-head',
-                        'engine-v1', 'model-v1', 4)
-                    """);
-            assertFails(connection, """
-                    INSERT INTO task_creation_context(
-                        task_id, assignment_id, policy_revision_id, provenance,
-                        repository_id, publish_repository_id, planning_base_sha,
-                        assignment_head_sha, engine_snapshot,
-                        work_model_snapshot, created_at_ms)
-                    VALUES ('task-pr', 'assignment-pr', 'policy-1', 'DIRECT_USER',
-                        'acme/widget', 'acme/widget', 'remote-base-1',
-                        'remote-head-1', 'engine-v1', 'model-v1', 4)
-                    """);
-            execute(connection, """
-                    INSERT INTO task_creation_context(
-                        task_id, assignment_id, policy_revision_id, provenance,
-                        repository_id, publish_repository_id, assignment_head_sha, engine_snapshot,
-                        work_model_snapshot, created_at_ms)
-                    VALUES ('task-pr', 'assignment-pr', 'policy-1', 'DIRECT_USER',
-                        'acme/widget', 'acme/widget', 'remote-head-1',
-                        'engine-v1', 'model-v1', 4)
-                    """);
-            execute(connection, """
-                    INSERT INTO provision_task_operation(
-                        id, task_id, task_epoch, assignment_id, operation_id,
-                        semantic_attempt, repository_id, expected_remote_head_sha,
-                        requested_branch_name, requested_worktree_path, status, created_at_ms)
-                    VALUES ('provision-pr-stale', 'task-pr', 1, 'assignment-pr',
-                        'operation-pr-stale', 1, 'acme/widget', 'remote-head-1',
-                        'dev/task-pr', '/tmp/task-pr', 'REQUESTED', 5)
-                    """);
-            seedProvisioningTicket(connection, "ticket-pr-stale", "task-pr",
-                    "operation-pr-stale", 1, null, "remote-head-1");
+                        'acme/widget', 42, 'remote-base-1', 'remote-head-1',
+                        'DIRECT', 'acme/widget', 'acme/widget', 'main',
+                        'feature', 'user', 3,
+                        'authorization-assignment-pr')
+                    """));
+            V2TaskSeed.insertCreated(jdbc, "task-pr", seed -> {
+                seed.update("""
+                        INSERT INTO tasks(
+                            id, thread_id, seq, status, phase, created_at_ms,
+                            workflow_version, lifecycle_state, assignment_id,
+                            policy_revision_id, creation_receipt_id, name,
+                            task_type, origin)
+                        VALUES ('task-pr', 'trunk-1', 2, 'IDLE', 'PLANNING', 3,
+                            'V2', 'PROVISIONING', 'assignment-pr', 'policy-1',
+                            'creation-receipt-task-pr',
+                            'Test task assignment-pr', 'DEVELOP', 'user')
+                        """);
+                assertFails(connection, """
+                        INSERT INTO task_creation_context(
+                            task_id, assignment_id, policy_revision_id,
+                            authorization_id, provenance, repository_id,
+                            publish_repository_id, base_source,
+                            base_repository_id, base_ref, assignment_base_sha,
+                            assignment_head_sha, engine_snapshot,
+                            work_model_snapshot, created_at_ms, task_name,
+                            task_type, task_origin)
+                        SELECT 'task-pr', 'assignment-pr', 'policy-1', id,
+                            provenance, repository_id, publish_repository_id,
+                            base_source, base_repository_id, base_ref,
+                            assignment_base_sha, 'wrong-head', engine_snapshot,
+                            work_model_snapshot, 3, task_name, task_type,
+                            task_origin
+                        FROM trunk_task_creation_authorization
+                        WHERE assignment_id = 'assignment-pr'
+                        """);
+                assertFails(connection, """
+                        INSERT INTO task_creation_context(
+                            task_id, assignment_id, policy_revision_id,
+                            authorization_id, provenance, repository_id,
+                            publish_repository_id, base_source,
+                            base_repository_id, base_ref, planning_base_sha,
+                            assignment_base_sha, assignment_head_sha,
+                            engine_snapshot, work_model_snapshot, created_at_ms,
+                            task_name, task_type, task_origin)
+                        SELECT 'task-pr', 'assignment-pr', 'policy-1', id,
+                            provenance, repository_id, publish_repository_id,
+                            base_source, base_repository_id, base_ref,
+                            'unexpected-planning-base', assignment_base_sha,
+                            assignment_head_sha, engine_snapshot,
+                            work_model_snapshot, 3, task_name, task_type,
+                            task_origin
+                        FROM trunk_task_creation_authorization
+                        WHERE assignment_id = 'assignment-pr'
+                        """);
+                insertExactCreationContext(seed, "task-pr");
+                seed.update("""
+                        INSERT INTO provision_task_operation(
+                            id, task_id, task_epoch, assignment_id, operation_id,
+                            semantic_attempt, repository_id, expected_base_sha,
+                            expected_remote_head_sha, requested_branch_name,
+                            requested_worktree_path, status, created_at_ms,
+                            base_source, base_repository_id, base_ref)
+                        VALUES ('provision-pr-stale', 'task-pr', 1,
+                            'assignment-pr', 'operation-pr-stale', 1,
+                            'acme/widget', 'remote-base-1', 'remote-head-1',
+                            'dev/task-pr', '/tmp/task-pr', 'REQUESTED', 5,
+                            'EXISTING_PR_HEAD', 'acme/widget', 'main')
+                        """);
+                seedProvisioningTicket(
+                        seed, "ticket-pr-stale", "task-pr",
+                        "operation-pr-stale", 1, "remote-base-1",
+                        "remote-head-1");
+            });
             execute(connection, """
                     UPDATE provision_task_operation SET status = 'DISPATCHED'
                     WHERE id = 'provision-pr-stale'
@@ -473,20 +517,25 @@ class TestDevelopmentFlowPlanProtocolMigration
                     UPDATE provision_task_operation
                     SET status = 'ACCEPTED', result_base_sha = 'remote-base-1',
                         result_head_sha = 'different-head',
-                        result_code_fingerprint = 'fp-pr', completed_at_ms = 6
+                        result_code_fingerprint = 'fp-pr',
+                        result_evidence = 'exact local Git result',
+                        completed_at_ms = 6
                     WHERE id = 'provision-pr-stale'
                     """);
             execute(connection, """
-                    INSERT INTO provision_task_operation(
-                        id, task_id, task_epoch, assignment_id, operation_id,
-                        semantic_attempt, repository_id, expected_remote_head_sha,
-                        requested_branch_name, requested_worktree_path, status, created_at_ms)
-                    VALUES ('provision-pr', 'task-pr', 1, 'assignment-pr',
-                        'operation-pr', 2, 'acme/widget', 'remote-head-1',
-                        'dev/task-pr', '/tmp/task-pr', 'REQUESTED', 6)
-                    """);
+                INSERT INTO provision_task_operation(
+                    id, task_id, task_epoch, assignment_id, operation_id,
+                    semantic_attempt, repository_id, expected_base_sha,
+                    expected_remote_head_sha, requested_branch_name,
+                    requested_worktree_path, status, created_at_ms,
+                    base_source, base_repository_id, base_ref)
+                VALUES ('provision-pr', 'task-pr', 1, 'assignment-pr',
+                    'operation-pr', 2, 'acme/widget', 'remote-base-1',
+                    'remote-head-1', 'dev/task-pr', '/tmp/task-pr',
+                    'REQUESTED', 6, 'EXISTING_PR_HEAD', 'acme/widget', 'main')
+                """);
             seedProvisioningTicket(connection, "ticket-pr", "task-pr",
-                    "operation-pr", 2, null, "remote-head-1");
+                    "operation-pr", 2, "remote-base-1", "remote-head-1");
             execute(connection, """
                     UPDATE provision_task_operation SET status = 'DISPATCHED'
                     WHERE id = 'provision-pr'
@@ -496,7 +545,9 @@ class TestDevelopmentFlowPlanProtocolMigration
                     UPDATE provision_task_operation
                     SET status = 'ACCEPTED', result_base_sha = 'remote-base-1',
                         result_head_sha = 'remote-head-1',
-                        result_code_fingerprint = 'fp-pr', completed_at_ms = 7
+                        result_code_fingerprint = 'fp-pr',
+                        result_evidence = 'exact local Git result',
+                        completed_at_ms = 7
                     WHERE id = 'provision-pr'
                     """);
             assertThat(text(connection, """
@@ -558,7 +609,7 @@ class TestDevelopmentFlowPlanProtocolMigration
                     INSERT INTO worktree_leases(
                         worktree_path, task_id, agent_kind, acquired_at_ms, expires_at_ms,
                         workflow_version, operation_id, task_epoch, fencing_token, lease_owner)
-                    VALUES ('/tmp/live-task-1', 'task-1', 'CLI_AGENT', 18, 100,
+                    VALUES ('/tmp/task-1', 'task-1', 'CLI_AGENT', 18, 100,
                         'V2', 'operation-live', 1, 1, 'worker-1')
                     """);
             execute(connection, """
@@ -586,7 +637,7 @@ class TestDevelopmentFlowPlanProtocolMigration
                         evidence = 'must not trust this assertion'
                     WHERE id = 'quiescence-1'
                     """);
-            execute(connection, "DELETE FROM worktree_leases WHERE worktree_path = '/tmp/live-task-1'");
+            execute(connection, "DELETE FROM worktree_leases WHERE worktree_path = '/tmp/task-1'");
             execute(connection, """
                     UPDATE capacity_lease
                     SET released_at_ms = 20, release_reason = 'QUIESCED'
@@ -614,6 +665,14 @@ class TestDevelopmentFlowPlanProtocolMigration
                     """);
             execute(connection, """
                     UPDATE dispatch_ticket
+                    SET version = 1, status = 'CANCELED',
+                        delivery_acceptance = 'SUPERSEDED',
+                        delivery_evidence = 'quiescence rejected admission',
+                        completed_at_ms = 20
+                    WHERE id = 'ticket-blocked'
+                    """);
+            execute(connection, """
+                    UPDATE dispatch_ticket
                     SET version = 1, status = 'RECONCILE_WAIT'
                     WHERE id = 'ticket-live'
                     """);
@@ -634,7 +693,10 @@ class TestDevelopmentFlowPlanProtocolMigration
                     """);
             execute(connection, """
                     UPDATE dispatch_ticket
-                    SET version = 2, status = 'RETRY_WAIT', next_attempt_at_ms = 30
+                    SET version = 2, status = 'CANCELED',
+                        delivery_acceptance = 'SUPERSEDED',
+                        delivery_evidence = 'quiesced for replan',
+                        completed_at_ms = 20
                     WHERE id = 'ticket-live'
                     """);
             execute(connection, """
@@ -745,89 +807,6 @@ class TestDevelopmentFlowPlanProtocolMigration
         }
     }
 
-    @Test
-    void upgradesPopulatedVersion224WithoutRewritingExistingRows()
-            throws Exception
-    {
-        String url = "jdbc:sqlite:" + tempDir.resolve("upgrade-224.db") + "?foreign_keys=ON";
-        migrate(url, "224");
-        try (Connection connection = connect(url)) {
-            execute(connection, """
-                    INSERT INTO workspaces(
-                        id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
-                    VALUES ('upgrade-workspace', 'Upgrade', '', 0, 1, 1)
-                    """);
-            execute(connection, """
-                    INSERT INTO threads(
-                        id, kind, provider, title, status, model, cost_usd_milli,
-                        tokens_in, tokens_out, created_at_ms, updated_at_ms, workspace_id,
-                        flow, parallel_slots, turn_version, lifecycle_state)
-                    VALUES ('upgrade-trunk', 'CLI_AGENT', 'claude-code', 'Upgrade trunk',
-                        'IDLE', 'claude-sonnet-4.6', 0, 0, 0, 1, 1,
-                        'upgrade-workspace', 'build', 2, 'V2', 'ACTIVE')
-                    """);
-            execute(connection, """
-                    INSERT INTO task_assignment(
-                        id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                        created_by, created_at_ms)
-                    VALUES ('upgrade-assignment', 'upgrade-trunk', 'NEW_FROM_TRUNK',
-                        'upgrade-base', 'seed', 'build', 'user', 2)
-                    """);
-            execute(connection, """
-                    INSERT INTO task_policy_revision(
-                        id, trunk_id, revision, source, created_by, created_at_ms)
-                    VALUES ('upgrade-policy', 'upgrade-trunk', 1, 'TRUNK', 'user', 2)
-                    """);
-            execute(connection, """
-                    INSERT INTO tasks(
-                        id, thread_id, seq, status, phase, created_at_ms,
-                        workflow_version, lifecycle_state, assignment_id, policy_revision_id)
-                    VALUES ('upgrade-task', 'upgrade-trunk', 1, 'IDLE', 'PLANNING', 2,
-                        'V2', 'PROVISIONING', 'upgrade-assignment', 'upgrade-policy')
-                    """);
-            execute(connection, """
-                    INSERT INTO threads(
-                        id, kind, provider, title, status, model, cost_usd_milli,
-                        tokens_in, tokens_out, created_at_ms, updated_at_ms, workspace_id,
-                        flow, parallel_slots, turn_version)
-                    VALUES ('legacy-trunk', 'CLI_AGENT', 'claude-code', 'Legacy trunk',
-                        'IDLE', 'claude-sonnet-4.6', 0, 0, 0, 1, 1,
-                        'upgrade-workspace', 'build', 1, 'LEGACY')
-                    """);
-            execute(connection, """
-                    INSERT INTO tasks(
-                        id, thread_id, seq, status, phase, created_at_ms, workflow_version)
-                    VALUES ('legacy-task', 'legacy-trunk', 1, 'IDLE', 'PLANNING', 2, 'LEGACY')
-                    """);
-        }
-
-        migrate(url, "225");
-        migrate(url, "225");
-        try (Connection connection = connect(url)) {
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM tasks WHERE id = 'upgrade-task' AND epoch = 1"))
-                    .isOne();
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM tasks WHERE id = 'legacy-task' AND workflow_version = 'LEGACY'"))
-                    .isOne();
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM task_creation_context"))
-                    .isZero();
-            execute(connection, """
-                    INSERT INTO task_creation_context(
-                        task_id, assignment_id, policy_revision_id, provenance,
-                        repository_id, publish_repository_id, planning_base_sha,
-                        engine_snapshot, work_model_snapshot, created_at_ms)
-                    VALUES ('upgrade-task', 'upgrade-assignment', 'upgrade-policy',
-                        'DIRECT_USER', 'acme/widget', 'acme/widget', 'upgrade-base',
-                        'engine-v1', 'model-v1', 3)
-                    """);
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_check"))
-                    .isZero();
-        }
-    }
-
     private String migrated(String file)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(file) + "?foreign_keys=ON";
@@ -837,12 +816,7 @@ class TestDevelopmentFlowPlanProtocolMigration
 
     private static void migrate(String url)
     {
-        migrate(url, "225");
-    }
-
-    private static void migrate(String url, String target)
-    {
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static Connection connect(String url)
@@ -870,62 +844,70 @@ class TestDevelopmentFlowPlanProtocolMigration
                     'claude-sonnet-4.6', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
-        execute(connection, """
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'build', 'user', 2)
-                """);
+        V2TaskSeed.prepareWorkspaces(connection);
         execute(connection, """
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, auto_approve,
                     created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 1, 'user', 2)
                 """);
-        execute(connection, """
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
-                VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
-        execute(connection, """
-                INSERT INTO task_creation_context(
-                    task_id, assignment_id, policy_revision_id, provenance,
-                    repository_id, publish_repository_id, planning_base_sha, engine_snapshot,
-                    work_model_snapshot, created_at_ms)
-                VALUES ('task-1', 'assignment-1', 'policy-1', 'DIRECT_USER',
-                    'acme/widget', 'acme/widget', 'base-1', 'engine-v1', 'model-v1', 3)
-                """);
-        assertFails(connection, """
-                INSERT INTO task_brain(
-                    id, task_id, provider, model, engine_snapshot, created_at_ms)
-                VALUES ('brain-wrong', 'task-1', 'openai', 'review-model',
-                    'different-engine', 3)
-                """);
-        execute(connection, """
-                INSERT INTO task_brain(
-                    id, task_id, provider, model, engine_snapshot, created_at_ms)
-                VALUES ('brain-1', 'task-1', 'openai', 'review-model', 'engine-v1', 3)
-                """);
+        JdbcTemplate jdbc = jdbc(connection);
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1", seed -> seed.update("""
+                INSERT INTO task_assignment(
+                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
+                    created_by, created_at_ms, creation_authorization_id)
+                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
+                    'base-1', 'seed', 'build', 'user', 2,
+                    'authorization-assignment-1')
+                """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", seed -> {
+            seed.update("""
+                    INSERT INTO tasks(
+                        id, thread_id, seq, status, phase, created_at_ms,
+                        workflow_version, lifecycle_state, assignment_id,
+                        policy_revision_id, creation_receipt_id, name, task_type,
+                        opening_prompt, origin)
+                    VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
+                        'V2', 'PROVISIONING', 'assignment-1', 'policy-1',
+                        'creation-receipt-task-1', 'Test task assignment-1',
+                        'DEVELOP', 'build', 'user')
+                    """);
+            insertExactCreationContext(seed, "task-1");
+            assertFails(connection, """
+                    INSERT INTO task_brain(
+                        id, task_id, provider, model, engine_snapshot,
+                        created_at_ms)
+                    VALUES ('brain-wrong', 'task-1', 'openai', 'review-model',
+                        'different-engine', 3)
+                    """);
+            seed.update("""
+                    INSERT INTO task_brain(
+                        id, task_id, provider, model, engine_snapshot,
+                        created_at_ms)
+                    VALUES ('brain-1', 'task-1', 'openai', 'review-model',
+                        'engine', 3)
+                    """);
+            seed.update("""
+                    INSERT INTO provision_task_operation(
+                        id, task_id, task_epoch, assignment_id, operation_id,
+                        semantic_attempt, repository_id, expected_base_sha,
+                        requested_branch_name, requested_worktree_path,
+                        status, created_at_ms, base_source,
+                        base_repository_id, base_ref)
+                    VALUES ('provision-1', 'task-1', 1, 'assignment-1',
+                        'operation-1', 1, 'acme/widget', 'base-1',
+                        'dev/task-1', '/tmp/task-1', 'REQUESTED', 4,
+                        'PLANNING_SNAPSHOT', 'acme/widget', 'main')
+                    """);
+            seedProvisioningTicket(
+                    seed, "ticket-1", "task-1", "operation-1", 1,
+                    "base-1", null);
+        });
     }
 
     private static void seedAcceptedProvisioning(Connection connection)
             throws SQLException
     {
-        execute(connection, """
-                INSERT INTO provision_task_operation(
-                    id, task_id, task_epoch, assignment_id, operation_id,
-                    semantic_attempt, repository_id, expected_base_sha,
-                    requested_branch_name, requested_worktree_path,
-                    status, created_at_ms)
-                VALUES ('provision-1', 'task-1', 1, 'assignment-1', 'operation-1',
-                    1, 'acme/widget', 'base-1', 'dev/task-1', '/tmp/task-1',
-                    'REQUESTED', 4)
-                """);
-        seedProvisioningTicket(connection, "ticket-1", "task-1", "operation-1", 1,
-                "base-1", null);
         execute(connection, """
                 UPDATE provision_task_operation SET status = 'DISPATCHED'
                 WHERE id = 'provision-1'
@@ -935,16 +917,32 @@ class TestDevelopmentFlowPlanProtocolMigration
                 UPDATE provision_task_operation
                 SET status = 'ACCEPTED', result_base_sha = 'base-1',
                     result_head_sha = 'wrong-new-task-head',
-                    result_code_fingerprint = 'fp-1', completed_at_ms = 5
+                    result_code_fingerprint = 'fp-1',
+                    result_evidence = 'exact local Git result',
+                    completed_at_ms = 5
                 WHERE id = 'provision-1'
                 """);
         execute(connection, """
                 UPDATE provision_task_operation
                 SET status = 'ACCEPTED', result_base_sha = 'base-1',
                     result_head_sha = 'base-1', result_code_fingerprint = 'fp-1',
-                    completed_at_ms = 5
+                    result_evidence = 'exact local Git result', completed_at_ms = 5
                 WHERE id = 'provision-1'
                 """);
+    }
+
+    private static void seedProvisioningTicket(
+            JdbcTemplate jdbc,
+            String ticketId,
+            String taskId,
+            String operationId,
+            int attempt,
+            String expectedBaseSha,
+            String expectedHeadSha)
+    {
+        jdbc.update(provisioningTicketSql(
+                ticketId, taskId, operationId, attempt,
+                expectedBaseSha, expectedHeadSha));
     }
 
     private static void seedProvisioningTicket(
@@ -957,9 +955,22 @@ class TestDevelopmentFlowPlanProtocolMigration
             String expectedHeadSha)
             throws SQLException
     {
+        execute(connection, provisioningTicketSql(
+                ticketId, taskId, operationId, attempt,
+                expectedBaseSha, expectedHeadSha));
+    }
+
+    private static String provisioningTicketSql(
+            String ticketId,
+            String taskId,
+            String operationId,
+            int attempt,
+            String expectedBaseSha,
+            String expectedHeadSha)
+    {
         String base = expectedBaseSha == null ? "NULL" : "'" + expectedBaseSha + "'";
         String head = expectedHeadSha == null ? "NULL" : "'" + expectedHeadSha + "'";
-        execute(connection, """
+        return """
                 INSERT INTO dispatch_ticket(
                     id, operation_id, operation_kind, async_family,
                     owner_kind, owner_id, callback_route, lane_mask,
@@ -970,7 +981,7 @@ class TestDevelopmentFlowPlanProtocolMigration
                     'TASK', '%s', 'TASK_PROVISION_RESULT', 16,
                     1, 1, 'workspace-1', 'trunk-1', '%s', 1, %s, %s, %s,
                     'REQUESTED', 4)
-                """.formatted(ticketId, operationId, taskId, taskId, attempt, base, head));
+                """.formatted(ticketId, operationId, taskId, taskId, attempt, base, head);
     }
 
     private static void completeProvisioningTicket(Connection connection, String ticketId)
@@ -981,14 +992,73 @@ class TestDevelopmentFlowPlanProtocolMigration
                 SET version = version + 1, status = 'RESULT_PENDING',
                     pending_result_outcome = 'SUCCEEDED',
                     pending_result_payload = 'provisioned',
-                    pending_result_evidence = 'exact local Git result'
+                    pending_result_evidence = 'exact local Git result',
+                    pending_result_task_epoch = task_epoch,
+                    pending_result_operation_id = operation_id,
+                    pending_result_attempt = attempt,
+                    pending_result_expected_code_fingerprint =
+                        expected_code_fingerprint,
+                    pending_result_expected_head_sha = expected_head_sha,
+                    pending_result_expected_base_sha = expected_base_sha
                 WHERE id = '%s'
                 """.formatted(ticketId));
+    }
+
+    private static void insertExactCreationContext(JdbcTemplate jdbc, String taskId)
+    {
+        jdbc.update("""
+                INSERT INTO task_creation_context(
+                    task_id, assignment_id, policy_revision_id,
+                    authorization_id, provenance, repository_id,
+                    upstream_repository_id, publish_repository_id,
+                    base_source, base_repository_id, base_ref,
+                    planning_base_sha, assignment_base_sha,
+                    assignment_head_sha, engine_snapshot, work_model_snapshot,
+                    created_at_ms, task_name, task_type, linked_issue_number,
+                    opening_prompt, task_origin)
+                SELECT task.id, task.assignment_id, task.policy_revision_id,
+                    authorization.id, authorization.provenance,
+                    authorization.repository_id,
+                    authorization.upstream_repository_id,
+                    authorization.publish_repository_id,
+                    authorization.base_source,
+                    authorization.base_repository_id, authorization.base_ref,
+                    authorization.planning_base_sha,
+                    authorization.assignment_base_sha,
+                    authorization.assignment_head_sha,
+                    authorization.engine_snapshot,
+                    authorization.work_model_snapshot, task.created_at_ms,
+                    authorization.task_name, authorization.task_type,
+                    authorization.linked_issue_number,
+                    authorization.opening_prompt, authorization.task_origin
+                FROM tasks task
+                JOIN task_assignment assignment
+                  ON assignment.id = task.assignment_id
+                JOIN trunk_task_creation_authorization authorization
+                  ON authorization.id = assignment.creation_authorization_id
+                WHERE task.id = ?
+                """, taskId);
+    }
+
+    private static JdbcTemplate jdbc(Connection connection)
+    {
+        return new JdbcTemplate(new SingleConnectionDataSource(connection, true));
     }
 
     private static void seedPlanStage(Connection connection)
             throws SQLException
     {
+        seedAcceptedProvisioning(connection);
+        execute(connection, """
+                INSERT INTO task_code_identity(
+                    task_id, provision_operation_id, repository_id,
+                    publish_repository_id, branch_name, worktree_path,
+                    base_sha, local_head_sha, code_fingerprint,
+                    created_at_ms, updated_at_ms)
+                VALUES ('task-1', 'provision-1', 'acme/widget', 'acme/widget',
+                    'dev/task-1', '/tmp/task-1', 'base-1', 'base-1', 'fp-1', 5, 5)
+                """);
+        settleProvisioningTicket(connection);
         execute(connection, """
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)
@@ -1021,11 +1091,69 @@ class TestDevelopmentFlowPlanProtocolMigration
         execute(connection, """
                 INSERT INTO task_turn(
                     id, task_id, purpose, status, operation_id, attempt, task_epoch,
-                    trigger_stage_id, trigger_stage_generation, delivery_lane,
-                    launch_input, requested_at_ms)
-                VALUES ('task-turn-1', 'task-1', 'PLAN_SELF_REVIEW', 'QUEUED',
+                    trigger_stage_id, trigger_stage_generation,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                SELECT 'task-turn-1', code.task_id, 'PLAN_SELF_REVIEW', 'REQUESTED',
                     'review-operation-1', 1, 1, 'stage-plan-1', 1,
-                    'API', 'review revision-1', 7)
+                    code.code_fingerprint, code.local_head_sha, code.base_sha,
+                    'API', json_object(
+                        'schemaVersion', 1,
+                        'transport', 'API',
+                        'provider', 'openai',
+                        'model', 'review-model',
+                        'workingDirectory', code.worktree_path,
+                        'prompt', 'review revision-1',
+                        'toolEndpoint', json_object(
+                            'url', 'http://127.0.0.1:53123/api/v2/task-turns/'
+                                || 'task-turn-1/operations/review-operation-1/mcp',
+                            'ownerKind', 'TASK_TURN',
+                            'ownerId', 'task-turn-1',
+                            'operationId', 'review-operation-1',
+                            'profile', 'TASK_BRAIN_READ_ONLY',
+                            'approvalPromptTool',
+                                'mcp__bytequay__approval_prompt')),
+                    7
+                FROM task_code_identity code
+                WHERE code.task_id = 'task-1'
+                """);
+    }
+
+    private static void seedInitialSelfReviewAttempt(
+            Connection connection, String selfReviewId)
+            throws SQLException
+    {
+        execute(connection, """
+                INSERT INTO plan_self_review_attempt(
+                    self_review_id, attempt, task_turn_id, operation_id,
+                    predecessor_turn_id, requested_at_ms)
+                VALUES ('%s', 1, 'task-turn-1', 'review-operation-1', NULL, 8)
+                """.formatted(selfReviewId));
+    }
+
+    private static void settleProvisioningTicket(Connection connection)
+            throws SQLException
+    {
+        execute(connection, """
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'SUCCEEDED',
+                    pending_result_outcome = NULL,
+                    pending_result_payload = NULL,
+                    pending_result_evidence = NULL,
+                    pending_result_error = NULL,
+                    pending_result_task_epoch = NULL,
+                    pending_result_stage_id = NULL,
+                    pending_result_stage_generation = NULL,
+                    pending_result_operation_id = NULL,
+                    pending_result_attempt = NULL,
+                    pending_result_expected_code_fingerprint = NULL,
+                    pending_result_expected_head_sha = NULL,
+                    pending_result_expected_base_sha = NULL,
+                    delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'exact local Git result',
+                    completed_at_ms = 5
+                WHERE id = 'ticket-1'
                 """);
     }
 

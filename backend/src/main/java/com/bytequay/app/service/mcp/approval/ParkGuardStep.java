@@ -63,6 +63,11 @@ public class ParkGuardStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
+        // Typed lifecycle state is owned by the exact V2 runtime; retained
+        // legacy Task rows cannot park or unpark that Turn.
+        if (ctx.isTypedV2Owner()) {
+            return ApprovalStepResult.cont();
+        }
         if (!isThreadParked(ctx.threadId(), ctx.taskId())) {
             return ApprovalStepResult.cont();
         }

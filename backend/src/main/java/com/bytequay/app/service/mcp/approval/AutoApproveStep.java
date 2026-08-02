@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.mcp.approval;
 
+import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
 import org.springframework.core.annotation.Order;
@@ -37,21 +38,34 @@ public class AutoApproveStep
         implements ApprovalStep
 {
     private final TaskStore taskStore;
+    private final TaskManager.Store v2Tasks;
     private final McpResponses responses;
 
-    public AutoApproveStep(TaskStore taskStore, McpResponses responses)
+    public AutoApproveStep(
+            TaskStore taskStore,
+            TaskManager.Store v2Tasks,
+            McpResponses responses)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.v2Tasks = requireNonNull(v2Tasks, "v2Tasks is null");
         this.responses = requireNonNull(responses, "responses is null");
     }
 
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
-        if (ctx.taskId() == null || !taskStore.isAutoApprove(ctx.taskId())) {
+        if (ctx.taskId() == null || !autoApprove(ctx)) {
             return ApprovalStepResult.cont();
         }
         return ApprovalStepResult.resolve(
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
+    }
+
+    private boolean autoApprove(ApprovalContext ctx)
+    {
+        if (ctx.isTypedV2Owner()) {
+            return v2Tasks.effectiveAutoApprove(ctx.taskId());
+        }
+        return taskStore.isAutoApprove(ctx.taskId());
     }
 }

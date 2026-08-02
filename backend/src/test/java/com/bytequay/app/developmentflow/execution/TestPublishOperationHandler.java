@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.execution;
 
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
+import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.BaseMovedException;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.ClaimMode;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.EffectClaim;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.EffectEvidence;
@@ -138,6 +139,37 @@ class TestPublishOperationHandler
     }
 
     @Test
+    void frozenBaseMovementFailsTypedBeforePushOrPullRequestClaims()
+            throws Exception
+    {
+        MemoryStore store = new MemoryStore(snapshot());
+        FakeEffects effects = new FakeEffects();
+        effects.observedBaseSha = "new-base-sha";
+
+        try (ContextFixture fixture = context()) {
+            DispatchTicket.DispatchResult result = handler(store, effects)
+                    .execute(fixture.context());
+
+            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+            JsonNode payload = json.readTree(result.payloadJson());
+            assertThat(payload.get("disposition").asText())
+                    .isEqualTo("BASE_MOVED");
+            assertThat(payload.get("observedBaseSha").asText())
+                    .isEqualTo("new-base-sha");
+            assertThat(json.readTree(result.evidenceJson())
+                    .get("failedStep").asText())
+                    .isEqualTo("RECONCILE_BRANCH_BASE");
+            assertThat(effects.calls).containsExactly(
+                    EffectKind.VERIFY_SUBJECT,
+                    EffectKind.RECONCILE_BRANCH_BASE);
+            assertThat(store.snapshot.steps().get(1).status())
+                    .isEqualTo(StepStatus.FAILED);
+            assertThat(store.snapshot.steps().subList(2, 6))
+                    .allMatch(step -> step.status() == StepStatus.REQUESTED);
+        }
+    }
+
+    @Test
     void indeterminateCreateRemainsProbeOnlyAfterRestart()
             throws Exception
     {
@@ -188,6 +220,9 @@ class TestPublishOperationHandler
 
             assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
             assertThat(result.error()).contains("budget exhausted");
+            JsonNode payload = json.readTree(result.payloadJson());
+            assertThat(payload.get("disposition").asText()).isEqualTo("FAILED");
+            assertThat(payload.get("observedBaseSha").isNull()).isTrue();
             assertThat(effects.calls).isEmpty();
         }
     }
@@ -461,6 +496,7 @@ class TestPublishOperationHandler
         private int pushProbes;
         private int createExecutions;
         private int createProbes;
+        private String observedBaseSha;
 
         @Override
         public EffectEvidence verifySubject(PublishRequest request)
@@ -471,7 +507,11 @@ class TestPublishOperationHandler
         @Override
         public EffectEvidence verifyBranchBase(PublishRequest request)
         {
-            return local(EffectKind.RECONCILE_BRANCH_BASE);
+            EffectEvidence evidence = local(EffectKind.RECONCILE_BRANCH_BASE);
+            if (observedBaseSha != null) {
+                throw new BaseMovedException(observedBaseSha);
+            }
+            return evidence;
         }
 
         @Override

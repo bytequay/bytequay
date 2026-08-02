@@ -31,9 +31,32 @@ import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.S
 import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.PolicyOutcome.ACCEPTED;
 import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.PolicyOutcome.WAITING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestRemoteCiPolicy
 {
+    @Test
+    void canonicalizesThePreviouslyPersistedGitHubCheckRunAlias()
+    {
+        RemoteCiPolicy.Check check = new RemoteCiPolicy.Check(
+                "GITHUB_CHECK_RUN", "github-check:1", "build",
+                RemoteCiPolicy.CheckState.PASSED, "completed", "success",
+                null, null, "{}");
+
+        assertThat(check.kind()).isEqualTo("CHECK_RUN");
+    }
+
+    @Test
+    void rejectsEveryUnknownCheckKind()
+    {
+        assertThatThrownBy(() -> new RemoteCiPolicy.Check(
+                "PROVIDER_SPECIFIC_CHECK", "provider-check:1", "build",
+                RemoteCiPolicy.CheckState.PASSED, "completed", "success",
+                null, null, "{}"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unknown CI check kind");
+    }
+
     @Test
     void evaluatesEveryExplicitNonGreenState()
     {

@@ -31,9 +31,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Store-level tests against the real {@code V192} schema (full Flyway
- * migration on a temp SQLite file). Covers durable-run creation and the
- * catalog's no-duplicate-rerun idempotency.
+ * Store-level tests against the current migrated schema on a temp SQLite
+ * file. Covers durable-run creation and the catalog's no-duplicate-rerun
+ * idempotency.
  */
 class TestProjectLearningStore
 {
@@ -57,17 +57,6 @@ class TestProjectLearningStore
                 VALUES ('ws-1', 'acme/widget', '', 0, 1, 1)
                 """);
         store = new ProjectLearningStore(jdbc);
-    }
-
-    @Test
-    void testProjectLearningMigrationChecksumMatchesReleasedSchema()
-    {
-        // V192 was installed from a conflict-resolution branch before this
-        // code path was merged. Its text is immutable for existing databases.
-        assertThat(jdbc.queryForObject("""
-                SELECT checksum FROM flyway_schema_history
-                WHERE version = '192'
-                """, String.class)).isEqualTo("-1938762556");
     }
 
     @Test

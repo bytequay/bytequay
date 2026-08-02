@@ -14,17 +14,21 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.localpr.PRBundleDto;
+import com.bytequay.app.developmentflow.compatibility.V2PrTimelineProjection;
 import com.bytequay.app.developmentflow.stage.ManualPrValidationRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Operation;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Status;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.PullRequestService.CachedTerminalState;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -48,6 +52,23 @@ import static org.mockito.Mockito.when;
 
 class TestPRControllerBundle
 {
+    private static final V2PrTimelineProjection IDENTITY_TIMELINE =
+            new V2PrTimelineProjection()
+            {
+                @Override
+                public List<PRTimelineEntry> project(
+                        PR pr, List<PRTimelineEntry> stored)
+                {
+                    return stored;
+                }
+
+                @Override
+                public List<PRCheck> remoteChecks(PR pr)
+                {
+                    return List.of();
+                }
+            };
+
     @Test
     void manualValidationReturnsAcceptedWhileTheDurableOperationIsPending()
     {
@@ -60,7 +81,8 @@ class TestPRControllerBundle
         PRController controller = new PRController(
                 prs, mock(PRPublishService.class), mock(PRSyncService.class),
                 mock(TaskStore.class), new ObjectMapper(), validation,
-                mock(PullRequestService.class), mock(InvestigationReviewService.class));
+                mock(PullRequestService.class), mock(InvestigationReviewService.class),
+                IDENTITY_TIMELINE);
 
         var response = controller.runTests("pr1", "command-1");
 
@@ -86,10 +108,49 @@ class TestPRControllerBundle
         PRController controller = new PRController(
                 prs, mock(PRPublishService.class), sync, mock(TaskStore.class),
                 new ObjectMapper(), mock(ManualPrValidationRuntime.class),
-                mock(PullRequestService.class), mock(InvestigationReviewService.class));
+                mock(PullRequestService.class), mock(InvestigationReviewService.class),
+                IDENTITY_TIMELINE);
 
         controller.bundle("pr1");
 
+        verify(sync, never()).syncPRForDisplay("pr1");
+    }
+
+    @Test
+    void taskOwnedBundleProjectsCachedRemoteCloseWithoutMutatingOrSyncing()
+    {
+        PRService prs = mock(PRService.class);
+        PRSyncService sync = mock(PRSyncService.class);
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        Instant pushedAt = Instant.parse("2026-07-24T00:01:00Z");
+        Instant closedAt = Instant.parse("2026-07-24T00:02:00Z");
+        PR pr = PR.create(
+                        "pr1", "task1", "feature/x", "main", "Title", "",
+                        Instant.parse("2026-07-24T00:00:00Z"))
+                .withStatus(PR.STATUS_LOCAL_OPEN, pushedAt)
+                .withRemote("acme/widget", 17,
+                        "https://github.com/acme/widget/pull/17", pushedAt)
+                .withStatus(PR.STATUS_REMOTE_DRAFTED, pushedAt);
+        when(prs.findById("pr1")).thenReturn(Optional.of(pr));
+        when(prs.commits("pr1")).thenReturn(List.of());
+        when(prs.timeline("pr1")).thenReturn(List.of());
+        when(prs.checks("pr1")).thenReturn(List.of());
+        when(prs.comments("pr1")).thenReturn(List.of());
+        when(pullRequests.findCachedTerminalState("acme/widget", 17))
+                .thenReturn(Optional.of(new CachedTerminalState(
+                        PR.STATUS_CLOSED, null, closedAt)));
+        PRController controller = new PRController(
+                prs, mock(PRPublishService.class), sync, mock(TaskStore.class),
+                new ObjectMapper(), mock(ManualPrValidationRuntime.class),
+                pullRequests, mock(InvestigationReviewService.class),
+                IDENTITY_TIMELINE);
+
+        PRBundleDto bundle = controller.bundle("pr1");
+
+        assertThat(bundle.pr().status()).isEqualTo(PR.STATUS_CLOSED);
+        assertThat(bundle.pr().closedAt()).isEqualTo(closedAt.toEpochMilli());
+        assertThat(pr.status()).isEqualTo(PR.STATUS_REMOTE_DRAFTED);
+        verify(sync, never()).syncInBackground("pr1");
         verify(sync, never()).syncPRForDisplay("pr1");
     }
 
@@ -181,7 +242,8 @@ class TestPRControllerBundle
         PRController controller = new PRController(
                 prs, publish, mock(PRSyncService.class), tasks,
                 new ObjectMapper(), mock(ManualPrValidationRuntime.class),
-                pullRequests, mock(InvestigationReviewService.class));
+                pullRequests, mock(InvestigationReviewService.class),
+                IDENTITY_TIMELINE);
 
         controller.approve("pr1", "approve-command");
         controller.approve("pr1", "approve-command");
@@ -207,7 +269,8 @@ class TestPRControllerBundle
         PRController controller = new PRController(
                 prs, publish, mock(PRSyncService.class), tasks,
                 new ObjectMapper(), mock(ManualPrValidationRuntime.class),
-                pullRequests, mock(InvestigationReviewService.class));
+                pullRequests, mock(InvestigationReviewService.class),
+                IDENTITY_TIMELINE);
 
         assertThatThrownBy(() -> controller.approve("pr1", null))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
@@ -233,7 +296,7 @@ class TestPRControllerBundle
                 prs, publish, mock(PRSyncService.class),
                 mock(TaskStore.class), new ObjectMapper(),
                 mock(ManualPrValidationRuntime.class), pullRequests,
-                mock(InvestigationReviewService.class));
+                mock(InvestigationReviewService.class), IDENTITY_TIMELINE);
 
         controller.approve("pr1", "approve-command");
 
@@ -262,7 +325,8 @@ class TestPRControllerBundle
         PRController controller = new PRController(
                 prs, publish, sync, tasks, new ObjectMapper(),
                 mock(ManualPrValidationRuntime.class),
-                mock(PullRequestService.class), investigations);
+                mock(PullRequestService.class), investigations,
+                IDENTITY_TIMELINE);
 
         controller.publishReview("pr1", "review-command", new PRController.PublishReviewRequest(
                 "COMMENT", List.of("finding-1"), List.of("comment-1"),
@@ -309,6 +373,7 @@ class TestPRControllerBundle
         return new PRController(
                 prs, publish, sync, tasks, new ObjectMapper(),
                 mock(ManualPrValidationRuntime.class),
-                mock(PullRequestService.class), investigations);
+                mock(PullRequestService.class), investigations,
+                IDENTITY_TIMELINE);
     }
 }

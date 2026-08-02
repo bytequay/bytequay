@@ -37,17 +37,17 @@ class TestDevelopmentFlowRemoteRuntimeMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("remote-runtime.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        migrate(url, "232");
+        migrate(url);
         try (Connection connection = connect(url)) {
             insertRemoteOwner(connection, 1);
             insertCiPolicy(connection, 1);
         }
-        migrate(url, "243");
+        migrate(url);
         try (Connection connection = connect(url)) {
             try (var statement = connection.createStatement();
                     var result = statement.executeQuery("""

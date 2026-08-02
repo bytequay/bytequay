@@ -443,7 +443,7 @@ public class McpServiceImpl
         }
         Optional<JsonNode> policy = approval.evaluatePolicy(new ApprovalContext(
                 threadId, taskId, agentKey, id, toolName, callId,
-                args.input(), grants));
+                args.input(), grants, true));
         if (policy.isPresent()) {
             deferred.setResult(policy.orElseThrow());
             return;

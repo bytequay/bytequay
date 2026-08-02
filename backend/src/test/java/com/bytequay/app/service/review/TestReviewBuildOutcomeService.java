@@ -16,8 +16,8 @@ package com.bytequay.app.service.review;
 import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -147,7 +147,7 @@ class TestReviewBuildOutcomeService
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(file)
                 + "?busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("258").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource source = new SQLiteDataSource();
         source.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
@@ -217,11 +217,13 @@ class TestReviewBuildOutcomeService
                     id, trunk_id, kind, source_id, repository_id, pr_number,
                     remote_head_sha, selected_findings_json, created_by,
                     created_at_ms, base_repository_id, head_repository_id,
-                    base_ref, head_ref, remote_base_sha, repository_route)
+                    base_ref, head_ref, remote_base_sha, repository_route,
+                    creation_authorization_id)
                 VALUES ('assignment-1', ?, 'REVIEW_FINDINGS', 'review-pass',
                     'acme/widget', 42, 'head-1', '[]', 'test', 5,
                     'acme/widget', 'acme/widget', 'main', 'feature/review',
-                    'base-1', 'DIRECT')
+                    'base-1', 'DIRECT',
+                    'authorization-assignment-1')
                 """, taskThread);
         ReviewBuildSelectionStore.Finding frozen =
                 selection.findings().getFirst();

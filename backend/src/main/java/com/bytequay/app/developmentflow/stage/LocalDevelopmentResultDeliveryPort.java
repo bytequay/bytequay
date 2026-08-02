@@ -40,6 +40,7 @@ public final class LocalDevelopmentResultDeliveryPort
             DispatchTicket.OwnerReference owner,
             DispatchTicket.OperationFence expectedFence,
             DispatchTicket.DispatchResult rawResult)
+            throws ExecutionPorts.ResultProtocolException
     {
         requireNonNull(owner, "owner is null");
         if (!LocalDevelopmentRuntimeCoordinator.TURN_CALLBACK.equals(
@@ -49,6 +50,13 @@ public final class LocalDevelopmentResultDeliveryPort
                     "{\"schema\":\"LOCAL_STAGE_DELIVERY_V1\","
                             + "\"result\":\"unknown callback route\"}");
         }
-        return runtime.deliverStageTurn(codec.decode(owner, expectedFence, rawResult));
+        try {
+            return runtime.deliverStageTurn(
+                    codec.decode(owner, expectedFence, rawResult));
+        }
+        catch (IllegalArgumentException failure) {
+            throw new ExecutionPorts.ResultProtocolException(
+                    failure.getMessage(), failure);
+        }
     }
 }

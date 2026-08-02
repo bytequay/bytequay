@@ -882,17 +882,28 @@ public final class RemoteFeedbackRuntimeCoordinator
 
     private static String stageSystemPrompt(String roleSkill)
     {
-        String base = "You own one Remote Development feedback repair. Edit only "
-                + "the supplied Task worktree. Do not push or post reviewer-visible "
-                + "content; return typed drafts for a later user authorization.";
+        String base = """
+                You own one Remote Development feedback repair. Edit only the supplied Task worktree.
+                Do not push or post reviewer-visible content; return typed drafts for a later user authorization.
+                Return exactly one raw JSON object shaped {"schemaVersion":1,"summary":"string","replies":[{"ordinal":1,"batchItemOrdinal":1,"kind":"POST_INLINE_REPLY","body":"string","externalTarget":"string"}]}.
+                kind must be POST_INLINE_REPLY, POST_TOP_LEVEL_REPLY, or RESOLVE_THREAD; RESOLVE_THREAD requires body=null.
+                Its first non-whitespace character must be '{' and its last non-whitespace character must be '}'.
+                Do not wrap it in Markdown fences or add prose before or after it.
+                """;
         return roleSkill == null || roleSkill.isBlank()
                 ? base : base + "\n\nRole skill:\n" + roleSkill;
     }
 
     private static String brainSystemPrompt(String roleSkill)
     {
-        String base = "You are the read-only Task Brain reviewing one exact Remote "
-                + "feedback repair. Do not edit files or perform remote effects.";
+        String base = """
+                You are the read-only Task Brain reviewing one exact Remote feedback repair.
+                Do not edit files or perform remote effects.
+                Return exactly one raw JSON object shaped {"schemaVersion":1,"verdict":"APPROVED","summary":"string","findings":[]}.
+                Set verdict to APPROVED or CHANGES_REQUESTED. APPROVED requires an empty findings array; CHANGES_REQUESTED requires one or more non-blank finding strings.
+                Its first non-whitespace character must be '{' and its last non-whitespace character must be '}'.
+                Do not wrap it in Markdown fences or add prose before or after it.
+                """;
         return roleSkill == null || roleSkill.isBlank()
                 ? base : base + "\n\nRole skill:\n" + roleSkill;
     }

@@ -155,29 +155,35 @@ class TestStageApiRouting
     {
         UUID stageId = UUID.randomUUID();
         when(steering.steer(
-                stageId, "append", List.of(), StageSteeringService.Mode.APPEND))
+                stageId, "append", List.of(), StageSteeringService.Mode.APPEND,
+                null))
                 .thenReturn(new StageSteeringService.SteerResult("append-turn"));
         when(steering.steer(
                 stageId, "replace", List.of(),
-                StageSteeringService.Mode.CANCEL_AND_REPLACE))
+                StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                "predecessor-turn"))
                 .thenReturn(new StageSteeringService.SteerResult("replace-turn"));
 
         assertThat(controller.steer(
                 stageId.toString(),
-                new StageController.SteerRequest("append", List.of(), null))
+                new StageController.SteerRequest(
+                        "append", List.of(), null, null))
                 .turnId()).isEqualTo("append-turn");
         assertThat(controller.steer(
                 stageId.toString(),
                 new StageController.SteerRequest(
                         "replace", List.of(),
-                        StageSteeringService.Mode.CANCEL_AND_REPLACE))
+                        StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                        "predecessor-turn"))
                 .turnId()).isEqualTo("replace-turn");
 
         verify(steering).steer(
-                stageId, "append", List.of(), StageSteeringService.Mode.APPEND);
+                stageId, "append", List.of(), StageSteeringService.Mode.APPEND,
+                null);
         verify(steering).steer(
                 stageId, "replace", List.of(),
-                StageSteeringService.Mode.CANCEL_AND_REPLACE);
+                StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                "predecessor-turn");
     }
 
     private StageController controller()

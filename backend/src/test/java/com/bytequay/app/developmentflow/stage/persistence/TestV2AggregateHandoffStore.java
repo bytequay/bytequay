@@ -24,6 +24,7 @@ import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -51,20 +52,19 @@ class TestV2AggregateHandoffStore
         SQLiteDataSource dataSource = database(tempDir.resolve("handoff.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
-        seedAcceptedProvisioning(jdbc, "task-1", "operation-1", 1);
-        seedAcceptedProvisioning(
-                jdbc, "task-rollback", "operation-rollback", 2);
+        seedAcceptedProvisioning(jdbc, "task-1", 1);
+        seedAcceptedProvisioning(jdbc, "task-rollback", 2);
         Flyway.configure().dataSource(dataSource).load().migrate();
 
         Stores first = stores(dataSource);
         ProvisionToPlanHandoff handoff = handoff(dataSource, first);
         TaskManager.ProvisioningCommand command = command(
-                "task-1", "operation-1", "plan-1", 1);
+                "task-1", "provision-operation-task-1", "plan-1", 1);
         ProvisionToPlanHandoff.Result applied = handoff.accept(command);
 
         assertThat(applied.task().currentStageId()).isEqualTo("plan-1");
         assertThat(applied.plan().disposition().name()).isEqualTo("APPLIED");
-        assertThat(count(jdbc, "task_transition", "task-1")).isEqualTo(1);
+        assertThat(count(jdbc, "task_transition", "task-1")).isEqualTo(2);
         assertThat(count(jdbc, "task_command_receipt", "task-1")).isEqualTo(1);
         assertThat(count(jdbc, "stage_transition", "plan-1")).isEqualTo(1);
         assertThat(count(jdbc, "stage_command_receipt", "plan-1")).isEqualTo(1);
@@ -132,11 +132,12 @@ class TestV2AggregateHandoffStore
         ProvisionToPlanHandoff.Result duplicate = handoff(dataSource, restarted)
                 .accept(command);
         assertThat(duplicate.plan().disposition().name()).isEqualTo("DUPLICATE");
-        assertThat(count(jdbc, "task_transition", "task-1")).isEqualTo(1);
+        assertThat(count(jdbc, "task_transition", "task-1")).isEqualTo(2);
         assertThat(count(jdbc, "stage_transition", "plan-1")).isEqualTo(1);
 
         TaskManager.ProvisioningCommand invalidGeneration = command(
-                "task-rollback", "operation-rollback", "plan-rollback", 2);
+                "task-rollback", "provision-operation-task-rollback",
+                "plan-rollback", 2);
         assertThatThrownBy(() -> handoff(dataSource, restarted).accept(invalidGeneration))
                 .isInstanceOf(DataAccessException.class);
         assertThat(jdbc.queryForObject("""
@@ -146,7 +147,7 @@ class TestV2AggregateHandoffStore
                 SELECT aggregate_version FROM tasks WHERE id = 'task-rollback'
                 """, Long.class)).isZero();
         assertThat(count(jdbc, "task_current_stage", "task-rollback")).isZero();
-        assertThat(count(jdbc, "task_transition", "task-rollback")).isZero();
+        assertThat(count(jdbc, "task_transition", "task-rollback")).isOne();
         assertThat(count(jdbc, "task_command_receipt", "task-rollback")).isZero();
         assertThat(count(jdbc, "stage", "plan-rollback")).isZero();
         restarted.close();
@@ -230,6 +231,7 @@ class TestV2AggregateHandoffStore
                     'test', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.update("""
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, auto_approve,
@@ -239,88 +241,31 @@ class TestV2AggregateHandoffStore
     }
 
     private static void seedAcceptedProvisioning(
-            JdbcTemplate jdbc, String taskId, String operationId, int sequence)
+            JdbcTemplate jdbc, String taskId, int sequence)
     {
         String assignmentId = "assignment-" + taskId;
-        String operationRowId = "provision-" + taskId;
-        String ticketId = "ticket-" + taskId;
-        jdbc.update("""
+        V2TaskSeed.insertAuthorized(jdbc, assignmentId, seed -> seed.update("""
                 INSERT INTO task_assignment(
                     id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
+                    created_by, created_at_ms, creation_authorization_id)
                 VALUES (?, 'trunk-1', 'NEW_FROM_TRUNK', 'base', 'seed', 'build',
-                    'user', 2)
-                """, assignmentId);
-        jdbc.update("""
+                    'user', 2, ?)
+                """, assignmentId, "authorization-" + assignmentId));
+        V2TaskSeed.insertCreated(jdbc, taskId, seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
+                    workflow_version, lifecycle_state, assignment_id,
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES (?, 'trunk-1', ?, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', ?, 'policy-1')
-                """, taskId, sequence, assignmentId);
-        jdbc.update("""
-                INSERT INTO task_creation_context(
-                    task_id, assignment_id, policy_revision_id, provenance,
-                    repository_id, publish_repository_id, planning_base_sha,
-                    engine_snapshot, work_model_snapshot, created_at_ms)
-                VALUES (?, ?, 'policy-1', 'DIRECT_USER', 'acme/widget',
-                    'acme/widget', 'base', 'engine-v1', 'model-v1', 3)
-                """, taskId, assignmentId);
-        jdbc.update("""
-                INSERT INTO provision_task_operation(
-                    id, task_id, task_epoch, assignment_id, operation_id,
-                    semantic_attempt, repository_id, expected_base_sha,
-                    requested_branch_name, requested_worktree_path,
-                    status, created_at_ms)
-                VALUES (?, ?, 1, ?, ?, 1, 'acme/widget', 'base', ?, ?,
-                    'REQUESTED', 4)
-                """,
-                operationRowId, taskId, assignmentId, operationId,
-                "dev/" + taskId, "/tmp/" + taskId);
-        jdbc.update("""
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    exclusive_task, writer_required, workspace_id, trunk_id,
-                    task_id, task_epoch, attempt, expected_base_sha,
-                    status, created_at_ms)
-                VALUES (?, ?, 'PROVISION_TASK', 'LOCAL_GIT', 'TASK', ?,
-                    'TASK_PROVISION_RESULT', 16, 1, 1, 'workspace-1', 'trunk-1',
-                    ?, 1, 1, 'base', 'REQUESTED', 4)
-                """, ticketId, operationId, taskId, taskId);
-        jdbc.update("""
-                UPDATE provision_task_operation SET status = 'DISPATCHED'
-                WHERE id = ?
-                """, operationRowId);
-        jdbc.update("""
-                UPDATE dispatch_ticket
-                SET version = version + 1, status = 'RESULT_PENDING',
-                    pending_result_outcome = 'SUCCEEDED',
-                    pending_result_payload = 'provisioned',
-                    pending_result_evidence = 'exact local Git result',
-                    pending_result_task_epoch = 1,
-                    pending_result_operation_id = ?,
-                    pending_result_attempt = 1,
-                    pending_result_expected_base_sha = 'base'
-                WHERE id = ?
-                """, operationId, ticketId);
-        jdbc.update("""
-                UPDATE provision_task_operation
-                SET status = 'ACCEPTED', result_base_sha = 'base',
-                    result_head_sha = 'base', result_code_fingerprint = ?,
-                    completed_at_ms = 5
-                WHERE id = ?
-                """, "fingerprint-" + taskId, operationRowId);
-        jdbc.update("""
-                INSERT INTO task_code_identity(
-                    task_id, provision_operation_id, repository_id,
-                    publish_repository_id, branch_name, worktree_path,
-                    base_sha, local_head_sha, code_fingerprint,
-                    created_at_ms, updated_at_ms)
-                VALUES (?, ?, 'acme/widget', 'acme/widget', ?, ?,
-                    'base', 'base', ?, 5, 5)
-                """, taskId, operationRowId, "dev/" + taskId,
-                "/tmp/" + taskId, "fingerprint-" + taskId);
+                    'V2', 'PROVISIONING', ?, 'policy-1', ?, ?, 'DEVELOP',
+                    'build', 'user')
+                """, taskId, sequence, assignmentId,
+                "creation-receipt-" + taskId,
+                "Test task " + assignmentId));
+        V2TaskSeed.completeProvisioning(
+                jdbc, taskId, "base", "base", "fingerprint-" + taskId,
+                "exact local Git result", 5);
     }
 
     private static void seedPlanEvidence(JdbcTemplate jdbc)
@@ -338,12 +283,6 @@ class TestV2AggregateHandoffStore
                     source, created_by, created_at_ms)
                 VALUES ('revision-2', 'plan-1', 2, 'revised plan', 'digest-2',
                     'USER_EDIT', 'user', 7)
-                """);
-        jdbc.update("""
-                INSERT INTO task_brain(
-                    id, task_id, provider, model, engine_snapshot, created_at_ms)
-                VALUES ('brain-1', 'task-1', 'openai', 'review-model',
-                    'engine-v1', 8)
                 """);
         jdbc.update("""
                 INSERT INTO task_turn(

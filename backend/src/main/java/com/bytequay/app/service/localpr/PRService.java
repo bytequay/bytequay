@@ -202,6 +202,11 @@ public interface PRService
     /** Flip {@code local-drafted → local-open} (dev auto-declares "ready"). */
     PR requestUserReview(String prId, String actor);
 
+    /** Flip the stable V2 Task-owned PR from {@code local-drafted} to
+     * {@code local-open} inside the exact Task command that accepted Brain's
+     * current-code verdict. */
+    PR requestUserReviewInCommand(String taskId, String actor);
+
     /** Records one brain adversarial-review pass as a `review` timeline event
      *  (author=brain, local-only — plan-rail-runs.md R24). A no-op when the
      *  task has no local PR yet (the plan self-review, R20, predates it — its

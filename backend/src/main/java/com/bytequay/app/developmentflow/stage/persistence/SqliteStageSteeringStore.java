@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.stage.persistence;
 
 import com.bytequay.app.developmentflow.ResultFence;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
@@ -371,14 +372,120 @@ public final class SqliteStageSteeringStore
         return ready != null && ready == 1;
     }
 
+    /**
+     * The provider is already quiescent, but delivery could not decode the
+     * immutable successful result.  This is the one case where replacement
+     * may fence a non-terminal DispatchTicket instead of waiting for it to
+     * become terminal first.
+     */
+    public boolean malformedLocalResultPendingReady(
+            Request request, ResultFence pending)
+    {
+        requireNonNull(request, "request is null");
+        requireNonNull(pending, "pending is null");
+        Predecessor predecessor = request.predecessor();
+        if (request.stageKind() != StageKind.LOCAL_DEVELOPMENT
+                || request.mode()
+                        != V2StageSteeringControl.Mode.CANCEL_AND_REPLACE
+                || predecessor == null
+                || !"STAGE_TURN".equals(predecessor.ownerKind())) {
+            return false;
+        }
+        Integer ready = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM stage_steering_request_v257 steering
+                JOIN stage owner ON owner.id = steering.stage_id
+                JOIN tasks task ON task.id = steering.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage_turn turn
+                  ON turn.id = steering.predecessor_owner_id
+                 AND turn.operation_id = steering.predecessor_operation_id
+                JOIN local_stage_turn_request local_request
+                  ON local_request.stage_turn_id = turn.id
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = steering.predecessor_ticket_id
+                 AND ticket.operation_id = turn.operation_id
+                WHERE steering.id = ? AND steering.status = 'PENDING'
+                  AND steering.stage_kind = 'LOCAL_DEVELOPMENT'
+                  AND steering.mode = 'CANCEL_AND_REPLACE'
+                  AND steering.predecessor_owner_kind = 'STAGE_TURN'
+                  AND owner.version = steering.accepted_stage_version
+                  AND owner.checkpoint = steering.accepted_checkpoint
+                  AND owner.completed_at_ms IS NULL AND owner.end_reason IS NULL
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = steering.task_epoch
+                  AND current.stage_id = owner.id
+                  AND current.stage_generation = owner.generation
+                  AND turn.status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                  AND turn.task_epoch = ? AND turn.stage_id = ?
+                  AND turn.stage_generation = ? AND turn.attempt = ?
+                  AND turn.expected_code_fingerprint IS ?
+                  AND turn.expected_head_sha IS ?
+                  AND turn.expected_base_sha IS ?
+                  AND local_request.task_id = task.id
+                  AND local_request.local_development_stage_id = owner.id
+                  AND local_request.task_epoch = task.epoch
+                  AND local_request.stage_generation = owner.generation
+                  AND ticket.owner_kind = 'STAGE_TURN'
+                  AND ticket.owner_id = turn.id
+                  AND ticket.callback_route = 'STAGE_TURN_RESULT'
+                  AND ticket.status = 'RESULT_PENDING'
+                  AND ticket.pending_result_outcome = 'SUCCEEDED'
+                  AND ticket.delivery_acceptance IS NULL
+                  AND ticket.last_error LIKE ?
+                  AND ticket.pending_result_task_epoch = ?
+                  AND ticket.pending_result_stage_id = ?
+                  AND ticket.pending_result_stage_generation = ?
+                  AND ticket.pending_result_operation_id = ?
+                  AND ticket.pending_result_attempt = ?
+                  AND ticket.pending_result_expected_code_fingerprint IS ?
+                  AND ticket.pending_result_expected_head_sha IS ?
+                  AND ticket.pending_result_expected_base_sha IS ?
+                  AND NOT EXISTS (SELECT 1
+                      FROM local_stage_turn_delivery_receipt receipt
+                      WHERE receipt.stage_turn_id = turn.id)
+                  AND NOT EXISTS (SELECT 1 FROM dispatch_delivery_claim claim
+                      WHERE claim.ticket_id = ticket.id)
+                  AND NOT EXISTS (SELECT 1 FROM agent_execution execution
+                      WHERE execution.ticket_id = ticket.id
+                        AND execution.status IN ('STARTING', 'RUNNING', 'UNKNOWN'))
+                  AND EXISTS (SELECT 1 FROM agent_execution execution
+                      WHERE execution.ticket_id = ticket.id
+                        AND execution.infrastructure_attempt =
+                            ticket.infrastructure_attempts
+                        AND execution.status = 'SUCCEEDED'
+                        AND execution.finished_at_ms IS NOT NULL
+                        AND execution.raw_result IS NOT NULL)
+                  AND NOT EXISTS (SELECT 1 FROM capacity_lease lease
+                      WHERE lease.operation_id = turn.operation_id
+                        AND lease.released_at_ms IS NULL)
+                  AND NOT EXISTS (SELECT 1 FROM worktree_leases lease
+                      WHERE lease.workflow_version = 'V2'
+                        AND lease.operation_id = turn.operation_id)
+                """, Integer.class, request.id(),
+                pending.taskEpoch(), pending.stageId(), pending.stageGeneration(),
+                pending.attempt(), pending.expectedCodeFingerprint(),
+                pending.expectedHeadSha(), pending.expectedBaseSha(),
+                DispatchTicket.RESULT_PROTOCOL_FAILURE_PREFIX + "%",
+                pending.taskEpoch(), pending.stageId(), pending.stageGeneration(),
+                pending.operationId(), pending.attempt(),
+                pending.expectedCodeFingerprint(), pending.expectedHeadSha(),
+                pending.expectedBaseSha());
+        return ready != null && ready == 1;
+    }
+
     public boolean cancellationRequestedFor(String operationId)
     {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM stage_steering_request_v257
                 WHERE mode = 'CANCEL_AND_REPLACE'
                   AND predecessor_operation_id = ?
-                  AND status = 'PENDING'
+                  AND status IN ('PENDING', 'ADMITTED')
                   AND cancel_intent_at_ms IS NOT NULL
+                  AND NOT EXISTS (SELECT 1
+                      FROM stage_turn_user_wait_continuation_v265 continuation
+                      WHERE continuation.request_id = stage_steering_request_v257.id)
                 """, Integer.class, operationId);
         return count != null && count > 0;
     }
@@ -710,6 +817,15 @@ public final class SqliteStageSteeringStore
                   AND stage.checkpoint IN ('IMPLEMENTING',
                       'ADDRESSING_BRAIN_FINDINGS', 'ADDRESSING_LOCAL_FEEDBACK',
                       'LOCAL_REVIEW')
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM local_publish_base_sync_episode base_sync
+                      WHERE base_sync.task_id = task.id
+                        AND base_sync.task_epoch = task.epoch
+                        AND base_sync.local_development_stage_id = local.stage_id
+                        AND base_sync.stage_generation = local.generation
+                        AND base_sync.status NOT IN (
+                            'HANDED_OFF', 'FAILED', 'CANCELED', 'SUPERSEDED'))
                 """, (rs, row) -> localContext(rs), request.taskId(),
                 request.stageId(), request.taskEpoch(), request.stageGeneration(),
                 stageVersion);
@@ -718,6 +834,23 @@ public final class SqliteStageSteeringStore
                     "Exact Local steering admission context is unavailable");
         }
         return rows.getFirst();
+    }
+
+    /** True only when the request's exact Local owner has a live base-sync saga. */
+    public boolean hasLiveLocalPublishBaseSync(Request request)
+    {
+        requireNonNull(request, "request is null");
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM local_publish_base_sync_episode
+                WHERE task_id = ? AND task_epoch = ?
+                  AND local_development_stage_id = ?
+                  AND stage_generation = ?
+                  AND status NOT IN (
+                      'HANDED_OFF', 'FAILED', 'CANCELED', 'SUPERSEDED')
+                """, Integer.class, request.taskId(), request.taskEpoch(),
+                request.stageId(), request.stageGeneration());
+        return count != null && count > 0;
     }
 
     public void insertLocalTurn(LocalTurn turn)
@@ -834,6 +967,110 @@ public final class SqliteStageSteeringStore
                 turn.taskEpoch(), turn.stageId(), turn.stageGeneration(),
                 turn.attempt(), turn.codeFingerprint(), turn.headSha(),
                 turn.baseSha(), turn.requestedAt().toEpochMilli());
+    }
+
+    /**
+     * Atomically records a new semantic attempt and fences the exact Local
+     * StageTurn whose successful raw result could not be delivered.
+     */
+    public void insertMalformedLocalResultReplacementTurn(
+            LocalTurn turn, Request steering)
+    {
+        requireTransaction();
+        requireNonNull(turn, "turn is null");
+        requireNonNull(steering, "steering is null");
+        Predecessor predecessor = requireNonNull(
+                steering.predecessor(), "predecessor is null");
+        ResultFence pending = new ResultFence(
+                steering.taskEpoch(), steering.stageId(),
+                steering.stageGeneration(), predecessor.operationId(),
+                predecessor.attempt(), predecessor.codeFingerprint(),
+                predecessor.headSha(), predecessor.baseSha());
+        if (!malformedLocalResultPendingReady(steering, pending)) {
+            throw new IllegalStateException(
+                    "Malformed Local RESULT_PENDING owner changed before admission");
+        }
+        int stageTurn = jdbc.update("""
+                INSERT INTO stage_turn(
+                    id, stage_id, stage_generation, purpose, status,
+                    operation_id, attempt, task_epoch,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                SELECT ?, ?, ?, previous.purpose, 'QUEUED', ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?
+                FROM stage_turn previous
+                WHERE previous.id = ? AND previous.operation_id = ?
+                  AND previous.status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                """, turn.turnId(), turn.stageId(), turn.stageGeneration(),
+                turn.operationId(), turn.attempt(), turn.taskEpoch(),
+                turn.codeFingerprint(), turn.headSha(), turn.baseSha(),
+                turn.deliveryLane(), turn.launchInput(),
+                turn.requestedAt().toEpochMilli(), predecessor.ownerId(),
+                predecessor.operationId());
+        if (stageTurn != 1) {
+            throw new IllegalStateException(
+                    "Malformed Local result predecessor changed before admission");
+        }
+        int request = jdbc.update("""
+                INSERT INTO local_stage_turn_request(
+                    id, command_id, stage_turn_id, task_id,
+                    local_development_stage_id, task_epoch, stage_generation,
+                    kind, queue_mode, predecessor_turn_id,
+                    brain_review_episode_id, local_feedback_batch_id,
+                    prompt_digest, requested_by, requested_at_ms)
+                SELECT ?, ?, ?, previous.task_id,
+                    previous.local_development_stage_id, previous.task_epoch,
+                    previous.stage_generation, previous.kind,
+                    'CANCEL_AND_REPLACE', previous.stage_turn_id,
+                    previous.brain_review_episode_id,
+                    previous.local_feedback_batch_id, ?, ?, ?
+                FROM local_stage_turn_request previous
+                WHERE previous.stage_turn_id = ?
+                """, turn.localRequestId(), turn.localCommandId(), turn.turnId(),
+                turn.promptDigest(), turn.requestedBy(),
+                turn.requestedAt().toEpochMilli(), predecessor.ownerId());
+        if (request != 1) {
+            throw new IllegalStateException(
+                    "Malformed Local result request owner is missing");
+        }
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    trunk_control, exclusive_task, writer_required,
+                    workspace_id, trunk_id, task_id, task_epoch, stage_id,
+                    stage_generation, attempt, expected_code_fingerprint,
+                    expected_head_sha, expected_base_sha, status, created_at_ms)
+                VALUES (?, ?, 'EXECUTE_STAGE_TURN', 'AGENT_TURN',
+                    'STAGE_TURN', ?, 'STAGE_TURN_RESULT', ?, 0, 1, 1,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REQUESTED', ?)
+                """, turn.ticketId(), turn.operationId(), turn.turnId(),
+                turn.laneMask(), turn.workspaceId(), turn.trunkId(), turn.taskId(),
+                turn.taskEpoch(), turn.stageId(), turn.stageGeneration(),
+                turn.attempt(), turn.codeFingerprint(), turn.headSha(),
+                turn.baseSha(), turn.requestedAt().toEpochMilli());
+        int cancellation = jdbc.update("""
+                UPDATE local_stage_turn_request
+                SET cancellation_requested_at_ms = ?
+                WHERE stage_turn_id = ?
+                  AND cancellation_requested_at_ms IS NULL
+                """, turn.requestedAt().toEpochMilli(), predecessor.ownerId());
+        int superseded = jdbc.update("""
+                UPDATE stage_turn
+                SET status = 'SUPERSEDED',
+                    started_at_ms = COALESCE(started_at_ms, requested_at_ms),
+                    finished_at_ms = ?,
+                    error_message = 'replaced after malformed result delivery'
+                WHERE id = ? AND operation_id = ?
+                  AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                  AND finished_at_ms IS NULL
+                """, turn.requestedAt().toEpochMilli(), predecessor.ownerId(),
+                predecessor.operationId());
+        if (cancellation != 1 || superseded != 1) {
+            throw new IllegalStateException(
+                    "Malformed Local result predecessor was not fenced exactly once");
+        }
     }
 
     public PlanSource requirePlanSource(Request request, long stageVersion)

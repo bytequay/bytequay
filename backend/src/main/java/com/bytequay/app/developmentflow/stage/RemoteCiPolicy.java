@@ -27,6 +27,19 @@ import static java.util.Objects.requireNonNull;
 /** Deterministic evaluation of one immutable set of normalized CI checks. */
 public final class RemoteCiPolicy
 {
+    public static final String DEFAULT_REPOSITORY_CI_POLICY_V1_SOURCE =
+            "DEFAULT_REPOSITORY_CI_POLICY_V1";
+    public static final Policy DEFAULT_REPOSITORY_CI_POLICY_V1 = new Policy(Map.of(
+            CheckState.NONE, PolicyOutcome.WAITING,
+            CheckState.MISSING, PolicyOutcome.WAITING,
+            CheckState.QUEUED, PolicyOutcome.WAITING,
+            CheckState.PENDING, PolicyOutcome.WAITING,
+            CheckState.NEUTRAL, PolicyOutcome.FAILED,
+            CheckState.SKIPPED, PolicyOutcome.ACCEPTED,
+            CheckState.CANCELED, PolicyOutcome.FAILED));
+
+    private static final Set<String> CHECK_KINDS = Set.of(
+            "CHECK_RUN", "STATUS_CONTEXT", "CHECK_SUITE", "REQUIRED_MISSING");
     private static final List<CheckState> STATE_PRIORITY = List.of(
             CheckState.FAILED,
             CheckState.CANCELED,
@@ -168,7 +181,7 @@ public final class RemoteCiPolicy
     {
         public Check
         {
-            requiredText(kind);
+            kind = canonicalKind(kind);
             requiredText(externalId);
             requiredText(name);
             requireNonNull(state, "state is null");
@@ -187,6 +200,18 @@ public final class RemoteCiPolicy
                         "check completion precedes its start");
             }
         }
+    }
+
+    private static String canonicalKind(String value)
+    {
+        String kind = requiredText(value);
+        if (kind.equals("GITHUB_CHECK_RUN")) {
+            return "CHECK_RUN";
+        }
+        if (!CHECK_KINDS.contains(kind)) {
+            throw new IllegalArgumentException("unknown CI check kind " + kind);
+        }
+        return kind;
     }
 
     public record Evaluation(

@@ -22,6 +22,7 @@ import org.mockito.InOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -42,6 +43,7 @@ import static com.bytequay.app.developmentflow.execution.agentturn.CliAgentTurnP
 import static com.bytequay.app.developmentflow.execution.agentturn.CliAgentTurnProviderSession.CliProvider.CODEX;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -143,6 +145,38 @@ class TestCliAgentTurnProviderSession
             CliAgentTurnProviderSession.deleteMcpConfig(config);
         }
         assertThat(config).doesNotExist();
+    }
+
+    @Test
+    void claudePreapprovesTheExactFiniteTaskBrainCatalogWithoutAPromptBridge()
+    {
+        AgentTurnProviderSession.Request exposed = request(READ_ONLY);
+        AgentTurnProviderSession.Request readOnlyBrain =
+                new AgentTurnProviderSession.Request(
+                        exposed.transport(), exposed.provider(),
+                        exposed.credentialAccount(), exposed.model(),
+                        exposed.reasoningEffort(), exposed.workingDirectory(),
+                        exposed.systemPrompt(), exposed.prompt(), exposed.images(),
+                        exposed.toolEndpoint(), null, exposed.access(),
+                        exposed.maxCostUsdMilli(), exposed.resumeSessionId(),
+                        exposed.fallbackPrompt(),
+                        exposed.priorCumulativeInputTokens(),
+                        exposed.priorCumulativeOutputTokens(),
+                        Set.of("read_remote_pr_status", "read_dev_report"));
+
+        List<String> argv = CliAgentTurnProviderSession.buildArgv(
+                readOnlyBrain, CLAUDE_CODE, "claude", Path.of("/tmp/mcp.json"));
+
+        assertThat(argv)
+                .contains("--mcp-config", "/tmp/mcp.json", "--strict-mcp-config")
+                .contains("--allowedTools")
+                .doesNotContain("--permission-prompt-tool");
+        String allowedTools = argv.get(argv.indexOf("--allowedTools") + 1);
+        assertThat(allowedTools)
+                .isEqualTo("mcp__bytequay__read_dev_report,"
+                        + "mcp__bytequay__read_remote_pr_status")
+                .doesNotContain("mcp__bytequay__run_checks", "Bash", "Edit",
+                        "Write", "Task");
     }
 
     @Test
@@ -257,6 +291,132 @@ class TestCliAgentTurnProviderSession
         assertThat(result.outputTokens()).isEqualTo(7);
         assertThat(result.cumulativeInputTokens()).isEqualTo(125);
         assertThat(result.cumulativeOutputTokens()).isEqualTo(47);
+    }
+
+    @Test
+    void codexUsesItsFinalCompletedAgentMessageAsTheResultEnvelope(
+            @TempDir Path tempDir)
+            throws Exception
+    {
+        Path executable = executable(tempDir, """
+                #!/bin/sh
+                cat >/dev/null
+                printf '%s\\n' 'Reading additional input from stdin...'
+                printf '%s\\n' '{"type":"thread.started","thread_id":"session-1"}'
+                printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","id":"m1","text":"Applying the approved change."}}'
+                printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","id":"m2","text":"{\\"schemaVersion\\":1}"}}'
+                printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":1}}'
+                """);
+        CliAgentTurnProviderSession provider = new CliAgentTurnProviderSession(
+                new ObjectMapper(), ignored -> executable.toString());
+        AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
+                CLI, "codex", null, "gpt-5.6", "high", tempDir,
+                "system", "prompt", List.of(), endpoint(), READ_ONLY);
+
+        AgentTurnProviderSession.Result result;
+        try (AgentTurnProviderSession.Session session = provider.open(
+                request, mock(AgentTurnProviderSession.Observer.class))) {
+            result = session.startAndAwait(null);
+        }
+
+        assertThat(result.completion()).isEqualTo(SUCCEEDED);
+        assertThat(result.finalText()).isEqualTo("{\"schemaVersion\":1}");
+    }
+
+    @Test
+    void codexKeepsAnEmptyFinalCompletedAgentMessage(
+            @TempDir Path tempDir)
+            throws Exception
+    {
+        Path executable = executable(tempDir, """
+                #!/bin/sh
+                cat >/dev/null
+                printf '%s\\n' '{"type":"thread.started","thread_id":"session-1"}'
+                printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","id":"m1","text":"progress"}}'
+                printf '%s\\n' '{"type":"item.completed","item":{"type":"agent_message","id":"m2","text":""}}'
+                printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":1}}'
+                """);
+        CliAgentTurnProviderSession provider = new CliAgentTurnProviderSession(
+                new ObjectMapper(), ignored -> executable.toString());
+        AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
+                CLI, "codex", null, "gpt-5.6", "high", tempDir,
+                "system", "prompt", List.of(), endpoint(), READ_ONLY);
+
+        AgentTurnProviderSession.Result result;
+        try (AgentTurnProviderSession.Session session = provider.open(
+                request,
+                mock(AgentTurnProviderSession.Observer.class))) {
+            result = session.startAndAwait(null);
+        }
+
+        assertThat(result.completion()).isEqualTo(SUCCEEDED);
+        assertThat(result.finalText()).isEmpty();
+    }
+
+    @Test
+    void claudeUsesItsTerminalResultInsteadOfAssistantProgress(
+            @TempDir Path tempDir)
+            throws Exception
+    {
+        Path executable = executable(tempDir, """
+                #!/bin/sh
+                cat >/dev/null
+                printf '%s\\n' '{"type":"system","subtype":"init","session_id":"session-1","cwd":"/tmp","model":"claude-opus-4-8"}'
+                printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Inspecting the worktree."}]}}'
+                printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"{\\"schemaVersion\\":1}"}]}}'
+                printf '%s\\n' '{"type":"result","subtype":"success","duration_ms":2,"is_error":false,"result":"{\\"schemaVersion\\":1}","total_cost_usd":0.001,"usage":{"input_tokens":2,"output_tokens":1}}'
+                """);
+        AgentTurnProviderSession.Observer observer =
+                mock(AgentTurnProviderSession.Observer.class);
+        CliAgentTurnProviderSession provider = new CliAgentTurnProviderSession(
+                new ObjectMapper(), ignored -> executable.toString());
+        AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
+                CLI, "claude-code", null, "claude-opus-4-8", null,
+                tempDir, "system", "prompt", List.of(), endpoint(), READ_ONLY);
+
+        AgentTurnProviderSession.Result result;
+        try (AgentTurnProviderSession.Session session = provider.open(
+                request, observer)) {
+            result = session.startAndAwait(null);
+        }
+
+        assertThat(result.completion()).isEqualTo(SUCCEEDED);
+        assertThat(result.finalText()).isEqualTo("{\"schemaVersion\":1}");
+        verify(observer, times(4)).log(anyLong(), anyString());
+    }
+
+    @Test
+    void abortedClaudeRunReportsNoOwnerTextInsteadOfItsNarration(
+            @TempDir Path tempDir)
+            throws Exception
+    {
+        // A run killed mid-tool-use ends with an error result frame carrying no
+        // `result`. Its per-round narration must stay log-only: presenting the
+        // concatenation as the owner's answer turned an aborted process into a
+        // strict-decode failure against text the model never offered.
+        Path executable = executable(tempDir, """
+                #!/bin/sh
+                cat >/dev/null
+                printf '%s\\n' '{"type":"system","subtype":"init","session_id":"session-1","cwd":"/tmp","model":"claude-opus-4-8"}'
+                printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"I will investigate the failing checks."}]}}'
+                printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Let me reproduce the suite."}]}}'
+                printf '%s\\n' '{"type":"result","subtype":"error_during_execution","duration_ms":2,"is_error":true,"stop_reason":"tool_use","total_cost_usd":0.001,"usage":{"input_tokens":2,"output_tokens":1}}'
+                """);
+        CliAgentTurnProviderSession provider = new CliAgentTurnProviderSession(
+                new ObjectMapper(), ignored -> executable.toString());
+        AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
+                CLI, "claude-code", null, "claude-opus-4-8", null,
+                tempDir, "system", "prompt", List.of(), endpoint(), READ_ONLY);
+
+        AgentTurnProviderSession.Result result;
+        try (AgentTurnProviderSession.Session session = provider.open(
+                request, mock(AgentTurnProviderSession.Observer.class))) {
+            result = session.startAndAwait(null);
+        }
+
+        assertThat(result.completion()).isEqualTo(FAILED);
+        assertThat(result.finalText()).isEmpty();
+        assertThat(result.error()).contains("turn failed");
     }
 
     @Test
@@ -403,15 +563,27 @@ class TestCliAgentTurnProviderSession
                 esac
                 printf '%%s\\n' '{"type":"system","subtype":"init","session_id":"new-claude-session","cwd":"/tmp","model":"claude-opus-4-8"}'
                 printf '%%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}'
-                printf '%%s\\n' '{"type":"result","subtype":"success","duration_ms":2,"is_error":false,"total_cost_usd":0.001,"usage":{"input_tokens":2,"output_tokens":1}}'
+                printf '%%s\\n' '{"type":"result","subtype":"success","duration_ms":2,"is_error":false,"result":"done","total_cost_usd":0.001,"usage":{"input_tokens":2,"output_tokens":1}}'
                 """.formatted(invocations));
         AgentTurnProviderSession.Observer observer =
                 mock(AgentTurnProviderSession.Observer.class);
         CliAgentTurnProviderSession provider = new CliAgentTurnProviderSession(
                 new ObjectMapper(), ignored -> executable.toString());
-        AgentTurnProviderSession.Request request = resumedRequest(
+        AgentTurnProviderSession.Request resumed = resumedRequest(
                 tempDir, "claude-code", "claude-opus-4-8", "stale-session",
                 "complete durable history");
+        AgentTurnProviderSession.Request request =
+                new AgentTurnProviderSession.Request(
+                        resumed.transport(), resumed.provider(),
+                        resumed.credentialAccount(), resumed.model(),
+                        resumed.reasoningEffort(), resumed.workingDirectory(),
+                        resumed.systemPrompt(), resumed.prompt(), resumed.images(),
+                        resumed.toolEndpoint(), null, resumed.access(),
+                        resumed.maxCostUsdMilli(), resumed.resumeSessionId(),
+                        resumed.fallbackPrompt(),
+                        resumed.priorCumulativeInputTokens(),
+                        resumed.priorCumulativeOutputTokens(),
+                        Set.of("read_remote_pr_status", "read_dev_report"));
 
         AgentTurnProviderSession.Result result;
         try (AgentTurnProviderSession.Session session = provider.open(
@@ -422,6 +594,13 @@ class TestCliAgentTurnProviderSession
         assertThat(result.completion()).isEqualTo(SUCCEEDED);
         assertThat(result.providerSessionId()).isEqualTo("new-claude-session");
         assertThat(result.finalText()).isEqualTo("done");
+        List<String> invocationArgs = Files.readAllLines(invocations).stream()
+                .filter(line -> line.startsWith("args="))
+                .toList();
+        assertThat(invocationArgs).hasSize(2).allSatisfy(args -> assertThat(args)
+                .contains("--allowedTools mcp__bytequay__read_dev_report,"
+                        + "mcp__bytequay__read_remote_pr_status")
+                .doesNotContain("--permission-prompt-tool"));
         assertThat(Files.readString(invocations))
                 .contains("--resume stale-session", "complete durable history");
         ArgumentCaptor<Long> processPids = ArgumentCaptor.forClass(Long.class);

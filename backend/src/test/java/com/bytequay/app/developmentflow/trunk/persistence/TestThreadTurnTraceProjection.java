@@ -22,6 +22,8 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.domain.TrunkTraceEvent;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -53,17 +55,20 @@ class TestThreadTurnTraceProjection
         SQLiteDataSource dataSource = database(tempDir.resolve("traces.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedOwners(jdbc);
-        Flyway.configure().dataSource(dataSource).target("276").load().migrate();
+        Flyway.configure().dataSource(dataSource).load().migrate();
         ObjectMapper json = new ObjectMapper();
         TrunkManager manager = new TrunkManager(
                 new TaskCommandExecutor(new DataSourceTransactionManager(dataSource)),
                 new V2TrunkStore(jdbc));
         ThreadTurnHandoff handoff = new ThreadTurnHandoff(
                 manager, json, Clock.fixed(NOW, ZoneOffset.UTC), 53123);
+        long trunkVersion = jdbc.queryForObject("""
+                SELECT aggregate_version FROM threads WHERE id = 'trunk-1'
+                """, Long.class);
         TrunkManager.ThreadTurnRequestReceipt target = handoff.request(
-                request("target-command", 0, "inspect target")).state();
+                request("target-command", trunkVersion, "inspect target")).state();
         TrunkManager.ThreadTurnRequestReceipt terminal = handoff.request(
-                request("terminal-command", 1, "fail once")).state();
+                request("terminal-command", target.state().version(), "fail once")).state();
 
         insertExecution(jdbc, target.ticketId(), "target-execution", "codex", 10);
         insertTargetLogs(jdbc, json);
@@ -263,7 +268,7 @@ class TestThreadTurnTraceProjection
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;
@@ -291,21 +296,30 @@ class TestThreadTurnTraceProjection
                     id, trunk_id, revision, source, created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 'test', 1)
                 """);
-        jdbc.update("""
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
-                    'base', 'seed', 'prompt', 'test', 1)
-                """);
-        jdbc.update("""
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id,
-                    policy_revision_id)
-                VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'IMPLEMENTING', 1,
-                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
+        V2TaskSeed.prepareWorkspaces(jdbc);
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1", transaction ->
+                transaction.update("""
+                        INSERT INTO task_assignment(
+                            id, trunk_id, kind, planning_base_sha, plan_seed,
+                            prompt, created_by, created_at_ms,
+                            creation_authorization_id)
+                        VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
+                            'base', 'seed', 'prompt', 'test', 1,
+                            'authorization-assignment-1')
+                        """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", transaction ->
+                transaction.update("""
+                        INSERT INTO tasks(
+                            id, thread_id, seq, status, phase, created_at_ms,
+                            workflow_version, lifecycle_state, assignment_id,
+                            policy_revision_id, creation_receipt_id, name,
+                            task_type, opening_prompt, origin)
+                        VALUES ('task-1', 'trunk-1', 1, 'IDLE',
+                            'IMPLEMENTING', 1, 'V2', 'PROVISIONING',
+                            'assignment-1', 'policy-1',
+                            'creation-receipt-task-1', 'Test task assignment-1',
+                            'DEVELOP', 'prompt', 'user')
+                        """));
         jdbc.update("""
                 INSERT INTO stage(
                     id, task_id, kind, generation, version,

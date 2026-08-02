@@ -287,6 +287,7 @@ public final class InMemoryExecutionSupport
     {
         private final Map<String, WorktreeWriterLeaseManager.Lease> byPath =
                 new LinkedHashMap<>();
+        private WorktreeWriterLeaseManager.WorktreeQuarantine quarantine;
         private int heartbeats;
         private boolean failNextRelease;
 
@@ -296,6 +297,10 @@ public final class InMemoryExecutionSupport
                 Instant now)
         {
             byPath.values().removeIf(lease -> !lease.isActiveAt(now));
+            if (findOpenQuarantine(
+                    requested.taskId(), requested.worktreePath()).isPresent()) {
+                return Optional.empty();
+            }
             if (byPath.containsKey(requested.worktreePath())
                     || byPath.values().stream().anyMatch(
                             lease -> lease.taskId().equals(requested.taskId()))) {
@@ -357,6 +362,105 @@ public final class InMemoryExecutionSupport
             if (current != null && expected.sameIdentity(current)) {
                 byPath.remove(expected.worktreePath());
             }
+            return true;
+        }
+
+        @Override
+        public synchronized Optional<WorktreeWriterLeaseManager.WorktreeQuarantine>
+                findOpenQuarantine(String taskId, String worktreePath)
+        {
+            return Optional.ofNullable(quarantine)
+                    .filter(value -> value.taskId().equals(taskId)
+                            || value.worktreePath().equals(worktreePath));
+        }
+
+        @Override
+        public synchronized WorktreeWriterLeaseManager.WorktreeQuarantine
+                openQuarantine(
+                        WorktreeWriterLeaseManager.Lease expected,
+                        WorktreeWriterLeaseManager.WorktreeQuarantine requested,
+                        Instant openedAt)
+        {
+            WorktreeWriterLeaseManager.Lease live = byPath.get(
+                    expected.worktreePath());
+            if (live == null || !expected.sameIdentity(live)
+                    || !requested.openedAt().equals(openedAt)) {
+                throw new IllegalStateException(
+                        "worktree quarantine lacks its exact lease");
+            }
+            if (quarantine != null && !quarantine.equals(requested)) {
+                throw new IllegalStateException(
+                        "different worktree quarantine is already open");
+            }
+            quarantine = requested;
+            return requested;
+        }
+
+        @Override
+        public synchronized Optional<WorktreeWriterLeaseManager.Lease>
+                tryAcquireCleanupDisposal(
+                        WorktreeWriterLeaseManager.Lease requested,
+                        String quarantineId,
+                        String cleanupOperationId,
+                        String cleanupStepId,
+                        Instant now)
+        {
+            if (quarantine == null
+                    || !quarantine.id().equals(quarantineId)
+                    || !quarantine.taskId().equals(requested.taskId())
+                    || !quarantine.worktreePath().equals(
+                            requested.worktreePath())) {
+                return Optional.empty();
+            }
+            byPath.values().removeIf(lease -> !lease.isActiveAt(now));
+            if (byPath.containsKey(requested.worktreePath())) {
+                return Optional.empty();
+            }
+            byPath.put(requested.worktreePath(), requested);
+            return Optional.of(requested);
+        }
+
+        @Override
+        public synchronized Optional<WorktreeWriterLeaseManager.Lease>
+                tryAcquireQuarantineRepair(
+                        WorktreeWriterLeaseManager.Lease requested,
+                        String quarantineId,
+                        String repairOperationId,
+                        Instant now)
+        {
+            if (quarantine == null
+                    || !quarantine.id().equals(quarantineId)
+                    || !quarantine.taskId().equals(requested.taskId())
+                    || !quarantine.worktreePath().equals(
+                            requested.worktreePath())) {
+                return Optional.empty();
+            }
+            byPath.values().removeIf(lease -> !lease.isActiveAt(now));
+            if (byPath.containsKey(requested.worktreePath())) {
+                return Optional.empty();
+            }
+            byPath.put(requested.worktreePath(), requested);
+            return Optional.of(requested);
+        }
+
+        @Override
+        public synchronized boolean clearForCleanup(
+                WorktreeWriterLeaseManager.Lease expected,
+                String quarantineId,
+                String cleanupOperationId,
+                String cleanupStepId,
+                String absenceEvidence,
+                Instant clearedAt)
+        {
+            WorktreeWriterLeaseManager.Lease live = byPath.get(
+                    expected.worktreePath());
+            if (quarantine == null
+                    || !quarantine.id().equals(quarantineId)
+                    || live == null
+                    || !expected.sameIdentity(live)) {
+                return false;
+            }
+            quarantine = null;
             return true;
         }
 

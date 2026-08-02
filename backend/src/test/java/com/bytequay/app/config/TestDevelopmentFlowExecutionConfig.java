@@ -32,6 +32,7 @@ import com.bytequay.app.developmentflow.execution.provisioning.GitRunnerProvisio
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.execution.provisioning.SqliteProvisionTaskOperationStore;
 import com.bytequay.app.developmentflow.execution.publish.GitHubPublishEffects;
+import com.bytequay.app.developmentflow.execution.publish.LocalPublishBaseSyncOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
 import com.bytequay.app.developmentflow.execution.quality.QualityIssuePublishOperationHandler;
@@ -53,15 +54,19 @@ import com.bytequay.app.developmentflow.execution.remote.SqliteReviewPassPublica
 import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
+import com.bytequay.app.developmentflow.execution.worktree.WorktreeQuarantineRepairOperationHandler;
+import com.bytequay.app.developmentflow.execution.worktree.WorktreeQuarantineRepairRuntime;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteWorktreeQuarantineRepairStore;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.LocalPublishBaseSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.ManualPrValidationOperationHandler;
@@ -75,12 +80,15 @@ import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.V2ReadinessAssistanceRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssistanceStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
 import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
@@ -191,7 +199,10 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteMarkReadyOperationHandler.class,
                 RemoteObservationOperationHandler.class,
                 RemoteEffectOperationHandler.class,
-                MergeOperationHandler.class);
+                RemoteRepairCommitAdoptionOperationHandler.class,
+                MergeOperationHandler.class,
+                WorktreeQuarantineRepairOperationHandler.class,
+                WorktreeQuarantineRepairRuntime.class);
 
         Method remoteEffects = methodReturning(
                 RemoteFeedbackEffectOperationHandler.class);
@@ -226,6 +237,10 @@ class TestDevelopmentFlowExecutionConfig
         ReviewSessionSnapshotOperationHandler reviewSessionSnapshots = mock(
                 ReviewSessionSnapshotOperationHandler.class);
         PublishOperationHandler publish = mock(PublishOperationHandler.class);
+        LocalPublishBaseSyncOperationHandler localPublishBaseSync = mock(
+                LocalPublishBaseSyncOperationHandler.class);
+        WorktreeQuarantineRepairOperationHandler worktreeRepairs = mock(
+                WorktreeQuarantineRepairOperationHandler.class);
         CleanupOperationHandler cleanup = mock(CleanupOperationHandler.class);
         RemoteFeedbackValidationOperationHandler remoteValidation = mock(
                 RemoteFeedbackValidationOperationHandler.class);
@@ -243,17 +258,20 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteObservationOperationHandler.class);
         RemoteEffectOperationHandler finiteEffects = mock(
                 RemoteEffectOperationHandler.class);
+        RemoteRepairCommitAdoptionOperationHandler repairAdoption = mock(
+                RemoteRepairCommitAdoptionOperationHandler.class);
         MergeOperationHandler merge = mock(MergeOperationHandler.class);
 
         ExecutionPorts.OperationHandlerRegistry registry = config.v2OperationHandlers(
                 provisioning, turns, threadTurns, planningBase, reviewTurns,
                 localValidation, manualValidation, taskReviewSnapshots,
                 taskReviewRoundSnapshots, reviewSessionSnapshots,
-                publish, cleanup, remoteValidation,
+                publish, localPublishBaseSync, worktreeRepairs, cleanup,
+                remoteValidation,
                 remoteEffects, userRemoteActions, reviewBuildComments,
                 qualityIssuePublishes,
                 markReady, observations,
-                finiteEffects, merge);
+                finiteEffects, repairAdoption, merge);
 
         assertThat(registry.require(ProvisionTaskOperationHandler.OPERATION_KIND))
                 .isSameAs(provisioning);
@@ -287,6 +305,14 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(manualValidation);
         assertThat(registry.require(PublishOperationHandler.OPERATION_KIND))
                 .isSameAs(publish);
+        assertThat(registry.require(LocalPublishBaseSyncOperationHandler.FETCH_COMPARE))
+                .isSameAs(localPublishBaseSync);
+        assertThat(registry.require(
+                LocalPublishBaseSyncOperationHandler.MECHANICAL_REBASE))
+                .isSameAs(localPublishBaseSync);
+        assertThat(registry.require(
+                WorktreeQuarantineRepairOperationHandler.OPERATION_KIND))
+                .isSameAs(worktreeRepairs);
         assertThat(registry.require(CleanupOperationHandler.OPERATION_KIND))
                 .isSameAs(cleanup);
         assertThat(registry.require(
@@ -313,8 +339,13 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(observations);
         assertThat(registry.require(RemoteEffectOperationHandler.RERUN_CI))
                 .isSameAs(finiteEffects);
+        assertThat(registry.require(RemoteEffectOperationHandler
+                .REWRITE_VALIDATE_BASE_CI_REPAIR)).isSameAs(finiteEffects);
         assertThat(registry.require(RemoteEffectOperationHandler.PUSH_BRANCH))
                 .isSameAs(finiteEffects);
+        assertThat(registry.require(
+                RemoteRepairCommitAdoptionOperationHandler.OPERATION_KIND))
+                .isSameAs(repairAdoption);
         assertThat(registry.require(MergeOperationHandler.OPERATION_KIND))
                 .isSameAs(merge);
         assertThatThrownBy(() -> registry.require("UNKNOWN"))
@@ -337,6 +368,8 @@ class TestDevelopmentFlowExecutionConfig
                 mock(PlanningBaseTurnRuntime.class),
                 mock(PlanRuntimeCoordinator.class),
                 mock(LocalDevelopmentRuntimeCoordinator.class),
+                mock(LocalPublishBaseSyncRuntimeCoordinator.class),
+                mock(WorktreeQuarantineRepairRuntime.class),
                 mock(RemoteFeedbackRuntimeCoordinator.class),
                 mock(RemoteDevelopmentRuntimeCoordinator.class),
                 mock(TaskCommandExecutor.class),
@@ -344,7 +377,6 @@ class TestDevelopmentFlowExecutionConfig
                 mock(LocalToRemoteHandoff.class),
                 mock(RemoteObservationRuntimeCoordinator.class),
                 mock(PRService.class),
-                mock(TaskStore.class),
                 mock(SqlitePublishResultStore.class),
                 cleanupStore,
                 mock(CleanupCompletionHandoff.class),
@@ -392,7 +424,10 @@ class TestDevelopmentFlowExecutionConfig
                 TaskReviewRoundSnapshotOperationHandler.CALLBACK_ROUTE,
                 ReviewSessionSnapshotOperationHandler.CALLBACK_ROUTE,
                 PublishOperationHandler.CALLBACK_ROUTE,
+                LocalPublishBaseSyncOperationHandler.FETCH_CALLBACK,
+                LocalPublishBaseSyncOperationHandler.REBASE_CALLBACK,
                 CleanupOperationHandler.CALLBACK_ROUTE,
+                WorktreeQuarantineRepairOperationHandler.CALLBACK_ROUTE,
                 RemoteFeedbackRuntimeCoordinator.TURN_CALLBACK,
                 RemoteFeedbackRuntimeCoordinator.VALIDATION_CALLBACK,
                 RemoteFeedbackRuntimeCoordinator.BRAIN_CALLBACK,
@@ -403,11 +438,15 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteObservationOperationHandler.CALLBACK_ROUTE,
                 "REMOTE_CI_RERUN_RESULT",
                 "REMOTE_CI_VALIDATION_RESULT",
+                "REMOTE_CI_BASE_REWRITE_VALIDATION_RESULT",
                 "REMOTE_CI_PUSH_RESULT",
                 RemoteRepairTurnRuntime.CI_STAGE_CALLBACK,
                 RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK,
                 RemoteRepairTurnRuntime.BRANCH_STAGE_CALLBACK,
                 RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK,
+                RemoteRepairTurnRuntime.STEERING_CALLBACK,
+                RemoteRepairTurnRuntime.NORMALIZATION_CALLBACK,
+                RemoteRepairCommitAdoptionOperationHandler.CALLBACK_ROUTE,
                 "BRANCH_SYNC_FETCH_RESULT",
                 "BRANCH_SYNC_REBASE_RESULT",
                 "BRANCH_SYNC_VALIDATION_RESULT",
@@ -693,6 +732,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(PlanRuntimeCoordinator.class))
                 .withBean(LocalDevelopmentRuntimeCoordinator.class,
                         () -> mock(LocalDevelopmentRuntimeCoordinator.class))
+                .withBean(LocalPublishBaseSyncRuntimeCoordinator.class,
+                        () -> mock(LocalPublishBaseSyncRuntimeCoordinator.class))
                 .withBean(RemoteFeedbackRuntimeCoordinator.class,
                         () -> mock(RemoteFeedbackRuntimeCoordinator.class))
                 .withBean(RemoteDevelopmentRuntimeCoordinator.class,
@@ -737,6 +778,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(PatResolver.class))
                 .withBean(SqliteAgentTurnOperationStore.class,
                         () -> mock(SqliteAgentTurnOperationStore.class))
+                .withBean(SqliteWorktreeQuarantineRepairStore.class,
+                        () -> mock(SqliteWorktreeQuarantineRepairStore.class))
                 .withBean(SqliteThreadTurnOperationStore.class,
                         () -> mock(SqliteThreadTurnOperationStore.class))
                 .withBean(ActiveAgentContextRegistry.class,
@@ -770,6 +813,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(ReviewSessionSnapshotResultDeliveryPort.class))
                 .withBean(SqlitePublishOperationStore.class,
                         () -> mock(SqlitePublishOperationStore.class))
+                .withBean(SqliteLocalPublishBaseSyncStore.class,
+                        () -> mock(SqliteLocalPublishBaseSyncStore.class))
                 .withBean(GitHubPublishEffects.class,
                         () -> mock(GitHubPublishEffects.class))
                 .withBean(SqliteCleanupEffects.class,
@@ -778,6 +823,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(CleanupQuiescenceHandoff.class))
                 .withBean(SqliteRemoteFeedbackLoopStore.class,
                         () -> mock(SqliteRemoteFeedbackLoopStore.class))
+                .withBean(SqliteRemoteRepairNormalizationStore.class,
+                        () -> mock(SqliteRemoteRepairNormalizationStore.class))
                 .withBean(SqliteRemoteFeedbackEffectOperationStore.class,
                         () -> mock(SqliteRemoteFeedbackEffectOperationStore.class))
                 .withBean(SqliteRemoteMarkReadyOperationStore.class,

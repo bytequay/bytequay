@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchDeliveryClaim;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
@@ -161,6 +162,63 @@ class TestSqliteDispatchTicketStore
     }
 
     @Test
+    void onlyANoLaunchAgentCancellationMayOmitExecutionEvidence()
+            throws Exception
+    {
+        SqliteExecutionTestSupport.Database database = database(
+                "agent-cancel-evidence.db");
+        SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk");
+        SqliteExecutionTestSupport.seedTask(database, "trunk", "task", 1);
+        SqliteDispatchTicketStore tickets = new SqliteDispatchTicketStore(
+                database.dataSource());
+
+        DispatchTicket requestedNoLaunch =
+                SqliteExecutionTestSupport.requestedAgentTaskTicket(
+                        "no-launch", "operation-no-launch", "workspace", "trunk",
+                        "task", NOW, VALIDATION, true, false);
+        DispatchTicket noLaunch = requestedNoLaunch.requestCancel(NOW.plusSeconds(1));
+        SqliteExecutionTestSupport.insertTicket(database, noLaunch);
+        assertThat(tickets.claimDelivery(
+                noLaunch.id(), noLaunch.version(), "delivery-no-launch",
+                NOW.plusSeconds(2), NOW.plusSeconds(20))).isPresent();
+
+        DispatchTicket requestedLaunched =
+                SqliteExecutionTestSupport.requestedAgentTaskTicket(
+                        "launched", "operation-launched", "workspace", "trunk",
+                        "task", NOW.plusSeconds(3), VALIDATION, true, false);
+        DispatchTicket.DispatchResult canceledResult =
+                new DispatchTicket.DispatchResult(
+                        requestedLaunched.envelope().fence(),
+                        DispatchTicket.Outcome.CANCELED, null, "{}",
+                        "provider canceled after launch");
+        DispatchTicket pending = requestedLaunched.resultPending(
+                canceledResult, NOW.plusSeconds(4));
+        DispatchTicket launched = new DispatchTicket(
+                pending.id(), pending.version(), pending.envelope(), pending.state(),
+                null, null, null, null, pending.createdAt(), pending.nextAttemptAt(),
+                1, NOW.plusSeconds(3), NOW.plusSeconds(4), pending.pendingResult(),
+                null, null, pending.lastError());
+        SqliteExecutionTestSupport.insertTicket(database, launched);
+
+        assertThat(tickets.claimDelivery(
+                launched.id(), launched.version(), "delivery-launched",
+                NOW.plusSeconds(5), NOW.plusSeconds(20))).isEmpty();
+
+        database.jdbc().update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    status, started_at_ms, finished_at_ms, raw_result)
+                VALUES ('execution-launched', 'launched', 1, 'openai',
+                    'CANCELED', ?, ?, ?)
+                """, NOW.plusSeconds(3).toEpochMilli(),
+                NOW.plusSeconds(4).toEpochMilli(),
+                new ObjectMapper().writeValueAsString(canceledResult));
+        assertThat(tickets.claimDelivery(
+                launched.id(), launched.version(), "delivery-launched",
+                NOW.plusSeconds(5), NOW.plusSeconds(20))).isPresent();
+    }
+
+    @Test
     void deliveryCompletionRollsBackClaimDeletionWhenTicketCasFails()
     {
         SqliteExecutionTestSupport.Database database = database("delivery-rollback.db");
@@ -215,6 +273,12 @@ class TestSqliteDispatchTicketStore
         SqliteExecutionTestSupport.seedTask(database, "trunk-a", "task-a", 1);
         SqliteExecutionTestSupport.seedTask(database, "trunk-b", "task-b", 1);
         SqliteExecutionTestSupport.seedTask(database, "trunk-c", "task-c", 1);
+        database.jdbc().update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'RETRY_WAIT',
+                    next_attempt_at_ms = ?, last_error = 'deferred fixture'
+                WHERE operation_kind = 'PROVISION_TASK'
+                """, NOW.plusSeconds(1).toEpochMilli());
 
         DispatchTicket a1 = ticket(
                 "a1", "op-a1", "w1", "trunk-a", "task-a", 1);

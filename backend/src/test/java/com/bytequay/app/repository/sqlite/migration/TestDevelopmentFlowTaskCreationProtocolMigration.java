@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -29,156 +29,6 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
 {
     @TempDir
     private Path tempDir;
-
-    @Test
-    void upgradesV228RowsWithoutInventingCreationAuthorityAndRestarts()
-            throws Exception
-    {
-        String url = url("upgrade.db");
-        migrate(url, "228");
-        try (Connection connection = connect(url)) {
-            seedDirectTrunk(connection, "workspace-1", "trunk-1", "acme/widget");
-            execute(connection, """
-                    INSERT INTO task_assignment(
-                        id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                        created_by, created_at_ms)
-                    VALUES ('old-assignment', 'trunk-1', 'NEW_FROM_TRUNK',
-                        'base-old', 'seed', 'old Task', 'user', 2)
-                    """);
-            execute(connection, policySql("policy-1", "trunk-1", 1));
-            execute(connection, """
-                    INSERT INTO tasks(
-                        id, thread_id, seq, status, phase, created_at_ms,
-                        workflow_version, lifecycle_state,
-                        assignment_id, policy_revision_id)
-                    VALUES ('old-task', 'trunk-1', 1, 'PENDING', 'PLANNING', 3,
-                        'V2', 'PROVISIONING', 'old-assignment', 'policy-1')
-                    """);
-            execute(connection, """
-                    INSERT INTO task_creation_context(
-                        task_id, assignment_id, policy_revision_id, provenance,
-                        repository_id, publish_repository_id, planning_base_sha,
-                        engine_snapshot, work_model_snapshot, created_at_ms)
-                    VALUES ('old-task', 'old-assignment', 'policy-1', 'AGENT_HANDOFF',
-                        'acme/widget', 'acme/widget', 'base-old',
-                        'engine-old', 'model-old', 3)
-                    """);
-        }
-
-        migrate(url, "229");
-        migrate(url, "229");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT workflow_version || '|' || lifecycle_state
-                    FROM tasks WHERE id = 'old-task'
-                    """)).isEqualTo("V2|PROVISIONING");
-            assertThat(text(connection, """
-                    SELECT creation_receipt_id FROM tasks WHERE id = 'old-task'
-                    """)).isNull();
-            assertThat(text(connection, """
-                    SELECT creation_authorization_id
-                    FROM task_assignment WHERE id = 'old-assignment'
-                    """)).isNull();
-            assertThat(text(connection, """
-                    SELECT base_source FROM task_creation_context WHERE task_id = 'old-task'
-                    """)).isNull();
-            assertThat(number(connection, "SELECT COUNT(*) FROM task_creation_receipt"))
-                    .isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
-                    .isZero();
-        }
-    }
-
-    @Test
-    void v231BackfillsEveryRequestedTicketAndRequiresTheExactCreationWake()
-            throws Exception
-    {
-        String url = url("dispatch-wake-upgrade.db");
-        migrate(url, "229");
-        try (Connection connection = connect(url)) {
-            seedDirectTrunk(connection, "workspace-1", "trunk-1", "acme/widget");
-            execute(connection, policySql("policy-1", "trunk-1", 1));
-            createNewTask(connection, new NewTask(
-                    "task-1", 1, "create-command-1", "trunk-1", "workspace-1",
-                    "policy-1", "acme/widget", "base-1"));
-            execute(connection, """
-                    INSERT INTO dispatch_ticket(
-                        id, operation_id, operation_kind, async_family,
-                        owner_kind, owner_id, callback_route, lane_mask,
-                        exclusive_task, workspace_id, trunk_id, task_id,
-                        task_epoch, attempt, status, created_at_ms)
-                    VALUES ('validation-ticket', 'validation-operation',
-                        'VALIDATE_CODE', 'VALIDATION', 'TASK', 'task-1',
-                        'TASK_VALIDATION_RESULT', 4, 1, 'workspace-1',
-                        'trunk-1', 'task-1', 1, 1, 'REQUESTED', 5)
-                    """);
-            execute(connection, """
-                    INSERT INTO dispatch_ticket(
-                        id, operation_id, operation_kind, async_family,
-                        owner_kind, owner_id, callback_route, lane_mask,
-                        exclusive_task, workspace_id, trunk_id, task_id,
-                        task_epoch, attempt, status, created_at_ms)
-                    VALUES ('terminal-ticket', 'terminal-operation',
-                        'VALIDATE_CODE', 'VALIDATION', 'TASK', 'task-1',
-                        'TASK_VALIDATION_RESULT', 4, 1, 'workspace-1',
-                        'trunk-1', 'task-1', 1, 1, 'REQUESTED', 6)
-                    """);
-            execute(connection, """
-                    UPDATE dispatch_ticket
-                    SET version = 1, status = 'CANCELED', completed_at_ms = 7,
-                        delivery_acceptance = 'SUPERSEDED'
-                    WHERE id = 'terminal-ticket'
-                    """);
-        }
-
-        migrate(url, "231");
-        migrate(url, "231");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT group_concat(aggregate_id || '|' || payload || '|' || status, ',')
-                    FROM (SELECT aggregate_id, payload, status FROM outbox
-                          WHERE aggregate_kind = 'DISPATCH_TICKET'
-                          ORDER BY aggregate_id)
-                    """)).isEqualTo(
-                    "provision-ticket-task-1|provision-ticket-task-1|PENDING,"
-                            + "validation-ticket|validation-ticket|PENDING");
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM outbox
-                    WHERE aggregate_id = 'terminal-ticket'
-                    """)).isZero();
-            assertFails(connection, """
-                    INSERT INTO outbox(
-                        id, dedup_key, aggregate_kind, aggregate_id, topic,
-                        payload, status, attempts, available_at_ms, created_at_ms)
-                    VALUES (
-                        'V2_DISPATCH_TICKET_REQUESTED:terminal-ticket',
-                        'V2_DISPATCH_TICKET_REQUESTED:terminal-ticket',
-                        'DISPATCH_TICKET', 'terminal-ticket',
-                        'V2_DISPATCH_TICKET_REQUESTED', 'terminal-ticket',
-                        'PENDING', 0, 6, 6)
-                    """);
-            assertFails(connection, """
-                    UPDATE outbox
-                    SET status = 'DELIVERED', delivered_at_ms = 8
-                    WHERE aggregate_id = 'validation-ticket'
-                    """);
-
-            execute(connection, "DROP TRIGGER dispatch_ticket_requested_wake_insert");
-            assertThatThrownBy(() -> createNewTask(connection, new NewTask(
-                    "task-2", 2, "create-command-2", "trunk-1", "workspace-1",
-                    "policy-1", "acme/widget", "base-2")))
-                    .isInstanceOf(SQLException.class)
-                    .hasMessageContaining("DispatchTicket wake");
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM tasks WHERE id = 'task-2'
-                    """)).isZero();
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM dispatch_ticket WHERE task_id = 'task-2'
-                    """)).isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
-                    .isZero();
-        }
-    }
 
     @Test
     void createsZeroTaskAndParallelSiblingTasksThroughExactTrunkAuthorizations()
@@ -677,7 +527,7 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
     private String migrated(String file)
     {
         String url = url(file);
-        migrate(url, "229");
+        migrate(url);
         return url;
     }
 
@@ -686,9 +536,9 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
         return "jdbc:sqlite:" + tempDir.resolve(file) + "?foreign_keys=ON";
     }
 
-    private static void migrate(String url, String target)
+    private static void migrate(String url)
     {
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static Connection connect(String url)
@@ -828,10 +678,13 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, epoch, aggregate_version, lifecycle_state,
-                    assignment_id, policy_revision_id, creation_receipt_id)
+                    assignment_id, policy_revision_id, creation_receipt_id,
+                    name, task_type, origin)
                 VALUES ('%s', '%s', %s, 'PENDING', 'PLANNING', 4,
-                    'V2', 1, 0, 'PROVISIONING', '%s', '%s', '%s')
-                """.formatted(taskId, trunkId, seq, assignmentId, policyId, receiptId);
+                    'V2', 1, 0, 'PROVISIONING', '%s', '%s', '%s',
+                    '%s', 'DEVELOP', 'user')
+                """.formatted(
+                taskId, trunkId, seq, assignmentId, policyId, receiptId, taskId);
     }
 
     private static void createNewTask(Connection connection, NewTask task)
@@ -1018,10 +871,11 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
                         publish_repository_id, base_source, base_repository_id,
                         base_ref, planning_base_sha, assignment_base_sha,
                         assignment_head_sha, engine_snapshot, work_model_snapshot,
-                        recorded_at_ms)
+                        recorded_at_ms, task_name, task_type, task_origin)
                     VALUES ('%s', '%s', '%s', '%s', 'user', 'AUTHORIZED', %s, %s,
                         '%s', '%s', '%s', '%s', '%s', %s, '%s', '%s', '%s',
-                        '%s', %s, %s, %s, 'engine-v1', 'work-model-v1', 4)
+                        '%s', %s, %s, %s, 'engine-v1', 'work-model-v1', 4,
+                        '%s', 'DEVELOP', 'user')
                     """.formatted(
                     authorization.id(), authorization.trunkId(), authorization.workspaceId(),
                     authorization.commandId(), expectedVersion, expectedVersion + 1,
@@ -1031,7 +885,8 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
                     authorization.baseSource(), authorization.baseRepository(),
                     authorization.baseRef(), sql(authorization.planningBaseSha()),
                     sql(authorization.assignmentBaseSha()),
-                    sql(authorization.assignmentHeadSha())));
+                    sql(authorization.assignmentHeadSha()),
+                    authorization.assignmentId().replaceFirst("^assignment-", "")));
             connection.commit();
         }
         catch (SQLException failure) {
@@ -1078,10 +933,12 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
                         publish_repository_id, base_source, base_repository_id,
                         base_ref, planning_base_sha, assignment_base_sha,
                         assignment_head_sha, engine_snapshot,
-                        work_model_snapshot, created_at_ms)
+                        work_model_snapshot, created_at_ms,
+                        task_name, task_type, task_origin)
                     VALUES ('%s', '%s', '%s', '%s', '%s', '%s', %s, '%s',
                         '%s', '%s', '%s', %s, %s, %s,
-                        'engine-v1', 'work-model-v1', 4)
+                        'engine-v1', 'work-model-v1', 4,
+                        '%s', 'DEVELOP', 'user')
                     """.formatted(
                     task.taskId(), authorization.assignmentId(), task.policyId(),
                     authorization.id(), authorization.provenance(),
@@ -1090,7 +947,7 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
                     authorization.baseRepository(), authorization.baseRef(),
                     sql(authorization.planningBaseSha()),
                     sql(authorization.assignmentBaseSha()),
-                    sql(authorization.assignmentHeadSha())));
+                    sql(authorization.assignmentHeadSha()), task.taskId()));
             execute(connection, """
                     INSERT INTO task_brain(
                         id, task_id, provider, model, engine_snapshot, created_at_ms)

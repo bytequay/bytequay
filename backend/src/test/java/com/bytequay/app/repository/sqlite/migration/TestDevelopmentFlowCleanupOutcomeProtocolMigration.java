@@ -26,8 +26,11 @@ import com.bytequay.app.developmentflow.persistence.SqliteDispatchTicketStore;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupStageManager;
+import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
@@ -45,8 +48,8 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -71,7 +74,6 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.insertSnapshot;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.migrate;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.number;
-import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedLegacyTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.text;
@@ -81,73 +83,22 @@ import static org.mockito.Mockito.mock;
 
 class TestDevelopmentFlowCleanupOutcomeProtocolMigration
 {
+    private static final String SUMMARY_DIGEST = "b".repeat(64);
+
     @TempDir
     private Path tempDir;
-
-    @Test
-    void upgradesLegacyRowsAndRestartsWithoutInventingCleanupWork()
-            throws Exception
-    {
-        String url = url("legacy.db");
-        migrate(url, "233");
-        try (Connection connection = connect(url)) {
-            seedLegacyTask(connection);
-        }
-
-        migrate(url, "234");
-        migrate(url, "234");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT workflow_version || '|' || status
-                    FROM tasks WHERE id = 'legacy-task'
-                    """)).isEqualTo("LEGACY|IDLE");
-            assertThat(number(connection, "SELECT COUNT(*) FROM cleanup_operation"))
-                    .isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM task_outcome"))
-                    .isZero();
-            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
-                    .isZero();
-        }
-    }
-
-    @Test
-    void taskControlUpgradePreservesAnExistingCleanupGraph()
-            throws Exception
-    {
-        String url = remoteUrl("task-control-upgrade.db", false);
-
-        migrate(url, "256");
-        migrate(url, "256");
-
-        try (Connection connection = connect(url)) {
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM cleanup_stage
-                     WHERE stage_id = 'cleanup-stage-1'
-                    """)).isOne();
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM cleanup_operation
-                     WHERE id = 'cleanup-operation-1'
-                    """)).isOne();
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM cleanup_step
-                     WHERE cleanup_operation_id = 'cleanup-operation-1'
-                    """)).isEqualTo(11);
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
-        }
-    }
 
     @Test
     void remoteTerminalCleanupRuntimeProducesItsAcceptanceAndGraph()
             throws Exception
     {
         String url = url("remote-terminal-runtime.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        migrate(url, "234");
+        migrate(url);
         try (Connection connection = connect(url)) {
             prepareMergedCleanup(connection, false);
             execute(connection,
@@ -157,7 +108,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                      WHERE id = 'terminal-acceptance-1'
                     """);
         }
-        migrate(url, "256");
+        migrate(url);
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
@@ -210,7 +161,8 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 """))
                 .containsEntry("source_kind", "REMOTE_OBSERVATION")
                 .containsEntry(
-                        "remote_terminal_observation_id", "terminal-observation-1");
+                        "remote_terminal_observation_id",
+                        "remote-terminal-observation:terminal-intent-1");
         assertThat(jdbc.queryForMap("""
                 SELECT terminal_reason, remote_pr_disposition
                   FROM cleanup_stage WHERE task_id = 'task-1'
@@ -326,6 +278,15 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     VALUES ('required-waiver', 'cleanup-step-8', 'user',
                         'skip required work', 'none', 243)
                     """);
+            execute(connection, """
+                    INSERT INTO cleanup_step_retry_request(
+                        id, cleanup_step_id, cleanup_operation_id, task_id,
+                        failed_attempt, requested_by, reason, status,
+                        requested_at_ms)
+                    VALUES ('retry-step-8', 'cleanup-step-8',
+                        'cleanup-operation-1', 'task-1', 1, 'user',
+                        'worktree lock was released', 'PENDING', 243)
+                    """);
             claimStep(connection, 8, "EXECUTE", 244);
             recordResult(connection, 8, 2, "EXECUTE", "SUCCEEDED",
                     "removed:/tmp/task-1", "worktree absent", "step-8", null,
@@ -409,12 +370,30 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     VALUES ('other', 'trunk-1', 'task-1', 'outcome-1', 'other',
                         'FALLBACK:cleanup-summary', 'PENDING', 500)
                     """);
+            long currentTrunkVersion = number(connection, """
+                    SELECT aggregate_version FROM threads WHERE id = 'trunk-1'
+                    """);
+            long deliveredTrunkVersion = currentTrunkVersion + 1;
+            execute(connection, """
+                    INSERT INTO trunk_transition(
+                        id, trunk_id, command_id, from_state, to_state,
+                        aggregate_version, cause, actor, occurred_at_ms)
+                    SELECT 'accept-outcome-transition-1', trunk_id, delivery_key,
+                        'ACTIVE', 'ACTIVE', %1$s, 'ACCEPT_TASK_OUTCOME',
+                        'test', 510
+                    FROM trunk_outcome_inbox WHERE task_id = 'task-1'
+                    """.formatted(deliveredTrunkVersion));
+            execute(connection, """
+                    UPDATE threads SET aggregate_version = %1$s
+                    WHERE id = 'trunk-1'
+                    """.formatted(deliveredTrunkVersion));
             execute(connection, """
                     UPDATE trunk_outcome_inbox
                     SET status = 'DELIVERED', delivered_at_ms = 510,
-                        delivery_evidence = 'Trunk accepted outcome-1'
+                        delivery_evidence = 'Trunk accepted outcome-1',
+                        returned_trunk_version = %1$s
                     WHERE task_id = 'task-1'
-                    """);
+                    """.formatted(deliveredTrunkVersion));
             assertFails(connection, """
                     UPDATE trunk_outcome_inbox
                     SET delivered_at_ms = 511
@@ -429,7 +408,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             assertThat(text(connection, """
                     SELECT summary_state || '|' || summary_digest
                     FROM task_outcome WHERE id = 'outcome-1'
-                    """)).isEqualTo("BRAIN_GENERATED|brain-summary-digest");
+                    """)).isEqualTo("BRAIN_GENERATED|" + SUMMARY_DIGEST);
             assertThat(text(connection, """
                     SELECT fallback_summary_marker
                     FROM trunk_outcome_inbox WHERE task_id = 'task-1'
@@ -457,12 +436,12 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             throws Exception
     {
         String url = url("cancel.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        migrate(url, "234");
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             insertRemoteOwner(connection, 1);
@@ -470,17 +449,23 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     "MERGEABLE");
             acceptSnapshot(connection, 1, 1, "head-1", "base-1");
             settleHistoricalTickets(connection);
+            long activeVersion = number(connection, """
+                    SELECT aggregate_version FROM tasks WHERE id = 'task-1'
+                    """);
+            long cancelingVersion = activeVersion + 1;
+            long cleaningVersion = cancelingVersion + 1;
             execute(connection, """
                     INSERT INTO task_transition(
                         id, task_id, command_id, epoch, from_state, to_state,
                         aggregate_version, cause, actor, occurred_at_ms)
                     VALUES ('cancel-transition-1', 'task-1', 'cancel-task-1', 2,
-                        'ACTIVE', 'CANCELING', 2, 'REQUEST_CANCEL', 'user', 70)
-                    """);
+                        'ACTIVE', 'CANCELING', %1$s,
+                        'REQUEST_CANCEL', 'user', 70)
+                    """.formatted(cancelingVersion));
             execute(connection, """
                     UPDATE tasks SET lifecycle_state = 'CANCELING', epoch = 2,
-                        aggregate_version = 2 WHERE id = 'task-1'
-                    """);
+                        aggregate_version = %1$s WHERE id = 'task-1'
+                    """.formatted(cancelingVersion));
             execute(connection, """
                     INSERT INTO task_terminal_intent(
                         id, task_id, kind, source, source_id, evidence_json,
@@ -502,13 +487,13 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                         id, task_id, command_id, epoch, from_state, to_state,
                         aggregate_version, cause, actor, occurred_at_ms)
                     VALUES ('cancel-cleaning-transition-1', 'task-1',
-                        'open-cancel-cleanup-1', 2, 'CANCELING', 'CLEANING', 3,
+                        'open-cancel-cleanup-1', 2, 'CANCELING', 'CLEANING', %1$s,
                         'OPEN_CANCELED_CLEANUP', 'TaskManager', 73)
-                    """);
+                    """.formatted(cleaningVersion));
             execute(connection, """
                     UPDATE tasks SET lifecycle_state = 'CLEANING',
-                        aggregate_version = 3 WHERE id = 'task-1'
-                    """);
+                        aggregate_version = %1$s WHERE id = 'task-1'
+                    """.formatted(cleaningVersion));
 
             connection.setAutoCommit(false);
             try {
@@ -594,8 +579,8 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             throws Exception
     {
         String url = remoteUrl("cleanup-runtime.db", false);
-        migrate(url, "240");
-        migrate(url, "240");
+        migrate(url);
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             claimStep(connection, 1, "EXECUTE", 100);
@@ -647,7 +632,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             throws Exception
     {
         String url = remoteUrl("cleanup-control-retry.db", true);
-        migrate(url, "264");
+        migrate(url);
         try (Connection connection = connect(url)) {
             claimStep(connection, 1, "EXECUTE", 100);
             recordResult(connection, 1, 1, "EXECUTE", "SUCCEEDED", null,
@@ -718,7 +703,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             throws Exception
     {
         String url = remoteUrl("cleanup-control-waiver.db", false);
-        migrate(url, "264");
+        migrate(url);
         try (Connection connection = connect(url)) {
             settleStepsBeforeRemoteBranch(connection);
             claimStep(connection, 10, "EXECUTE", 260);
@@ -762,7 +747,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             throws Exception
     {
         String url = remoteUrl("cleanup-delivery.db", true);
-        Flyway.configure().dataSource(url, "", "").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         assertThat(new V2UserWaitStore(jdbc).cancelOpenWaitsForTask(
@@ -881,7 +866,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                    AND local.kind = 'LOCAL_DEVELOPMENT'
                   JOIN stage_turn development
                     ON development.stage_id = local.id
-                   AND development.purpose = 'IMPLEMENT_LOCAL_DEVELOPMENT'
+                   AND development.purpose = 'IMPLEMENT_LOCAL_PLAN'
                   JOIN dev_report report
                     ON report.stage_turn_id = development.id
                   JOIN validation_evidence validation
@@ -940,7 +925,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             throws Exception
     {
         String url = remoteUrl("typed-outcome.db", false);
-        migrate(url, "260");
+        migrate(url);
         try (Connection connection = connect(url)) {
             settleSuccessfulRuntimeCleanup(connection);
             moveCleanupTicketToResultPending(connection);
@@ -982,67 +967,6 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         commitAcceptedCleanupTicket(jdbc, cleanupReceipt);
         cleanupDelivery.afterDeliveryCommitted(
                 cleanupOwner, cleanupFence, cleanupResult, cleanupReceipt);
-
-        jdbc.update("""
-                INSERT INTO task_turn(
-                    id, task_id, purpose, status, operation_id, attempt,
-                    task_epoch, delivery_lane, launch_input, requested_at_ms)
-                VALUES ('legacy-summary-turn', 'task-1',
-                    'TASK_COMPLETION_SUMMARY', 'REQUESTED',
-                    'legacy-summary-operation-id', 1, 1, 'API', '{}', 504)
-                """);
-        jdbc.update("""
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    workspace_id, trunk_id, task_id, task_epoch, attempt,
-                    status, created_at_ms)
-                VALUES ('legacy-summary-ticket', 'legacy-summary-operation-id',
-                    'GENERATE_TASK_OUTCOME_SUMMARY', 'AGENT_TURN', 'TASK_TURN',
-                    'legacy-summary-turn', 'TASK_OUTCOME_SUMMARY_RESULT', 2,
-                    'workspace-1', 'trunk-1', 'task-1', 1, 1,
-                    'REQUESTED', 504)
-                """);
-        jdbc.update("""
-                INSERT INTO task_outcome_summary_operation(
-                    id, task_outcome_id, task_id, task_epoch, task_turn_id,
-                    dispatch_ticket_id, operation_id, semantic_attempt,
-                    status, requested_at_ms)
-                SELECT 'legacy-summary-operation', outcome.id, 'task-1', 1,
-                    'legacy-summary-turn', 'legacy-summary-ticket',
-                    'legacy-summary-operation-id', 1, 'REQUESTED', 504
-                FROM task_outcome outcome WHERE outcome.task_id = 'task-1'
-                """);
-        jdbc.update("""
-                UPDATE trunk_outcome_inbox
-                SET status = 'DELIVERED',
-                    delivered_at_ms = created_at_ms + 1,
-                    delivery_evidence = 'legacy delivery without transition'
-                WHERE task_id = 'task-1'
-                """);
-
-        migrate(url, "261");
-
-        assertThat(jdbcText(jdbc, """
-                SELECT operation.status || '|' || turn.status || '|'
-                    || ticket.status || '|' || ticket.lane_mask || '|'
-                    || COALESCE(
-                        ticket.delivery_acceptance, 'NONE')
-                FROM task_outcome_summary_operation operation
-                JOIN task_turn turn ON turn.id = operation.task_turn_id
-                JOIN dispatch_ticket ticket
-                  ON ticket.id = operation.dispatch_ticket_id
-                WHERE operation.id = 'legacy-summary-operation'
-                """)).isEqualTo("REQUESTED|REQUESTED|REQUESTED|10|NONE");
-
-        assertThat(jdbcText(jdbc, """
-                SELECT status || '|' || fallback_summary_text || '|'
-                    || legacy_delivery_evidence || '|'
-                    || (legacy_delivered_at_ms - created_at_ms)
-                FROM trunk_outcome_inbox WHERE task_id = 'task-1'
-                """))
-                .isEqualTo("PENDING|Shipped Task 1 (PR #41) — merged.|"
-                        + "legacy delivery without transition|1");
 
         TrunkManager.Store trunkStore = reflectStore(
                 "com.bytequay.app.developmentflow.trunk.persistence.V2TrunkStore",
@@ -1161,78 +1085,11 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
     }
 
-    @Test
-    void upgradeKeepsExactHistoricalOutcomeVersionDespiteLaterTrunkTransition()
-            throws Exception
-    {
-        String url = remoteUrl("historical-outcome-version.db", false);
-        try (Connection connection = connect(url)) {
-            settleSuccessfulRuntimeCleanup(connection);
-            completeCleanup(connection);
-            terminalizeTask(connection);
-            execute(connection, """
-                    UPDATE trunk_outcome_inbox
-                    SET status = 'DELIVERED', delivered_at_ms = 510,
-                        delivery_evidence = 'legacy exact delivery'
-                    WHERE task_id = 'task-1'
-                    """);
-            execute(connection, """
-                    INSERT INTO trunk_transition(
-                        id, trunk_id, command_id, from_state, to_state,
-                        aggregate_version, cause, actor, occurred_at_ms)
-                    SELECT 'legacy-outcome-transition', 'trunk-1', delivery_key,
-                        'ACTIVE', 'ACTIVE', 1, 'ACCEPT_TASK_OUTCOME',
-                        'v2-task-outcome', 510
-                    FROM trunk_outcome_inbox WHERE task_id = 'task-1'
-                    """);
-            execute(connection, """
-                    UPDATE threads SET aggregate_version = 1
-                    WHERE id = 'trunk-1'
-                    """);
-            execute(connection, """
-                    INSERT INTO trunk_transition(
-                        id, trunk_id, command_id, from_state, to_state,
-                        aggregate_version, cause, actor, occurred_at_ms)
-                    VALUES ('later-trunk-transition', 'trunk-1',
-                        'later-mark-idle', 'ACTIVE', 'IDLE', 2,
-                        'MARK_IDLE', 'user', 520)
-                    """);
-            execute(connection, """
-                    UPDATE threads SET lifecycle_state = 'IDLE',
-                        aggregate_version = 2 WHERE id = 'trunk-1'
-                    """);
-        }
-
-        migrate(url, "260");
-        migrate(url, "261");
-
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT status || '|' || returned_trunk_version || '|'
-                        || delivery_evidence || '|'
-                        || legacy_delivery_evidence || '|'
-                        || legacy_delivered_at_ms
-                    FROM trunk_outcome_inbox WHERE task_id = 'task-1'
-                    """)).isEqualTo(
-                    "DELIVERED|1|legacy exact delivery|legacy exact delivery|510");
-            assertThat(text(connection, """
-                    SELECT lifecycle_state || '|' || aggregate_version
-                    FROM threads WHERE id = 'trunk-1'
-                    """)).isEqualTo("IDLE|2");
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM trunk_transition
-                    WHERE trunk_id = 'trunk-1'
-                    """)).isEqualTo(2);
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
-        }
-    }
-
     private String remoteUrl(String file, boolean sibling)
             throws Exception
     {
         String url = url(file);
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
@@ -1240,7 +1097,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 seedPublishedRemoteTask(connection, 2);
             }
         }
-        migrate(url, "234");
+        migrate(url);
         try (Connection connection = connect(url)) {
             prepareMergedCleanup(connection);
             if (sibling) {
@@ -1342,18 +1199,22 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     '{}', '{}', 'OPEN', 71)
                 """);
         settleHistoricalTickets(connection);
+        long currentTaskVersion = number(connection, """
+                SELECT aggregate_version FROM tasks WHERE id = 'task-1'
+                """);
+        long cleaningTaskVersion = currentTaskVersion + 1;
         execute(connection, """
                 INSERT INTO task_transition(
                     id, task_id, command_id, epoch, from_state, to_state,
                     aggregate_version, cause, actor, occurred_at_ms)
                 VALUES ('task-cleaning-transition-1', 'task-1',
-                    'open-cleanup-1', 1, 'ACTIVE', 'CLEANING', 2,
+                    'open-cleanup-1', 1, 'ACTIVE', 'CLEANING', %1$s,
                     'OPEN_MERGED_CLEANUP', 'TaskManager', 72)
-                """);
+                """.formatted(cleaningTaskVersion));
         execute(connection, """
                 UPDATE tasks SET lifecycle_state = 'CLEANING',
-                    aggregate_version = 2 WHERE id = 'task-1'
-                """);
+                    aggregate_version = %1$s WHERE id = 'task-1'
+                """.formatted(cleaningTaskVersion));
 
         connection.setAutoCommit(false);
         try {
@@ -1462,10 +1323,8 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     to_checkpoint, stage_version, cause, actor, occurred_at_ms)
                 VALUES ('cleanup-start-transition-1', 'cleanup-stage-1',
                     'start-cleanup-1', 1, 'WAITING_QUIESCENCE', 'CLEANING', 1,
-                    '%s', 'CleanupStageManager', 91)
-                """.formatted(hasMigration(connection, "240")
-                        ? "ACCEPT_CLEANUP_QUIESCENCE"
-                        : "START_CLEANUP"));
+                    'ACCEPT_CLEANUP_QUIESCENCE', 'CleanupStageManager', 91)
+                """);
         execute(connection, """
                 UPDATE stage SET version = 1, checkpoint = 'CLEANING'
                 WHERE id = 'cleanup-stage-1'
@@ -1483,6 +1342,8 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
     {
         execute(connection, terminalTicketSql(
                 "provision-ticket-" + task, 2, 73));
+        execute(connection, terminalTicketSql(
+                "development-ticket-" + task, 2, 73));
         execute(connection, terminalTicketSql(
                 "publish-ticket-" + task, 2, 74));
         execute(connection, """
@@ -1703,7 +1564,10 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 mock(RemoteCiRepairRuntimeCoordinator.class),
                 mock(RemoteObservationRuntimeCoordinator.class),
                 cleanup,
-                tickets);
+                tickets,
+                mock(PlanRuntimeCoordinator.class),
+                mock(LocalDevelopmentRuntimeCoordinator.class),
+                mock(RemoteRepairTurnRuntime.class));
     }
 
     private static void parkCleanupTicket(Connection connection, int at)
@@ -1912,6 +1776,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         int changed = jdbc.update("""
                 UPDATE dispatch_ticket
                 SET version = version + 1, status = 'RESULT_PENDING',
+                    infrastructure_attempts = 1,
                     pending_result_outcome = ?, pending_result_payload = ?,
                     pending_result_evidence = ?, pending_result_error = ?,
                     pending_result_task_epoch = ?, pending_result_stage_id = ?,
@@ -1927,6 +1792,38 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 fence.stageId(), fence.stageGeneration(), fence.operationId(),
                 fence.attempt(), fence.expectedCodeFingerprint(),
                 fence.expectedHeadSha(), fence.expectedBaseSha(), ticketId);
+        assertThat(changed).isOne();
+        changed = jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    status, started_at_ms, finished_at_ms, raw_result)
+                SELECT id || '-execution', id, infrastructure_attempts,
+                    'codex',
+                    CASE pending_result_outcome
+                        WHEN 'SUCCEEDED' THEN 'SUCCEEDED'
+                        WHEN 'FAILED' THEN 'FAILED'
+                        WHEN 'CANCELED' THEN 'CANCELED'
+                        ELSE 'UNKNOWN'
+                    END,
+                    created_at_ms + 1, created_at_ms + 2,
+                    json_object(
+                        'fence', json_object(
+                            'taskEpoch', pending_result_task_epoch,
+                            'stageId', pending_result_stage_id,
+                            'stageGeneration', pending_result_stage_generation,
+                            'operationId', pending_result_operation_id,
+                            'attempt', pending_result_attempt,
+                            'expectedCodeFingerprint',
+                                pending_result_expected_code_fingerprint,
+                            'expectedHeadSha', pending_result_expected_head_sha,
+                            'expectedBaseSha', pending_result_expected_base_sha),
+                        'outcome', pending_result_outcome,
+                        'payloadJson', pending_result_payload,
+                        'evidenceJson', pending_result_evidence,
+                        'error', pending_result_error)
+                FROM dispatch_ticket
+                WHERE id = ? AND status = 'RESULT_PENDING'
+                """, ticketId);
         assertThat(changed).isOne();
     }
 
@@ -2021,16 +1918,18 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
     {
         connection.setAutoCommit(false);
         try {
+            long currentTaskVersion = number(connection, """
+                    SELECT aggregate_version FROM tasks WHERE id = 'task-1'
+                    """);
+            long completedTaskVersion = currentTaskVersion + 1;
             execute(connection, """
                     INSERT INTO stage_transition(
                         id, stage_id, command_id, generation, from_checkpoint,
                         to_checkpoint, stage_version, cause, actor, occurred_at_ms)
                     VALUES ('cleanup-complete-transition-1', 'cleanup-stage-1',
                         'accept-cleanup-1', 1, 'CLEANING', 'COMPLETED', 2,
-                        '%s', 'CleanupStageManager', 501)
-                    """.formatted(hasMigration(connection, "240")
-                            ? "ACCEPT_CLEANUP_COMPLETE"
-                            : "ACCEPT_CLEANUP_COMPLETION"));
+                        'ACCEPT_CLEANUP_COMPLETE', 'CleanupStageManager', 501)
+                    """);
             execute(connection, """
                     UPDATE stage
                     SET version = 2, checkpoint = 'COMPLETED',
@@ -2063,9 +1962,9 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                         id, task_id, command_id, epoch, from_state, to_state,
                         aggregate_version, cause, actor, occurred_at_ms)
                     VALUES ('task-complete-transition-1', 'task-1',
-                        'accept-cleanup-1', 1, 'CLEANING', 'COMPLETED', 3,
+                        'accept-cleanup-1', 1, 'CLEANING', 'COMPLETED', %1$s,
                         'ACCEPT_CLEANUP_COMPLETION', 'TaskManager', 503)
-                    """);
+                    """.formatted(completedTaskVersion));
             execute(connection, """
                     INSERT INTO task_command_receipt(
                         id, task_id, command_id, cause, actor, disposition,
@@ -2078,15 +1977,15 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                         recorded_at_ms)
                     VALUES ('task-complete-receipt-1', 'task-1',
                         'accept-cleanup-1', 'ACCEPT_CLEANUP_COMPLETION',
-                        'TaskManager', 'APPLIED', 1, 2, 1, 'cleanup-stage-1', 1,
+                        'TaskManager', 'APPLIED', 1, %1$s, 1, 'cleanup-stage-1', 1,
                         'cleanup-operation-id-1', 1, 'trunk-1', 'COMPLETED',
-                        1, 3, NULL, 'COMPLETED', 503)
-                    """);
+                        1, %2$s, NULL, 'COMPLETED', 503)
+                    """.formatted(currentTaskVersion, completedTaskVersion));
             execute(connection, """
                     UPDATE tasks
-                    SET lifecycle_state = 'COMPLETED', aggregate_version = 3
+                    SET lifecycle_state = 'COMPLETED', aggregate_version = %1$s
                     WHERE id = 'task-1'
-                    """);
+                    """.formatted(completedTaskVersion));
             execute(connection, """
                     DELETE FROM task_current_stage WHERE task_id = 'task-1'
                     """);
@@ -2124,15 +2023,6 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 """.formatted(id);
     }
 
-    private static boolean hasMigration(Connection connection, String version)
-            throws Exception
-    {
-        return number(connection, """
-                SELECT COUNT(*) FROM flyway_schema_history
-                WHERE version = '%s' AND success = 1
-                """.formatted(version)) == 1;
-    }
-
     private static void enrichSummary(Connection connection)
             throws Exception
     {
@@ -2152,7 +2042,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     status, created_at_ms)
                 VALUES ('summary-ticket-1', 'summary-operation-id-1',
                     'GENERATE_TASK_OUTCOME_SUMMARY', 'AGENT_TURN', 'TASK_TURN',
-                    'summary-turn-1', 'TASK_OUTCOME_SUMMARY_RESULT', 2,
+                    'summary-turn-1', 'TASK_OUTCOME_SUMMARY_RESULT', 10,
                     'workspace-1', 'trunk-1', 'task-1', 1, 1, 'REQUESTED', 520)
                 """);
         execute(connection, """
@@ -2173,21 +2063,45 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         execute(connection, """
                 UPDATE dispatch_ticket
                 SET version = 1, status = 'RESULT_PENDING',
+                    infrastructure_attempts = 1,
                     pending_result_outcome = 'SUCCEEDED',
-                    pending_result_payload = 'brain-summary-digest',
+                    pending_result_payload = '%1$s',
                     pending_result_evidence = 'Brain returned summary',
                     pending_result_task_epoch = 1,
                     pending_result_operation_id = 'summary-operation-id-1',
                     pending_result_attempt = 1
                 WHERE id = 'summary-ticket-1'
+                """.formatted(SUMMARY_DIGEST));
+        execute(connection, """
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, provider,
+                    status, started_at_ms, finished_at_ms, raw_result)
+                SELECT 'summary-execution-1', id, infrastructure_attempts,
+                    'openai', 'SUCCEEDED', 521, 522,
+                    json_object(
+                        'fence', json_object(
+                            'taskEpoch', pending_result_task_epoch,
+                            'stageId', pending_result_stage_id,
+                            'stageGeneration', pending_result_stage_generation,
+                            'operationId', pending_result_operation_id,
+                            'attempt', pending_result_attempt,
+                            'expectedCodeFingerprint',
+                                pending_result_expected_code_fingerprint,
+                            'expectedHeadSha', pending_result_expected_head_sha,
+                            'expectedBaseSha', pending_result_expected_base_sha),
+                        'outcome', pending_result_outcome,
+                        'payloadJson', pending_result_payload,
+                        'evidenceJson', pending_result_evidence,
+                        'error', pending_result_error)
+                FROM dispatch_ticket WHERE id = 'summary-ticket-1'
                 """);
         execute(connection, """
                 UPDATE task_outcome_summary_operation
                 SET status = 'SUCCEEDED', summary_text = 'Brain summary',
-                    summary_digest = 'brain-summary-digest',
+                    summary_digest = '%1$s',
                     completed_at_ms = 522
                 WHERE id = 'summary-operation-1'
-                """);
+                """.formatted(SUMMARY_DIGEST));
         execute(connection, """
                 UPDATE dispatch_ticket
                 SET version = 2, status = 'SUCCEEDED',
@@ -2212,13 +2126,13 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 UPDATE task_outcome
                 SET summary_state = 'BRAIN_GENERATED',
                     summary_text = 'Brain summary',
-                    summary_digest = 'brain-summary-digest',
+                    summary_digest = '%1$s',
                     summary_operation_id = 'summary-operation-1',
                     follow_up_proposals_json = '["follow up"]',
                     backlog_items_json = '["backlog"]',
                     summary_updated_at_ms = 524
                 WHERE id = 'outcome-1'
-                """);
+                """.formatted(SUMMARY_DIGEST));
     }
 
     private String url(String file)

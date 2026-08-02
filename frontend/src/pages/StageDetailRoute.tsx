@@ -62,6 +62,8 @@ import { StageReadinessAssistancePrompt } from './StageReadinessAssistancePrompt
  *  task's stages) instead of flashing "Loading diff…" on every hop. */
 const diffCache = makeIdCache<DiffFileDto[]>();
 
+const STAGE_RETRY_INSTRUCTION = 'Retry this stage from its durable context; complete the assigned work, run required validation, and return the strict stage result.';
+
 /** Parse a server ISO timestamp to epoch-ms, or null when absent/invalid.
  *  Used to anchor the "working" elapsed counter to server time so it keeps
  *  ticking across a tab switch instead of restarting from a local mount time. */
@@ -138,13 +140,110 @@ export function StageDetailRoute({
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
   const { data, error: stageError, refresh } = useStageDetailData(stageId);
+  const stageReplacement = data?.recovery?.replacement ?? null;
+  const stageFailure = data?.recovery?.failure ?? null;
+  const stageRecoveryPending = stageReplacement !== null || stageFailure !== null;
   const conversationThreadId = data?.conversationThreadId ?? threadId;
   const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
   const { data: brain, error: brainError, pollFast } = useBrainViewData(taskId);
+  const developmentBrainRecovery = brain.recovery?.kind === 'RETRY_DEVELOPMENT_BRAIN_REVIEW'
+      && brain.recovery.stageId === stageId ? brain.recovery : null;
+  const remoteRepairBrainRecovery = brain.recovery?.kind === 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW'
+      && brain.recovery.stageId === stageId ? brain.recovery : null;
+  const brainRecovery = developmentBrainRecovery ?? remoteRepairBrainRecovery;
+  const worktreeQuarantined = data?.recovery?.worktreeQuarantine != null;
+  const recoveryInteractionPending = stageRecoveryPending
+    || brainRecovery !== null || worktreeQuarantined;
   const conversationRef = useRef<HTMLDivElement | null>(null);
   // The plan is the task's; surface it on every stage via the reminder pill +
   // zoomed overlay (the plan no longer sits in the stage's tab strip).
   const plan = brain.rightRail.plan;
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [autoMerge, setAutoMerge] = useState(false);
+  const [minApprovals, setMinApprovalsState] = useState(0);
+  const autoApproveRead = useRef(0);
+  const autoMergeRead = useRef(0);
+  const minApprovalsRead = useRef(0);
+  const pendingPolicyWrites = useRef(new Set<Promise<unknown>>());
+  const trackPolicyWrite = <T,>(write: Promise<T>) => {
+    pendingPolicyWrites.current.add(write);
+    void write.then(
+      () => pendingPolicyWrites.current.delete(write),
+      () => pendingPolicyWrites.current.delete(write),
+    );
+    return write;
+  };
+  const threadDefaultKey = `bq.autoApprove.thread.${threadId}`;
+  const readThreadDefault = () => {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem(threadDefaultKey) === 'true'; }
+    catch { return false; }
+  };
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const threadDefault = readThreadDefault();
+    const read = ++autoApproveRead.current;
+    bridge?.getTaskAutoApprove?.(threadId, taskId)
+      .then(result => {
+        if (read !== autoApproveRead.current) return;
+        const enabled = result.enabled || threadDefault;
+        setAutoApprove(enabled);
+        if (enabled && !result.enabled) {
+          bridge?.setTaskAutoApprove?.(threadId, taskId, true).catch(() => { /* poll reconciles */ });
+        }
+      })
+      .catch(() => { if (read === autoApproveRead.current) setAutoApprove(threadDefault); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, taskId]);
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const read = ++autoMergeRead.current;
+    bridge?.getTaskAutoMerge?.(threadId, taskId)
+      .then(result => { if (read === autoMergeRead.current) setAutoMerge(result.enabled); })
+      .catch(() => { /* poll reconciles */ });
+  }, [threadId, taskId]);
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const read = ++minApprovalsRead.current;
+    bridge?.getTaskMinApprovals?.(threadId, taskId)
+      .then(result => { if (read === minApprovalsRead.current) setMinApprovalsState(result.minApprovals); })
+      .catch(() => { /* poll reconciles */ });
+  }, [threadId, taskId]);
+  const toggleAutoApprove = () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const next = !autoApprove;
+    ++autoApproveRead.current;
+    setAutoApprove(next);
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem(threadDefaultKey, String(next)); }
+    catch { /* storage unavailable */ }
+    const write = bridge?.setTaskAutoApprove?.(threadId, taskId, next);
+    if (write === undefined) return;
+    trackPolicyWrite(write)
+      .then(result => setAutoApprove(result.enabled))
+      .catch(() => setAutoApprove(!next));
+  };
+  const toggleAutoMerge = () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const next = !autoMerge;
+    ++autoMergeRead.current;
+    if (next) ++autoApproveRead.current;
+    setAutoMerge(next);
+    if (next) setAutoApprove(true);
+    const write = bridge?.setTaskAutoMerge?.(threadId, taskId, next);
+    if (write === undefined) return;
+    trackPolicyWrite(write)
+      .then(result => { setAutoMerge(result.enabled); if (result.enabled) setAutoApprove(true); })
+      .catch(() => setAutoMerge(!next));
+  };
+  const setMinApprovals = (value: number) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    ++minApprovalsRead.current;
+    setMinApprovalsState(value);
+    const write = bridge?.setTaskMinApprovals?.(threadId, taskId, value);
+    if (write === undefined) return;
+    trackPolicyWrite(write)
+      .then(result => setMinApprovalsState(result.minApprovals))
+      .catch(() => { /* reload reconciles */ });
+  };
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -354,7 +453,8 @@ export function StageDetailRoute({
     if (bridge === undefined) return;
     setActionError(null);
     setApprovingPlan(true);
-    bridge.approvePlan(plan.planStageId)
+    Promise.all([...pendingPolicyWrites.current])
+      .then(() => bridge.approvePlan(plan.planStageId))
       .then(result => { pollFast(); onOpenStage?.(result.devStageId); })
       .catch((reason: unknown) => setActionError(
         reason instanceof Error ? reason.message : 'Could not approve the plan'))
@@ -368,8 +468,14 @@ export function StageDetailRoute({
   const planCard = plan !== null ? (
     <PlanCard
       plan={plan}
+      autoApprove={autoApprove}
+      autoMerge={autoMerge}
+      minApprovals={minApprovals}
       approvedAt={approvedAt}
       onApprove={plan.state === 'awaiting' && !approvingPlan ? approvePlan : undefined}
+      onToggleAutoApprove={toggleAutoApprove}
+      onToggleAutoMerge={toggleAutoMerge}
+      onSetMinApprovals={setMinApprovals}
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
       stepComments={planStepComments(brain.brainFeed)}
     />
@@ -435,7 +541,8 @@ export function StageDetailRoute({
 
   // Messages typed while the stage agent is working queue up and auto-send
   // when it goes idle; click one to pull it back into the composer to edit.
-  const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
+  const { queue, enqueue, takeForEdit, remove } = useMessageQueue(
+    working || recoveryInteractionPending, sendNow);
   const submit = () => {
     const body = text.trim();
     if (body.length === 0 && images.length === 0) return;
@@ -621,7 +728,10 @@ export function StageDetailRoute({
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
         {data?.recovery !== undefined
-          && (data.recovery.ci !== null || data.recovery.cleanup !== null) && (
+          && (data.recovery.ci !== null || data.recovery.cleanup !== null
+            || data.recovery.localPublishBaseSync != null
+            || data.recovery.branchSync != null
+            || data.recovery.worktreeQuarantine != null) && (
           <StageRecoveryPrompt
             taskId={taskId}
             recovery={data.recovery}
@@ -804,6 +914,22 @@ export function StageDetailRoute({
     && brain.task.currentPhase === 'NEEDS_ATTENTION'
     && ['ci fix attempts exhausted', 'ci fix no changes'].some(
       reason => brain.task.statusLabel.toLowerCase().startsWith(reason));
+  const stageFailureCommandId = useMemo(
+    () => `${globalThis.crypto.randomUUID()}:${stageFailure?.blockerId ?? 'none'}`,
+    [stageFailure?.blockerId],
+  );
+  const planRecovery = brain.recovery?.kind === 'RETRY_PLAN_DRAFT'
+    ? brain.recovery : null;
+  const planRecoveryCommandId = useMemo(
+    () => `${globalThis.crypto.randomUUID()}:${planRecovery?.blockerId ?? 'none'}`,
+    [planRecovery?.blockerId],
+  );
+  const brainRecoveryCommandId = useMemo(
+    () => `${globalThis.crypto.randomUUID()}:${brainRecovery?.blockerId ?? 'none'}`,
+    [brainRecovery?.blockerId],
+  );
+  const canResumeTask = brain.task.paused
+    && brain.task.currentPhase !== 'NEEDS_ATTENTION';
   const embeddedPr = stagePullDetail !== null && stageRemotePrNumber !== null ? {
     number: stageRemotePrNumber,
     status: displayedLocalPrBundle?.pr.status
@@ -873,6 +999,7 @@ export function StageDetailRoute({
         onChange: setText,
         onSubmit: submit,
         busy: working,
+        disabled: recoveryInteractionPending,
         queueWhenBusy: true,
         onStop: stopAgent,
         placeholder: 'Steer this stage…',
@@ -885,33 +1012,92 @@ export function StageDetailRoute({
         meta: `Stage ${stagePosition} of ${Math.max(1, topLevelStages.length)} · ${formatDuration(stageDurationSec)}`,
       }}
       run={{
-        paused: brain.task.paused,
+        paused: brain.task.paused || recoveryInteractionPending,
         terminal: brain.task.terminal,
-        statusLabel: brain.task.paused ? brain.task.statusLabel : state ?? 'Running',
-        statusDetail: brain.task.paused
+        statusLabel: brain.task.paused || recoveryInteractionPending
+          ? brain.task.statusLabel
+          : state ?? 'Running',
+        statusDetail: stageFailure?.reason ?? stageReplacement?.reason ?? (brain.task.paused
           ? brain.rightRail.approval?.reasonShort
             ?? brain.devPhases.find(phase => /failed|attention|unresolved/i.test(phase.meta ?? ''))?.meta
-          : undefined,
-        onPause: () => {
+          : undefined),
+        onPause: brain.task.paused || recoveryInteractionPending ? undefined : () => {
           setActionError(null);
           void window.bridge.pauseTask(threadId, taskId)
             .then(() => { pollFast(); refresh(); })
             .catch((reason: unknown) => setActionError(
               reason instanceof Error ? reason.message : 'Could not pause the task'));
         },
-        onResume: data?.recovery?.ci != null || data?.recovery?.cleanup != null ? undefined : () => {
+        onResume: worktreeQuarantined
+          || (stageReplacement === null && stageFailure === null
+          && brainRecovery === null
+          && (data?.recovery?.ci != null || data?.recovery?.cleanup != null
+            || data?.recovery?.localPublishBaseSync != null
+            || (!retryingExhaustedCi && planRecovery === null && !canResumeTask))) ? undefined : () => {
           setActionError(null);
-          const action = retryingExhaustedCi
-            ? window.bridge.retryFailedCi(threadId, taskId)
-            : window.bridge.resumePausedTask(threadId, taskId);
+          const action = stageFailure !== null
+            ? window.bridge.recoverV2Stage(taskId, stageFailure.stageTurnId, {
+              blockerId: stageFailure.blockerId,
+              commandId: stageFailureCommandId,
+              reason: 'Explicit Retry action from the Local Stage run control',
+            })
+            : stageReplacement !== null
+              ? window.bridge.steerStage(
+                stageId, STAGE_RETRY_INSTRUCTION, [], 'CANCEL_AND_REPLACE',
+                stageReplacement.stageTurnId,
+              )
+              : brainRecovery !== null
+                ? (remoteRepairBrainRecovery === null
+                  ? window.bridge.recoverV2DevelopmentBrainReview
+                  : window.bridge.recoverV2RemoteRepairBrainReview)(
+                  taskId, brainRecovery.failedTurnId, {
+                    blockerId: brainRecovery.blockerId,
+                    commandId: brainRecoveryCommandId,
+                    reason: remoteRepairBrainRecovery === null
+                      ? 'Explicit Retry Development Brain review action from the Stage run control'
+                      : 'Explicit Retry Remote repair Brain review action from the Stage run control',
+                  })
+                : retryingExhaustedCi
+                  ? window.bridge.retryFailedCi(threadId, taskId)
+                  : planRecovery !== null
+                    ? window.bridge.recoverV2Plan(taskId, planRecovery.failedTurnId, {
+                      blockerId: planRecovery.blockerId,
+                      commandId: planRecoveryCommandId,
+                      reason: 'Explicit Retry Plan action from the Stage run control',
+                    })
+                    : window.bridge.resumePausedTask(threadId, taskId);
           void action
             .then(() => { pollFast(); refresh(); })
             .catch((reason: unknown) => setActionError(
               reason instanceof Error ? reason.message
-                : retryingExhaustedCi ? 'Could not retry CI' : 'Could not resume the task'));
+                : stageFailure !== null || stageReplacement !== null ? 'Could not retry the stage'
+                  : brainRecovery !== null
+                    ? 'Could not retry the Brain review'
+                    : retryingExhaustedCi ? 'Could not retry CI'
+                      : planRecovery !== null ? 'Could not retry the Plan'
+                        : 'Could not resume the task'));
         },
-        resumeLabel: retryingExhaustedCi ? 'Retry CI' : undefined,
-        resumeConfirmation: retryingExhaustedCi ? {
+        resumeLabel: stageFailure !== null || stageReplacement !== null ? 'Retry stage'
+          : brainRecovery !== null ? 'Retry Brain review'
+            : retryingExhaustedCi ? 'Retry CI'
+              : planRecovery !== null ? 'Retry Plan' : undefined,
+        resumeConfirmation: stageFailure !== null ? {
+          title: 'Retry this failed stage turn?',
+          body: `This starts one fresh turn from the original durable stage context. The failed provider session will not be resumed.\n\n${stageFailure.reason}`,
+          confirmLabel: 'Retry stage',
+        } : stageReplacement !== null ? {
+          title: 'Retry this stage?',
+          body: `This supersedes the stalled stage turn and starts a fresh turn from the stage's durable context.\n\n${stageReplacement.reason}`,
+          confirmLabel: 'Retry stage',
+        } : brainRecovery !== null ? {
+          title: remoteRepairBrainRecovery === null
+            ? 'Retry Development Brain review?'
+            : 'Retry Remote repair Brain review?',
+          body: remoteRepairBrainRecovery === null
+            ? 'This supersedes the malformed Brain result and starts one fresh review from the exact durable development context. The failed provider session will not be resumed.'
+            : 'This consumes the failed Remote Brain result and starts one fresh review from the exact durable CI or branch-repair context. It does not consume CI-fix budget, and the failed provider session will not be resumed.',
+          confirmLabel: 'Retry Brain review',
+        } : retryingExhaustedCi ? {
           title: 'Retry failed CI?',
           body: `This asks GitHub Actions to rerun the failed checks for PR #${brain.task.prNumber ?? ''}. No code will be changed unless a later CI-fix turn creates a commit.`,
           confirmLabel: 'Retry CI',

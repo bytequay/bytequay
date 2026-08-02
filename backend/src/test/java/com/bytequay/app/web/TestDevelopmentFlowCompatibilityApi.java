@@ -20,7 +20,10 @@ import com.bytequay.app.beans.trace.MilestoneSummary;
 import com.bytequay.app.beans.trace.NextPossible;
 import com.bytequay.app.beans.trace.TaskTraceResponse;
 import com.bytequay.app.beans.trace.TraceEvent;
+import com.bytequay.app.developmentflow.compatibility.V2PrTimelineProjection;
 import com.bytequay.app.developmentflow.stage.ManualPrValidationRuntime;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -60,6 +63,23 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
  */
 class TestDevelopmentFlowCompatibilityApi
 {
+    private static final V2PrTimelineProjection IDENTITY_TIMELINE =
+            new V2PrTimelineProjection()
+            {
+                @Override
+                public List<PRTimelineEntry> project(
+                        PR pr, List<PRTimelineEntry> stored)
+                {
+                    return stored;
+                }
+
+                @Override
+                public List<PRCheck> remoteChecks(PR pr)
+                {
+                    return List.of();
+                }
+            };
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
@@ -171,6 +191,7 @@ class TestDevelopmentFlowCompatibilityApi
     {
         Instant createdAt = Instant.parse("2026-07-28T02:30:00Z");
         PRService prs = mock(PRService.class);
+        when(prs.findById("pr-1")).thenReturn(Optional.of(mock(PR.class)));
         when(prs.timeline("pr-1")).thenReturn(List.of(new PRTimelineEntry(
                 "event-1", "pr-1", PRTimelineEntry.TYPE_REVIEW,
                 PRTimelineEntry.ACTOR_BRAIN, true, null, createdAt,
@@ -178,7 +199,7 @@ class TestDevelopmentFlowCompatibilityApi
         PRController controller = new PRController(
                 prs, mock(PRPublishService.class), mock(PRSyncService.class), mock(TaskStore.class),
                 mapper, mock(ManualPrValidationRuntime.class), mock(PullRequestService.class),
-                mock(InvestigationReviewService.class));
+                mock(InvestigationReviewService.class), IDENTITY_TIMELINE);
         MockMvc mvc = standaloneSetup(controller).build();
 
         JsonNode response = body(mvc.perform(get("/api/prs/pr-1/timeline"))
@@ -246,6 +267,7 @@ class TestDevelopmentFlowCompatibilityApi
                 List.of(),
                 null,
                 null,
-                List.of());
+                List.of(),
+                null);
     }
 }

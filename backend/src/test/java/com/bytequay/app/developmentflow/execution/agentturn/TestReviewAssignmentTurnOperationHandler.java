@@ -118,6 +118,22 @@ class TestReviewAssignmentTurnOperationHandler
         assertThat(provider.opens).isZero();
     }
 
+    @Test
+    void reviewTurnCannotOmitItsApprovalGate()
+            throws Exception
+    {
+        store = new FakeStore(turn(false));
+        handler = new ReviewAssignmentTurnOperationHandler(
+                store, provider, JSON, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        DispatchTicket.DispatchResult result = handler.execute(
+                context(envelope(Set.of(REVIEW, API)), false));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(result.error()).contains("exact ReviewAssignmentTurn");
+        assertThat(provider.opens).isZero();
+    }
+
     private static ExecutionContext context(
             DispatchTicket.DispatchEnvelope envelope, boolean canceled)
     {
@@ -151,6 +167,13 @@ class TestReviewAssignmentTurnOperationHandler
     private static ReviewAssignmentTurnOperationHandler.ExactTurn turn()
             throws Exception
     {
+        return turn(true);
+    }
+
+    private static ReviewAssignmentTurnOperationHandler.ExactTurn turn(
+            boolean approvalGate)
+            throws Exception
+    {
         AgentTurnProviderSession.OwnerToolEndpoint endpoint =
                 new AgentTurnProviderSession.OwnerToolEndpoint(
                         "bytequay",
@@ -159,7 +182,7 @@ class TestReviewAssignmentTurnOperationHandler
                         REVIEW_ASSIGNMENT_TURN, "review-turn-1",
                         "review-operation-1",
                         AgentTurnProviderSession.ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY,
-                        "mcp__bytequay__approval_prompt");
+                        approvalGate ? "mcp__bytequay__approval_prompt" : null);
         String input = JSON.writeValueAsString(
                 new AgentTurnOperationHandler.LaunchInput(
                         1, AgentTurnProviderSession.Transport.API, "openai",

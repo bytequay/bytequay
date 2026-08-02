@@ -24,6 +24,8 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmen
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ReadinessEvidence;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RemoteContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RuntimeDeliveryReceipt;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +53,7 @@ public final class RemoteDevelopmentRuntimeCoordinator
     private final RemoteDevelopmentStageManager remote;
     private final SqliteRemoteDevelopmentRuntimeStore store;
     private final ObjectMapper json;
+    private final PRService prs;
     private final Clock clock;
 
     public RemoteDevelopmentRuntimeCoordinator(
@@ -58,12 +61,14 @@ public final class RemoteDevelopmentRuntimeCoordinator
             RemoteDevelopmentStageManager remote,
             SqliteRemoteDevelopmentRuntimeStore store,
             ObjectMapper json,
+            PRService prs,
             Clock clock)
     {
         this.commands = requireNonNull(commands, "commands is null");
         this.remote = requireNonNull(remote, "remote is null");
         this.store = requireNonNull(store, "store is null");
         this.json = requireNonNull(json, "json is null");
+        this.prs = requireNonNull(prs, "prs is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -317,6 +322,9 @@ public final class RemoteDevelopmentRuntimeCoordinator
             acceptance = completed.disposition()
                     == CommandResult.Disposition.SUPERSEDED
                     ? SUPERSEDED : ACCEPTED;
+            if (acceptance == ACCEPTED) {
+                projectRemoteOpen(context.taskId());
+            }
             evidence = "mark-ready-complete:" + context.id();
         }
         RuntimeDeliveryReceipt recorded = new RuntimeDeliveryReceipt(
@@ -324,6 +332,23 @@ public final class RemoteDevelopmentRuntimeCoordinator
                 acceptance.name(), evidence, now);
         store.insertRuntimeDeliveryReceipt(recorded);
         return receipt(acceptance, evidence);
+    }
+
+    /** The Remote Stage owns acceptance; PRService owns the stable PR edge. */
+    private void projectRemoteOpen(String taskId)
+    {
+        PR pr = prs.findByTask(taskId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Accepted mark-ready has no stable Task PR"));
+        if (PR.STATUS_REMOTE_OPEN.equals(pr.status())) {
+            return;
+        }
+        if (!PR.STATUS_REMOTE_DRAFTED.equals(pr.status())) {
+            throw new IllegalStateException(
+                    "Accepted mark-ready cannot project PR status "
+                            + pr.status());
+        }
+        prs.transition(pr.id(), PR.STATUS_REMOTE_OPEN, ACTOR);
     }
 
     private void completeFeedbackStage(EffectCompletion completion)

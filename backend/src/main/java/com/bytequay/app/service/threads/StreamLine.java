@@ -92,6 +92,7 @@ public sealed interface StreamLine
             Usage usage,
             @JsonProperty("total_cost_usd") double totalCostUsd,
             @JsonProperty("is_error") boolean isError,
+            String result,
             String error)
             implements StreamLine {}
 

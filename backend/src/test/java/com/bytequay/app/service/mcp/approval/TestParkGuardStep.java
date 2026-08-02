@@ -27,6 +27,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestParkGuardStep
@@ -140,6 +141,19 @@ class TestParkGuardStep
 
         assertThat(step.apply(ctx("Read")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
+    }
+
+    @Test
+    void typedTurnNeverConsultsTheRetiredLegacyParkState()
+    {
+        ApprovalContext typed = new ApprovalContext(
+                "thread-1", "task-1", "typed-agent-1",
+                JsonNodeFactory.instance.numberNode(1),
+                "Edit", "call-1", mapper.createObjectNode(), Set.of(), true);
+
+        assertThat(step.apply(typed))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+        verifyNoInteractions(taskStore);
     }
 
     private static Task task(TaskStatus status)

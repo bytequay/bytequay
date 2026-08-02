@@ -54,7 +54,7 @@ class TestExternalPrActionRuntimeMigration
             throws Exception
     {
         String url = database("external-action.db");
-        migrate(url, "289");
+        migrate(url);
         seedExternalPr(url);
         SqliteExternalPrActionStore store = store(url);
         AuthorizationRequest request = approve("approve-command");
@@ -96,7 +96,7 @@ class TestExternalPrActionRuntimeMigration
             throws Exception
     {
         String url = database("external-action-stale.db");
-        migrate(url, "289");
+        migrate(url);
         seedExternalPr(url);
         SqliteExternalPrActionStore store = store(url);
         Action authorized = store.authorize(approve("approve-command"), NOW);
@@ -121,7 +121,7 @@ class TestExternalPrActionRuntimeMigration
             throws Exception
     {
         String url = database("external-action-unwatched.db");
-        migrate(url, "289");
+        migrate(url);
         seedExternalPr(url);
         jdbc(url).update("DELETE FROM workspace_repos");
 
@@ -136,7 +136,7 @@ class TestExternalPrActionRuntimeMigration
             throws Exception
     {
         String url = database("external-action-schema.db");
-        migrate(url, "289");
+        migrate(url);
         try (Connection connection = connect(url)) {
             assertThat(number(connection, """
                     SELECT COUNT(*) FROM pragma_table_info('pr_detail')

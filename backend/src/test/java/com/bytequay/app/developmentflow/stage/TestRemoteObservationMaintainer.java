@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ObservationTarget;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ParkedObservation;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -37,15 +39,41 @@ class TestRemoteObservationMaintainer
         SqliteRemoteRuntimeStore store = mock(SqliteRemoteRuntimeStore.class);
         RemoteObservationRuntimeCoordinator observations = mock(
                 RemoteObservationRuntimeCoordinator.class);
+        DispatchTicketControl tickets = mock(DispatchTicketControl.class);
         when(store.findDueObservations(NOW.minusSeconds(30), 10)).thenReturn(List.of(
                 new ObservationTarget("task-1", "stage-1", NOW.minusSeconds(60)),
                 new ObservationTarget("task-2", "stage-2", NOW.minusSeconds(45))));
 
         new RemoteObservationMaintainer(
-                store, observations, Duration.ofSeconds(30), 10).maintain(NOW);
+                store, observations, tickets, Duration.ofSeconds(30), 10)
+                .maintain(NOW);
 
         verify(observations).requestObservation("task-1", "stage-1");
         verify(observations).requestObservation("task-2", "stage-2");
+    }
+
+    @Test
+    void rearmsEveryParkedReadOnlyObservationBeforeRequestingNewOnes()
+    {
+        SqliteRemoteRuntimeStore store = mock(SqliteRemoteRuntimeStore.class);
+        RemoteObservationRuntimeCoordinator observations = mock(
+                RemoteObservationRuntimeCoordinator.class);
+        DispatchTicketControl tickets = mock(DispatchTicketControl.class);
+        when(store.findParkedObservations(NOW.minusSeconds(30), 10)).thenReturn(
+                List.of(
+                        new ParkedObservation(
+                                "ticket-1", "task-1", "stage-1",
+                                NOW.minusSeconds(60)),
+                        new ParkedObservation(
+                                "ticket-2", "task-2", "stage-2",
+                                NOW.minusSeconds(45))));
+
+        new RemoteObservationMaintainer(
+                store, observations, tickets, Duration.ofSeconds(30), 10)
+                .maintain(NOW);
+
+        verify(tickets).resumeDeferred("ticket-1");
+        verify(tickets).resumeDeferred("ticket-2");
     }
 
     @Test
@@ -54,6 +82,7 @@ class TestRemoteObservationMaintainer
         SqliteRemoteRuntimeStore store = mock(SqliteRemoteRuntimeStore.class);
         RemoteObservationRuntimeCoordinator observations = mock(
                 RemoteObservationRuntimeCoordinator.class);
+        DispatchTicketControl tickets = mock(DispatchTicketControl.class);
         when(store.findDueObservations(NOW.minusSeconds(30), 10)).thenReturn(List.of(
                 new ObservationTarget("task-1", "stage-1", NOW.minusSeconds(60)),
                 new ObservationTarget("task-2", "stage-2", NOW.minusSeconds(45))));
@@ -61,7 +90,8 @@ class TestRemoteObservationMaintainer
                 .when(observations).requestObservation("task-1", "stage-1");
 
         assertThatThrownBy(() -> new RemoteObservationMaintainer(
-                store, observations, Duration.ofSeconds(30), 10).maintain(NOW))
+                store, observations, tickets, Duration.ofSeconds(30), 10)
+                .maintain(NOW))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("owner gone");
         verify(observations).requestObservation("task-2", "stage-2");

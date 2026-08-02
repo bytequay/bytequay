@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import type {
-  AgentRunDto, BrainMessageResult, BranchGuardDto, ReviewRoundDto, StageDetailData,
-  TaskBrainViewData,
+  AgentRunDto, BrainMessageResult, BranchGuardDto, LocalPublishBaseSyncApprovalDto,
+  ReviewRoundDto, StageDetailData, TaskBrainViewData,
 } from './types/brainView';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
 import type { DashboardPR } from './types/dashboardPr';
@@ -4115,19 +4115,86 @@ export type Bridge = {
   /** Explicitly restart an exhausted post-ship CI loop. Unlike ordinary
    *  Resume, this action may rerun failed GitHub Actions. */
   retryFailedCi: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
+  /** Replace one exact failed Plan draft operation without resuming the Task. */
+  recoverV2Plan: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ) => Promise<unknown>;
+  /** Replace one exact malformed Development Brain TaskTurn. */
+  recoverV2DevelopmentBrainReview: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ) => Promise<unknown>;
+  /** Replace one exact failed CI/branch Remote repair Brain TaskTurn. */
+  recoverV2RemoteRepairBrainReview: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ) => Promise<unknown>;
+  /** Retry one exact accepted failed Local StageTurn from durable context. */
+  recoverV2Stage: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ) => Promise<unknown>;
   /** Execute one exact owner-scoped V2 CI recovery command. */
   recoverV2Ci: (
     taskId: string,
     episodeId: string,
     command: {
       commandId: string;
-      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
+      blockerId?: string | null;
+      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'START_BASE_REPAIR' | 'START_BRANCH_SYNC' | 'RETRY_ONCE' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
       rerunDelta: number;
       fixDelta: number;
       pushDelta: number;
       reason: string;
     },
   ) => Promise<unknown>;
+  /** Suppress one exact exhausted BranchSync episode without calling CI. */
+  recoverV2BranchSync: (
+    taskId: string,
+    episodeId: string,
+    command: {
+      blockerId: string;
+      commandId: string;
+      action: 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
+      reason: string;
+    },
+  ) => Promise<unknown>;
+  /** Arm one exact durable repair for an open worktree quarantine. */
+  recoverV2Worktree: (
+    taskId: string,
+    quarantineId: string,
+    command: {
+      blockerId: string;
+      taskEpoch: number;
+      stageId: string;
+      stageGeneration: number;
+      worktreePath: string;
+      expectedBranchName: string;
+      expectedCodeFingerprint: string;
+      expectedHeadSha: string;
+      expectedBaseSha: string;
+      commandId: string;
+      action: 'REPAIR_WORKTREE';
+      reason: string;
+    },
+  ) => Promise<unknown>;
+  /** Approve the exact open first-publish base-sync blocker. */
+  approveV2LocalPublishBaseSync: (
+    taskId: string,
+    blockerId: string,
+  ) => Promise<LocalPublishBaseSyncApprovalDto>;
+  /** Extend one exact exhausted local base-sync episode by one attempt. */
+  extendV2LocalPublishBaseSync: (
+    taskId: string,
+    episodeId: string,
+    blockerId: string,
+    command: { commandId: string; reason: string },
+  ) => Promise<import('./types/brainView').LocalPublishBaseSyncExtensionDto>;
   /** Execute one exact owner-scoped V2 Cleanup recovery command. */
   recoverV2Cleanup: (
     taskId: string,
@@ -4511,6 +4578,7 @@ export type Bridge = {
     text: string,
     images?: string[],
     mode?: 'APPEND' | 'CANCEL_AND_REPLACE',
+    expectedPredecessorStageTurnId?: string,
   ) => Promise<{ turnId: string }>;
   /** Read the exact ready-but-unmergeable V2 action token, if one exists. */
   getV2ReadinessAssistance: (

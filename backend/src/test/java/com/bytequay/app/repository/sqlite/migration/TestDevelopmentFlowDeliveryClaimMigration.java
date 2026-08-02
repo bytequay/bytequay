@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -42,58 +45,78 @@ class TestDevelopmentFlowDeliveryClaimMigration
                     INSERT INTO dispatch_delivery_claim(
                         ticket_id, ticket_version, claim_owner, claimed_at_ms,
                         heartbeat_at_ms, expires_at_ms)
-                    VALUES ('ticket-1', 0, 'delivery-worker-1', 20, 20, 40)
+                    VALUES ('provision-ticket-task-1', 1,
+                        'delivery-worker-1', 20, 20, 40)
                     """);
 
             assertThat(number(connection, """
                     SELECT COUNT(*) FROM capacity_lease
-                    WHERE ticket_id = 'ticket-1' AND released_at_ms IS NULL
+                    WHERE ticket_id = 'provision-ticket-task-1'
+                      AND released_at_ms IS NULL
                     """)).isZero();
             assertFails(connection, """
                     INSERT INTO dispatch_delivery_claim(
                         ticket_id, ticket_version, claim_owner, claimed_at_ms,
                         heartbeat_at_ms, expires_at_ms)
-                    VALUES ('ticket-1', 0, 'delivery-worker-2', 21, 21, 41)
+                    VALUES ('provision-ticket-task-1', 1,
+                        'delivery-worker-2', 21, 21, 41)
                     """);
             assertFails(connection, """
                     UPDATE dispatch_ticket
-                    SET version = 1, status = 'SUCCEEDED',
+                    SET version = 2, status = 'SUCCEEDED',
                         pending_result_outcome = NULL,
                         pending_result_payload = NULL,
                         pending_result_evidence = NULL,
                         pending_result_error = NULL,
+                        pending_result_task_epoch = NULL,
+                        pending_result_stage_id = NULL,
+                        pending_result_stage_generation = NULL,
+                        pending_result_operation_id = NULL,
+                        pending_result_attempt = NULL,
+                        pending_result_expected_code_fingerprint = NULL,
+                        pending_result_expected_head_sha = NULL,
+                        pending_result_expected_base_sha = NULL,
                         delivery_acceptance = 'ACCEPTED',
                         delivery_evidence = '{}', completed_at_ms = 30
-                    WHERE id = 'ticket-1'
+                    WHERE id = 'provision-ticket-task-1'
                     """);
             assertFails(connection, """
                     UPDATE dispatch_delivery_claim
                     SET heartbeat_at_ms = 19, expires_at_ms = 50
-                    WHERE ticket_id = 'ticket-1'
+                    WHERE ticket_id = 'provision-ticket-task-1'
                     """);
 
             connection.setAutoCommit(false);
             execute(connection, """
                     DELETE FROM dispatch_delivery_claim
-                    WHERE ticket_id = 'ticket-1'
+                    WHERE ticket_id = 'provision-ticket-task-1'
                       AND claim_owner = 'delivery-worker-1'
-                      AND ticket_version = 0
+                      AND ticket_version = 1
                     """);
             execute(connection, """
                     UPDATE dispatch_ticket
-                    SET version = 1, status = 'SUCCEEDED',
+                    SET version = 2, status = 'SUCCEEDED',
                         pending_result_outcome = NULL,
                         pending_result_payload = NULL,
                         pending_result_evidence = NULL,
                         pending_result_error = NULL,
+                        pending_result_task_epoch = NULL,
+                        pending_result_stage_id = NULL,
+                        pending_result_stage_generation = NULL,
+                        pending_result_operation_id = NULL,
+                        pending_result_attempt = NULL,
+                        pending_result_expected_code_fingerprint = NULL,
+                        pending_result_expected_head_sha = NULL,
+                        pending_result_expected_base_sha = NULL,
                         delivery_acceptance = 'ACCEPTED',
                         delivery_evidence = '{}', completed_at_ms = 30
-                    WHERE id = 'ticket-1' AND version = 0
+                    WHERE id = 'provision-ticket-task-1' AND version = 1
                     """);
             connection.commit();
 
             assertThat(text(connection,
-                    "SELECT status FROM dispatch_ticket WHERE id = 'ticket-1'"))
+                    "SELECT status FROM dispatch_ticket "
+                            + "WHERE id = 'provision-ticket-task-1'"))
                     .isEqualTo("SUCCEEDED");
             assertThat(number(connection,
                     "SELECT COUNT(*) FROM dispatch_delivery_claim")).isZero();
@@ -105,7 +128,8 @@ class TestDevelopmentFlowDeliveryClaimMigration
         migrate(url);
         try (Connection connection = connect(url)) {
             assertThat(text(connection,
-                    "SELECT status FROM dispatch_ticket WHERE id = 'ticket-1'"))
+                    "SELECT status FROM dispatch_ticket "
+                            + "WHERE id = 'provision-ticket-task-1'"))
                     .isEqualTo("SUCCEEDED");
         }
     }
@@ -121,7 +145,8 @@ class TestDevelopmentFlowDeliveryClaimMigration
                     INSERT INTO dispatch_delivery_claim(
                         ticket_id, ticket_version, claim_owner, claimed_at_ms,
                         heartbeat_at_ms, expires_at_ms)
-                    VALUES ('ticket-1', 1, 'delivery-worker', 20, 20, 40)
+                    VALUES ('provision-ticket-task-1', 2,
+                        'delivery-worker', 20, 20, 40)
                     """);
         }
     }
@@ -135,7 +160,7 @@ class TestDevelopmentFlowDeliveryClaimMigration
 
     private static void migrate(String url)
     {
-        Flyway.configure().dataSource(url, "", "").target("224").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static Connection connect(String url)
@@ -163,36 +188,50 @@ class TestDevelopmentFlowDeliveryClaimMigration
                     'claude-sonnet-4.6', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
-        execute(connection, """
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'build', 'user', 2)
-                """);
+        V2TaskSeed.prepareWorkspaces(connection);
         execute(connection, """
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 'user', 2)
                 """);
-        execute(connection, """
+        JdbcTemplate jdbc = new JdbcTemplate(
+                new SingleConnectionDataSource(connection, true));
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1", seed -> seed.update("""
+                INSERT INTO task_assignment(
+                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
+                    created_by, created_at_ms, creation_authorization_id)
+                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
+                    'base-1', 'seed', 'build', 'user', 2,
+                    'authorization-assignment-1')
+                """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
+                    workflow_version, lifecycle_state, assignment_id,
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1')
+                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1',
+                    'creation-receipt-task-1', 'Test task assignment-1',
+                    'DEVELOP', 'build', 'user')
+                """));
+        execute(connection, """
+                UPDATE provision_task_operation SET status = 'DISPATCHED'
+                WHERE id = 'provision-task-1'
                 """);
         execute(connection, """
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    exclusive_task, workspace_id, trunk_id, task_id, task_epoch,
-                    attempt, status, pending_result_outcome,
-                    pending_result_payload, pending_result_evidence, created_at_ms)
-                VALUES ('ticket-1', 'operation-1', 'PROVISION_TASK', 'LOCAL_GIT',
-                    'TASK', 'task-1', 'task.provisioned', 16,
-                    1, 'workspace-1', 'trunk-1', 'task-1', 1,
-                    1, 'RESULT_PENDING', 'SUCCEEDED', '{}', '{}', 10)
+                UPDATE dispatch_ticket
+                SET version = 1, status = 'RESULT_PENDING',
+                    pending_result_outcome = 'SUCCEEDED',
+                    pending_result_payload = '{}', pending_result_evidence = '{}',
+                    pending_result_task_epoch = task_epoch,
+                    pending_result_operation_id = operation_id,
+                    pending_result_attempt = attempt,
+                    pending_result_expected_code_fingerprint =
+                        expected_code_fingerprint,
+                    pending_result_expected_head_sha = expected_head_sha,
+                    pending_result_expected_base_sha = expected_base_sha
+                WHERE id = 'provision-ticket-task-1'
                 """);
     }
 

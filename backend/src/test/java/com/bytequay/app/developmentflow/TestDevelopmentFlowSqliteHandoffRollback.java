@@ -24,7 +24,8 @@ import com.bytequay.app.developmentflow.task.creation.ProvisionTarget;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -47,7 +48,7 @@ class TestDevelopmentFlowSqliteHandoffRollback
     void failedPlanCreationRollsBackProvisioningAcrossBothOwners()
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("handoff.db") + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("225").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
@@ -61,7 +62,8 @@ class TestDevelopmentFlowSqliteHandoffRollback
         ProvisionToPlanHandoff handoff = new ProvisionToPlanHandoff(
                 executor, tasks, plan);
         ResultFence result = new ResultFence(
-                1, null, 0, "operation-1", 1, "fp-1", "base-1", "base-1");
+                1, null, 0, "provision-operation-task-1", 1,
+                "fp-1", "base-1", "base-1");
 
         assertThatThrownBy(() -> handoff.accept(new TaskManager.ProvisioningCommand(
                 "activate-task-1", "dispatcher", "task-1", 0,
@@ -76,7 +78,7 @@ class TestDevelopmentFlowSqliteHandoffRollback
                 "SELECT aggregate_version FROM tasks WHERE id = 'task-1'", Long.class))
                 .isZero();
         assertThat(count(jdbc, "task_current_stage")).isZero();
-        assertThat(count(jdbc, "task_transition")).isZero();
+        assertThat(count(jdbc, "task_transition")).isOne();
         assertThat(count(jdbc, "stage")).isZero();
         assertThat(count(jdbc, "stage_transition")).isZero();
         assertThat(count(jdbc, "plan_stage")).isZero();
@@ -103,75 +105,38 @@ class TestDevelopmentFlowSqliteHandoffRollback
                     'claude-sonnet-4.6', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
-        jdbc.execute("""
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'build', 'user', 2)
-                """);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.execute("""
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, auto_approve,
                     created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 1, 'user', 2)
                 """);
-        jdbc.execute("""
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
-                VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
-        jdbc.execute("""
-                INSERT INTO task_creation_context(
-                    task_id, assignment_id, policy_revision_id, provenance,
-                    repository_id, publish_repository_id, planning_base_sha, engine_snapshot,
-                    work_model_snapshot, created_at_ms)
-                VALUES ('task-1', 'assignment-1', 'policy-1', 'DIRECT_USER',
-                    'acme/widget', 'acme/widget', 'base-1', 'engine-v1', 'model-v1', 3)
-                """);
-        jdbc.execute("""
-                INSERT INTO provision_task_operation(
-                    id, task_id, task_epoch, assignment_id, operation_id,
-                    semantic_attempt, repository_id, expected_base_sha,
-                    requested_branch_name, requested_worktree_path,
-                    status, created_at_ms)
-                VALUES ('provision-1', 'task-1', 1, 'assignment-1', 'operation-1',
-                    1, 'acme/widget', 'base-1', 'dev/task-1', '/tmp/task-1',
-                    'REQUESTED', 4)
-                """);
-        jdbc.execute("""
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    exclusive_task, writer_required, workspace_id, trunk_id,
-                    task_id, task_epoch, attempt, expected_base_sha,
-                    status, created_at_ms)
-                VALUES ('ticket-1', 'operation-1', 'PROVISION_TASK', 'LOCAL_GIT',
-                    'TASK', 'task-1', 'TASK_PROVISION_RESULT', 16,
-                    1, 1, 'workspace-1', 'trunk-1', 'task-1', 1, 1, 'base-1',
-                    'REQUESTED', 4)
-                """);
-        jdbc.execute("""
-                UPDATE provision_task_operation SET status = 'DISPATCHED'
-                WHERE id = 'provision-1'
-                """);
-        jdbc.execute("""
-                UPDATE dispatch_ticket
-                SET version = version + 1, status = 'RESULT_PENDING',
-                    pending_result_outcome = 'SUCCEEDED',
-                    pending_result_payload = 'provisioned',
-                    pending_result_evidence = 'exact local Git result'
-                WHERE id = 'ticket-1'
-                """);
-        jdbc.execute("""
-                UPDATE provision_task_operation
-                SET status = 'ACCEPTED', result_base_sha = 'base-1',
-                    result_head_sha = 'base-1', result_code_fingerprint = 'fp-1',
-                    completed_at_ms = 5
-                WHERE id = 'provision-1'
-                """);
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1", transaction ->
+                transaction.execute("""
+                        INSERT INTO task_assignment(
+                            id, trunk_id, kind, planning_base_sha, plan_seed,
+                            prompt, created_by, created_at_ms,
+                            creation_authorization_id)
+                        VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
+                            'base-1', 'seed', 'build', 'user', 2,
+                            'authorization-assignment-1')
+                        """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", transaction ->
+                transaction.execute("""
+                        INSERT INTO tasks(
+                            id, thread_id, seq, status, phase, created_at_ms,
+                            workflow_version, lifecycle_state, assignment_id,
+                            policy_revision_id, creation_receipt_id, name,
+                            task_type, opening_prompt, origin)
+                        VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
+                            'V2', 'PROVISIONING', 'assignment-1', 'policy-1',
+                            'creation-receipt-task-1',
+                            'Test task assignment-1', 'DEVELOP', 'build', 'user')
+                        """));
+        V2TaskSeed.completeProvisioning(
+                jdbc, "task-1", "base-1", "base-1", "fp-1",
+                "exact local Git result", 5);
     }
 
     private static final class SqliteTaskStore

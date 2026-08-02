@@ -26,8 +26,8 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Admission;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.CliContinuation;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FlowPhase;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RetryCandidate;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -75,13 +75,13 @@ class TestReviewAssignmentTurnRuntimeMigration
     {
         String url = "jdbc:sqlite:" + temporary.resolve("review-turn.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
             seedReview(connection);
         }
-        Flyway.configure().dataSource(url, "", "").target("278").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         jdbc = new JdbcTemplate(dataSource);
@@ -625,86 +625,6 @@ class TestReviewAssignmentTurnRuntimeMigration
                 SELECT status FROM review_assignment_turn
                 WHERE id = 'review-turn-moved'
                 """)).isEqualTo("SUPERSEDED");
-    }
-
-    @Test
-    void preV262PrimaryTurnGetsDeterministicLogicalIdentity()
-            throws Exception
-    {
-        String url = legacyDatabase("deterministic-backfill.db");
-        try (Connection connection = connect(url)) {
-            execute(connection, """
-                    INSERT INTO review_assignment_turn(
-                        id, assignment_id, purpose, status, operation_id,
-                        attempt, start_commit, delivery_lane, launch_input,
-                        requested_at_ms)
-                    VALUES ('legacy-turn-1', 'assignment-review-1',
-                        'investigate', 'QUEUED', 'legacy-operation-1',
-                        1, 'head-1', 'API', '{}', 11)
-                    """);
-        }
-
-        Flyway.configure().dataSource(url, "", "").target("262").load().migrate();
-        JdbcTemplate migrated = sqlite(url);
-        SqliteReviewAssignmentTurnStore restarted = new SqliteReviewAssignmentTurnStore(
-                migrated, new SqliteDispatchWakeStore(migrated), JSON);
-
-        assertThat(migrated.queryForObject("""
-                SELECT subject_key FROM review_assignment_turn
-                WHERE id = 'legacy-turn-1'
-                """, String.class)).isEqualTo("assignment-review-1");
-        assertThat(migrated.queryForObject("""
-                SELECT phase FROM review_round_followup_v262
-                WHERE round_id = 'round-1'
-                """, String.class)).isEqualTo("PRIMARY");
-        assertThat(restarted.incompleteRoundIds()).containsExactly("round-1");
-        assertThat(restarted.turns("round-1"))
-                .singleElement()
-                .satisfies(turn -> {
-                    assertThat(turn.purpose()).isEqualTo("investigate");
-                    assertThat(turn.subjectKey()).isEqualTo("assignment-review-1");
-                    assertThat(turn.status()).isEqualTo("QUEUED");
-                });
-    }
-
-    @Test
-    void preV262AmbiguousPurposeFailsClosed()
-            throws Exception
-    {
-        String url = legacyDatabase("ambiguous-backfill.db");
-        try (Connection connection = connect(url)) {
-            execute(connection, """
-                    INSERT INTO review_assignment_turn(
-                        id, assignment_id, purpose, status, operation_id,
-                        attempt, start_commit, delivery_lane, launch_input,
-                        requested_at_ms)
-                    VALUES ('legacy-turn-1', 'assignment-review-1',
-                        'self-refutation', 'QUEUED', 'legacy-operation-1',
-                        1, 'head-1', 'API', '{}', 11)
-                    """);
-        }
-
-        assertThatThrownBy(() -> Flyway.configure()
-                .dataSource(url, "", "")
-                .target("262")
-                .load()
-                .migrate())
-                .hasMessageContaining("V262");
-    }
-
-    private String legacyDatabase(String fileName)
-            throws Exception
-    {
-        String url = "jdbc:sqlite:" + temporary.resolve(fileName)
-                + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
-        try (Connection connection = connect(url)) {
-            seedWorkspaceAndTrunk(connection);
-            seedPublishedRemoteTask(connection, 1);
-            seedReview(connection);
-        }
-        Flyway.configure().dataSource(url, "", "").target("255").load().migrate();
-        return url;
     }
 
     private static JdbcTemplate sqlite(String url)

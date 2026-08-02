@@ -293,6 +293,61 @@ public class SqliteDispatchTicketStore
                         AND pending_result_outcome IS NOT NULL
                         AND claim_owner IS NULL AND capacity_lease_id IS NULL
                         AND NOT EXISTS (
+                            SELECT 1 FROM agent_execution execution
+                            WHERE execution.ticket_id = dispatch_ticket.id
+                              AND execution.finished_at_ms IS NULL)
+                        AND (async_family <> 'AGENT_TURN'
+                          OR (pending_result_outcome = 'CANCELED'
+                            AND infrastructure_attempts = 0
+                            AND NOT EXISTS (
+                                SELECT 1 FROM agent_execution execution
+                                WHERE execution.ticket_id = dispatch_ticket.id))
+                          OR EXISTS (
+                            SELECT 1 FROM agent_execution execution
+                            WHERE execution.ticket_id = dispatch_ticket.id
+                              AND execution.infrastructure_attempt =
+                                  dispatch_ticket.infrastructure_attempts
+                              AND execution.finished_at_ms IS NOT NULL
+                              AND execution.status = CASE pending_result_outcome
+                                  WHEN 'SUCCEEDED' THEN 'SUCCEEDED'
+                                  WHEN 'FAILED' THEN 'FAILED'
+                                  WHEN 'INDETERMINATE' THEN 'UNKNOWN'
+                                  ELSE 'CANCELED'
+                              END
+                              AND execution.raw_result IS NOT NULL
+                              AND json_valid(execution.raw_result)
+                              AND json_extract(
+                                  execution.raw_result, '$.outcome') =
+                                  pending_result_outcome
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.taskEpoch') IS
+                                  pending_result_task_epoch
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.stageId') IS pending_result_stage_id
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.stageGeneration') IS
+                                  pending_result_stage_generation
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.operationId') IS
+                                  pending_result_operation_id
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.attempt') IS pending_result_attempt
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.expectedCodeFingerprint') IS
+                                  pending_result_expected_code_fingerprint
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.expectedHeadSha') IS
+                                  pending_result_expected_head_sha
+                              AND json_extract(execution.raw_result,
+                                  '$.fence.expectedBaseSha') IS
+                                  pending_result_expected_base_sha
+                              AND json_extract(execution.raw_result,
+                                  '$.payloadJson') IS pending_result_payload
+                              AND json_extract(execution.raw_result,
+                                  '$.evidenceJson') IS pending_result_evidence
+                              AND json_extract(execution.raw_result,
+                                  '$.error') IS pending_result_error))
+                        AND NOT EXISTS (
                             SELECT 1 FROM dispatch_delivery_claim c
                             WHERE c.ticket_id = dispatch_ticket.id)
                     """, statement -> {
@@ -429,6 +484,14 @@ public class SqliteDispatchTicketStore
         String claimClause = rejectDeliveryClaim
                 ? " AND NOT EXISTS (SELECT 1 FROM dispatch_delivery_claim c WHERE c.ticket_id = dispatch_ticket.id)"
                 : "";
+        String executionClause = replacement.state() == DispatchTicket.State.CLAIMED
+                ? """
+                  AND NOT EXISTS (
+                      SELECT 1 FROM agent_execution execution
+                      WHERE execution.ticket_id = dispatch_ticket.id
+                        AND execution.finished_at_ms IS NULL)
+                  """
+                : "";
         String sql = """
                 UPDATE dispatch_ticket
                 SET version = ?, status = ?, claim_purpose = ?, claim_owner = ?,
@@ -445,7 +508,7 @@ public class SqliteDispatchTicketStore
                     pending_result_expected_base_sha = ?, delivery_acceptance = ?,
                     delivery_evidence = ?, completed_at_ms = ?, last_error = ?
                 WHERE id = ? AND version = ?
-                """ + claimClause;
+                """ + claimClause + executionClause;
         SqliteTransactions.SqlWork<Integer> work = connection -> {
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 bindReplacement(statement, replacement, expectedVersion);

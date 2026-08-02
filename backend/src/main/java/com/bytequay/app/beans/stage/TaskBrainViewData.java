@@ -51,8 +51,14 @@ public record TaskBrainViewData(
         List<AgentRun> liveRuns,
         BranchGuard guard,
         ReviewRound liveRound,
-        List<DevPhase> devPhases)
+        List<DevPhase> devPhases,
+        RecoveryAction recovery)
 {
+    /** One exact user action that can replace a failed V2 owner operation. */
+    public record RecoveryAction(
+            String kind, String stageId, String blockerId,
+            String failedTurnId) {}
+
     /**
      * The Task header shown above the brain feed.
      *

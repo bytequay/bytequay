@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.ObservationDisposition;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.InboxKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ObservedInboxItem;
@@ -72,14 +73,20 @@ public final class RemoteDevelopmentObservationConsumer
 
         acceptance.accept();
         ingest(candidate);
+        if (hooks.branch().acceptInCommand(candidate)
+                != ObservationDisposition.CONTINUE) {
+            return Consumption.ACCEPTED;
+        }
+        if (hooks.ci().acceptInCommand(candidate)
+                != ObservationDisposition.CONTINUE) {
+            return Consumption.ACCEPTED;
+        }
         store.findFeedbackBatchAwaitingHead(
                         candidate.context().stageId(), candidate.evidence().headSha(),
                         candidate.evidence().baseSha())
                 .ifPresent(batchId -> remote.resumeFeedbackCompletionInCommand(
                         candidate.context().taskId(), batchId));
 
-        hooks.ci().acceptInCommand(candidate);
-        hooks.branch().acceptInCommand(candidate);
         hooks.merge().acceptInCommand(candidate);
 
         if (candidate.observation().prState()
@@ -95,7 +102,9 @@ public final class RemoteDevelopmentObservationConsumer
     private void continueFeedbackAndReadiness(Candidate candidate)
     {
         if (candidate.ciEvaluation().outcome()
-                != RemoteCiPolicy.PolicyOutcome.ACCEPTED) {
+                != RemoteCiPolicy.PolicyOutcome.ACCEPTED
+                || candidate.observation().mergeQueueCapability()
+                    == RemoteObservationOperationHandler.MergeQueueCapability.UNKNOWN) {
             return;
         }
         RemoteContext context = store.requireContext(
@@ -208,6 +217,13 @@ public final class RemoteDevelopmentObservationConsumer
     }
 
     @FunctionalInterface
+    public interface CiObservationHook
+    {
+        /** May defer the rest of this fold until an accepted push is durable. */
+        ObservationDisposition acceptInCommand(Candidate candidate);
+    }
+
+    @FunctionalInterface
     public interface AcceptedObservationHook
     {
         /** Runs inside the same exact Task command after subject acceptance. */
@@ -222,8 +238,8 @@ public final class RemoteDevelopmentObservationConsumer
     }
 
     public record Hooks(
-            AcceptedObservationHook ci,
-            AcceptedObservationHook branch,
+            CiObservationHook ci,
+            CiObservationHook branch,
             AcceptedObservationHook merge,
             ReadinessAcceptedHook readinessAccepted)
     {

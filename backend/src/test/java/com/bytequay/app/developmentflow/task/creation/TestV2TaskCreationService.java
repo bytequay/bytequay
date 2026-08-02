@@ -41,6 +41,7 @@ import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workmodel.WorkModelService;
 import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import org.flywaydb.core.Flyway;
@@ -186,7 +187,7 @@ class TestV2TaskCreationService
     void runningLegacyTaskAndStageSiblingsDoNotBlockTrunkPromotion()
     {
         Path repositoryRoot = tempDir.resolve("mixed-promotion-repo").toAbsolutePath();
-        JdbcTemplate jdbc = database("mixed-promotion.db", repositoryRoot, "276");
+        JdbcTemplate jdbc = database("mixed-promotion.db", repositoryRoot);
         jdbc.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
@@ -219,7 +220,6 @@ class TestV2TaskCreationService
                 """, TRUNK);
         Flyway.configure()
                 .dataSource(jdbc.getDataSource())
-                .target("284")
                 .load()
                 .migrate();
         ObjectMapper mapper = new ObjectMapper();
@@ -674,15 +674,9 @@ class TestV2TaskCreationService
 
     private JdbcTemplate database(String name, Path repositoryRoot)
     {
-        return database(name, repositoryRoot, "284");
-    }
-
-    private JdbcTemplate database(
-            String name, Path repositoryRoot, String target)
-    {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);

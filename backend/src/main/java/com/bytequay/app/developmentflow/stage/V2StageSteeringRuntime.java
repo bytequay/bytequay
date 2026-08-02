@@ -114,18 +114,49 @@ public final class V2StageSteeringRuntime
     @Override
     public String steer(
             String taskId, String stageId, String text,
-            List<String> images, Mode mode)
+            List<String> images, Mode mode,
+            String expectedPredecessorStageTurnId)
     {
+        requireNonNull(mode, "mode is null");
+        String expected = optionalText(
+                expectedPredecessorStageTurnId,
+                "expectedPredecessorStageTurnId");
+        if (expected != null && mode != Mode.CANCEL_AND_REPLACE) {
+            throw rejected(
+                    "An expected predecessor is valid only for CANCEL_AND_REPLACE");
+        }
+        String requestId = expected == null
+                ? UUID.randomUUID().toString()
+                : stableId("stage-replacement-request", stageId, expected);
+        String commandId = expected == null
+                ? UUID.randomUUID().toString()
+                : stableId("stage-replacement-command", stageId, expected);
         return steerWithCommandId(
-                UUID.randomUUID().toString(), UUID.randomUUID().toString(),
-                taskId, stageId, text == null ? "" : text.strip(), images, mode);
+                requestId, commandId, taskId, stageId,
+                text == null ? "" : text.strip(), images, mode, expected);
     }
 
     String steerWithCommandId(
             String requestId, String commandId, String taskId, String stageId,
             String body, List<String> images, Mode mode)
     {
+        return steerWithCommandId(
+                requestId, commandId, taskId, stageId, body, images, mode, null);
+    }
+
+    String steerWithCommandId(
+            String requestId, String commandId, String taskId, String stageId,
+            String body, List<String> images, Mode mode,
+            String expectedPredecessorStageTurnId)
+    {
         requireNonNull(mode, "mode is null");
+        String expected = optionalText(
+                expectedPredecessorStageTurnId,
+                "expectedPredecessorStageTurnId");
+        if (expected != null && mode != Mode.CANCEL_AND_REPLACE) {
+            throw rejected(
+                    "An expected predecessor is valid only for CANCEL_AND_REPLACE");
+        }
         List<String> paths = attachmentStore.save(stageId, images);
         List<Attachment> attachments = attachments(paths);
         String contentDigest = contentDigest(body, attachments);
@@ -136,7 +167,9 @@ public final class V2StageSteeringRuntime
                         || !duplicate.taskId().equals(taskId)
                         || !duplicate.stageId().equals(stageId)
                         || duplicate.mode() != mode
-                        || !duplicate.contentDigest().equals(contentDigest)) {
+                        || !duplicate.contentDigest().equals(contentDigest)
+                        || !matchesExpectedPredecessor(
+                                duplicate.predecessor(), expected)) {
                     throw rejected("Steering command id already names another input");
                 }
                 return duplicate;
@@ -154,6 +187,13 @@ public final class V2StageSteeringRuntime
             if (stage.kind() == StageKind.REMOTE_DEVELOPMENT) {
                 validateRemoteTarget(predecessor, owner);
             }
+            if (!matchesExpectedPredecessor(predecessor, expected)) {
+                String current = predecessor == null
+                        ? "none" : predecessor.ownerId();
+                String message = "CANCEL_AND_REPLACE expected predecessor "
+                        .concat("StageTurn %s but the current owner is %s");
+                throw rejected(message.formatted(expected, current));
+            }
             if (mode == Mode.CANCEL_AND_REPLACE && predecessor == null) {
                 throw rejected("CANCEL_AND_REPLACE has no exact active Stage operation; "
                         + describe(owner));
@@ -163,6 +203,11 @@ public final class V2StageSteeringRuntime
                     stage.kind(), stage.generation(), stage.version(),
                     stage.checkpoint(), mode, body, contentDigest, predecessor,
                     "PENDING", null, null, null, ACTOR, clock.instant());
+            if (stage.checkpoint() == StageCheckpoint.LOCAL_REVIEW
+                    && store.hasLiveLocalPublishBaseSync(request)) {
+                throw rejected(
+                        "Local review steering waits for active publish base sync");
+            }
             store.insert(request, attachments);
             return request;
         });
@@ -289,8 +334,19 @@ public final class V2StageSteeringRuntime
             return;
         }
         boolean userWait = store.isUserWaitContinuation(request.id());
-        if (owner.taskLifecycle() != TaskLifecycle.ACTIVE
-                || !store.predecessorQuiesced(request)) {
+        if (owner.taskLifecycle() != TaskLifecycle.ACTIVE) {
+            return;
+        }
+        if (!userWait && isMalformedLocalResultPending(request, owner.stage())) {
+            SteeringAdmission admission = local
+                    .replaceMalformedResultPendingInCommand(
+                            request, owner.stage().version());
+            store.markAdmitted(
+                    request.id(), "STAGE_TURN", admission.turnId(),
+                    admission.operationId(), clock.instant());
+            return;
+        }
+        if (!store.predecessorQuiesced(request)) {
             return;
         }
         if (userWait && !store.userWaitSubjectIsCurrent(request)) {
@@ -324,6 +380,10 @@ public final class V2StageSteeringRuntime
                 && stage.checkpoint() != StageCheckpoint.ADDRESSING_BRAIN_FINDINGS
                 && stage.checkpoint() != StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK
                 && stage.checkpoint() != StageCheckpoint.LOCAL_REVIEW) {
+            return;
+        }
+        if (stage.checkpoint() == StageCheckpoint.LOCAL_REVIEW
+                && store.hasLiveLocalPublishBaseSync(request)) {
             return;
         }
         SteeringAdmission admission = store.isUserWaitContinuation(request.id())
@@ -395,8 +455,13 @@ public final class V2StageSteeringRuntime
                     admitted.operationId(), clock.instant());
             return;
         }
-        SqliteRemoteRepairTurnStore.TurnRequest admitted = remoteRepairs.getObject()
-                .admitSteeringInCommand(request);
+        RemoteRepairTurnRuntime repairs = remoteRepairs.getObject();
+        if (owner.purpose().equals("REMOTE_CI_REPAIR")
+                && !repairs.prepareCiSteeringInCommand(request)) {
+            return;
+        }
+        SqliteRemoteRepairTurnStore.TurnRequest admitted =
+                repairs.admitSteeringInCommand(request);
         store.markAdmitted(
                 request.id(), "STAGE_TURN", admitted.turnId(),
                 admitted.operationId(), clock.instant());
@@ -415,7 +480,8 @@ public final class V2StageSteeringRuntime
 
     private void signalCancellation(Request request)
     {
-        if (request.mode() != Mode.CANCEL_AND_REPLACE
+        if (!request.status().equals("PENDING")
+                || request.mode() != Mode.CANCEL_AND_REPLACE
                 || request.predecessor() == null
                 || store.isUserWaitContinuation(request.id())) {
             return;
@@ -525,6 +591,26 @@ public final class V2StageSteeringRuntime
                         pending.expectedBaseSha(), predecessor.baseSha());
     }
 
+    private boolean isMalformedLocalResultPending(
+            Request request, StageManager.State stage)
+    {
+        if (request.stageKind() != StageKind.LOCAL_DEVELOPMENT
+                || request.mode() != Mode.CANCEL_AND_REPLACE
+                || request.acceptedStageVersion() != stage.version()
+                || request.acceptedCheckpoint() != stage.checkpoint()
+                || (stage.checkpoint() != StageCheckpoint.IMPLEMENTING
+                    && stage.checkpoint()
+                            != StageCheckpoint.ADDRESSING_BRAIN_FINDINGS
+                    && stage.checkpoint()
+                            != StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK)
+                || !pendingMatchesPredecessor(
+                        stage.pendingResult(), request.predecessor())) {
+            return false;
+        }
+        return store.malformedLocalResultPendingReady(
+                request, stage.pendingResult());
+    }
+
     private static String continuationBody(String waitKind, String answer)
     {
         return "User resolved the "
@@ -536,6 +622,26 @@ public final class V2StageSteeringRuntime
     {
         return UUID.nameUUIDFromBytes(
                 (kind + ":" + left + ":" + right).getBytes(UTF_8)).toString();
+    }
+
+    private static boolean matchesExpectedPredecessor(
+            Predecessor predecessor, String expectedStageTurnId)
+    {
+        return expectedStageTurnId == null
+                || (predecessor != null
+                && predecessor.ownerKind().equals("STAGE_TURN")
+                && predecessor.ownerId().equals(expectedStageTurnId));
+    }
+
+    private static String optionalText(String value, String name)
+    {
+        if (value == null) {
+            return null;
+        }
+        if (value.isBlank()) {
+            throw rejected(name + " is blank");
+        }
+        return value.strip();
     }
 
     private static void requireText(String value, String name)

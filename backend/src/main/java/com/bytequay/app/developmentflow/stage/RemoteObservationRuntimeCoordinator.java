@@ -80,6 +80,8 @@ public final class RemoteObservationRuntimeCoordinator
         requireText(taskId, "taskId");
         requireText(stageId, "stageId");
         TaskCommandExecutor.requireCurrent(taskId);
+        Instant now = clock.instant();
+        store.adoptDefaultRepositoryCiPolicy(taskId, stageId, now);
         ObservationRequest duplicate = store.findLiveObservation(stageId)
                 .orElse(null);
         if (duplicate != null) {
@@ -90,7 +92,7 @@ public final class RemoteObservationRuntimeCoordinator
             return duplicate;
         }
         RemoteContext context = store.requireRemoteContext(taskId, stageId);
-        return store.insertObservation(context, clock.instant());
+        return store.insertObservation(context, now);
     }
 
     public DispatchTicket.DeliveryReceipt deliver(

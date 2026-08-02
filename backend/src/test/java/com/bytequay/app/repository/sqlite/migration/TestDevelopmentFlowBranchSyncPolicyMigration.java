@@ -41,7 +41,7 @@ class TestDevelopmentFlowBranchSyncPolicyMigration
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("branch-policy.db");
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
@@ -53,7 +53,7 @@ class TestDevelopmentFlowBranchSyncPolicyMigration
                         'IMPLEMENTING', 2, 'LEGACY')
                     """);
         }
-        migrate(url, "232");
+        migrate(url);
         try (Connection connection = connect(url)) {
             insertRemoteOwner(connection, 1);
             insertCiPolicy(connection, 1);
@@ -62,7 +62,7 @@ class TestDevelopmentFlowBranchSyncPolicyMigration
                     "MERGEABLE");
             acceptSnapshot(connection, 1, 1, "head-1", "base-1");
         }
-        migrate(url, "264");
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             assertThatThrownBy(() -> execute(connection, policy(
@@ -75,7 +75,7 @@ class TestDevelopmentFlowBranchSyncPolicyMigration
             assertThatThrownBy(() -> execute(connection, episode(
                     "disabled-episode", "disabled-policy",
                     "USER_CONFIGURED", 3)))
-                    .hasMessageContaining("exact enabled Task policy");
+                    .hasMessageContaining("exact scheduled or CI authority");
 
             execute(connection, policy(
                     "enabled-policy", "task-1", 2, 1,
@@ -137,11 +137,13 @@ class TestDevelopmentFlowBranchSyncPolicyMigration
                     id, remote_development_stage_id, task_id, task_epoch,
                     stage_generation, remote_pr_binding_id, source_snapshot_id,
                     old_head_sha, observed_base_sha, target_base_sha,
-                    policy_source, status, attempt_limit, opened_at_ms,
+                    policy_source, purpose, authority_kind, authority_id,
+                    status, attempt_limit, opened_at_ms,
                     branch_sync_policy_revision_id)
                 VALUES ('%s', 'remote-stage-1', 'task-1', 1, 1, 'binding-1',
                     'snapshot-1-1', 'head-1', 'base-1', 'base-2', '%s',
+                    'SCHEDULED', 'BRANCH_SYNC_POLICY', '%s',
                     'OPEN', %s, 1000, '%s')
-                """.formatted(id, source, attempts, policyId);
+                """.formatted(id, source, policyId, attempts, policyId);
     }
 }

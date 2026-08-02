@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.CommandResult;
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.ObservationDisposition;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ReadinessEvidence;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RemoteContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore.AuthorityKind;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.util.Objects;
@@ -36,6 +40,7 @@ public final class RemoteObservationDomainHooks
     private final BranchSyncRuntimeCoordinator branchSync;
     private final RemoteMergeObservationCoordinator mergeObservation;
     private final RemoteMergeRuntimeCoordinator merges;
+    private final PRService prs;
 
     public RemoteObservationDomainHooks(
             SqliteRemoteDevelopmentRuntimeStore store,
@@ -43,7 +48,8 @@ public final class RemoteObservationDomainHooks
             RemoteCiRepairRuntimeCoordinator ciRepair,
             BranchSyncRuntimeCoordinator branchSync,
             RemoteMergeObservationCoordinator mergeObservation,
-            RemoteMergeRuntimeCoordinator merges)
+            RemoteMergeRuntimeCoordinator merges,
+            PRService prs)
     {
         this.store = requireNonNull(store, "store is null");
         this.remote = requireNonNull(remote, "remote is null");
@@ -52,12 +58,17 @@ public final class RemoteObservationDomainHooks
         this.mergeObservation = requireNonNull(
                 mergeObservation, "mergeObservation is null");
         this.merges = requireNonNull(merges, "merges is null");
+        this.prs = requireNonNull(prs, "prs is null");
     }
 
-    public void acceptCiInCommand(Candidate candidate)
+    public ObservationDisposition acceptCiInCommand(Candidate candidate)
     {
         requireCurrent(candidate);
-        ciRepair.acceptObservationInCommand(candidate);
+        ObservationDisposition disposition =
+                ciRepair.acceptObservationInCommand(candidate);
+        if (disposition == ObservationDisposition.DEFER_UNTIL_PUSH_DELIVERY) {
+            return disposition;
+        }
         RemoteContext context = store.requireContext(
                 candidate.context().taskId(), candidate.context().stageId());
         boolean changed = !Objects.equals(
@@ -75,7 +86,7 @@ public final class RemoteObservationDomainHooks
         }
         if (candidate.ciEvaluation().outcome()
                 != RemoteCiPolicy.PolicyOutcome.ACCEPTED) {
-            return;
+            return disposition;
         }
         if ("WAITING_CI".equals(context.checkpoint())) {
             remote.acceptCiEvidenceInCommand(gate(
@@ -88,17 +99,38 @@ public final class RemoteObservationDomainHooks
         if (candidate.observation().prState()
                 == RemoteObservationOperationHandler.PrState.OPEN
                 && "AWAITING_READY".equals(context.checkpoint())) {
-            remote.acceptObservedReadyInCommand(gate(
+            var accepted = remote.acceptObservedReadyInCommand(gate(
                     context, candidate.evidence().snapshotId(),
                     candidate.evidence().headSha(), candidate.evidence().baseSha(),
                     "accept-open-pr"));
+            if (accepted.disposition()
+                    != CommandResult.Disposition.SUPERSEDED) {
+                projectRemoteOpen(context.taskId());
+            }
         }
+        return disposition;
     }
 
-    public void acceptBranchInCommand(Candidate candidate)
+    private void projectRemoteOpen(String taskId)
+    {
+        PR pr = prs.findByTask(taskId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Accepted open PR observation has no stable Task PR"));
+        if (PR.STATUS_REMOTE_OPEN.equals(pr.status())) {
+            return;
+        }
+        if (!PR.STATUS_REMOTE_DRAFTED.equals(pr.status())) {
+            throw new IllegalStateException(
+                    "Accepted open PR observation cannot project PR status "
+                            + pr.status());
+        }
+        prs.transition(pr.id(), PR.STATUS_REMOTE_OPEN, ACTOR);
+    }
+
+    public ObservationDisposition acceptBranchInCommand(Candidate candidate)
     {
         requireCurrent(candidate);
-        branchSync.acceptObservationInCommand(candidate);
+        return branchSync.acceptObservationInCommand(candidate);
     }
 
     public void acceptMergeInCommand(Candidate candidate)

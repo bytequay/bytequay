@@ -26,12 +26,14 @@ import com.bytequay.app.beans.localpr.PRDto;
 import com.bytequay.app.beans.localpr.PRTimelineEntryDto;
 import com.bytequay.app.beans.localpr.SnoozePRRequest;
 import com.bytequay.app.beans.localpr.UpdatePRRequest;
+import com.bytequay.app.developmentflow.compatibility.V2PrTimelineProjection;
 import com.bytequay.app.developmentflow.execution.remote.SqliteExternalPrActionStore.Projection;
 import com.bytequay.app.developmentflow.stage.ManualPrValidationRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Operation;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteManualPrValidationStore.Status;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.Task;
@@ -79,7 +81,9 @@ public class PRController
     private final TaskStore taskStore;
     private final ObjectMapper mapper;
     private final ManualPrValidationRuntime manualValidation;
+    private final PullRequestService pullRequests;
     private final InvestigationReviewService investigationReviews;
+    private final V2PrTimelineProjection v2Timeline;
 
     public PRController(
             PRService prService,
@@ -89,17 +93,20 @@ public class PRController
             ObjectMapper mapper,
             ManualPrValidationRuntime manualValidation,
             PullRequestService pullRequests,
-            InvestigationReviewService investigationReviews)
+            InvestigationReviewService investigationReviews,
+            V2PrTimelineProjection v2Timeline)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.publish = requireNonNull(publish, "publish is null");
         this.sync = requireNonNull(sync, "sync is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequests = requireNonNull(
+                pullRequests, "pullRequests is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.manualValidation = requireNonNull(
                 manualValidation, "manualValidation is null");
         this.investigationReviews = requireNonNull(investigationReviews, "investigationReviews is null");
+        this.v2Timeline = requireNonNull(v2Timeline, "v2Timeline is null");
     }
 
     /** Pure projection of the PR already owned by the Task runtime. */
@@ -264,14 +271,40 @@ public class PRController
         if (pr.taskId() == null) {
             sync.syncInBackground(prId);
         }
+        PR projected = pr;
+        if (pr.taskId() != null && pr.repo() != null
+                && pr.remotePrNumber() != null) {
+            projected = pullRequests.findCachedTerminalState(
+                            pr.repo(), pr.remotePrNumber())
+                    .map(terminal -> pr.withRemoteTerminalProjection(
+                            terminal.status(), terminal.mergedAt(),
+                            terminal.closedAt()))
+                    .orElse(pr);
+        }
+        List<PRTimelineEntry> timeline = v2Timeline.project(
+                projected, prService.timeline(pr.id()));
         return new PRBundleDto(
-                PRDto.from(pr),
+                PRDto.from(projected),
                 prService.commits(pr.id()).stream().map(PRCommitDto::from).toList(),
-                prService.timeline(pr.id()).stream().map(e -> PRTimelineEntryDto.from(e, mapper)).toList(),
-                prService.checks(pr.id()).stream().map(PRCheckDto::from).toList(),
+                timeline.stream().map(e -> PRTimelineEntryDto.from(e, mapper)).toList(),
+                checks(pr, projected).stream().map(PRCheckDto::from).toList(),
                 prService.comments(pr.id()).stream().map(PRCommentDto::from).toList(),
                 prService.pendingStripCount(pr.id()),
                 sync.isSyncing(pr.id()));
+    }
+
+    /** A Task-owned PR is never GitHub-synced here, so its stored checks stay
+     *  empty and the panel would report CI as still running forever. Its owner
+     *  already accepted exact-head check results — show those. Any other PR
+     *  keeps the synced rows. */
+    private List<PRCheck> checks(PR pr, PR projected)
+    {
+        List<PRCheck> stored = prService.checks(pr.id());
+        if (pr.taskId() == null) {
+            return stored;
+        }
+        List<PRCheck> owned = v2Timeline.remoteChecks(projected);
+        return owned.isEmpty() ? stored : owned;
     }
 
     /** Explicit user-triggered refresh — always probes GitHub (no maxAge
@@ -491,7 +524,11 @@ public class PRController
     @GetMapping("/api/prs/{prId}/timeline")
     public List<PRTimelineEntryDto> timeline(@PathVariable String prId)
     {
-        return prService.timeline(prId).stream().map(e -> PRTimelineEntryDto.from(e, mapper)).toList();
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "no PR " + prId));
+        return v2Timeline.project(pr, prService.timeline(prId)).stream()
+                .map(e -> PRTimelineEntryDto.from(e, mapper)).toList();
     }
 
     @GetMapping("/api/prs/{prId}/commits")

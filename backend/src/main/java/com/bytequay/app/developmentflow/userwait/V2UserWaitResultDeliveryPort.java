@@ -131,11 +131,12 @@ public final class V2UserWaitResultDeliveryPort
             DispatchTicket.OwnerReference owner,
             DispatchTicket.DispatchResult rawResult)
     {
-        if (owner.kind() != DispatchTicket.OwnerKind.THREAD_TURN
+        if (rawResult.outcome() != DispatchTicket.Outcome.SUCCEEDED
+                || (owner.kind() != DispatchTicket.OwnerKind.THREAD_TURN
                 && owner.kind() != DispatchTicket.OwnerKind.TASK_TURN
                 && owner.kind() != DispatchTicket.OwnerKind.STAGE_TURN
                 && owner.kind()
-                    != DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN) {
+                    != DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN)) {
             return null;
         }
         try {

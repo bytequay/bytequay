@@ -39,8 +39,24 @@ public record ApprovalContext(
         String toolName,
         String callId,
         JsonNode toolInput,
-        Set<SecurityType> grants)
+        Set<SecurityType> grants,
+        boolean typedOwner)
 {
+    /** Compatibility constructor for the legacy permission policy path. */
+    public ApprovalContext(
+            String threadId,
+            String taskId,
+            String agentKey,
+            JsonNode id,
+            String toolName,
+            String callId,
+            JsonNode toolInput,
+            Set<SecurityType> grants)
+    {
+        this(threadId, taskId, agentKey, id, toolName, callId, toolInput,
+                grants, false);
+    }
+
     /** A context with no task / agent scope bound (a trunk turn, or a caller
      *  that doesn't exercise task-scoped gating). Task-scoped steps fail
      *  closed when {@code taskId} is null, so this is the safe default. */
@@ -48,7 +64,8 @@ public record ApprovalContext(
             String threadId, JsonNode id, String toolName, String callId,
             JsonNode toolInput, Set<SecurityType> grants)
     {
-        this(threadId, null, null, id, toolName, callId, toolInput, grants);
+        this(threadId, null, null, id, toolName, callId, toolInput, grants,
+                false);
     }
 
     /** Carries task scope but no agent key — a caller that resolves the task
@@ -58,7 +75,8 @@ public record ApprovalContext(
             String threadId, String taskId, JsonNode id, String toolName,
             String callId, JsonNode toolInput, Set<SecurityType> grants)
     {
-        this(threadId, taskId, null, id, toolName, callId, toolInput, grants);
+        this(threadId, taskId, null, id, toolName, callId, toolInput, grants,
+                false);
     }
 
     /** Claude Code prefixes MCP tool names with {@code mcp__<server>__};
@@ -93,5 +111,11 @@ public record ApprovalContext(
         }
         JsonNode command = toolInput.get("command");
         return command != null && command.isTextual() ? command.asText() : "";
+    }
+
+    /** Whether this callback belongs to an exact V2 Turn/Operation owner. */
+    public boolean isTypedV2Owner()
+    {
+        return typedOwner;
     }
 }

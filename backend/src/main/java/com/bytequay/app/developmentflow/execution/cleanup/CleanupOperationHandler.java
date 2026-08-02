@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.task.TaskManager;
@@ -50,6 +51,7 @@ public final class CleanupOperationHandler
     private final OperationStore operations;
     private final CleanupEffects effects;
     private final CleanupStartPort cleanupStart;
+    private final WorktreeWriterLeaseManager writers;
     private final Clock clock;
     private final Duration stepLease;
     private final Duration probeDelay;
@@ -58,6 +60,7 @@ public final class CleanupOperationHandler
             OperationStore operations,
             CleanupEffects effects,
             CleanupQuiescenceHandoff quiescence,
+            WorktreeWriterLeaseManager writers,
             Clock clock,
             Duration stepLease,
             Duration probeDelay)
@@ -66,6 +69,7 @@ public final class CleanupOperationHandler
                 operations,
                 effects,
                 operation -> quiescence.accept(cleanupStartCommand(operation)),
+                writers,
                 clock,
                 stepLease,
                 probeDelay);
@@ -76,6 +80,7 @@ public final class CleanupOperationHandler
             OperationStore operations,
             CleanupEffects effects,
             CleanupStartPort cleanupStart,
+            WorktreeWriterLeaseManager writers,
             Clock clock,
             Duration stepLease,
             Duration probeDelay)
@@ -83,6 +88,7 @@ public final class CleanupOperationHandler
         this.operations = requireNonNull(operations, "operations is null");
         this.effects = requireNonNull(effects, "effects is null");
         this.cleanupStart = requireNonNull(cleanupStart, "cleanupStart is null");
+        this.writers = requireNonNull(writers, "writers is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.stepLease = requirePositive(stepLease, "stepLease");
         this.probeDelay = requirePositive(probeDelay, "probeDelay");
@@ -166,9 +172,12 @@ public final class CleanupOperationHandler
             cancelAfterClaim(context, claimed);
             StepResult result = claimed.kind() == StepKind.RECORD_FINAL_EVIDENCE
                     ? finalEvidence(operation)
-                    : mode == ClaimMode.EXECUTE
-                            ? effects.execute(operation, claimed, context)
-                            : effects.probe(operation, claimed, context);
+                    : claimed.kind() == StepKind.REMOVE_WORKTREE
+                            ? disposeWorktree(
+                                    operation, claimed, mode, context)
+                            : mode == ClaimMode.EXECUTE
+                                    ? effects.execute(operation, claimed, context)
+                                    : effects.probe(operation, claimed, context);
             requireNonNull(result, "Cleanup effect returned no result");
             switch (result.outcome()) {
                 case SUCCEEDED -> operations.succeed(claimed, result, clock.instant());
@@ -187,6 +196,43 @@ public final class CleanupOperationHandler
                 }
             }
         }
+    }
+
+    private StepResult disposeWorktree(
+            Operation operation,
+            Step step,
+            ClaimMode mode,
+            ExecutionContext context)
+            throws Exception
+    {
+        WorktreeWriterLeaseManager.CleanupDisposal disposal =
+                writers.acquireCleanupDisposal(
+                        context, operation.target().worktreePath(),
+                        operation.id(), step.id());
+        StepResult result;
+        try {
+            result = writers.authorizeCleanupDisposal(context, disposal).run(
+                    ignored -> {
+                        try {
+                            return mode == ClaimMode.EXECUTE
+                                    ? effects.execute(operation, step, context)
+                                    : effects.probe(operation, step, context);
+                        }
+                        catch (Exception failure) {
+                            throw new CleanupEffectFailure(failure);
+                        }
+                    });
+        }
+        catch (CleanupEffectFailure failure) {
+            throw failure.cause();
+        }
+        if (result.outcome() == EffectOutcome.SUCCEEDED) {
+            writers.settleCleanupDisposal(
+                    context, disposal,
+                    "Cleanup proved quarantined worktree absent: "
+                            + result.evidence());
+        }
+        return result;
     }
 
     private static ClaimMode claimMode(Step step, Instant now)
@@ -296,6 +342,23 @@ public final class CleanupOperationHandler
             throw new IllegalArgumentException(name + " must be positive");
         }
         return value;
+    }
+
+    private static final class CleanupEffectFailure
+            extends RuntimeException
+    {
+        private final Exception cause;
+
+        private CleanupEffectFailure(Exception cause)
+        {
+            super(requireNonNull(cause, "cause is null"));
+            this.cause = cause;
+        }
+
+        private Exception cause()
+        {
+            return cause;
+        }
     }
 
     public interface OperationStore

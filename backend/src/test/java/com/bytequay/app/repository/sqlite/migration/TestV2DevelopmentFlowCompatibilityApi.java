@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowInvariantAuditor;
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.domain.Actor;
@@ -43,6 +44,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -56,6 +58,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -92,13 +95,13 @@ class TestV2DevelopmentFlowCompatibilityApi
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("v2-compatibility.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
-        DevelopmentFlowRemoteProtocolFixture.migrate(url, "228");
+        DevelopmentFlowRemoteProtocolFixture.migrate(url);
         try (Connection connection = DevelopmentFlowRemoteProtocolFixture.connect(url)) {
             DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk(connection);
             DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask(connection, 1);
             DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask(connection, 2);
         }
-        DevelopmentFlowRemoteProtocolFixture.migrate(url, "257");
+        DevelopmentFlowRemoteProtocolFixture.migrate(url);
         try (Connection connection = DevelopmentFlowRemoteProtocolFixture.connect(url)) {
             DevelopmentFlowRemoteProtocolFixture.insertRemoteOwner(connection, 1);
             DevelopmentFlowRemoteProtocolFixture.insertRemoteOwner(connection, 2);
@@ -124,7 +127,7 @@ class TestV2DevelopmentFlowCompatibilityApi
                     INSERT INTO stage(
                         id, task_id, kind, generation, version, checkpoint,
                         opened_at_ms, completed_at_ms, end_reason)
-                    VALUES ('%s', 'task-2', 'PLAN', 1, 0, 'COMPLETED',
+                    VALUES ('%s', 'task-2', 'PLAN', 2, 0, 'COMPLETED',
                         3, 4, 'NORMAL')
                     """.formatted(V2_DETAIL_STAGE));
             DevelopmentFlowRemoteProtocolFixture.execute(connection, """
@@ -133,7 +136,7 @@ class TestV2DevelopmentFlowCompatibilityApi
                         from_checkpoint, to_checkpoint, stage_version,
                         cause, actor, occurred_at_ms)
                     VALUES ('detail-stage-transition', '%s',
-                        'detail-stage-command', 1, 'AWAITING_APPROVAL',
+                        'detail-stage-command', 2, 'AWAITING_APPROVAL',
                         'COMPLETED', 0, 'plan_approved', 'USER', 4)
                     """.formatted(V2_DETAIL_STAGE));
             DevelopmentFlowRemoteProtocolFixture.execute(connection, """
@@ -199,10 +202,12 @@ class TestV2DevelopmentFlowCompatibilityApi
         assertThat(brain.path("task").path("repoFullName").asText()).isEqualTo("acme/widget");
         assertThat(brain.path("task").path("prNumber").asInt()).isEqualTo(41);
         assertThat(brain.path("task").path("agentModel").asText()).isEqualTo("review-model");
-        assertThat(brain.path("stages").size()).isEqualTo(2);
+        assertThat(brain.path("stages").size()).isEqualTo(3);
         assertThat(brain.path("stages").get(0).path("type").asText())
                 .isEqualTo("DEVELOPMENT_STAGE");
         assertThat(brain.path("stages").get(1).path("type").asText())
+                .isEqualTo("PLAN_STAGE");
+        assertThat(brain.path("stages").get(2).path("type").asText())
                 .isEqualTo("REMOTE_DEVELOPMENT_STAGE");
         assertThat(brain.path("brainFeed").get(1).path("body").asText())
                 .contains("waiting ci");
@@ -246,6 +251,27 @@ class TestV2DevelopmentFlowCompatibilityApi
     }
 
     @Test
+    void projectsAnAlreadySyncedTerminalPrStateOverAStaleAcceptedSnapshot()
+    {
+        jdbc.update("""
+                INSERT INTO pull_requests(
+                    id, repo, number, title, origin, labels, draft,
+                    state, closed_at)
+                VALUES (4241, 'acme/widget', 41, 'Task 1', 'AUTHORED', '[]', 1,
+                    'closed', '2026-08-01T00:00:00Z')
+                """);
+
+        TaskBrainViewData brain = new V2DevelopmentFlowProjection(jdbc)
+                .brain(task("task-1", 1));
+
+        assertThat(brain.task().prDraft()).isFalse();
+        assertThat(brain.rightRail().linkedPr().status()).isEqualTo("closed");
+        assertThat(jdbc.queryForObject("""
+                SELECT pr_state FROM remote_pr_snapshot WHERE id = 'snapshot-1-1'
+                """, String.class)).isEqualTo("OPEN");
+    }
+
+    @Test
     void keepsLegacySiblingOnLegacyTraceAndStageRoutes()
             throws Exception
     {
@@ -260,6 +286,60 @@ class TestV2DevelopmentFlowCompatibilityApi
         assertThat(stages.isEmpty()).isTrue();
         verify(tasks).listPhaseEvents("legacy-task");
         verify(legacyStages).findStagesByTask("legacy-task");
+    }
+
+    @Test
+    void keepsHistoricalCiBrainFailureAuditableWithoutProjectingRetry()
+    {
+        seedRemoteBrainFailure();
+        V2DevelopmentFlowProjection projection =
+                new V2DevelopmentFlowProjection(jdbc);
+
+        assertThat(projection.brain(task("task-1", 1)).recovery()).isNull();
+
+        jdbc.update("""
+                INSERT INTO ci_repair_delivery_receipt(
+                    ci_repair_operation_id, operation_id, raw_outcome,
+                    raw_result_digest, acceptance, recorded_at_ms)
+                VALUES ('projection-brain-row', 'projection-brain-operation',
+                    'FAILED', ?, 'ACCEPTED', 105)
+                """, "0".repeat(64));
+
+        assertThat(projection.brain(task("task-1", 1)).recovery()).isNull();
+        acceptRemoteBrainProtocolFailure();
+
+        assertThat(projection.brain(task("task-1", 1)).recovery()).isNull();
+        assertThat(jdbc.queryForObject("""
+                SELECT family FROM remote_repair_brain_failure_receipt_v309
+                 WHERE blocker_id = 'projection-brain-blocker'
+                """, String.class)).isEqualTo("CI");
+
+        assertThatThrownBy(() -> jdbc.update("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = 106,
+                    resolution_evidence = 'replacement admitted'
+                WHERE id = 'projection-brain-blocker'
+                """))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("blocker lacks its replacement");
+        assertThat(projection.brain(task("task-1", 1)).recovery()).isNull();
+    }
+
+    @Test
+    void doesNotProjectRemoteBrainRecoveryFromSuccessfulRawEvidence()
+    {
+        seedRemoteBrainFailure(
+                "SUCCEEDED", "malformed Brain response", null);
+        jdbc.update("""
+                INSERT INTO ci_repair_delivery_receipt(
+                    ci_repair_operation_id, operation_id, raw_outcome,
+                    raw_result_digest, acceptance, recorded_at_ms)
+                VALUES ('projection-brain-row', 'projection-brain-operation',
+                    'SUCCEEDED', ?, 'ACCEPTED', 105)
+                """, "1".repeat(64));
+
+        assertThat(new V2DevelopmentFlowProjection(jdbc)
+                .brain(task("task-1", 1)).recovery()).isNull();
     }
 
     @Test
@@ -283,6 +363,158 @@ class TestV2DevelopmentFlowCompatibilityApi
             throws Exception
     {
         return mapper.readTree(json);
+    }
+
+    private void seedRemoteBrainFailure()
+    {
+        seedRemoteBrainFailure("FAILED", null, "provider exited");
+    }
+
+    private void seedRemoteBrainFailure(
+            String rawOutcome, String rawPayload, String rawError)
+    {
+        jdbc.update("""
+                INSERT INTO ci_repair_episode(
+                    id, remote_development_stage_id, task_id, task_epoch,
+                    stage_generation, remote_pr_binding_id,
+                    failed_ci_evaluation_id, subject_head_sha,
+                    subject_base_sha, classification, status,
+                    rerun_limit, fix_attempt_count, fix_attempt_limit,
+                    delivery_retry_limit, push_limit, opened_at_ms)
+                VALUES ('projection-ci-episode', 'remote-stage-1', 'task-1', 1,
+                    1, 'binding-1', 'ci-evaluation-1-1', 'head-1', 'base-1',
+                    'TASK_DETERMINISTIC', 'AWAITING_PUSH_CI',
+                    0, 1, 2, 2, 2, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, trigger_stage_id, trigger_stage_generation,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                VALUES ('projection-brain-turn', 'task-1',
+                    'REMOTE_CI_BRAIN_REVIEW', 'REQUESTED',
+                    'projection-brain-operation', 1, 1, 'remote-stage-1', 1,
+                    'fingerprint-1', 'head-1', 'base-1', 'API', '{}', 101)
+                """);
+        jdbc.update("""
+                INSERT INTO ci_repair_operation(
+                    id, ci_repair_episode_id, remote_development_stage_id,
+                    task_id, task_epoch, stage_generation, kind, operation_id,
+                    semantic_attempt, task_turn_id,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, requested_at_ms)
+                VALUES ('projection-brain-row', 'projection-ci-episode',
+                    'remote-stage-1', 'task-1', 1, 1, 'BRAIN_REVIEW',
+                    'projection-brain-operation', 1, 'projection-brain-turn',
+                    'fingerprint-1', 'head-1', 'base-1', 'REQUESTED', 101)
+                """);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, writer_required, workspace_id, trunk_id,
+                    task_id, task_epoch, stage_id, stage_generation, attempt,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, created_at_ms)
+                VALUES ('projection-brain-ticket', 'projection-brain-operation',
+                    'EXECUTE_TASK_TURN', 'AGENT_TURN', 'TASK_TURN',
+                    'projection-brain-turn', 'REMOTE_CI_BRAIN_RESULT', 2,
+                    1, 0, 'workspace-1', 'trunk-1', 'task-1', 1,
+                    'remote-stage-1', 1, 1, 'fingerprint-1', 'head-1',
+                    'base-1', 'REQUESTED', 101)
+                """);
+        jdbc.update("""
+                UPDATE ci_repair_operation SET status = 'DISPATCHED'
+                WHERE id = 'projection-brain-row'
+                """);
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = 1, status = 'RESULT_PENDING',
+                    pending_result_outcome = ?, pending_result_payload = ?,
+                    pending_result_error = ?,
+                    pending_result_task_epoch = 1,
+                    pending_result_stage_id = 'remote-stage-1',
+                    pending_result_stage_generation = 1,
+                    pending_result_operation_id = 'projection-brain-operation',
+                    pending_result_attempt = 1,
+                    pending_result_expected_code_fingerprint = 'fingerprint-1',
+                    pending_result_expected_head_sha = 'head-1',
+                    pending_result_expected_base_sha = 'base-1'
+                WHERE id = 'projection-brain-ticket'
+                """, rawOutcome, rawPayload, rawError);
+        jdbc.update("""
+                UPDATE task_turn
+                SET status = 'FAILED', started_at_ms = 102,
+                    finished_at_ms = 103, error_message = 'provider exited'
+                WHERE id = 'projection-brain-turn'
+                """);
+        jdbc.update("""
+                UPDATE ci_repair_operation
+                SET status = 'FAILED', completed_at_ms = 103,
+                    error_message = 'provider exited'
+                WHERE id = 'projection-brain-row'
+                """);
+        jdbc.update("""
+                INSERT INTO task_blocker(
+                    id, task_id, owner_kind, owner_id, subject_revision,
+                    blocker_type, status, payload_json, opened_at_ms)
+                VALUES ('projection-brain-blocker', 'task-1', 'TASK', 'task-1',
+                    'projection-brain-turn', 'REMOTE_REPAIR_BRAIN_FAILED',
+                    'OPEN', 'provider exited', 104)
+                """);
+    }
+
+    private void acceptRemoteBrainProtocolFailure()
+    {
+        jdbc.update("""
+                UPDATE tasks SET aggregate_version = 3
+                WHERE id = 'task-1' AND aggregate_version = 2
+                """);
+        jdbc.update("""
+                INSERT INTO task_transition(
+                    id, task_id, command_id, epoch, from_state, to_state,
+                    aggregate_version, cause, actor, occurred_at_ms)
+                VALUES ('projection-brain-failure-transition', 'task-1',
+                    'projection-brain-failure-command', 1, 'ACTIVE', 'ACTIVE',
+                    3, 'ACCEPT_BRAIN_PROTOCOL_FAILURE', 'SYSTEM', 106)
+                """);
+        jdbc.update("""
+                INSERT INTO task_brain_protocol_failure_receipt_v300(
+                    id, task_id, command_id, cause, actor, disposition,
+                    subject_task_epoch, subject_stage_id,
+                    subject_stage_generation, subject_operation_id,
+                    subject_attempt, subject_expected_code_fingerprint,
+                    subject_expected_head_sha, subject_expected_base_sha,
+                    proof_id, returned_trunk_id, returned_lifecycle,
+                    returned_epoch, returned_version,
+                    returned_current_stage_id, recorded_at_ms)
+                VALUES ('projection-brain-failure-receipt', 'task-1',
+                    'projection-brain-failure-command',
+                    'ACCEPT_BRAIN_PROTOCOL_FAILURE', 'SYSTEM', 'APPLIED',
+                    1, 'remote-stage-1', 1, 'projection-brain-operation', 1,
+                    'fingerprint-1', 'head-1', 'base-1',
+                    'projection-brain-blocker', 'trunk-1', 'ACTIVE', 1, 3,
+                    'remote-stage-1', 106)
+                """);
+        jdbc.update("""
+                INSERT INTO remote_repair_brain_failure_receipt_v309(
+                    id, family, source_kind, source_operation_row_id,
+                    ci_repair_episode_id, task_id, task_epoch,
+                    remote_development_stage_id, stage_generation,
+                    task_turn_id, operation_id, semantic_attempt,
+                    execution_attempt, expected_code_fingerprint,
+                    expected_head_sha, expected_base_sha, blocker_id,
+                    raw_outcome, raw_result_digest, error_message,
+                    cleared_task_version, recorded_at_ms)
+                VALUES ('projection-brain-typed-failure', 'CI', 'ORIGINAL',
+                    'projection-brain-row', 'projection-ci-episode', 'task-1',
+                    1, 'remote-stage-1', 1, 'projection-brain-turn',
+                    'projection-brain-operation', 1, 1, 'fingerprint-1',
+                    'head-1', 'base-1', 'projection-brain-blocker', 'FAILED',
+                    ?, 'provider exited', 3, 106)
+                """, "0".repeat(64));
     }
 
     private static Task task(String id, long sequence)

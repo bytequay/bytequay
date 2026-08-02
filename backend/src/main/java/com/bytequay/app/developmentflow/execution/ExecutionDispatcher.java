@@ -950,10 +950,13 @@ public final class ExecutionDispatcher
             }
         }
         catch (Exception e) {
+            String error = e instanceof ExecutionPorts.ResultProtocolException
+                    ? DispatchTicket.resultProtocolFailure(message(e))
+                    : message(e);
             tickets.findById(claim.ticketId())
                     .filter(claim::owns)
                     .map(ticket -> ticket.deliveryRetry(
-                            message(e), clock.instant().plus(config.retryDelay())))
+                            error, clock.instant().plus(config.retryDelay())))
                     .ifPresent(replacement -> tickets.replaceTicketAndReleaseDeliveryClaim(
                             claim, replacement));
         }

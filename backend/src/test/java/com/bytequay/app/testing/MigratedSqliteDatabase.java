@@ -121,7 +121,8 @@ public final class MigratedSqliteDatabase
         }
 
         try {
-            Path database = Files.createTempFile(BASELINE_DIRECTORY, "schema-", ".db");
+            Path database = Files.createTempFile(
+                    BASELINE_DIRECTORY, "bytequay-test-schema-", ".db");
             database.toFile().deleteOnExit();
             Flyway.configure()
                     .dataSource(JDBC_SQLITE_PREFIX + database + "?foreign_keys=ON", "", "")

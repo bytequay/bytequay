@@ -136,6 +136,23 @@ class TestThreadTurnOperationHandler
                         ByteQuayRole.TRUNK, null));
     }
 
+    @Test
+    void threadTurnCannotOmitItsApprovalGate()
+            throws Exception
+    {
+        store = new FakeStore(turn("PLANNING", false));
+        handler = new ThreadTurnOperationHandler(
+                store, provider, contexts, new ToolExposurePolicy(), JSON,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        DispatchTicket.DispatchResult result = handler.execute(
+                context(envelope(true), false));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(result.error()).contains("exact ThreadTurn");
+        assertThat(provider.opens).isZero();
+    }
+
     private static ExecutionContext context(
             DispatchTicket.DispatchEnvelope envelope, boolean canceled)
     {
@@ -176,6 +193,13 @@ class TestThreadTurnOperationHandler
     private static ThreadTurnOperationHandler.ExactTurn turn(String purpose)
             throws Exception
     {
+        return turn(purpose, true);
+    }
+
+    private static ThreadTurnOperationHandler.ExactTurn turn(
+            String purpose, boolean approvalGate)
+            throws Exception
+    {
         AgentTurnProviderSession.OwnerToolEndpoint endpoint =
                 new AgentTurnProviderSession.OwnerToolEndpoint(
                         "bytequay",
@@ -183,7 +207,7 @@ class TestThreadTurnOperationHandler
                                 + "thread-turn-1/operations/operation-1/mcp",
                         THREAD_TURN, "thread-turn-1", "operation-1",
                         AgentTurnProviderSession.ToolProfile.TRUNK_CONTROL_READ_ONLY,
-                        "mcp__bytequay__approval_prompt");
+                        approvalGate ? "mcp__bytequay__approval_prompt" : null);
         String input = JSON.writeValueAsString(
                 new AgentTurnOperationHandler.LaunchInput(
                         1, AgentTurnProviderSession.Transport.CLI, "codex", null,

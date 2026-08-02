@@ -19,6 +19,7 @@ import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandle
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.Context;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.Receipt;
+import com.bytequay.app.developmentflow.stage.RemoteCiPolicy;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -30,6 +31,13 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.id;
+import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.CANCELED;
+import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.MISSING;
+import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.NEUTRAL;
+import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.NONE;
+import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.PENDING;
+import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.QUEUED;
+import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.SKIPPED;
 import static java.util.Objects.requireNonNull;
 
 /** SQLite owner store for exact publish acceptance and Remote bootstrap. */
@@ -68,6 +76,7 @@ public class SqlitePublishResultStore
                     operation.operation_id,
                     operation.publish_authorization_id AS authorization_id,
                     authorization.manifest_id,
+                    authorization.policy_revision_id,
                     authorization.pr_id,
                     operation.task_id,
                     operation.local_development_stage_id AS stage_id,
@@ -300,6 +309,8 @@ public class SqlitePublishResultStore
         requireText(ciPolicyId, "ciPolicyId");
         requireText(automationPolicyId, "automationPolicyId");
         requireNonNull(openedAt, "openedAt is null");
+        RemoteCiPolicy.Policy ciPolicy =
+                RemoteCiPolicy.DEFAULT_REPOSITORY_CI_POLICY_V1;
         jdbc.update("""
                 INSERT OR IGNORE INTO remote_development_stage(
                     stage_id, task_id, generation, remote_pr_binding_id,
@@ -320,34 +331,60 @@ public class SqlitePublishResultStore
                 bindingId, context.expectedHeadSha(), context.expectedBaseSha());
 
         jdbc.update("""
-                INSERT OR IGNORE INTO remote_ci_policy_revision(
+                INSERT INTO remote_ci_policy_revision(
                     id, task_id, remote_pr_binding_id, revision, source,
                     none_outcome, missing_outcome, queued_outcome,
                     pending_outcome, neutral_outcome, skipped_outcome,
                     canceled_outcome, created_by, created_at_ms)
-                VALUES (?, ?, ?, 1, 'PUBLISH_HANDOFF_FAIL_CLOSED',
-                    'WAITING', 'WAITING', 'WAITING', 'WAITING',
-                    'FAILED', 'FAILED', 'FAILED', ?, ?)
-                """, ciPolicyId, context.taskId(), bindingId, ACTOR,
-                openedAt.toEpochMilli());
+                SELECT ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM remote_ci_policy_revision WHERE id = ?)
+                """, ciPolicyId, context.taskId(), bindingId,
+                RemoteCiPolicy.DEFAULT_REPOSITORY_CI_POLICY_V1_SOURCE,
+                ciPolicy.outcome(NONE).name(),
+                ciPolicy.outcome(MISSING).name(),
+                ciPolicy.outcome(QUEUED).name(),
+                ciPolicy.outcome(PENDING).name(),
+                ciPolicy.outcome(NEUTRAL).name(),
+                ciPolicy.outcome(SKIPPED).name(),
+                ciPolicy.outcome(CANCELED).name(), ACTOR,
+                openedAt.toEpochMilli(), ciPolicyId);
         requireCount("""
                 SELECT COUNT(*) FROM remote_ci_policy_revision
                 WHERE id = ? AND task_id = ? AND remote_pr_binding_id = ?
                   AND revision = 1
-                """, ciPolicyId, context.taskId(), bindingId);
+                  AND source = ?
+                  AND none_outcome = ? AND missing_outcome = ?
+                  AND queued_outcome = ? AND pending_outcome = ?
+                  AND neutral_outcome = ? AND skipped_outcome = ?
+                  AND canceled_outcome = ?
+                  AND created_by = ? AND created_at_ms = ?
+                """, ciPolicyId, context.taskId(), bindingId,
+                RemoteCiPolicy.DEFAULT_REPOSITORY_CI_POLICY_V1_SOURCE,
+                ciPolicy.outcome(NONE).name(),
+                ciPolicy.outcome(MISSING).name(),
+                ciPolicy.outcome(QUEUED).name(),
+                ciPolicy.outcome(PENDING).name(),
+                ciPolicy.outcome(NEUTRAL).name(),
+                ciPolicy.outcome(SKIPPED).name(),
+                ciPolicy.outcome(CANCELED).name(), ACTOR,
+                openedAt.toEpochMilli());
 
         jdbc.update("""
-                INSERT OR IGNORE INTO task_automation_policy(
+                INSERT INTO task_automation_policy(
                     id, task_id, revision, source, auto_approve, auto_merge,
                     keep_draft, minimum_write_approvals,
                     max_merge_queue_reenqueues, require_low_risk,
                     require_small_effort, stewardship_exception,
                     created_by, created_at_ms)
-                VALUES (?, ?, 1, 'TASK_POLICY_AT_PUBLISH', ?, ?,
-                    0, ?, 1, 0, 0, 0, ?, ?)
+                SELECT ?, ?, 1, 'TASK_POLICY_AT_PUBLISH', ?, ?,
+                    0, ?, 1, 0, 0, 0, ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM task_automation_policy WHERE id = ?)
                 """, automationPolicyId, context.taskId(),
                 context.autoApprove() ? 1 : 0, context.autoMerge() ? 1 : 0,
-                context.minimumApprovals(), ACTOR, openedAt.toEpochMilli());
+                context.minimumApprovals(), ACTOR, openedAt.toEpochMilli(),
+                automationPolicyId);
         requireCount("""
                 SELECT COUNT(*) FROM task_automation_policy
                 WHERE id = ? AND task_id = ? AND revision = 1
@@ -409,6 +446,7 @@ public class SqlitePublishResultStore
                 result.getString("operation_id"),
                 result.getString("authorization_id"),
                 result.getString("manifest_id"),
+                result.getString("policy_revision_id"),
                 result.getString("pr_id"),
                 result.getString("task_id"),
                 result.getString("stage_id"),

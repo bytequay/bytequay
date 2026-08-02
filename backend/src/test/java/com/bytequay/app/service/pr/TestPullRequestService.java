@@ -279,6 +279,36 @@ class TestPullRequestService
     // ── listPullRequests ───────────────────────────────────────────────────────
 
     @Test
+    void cachedTerminalStateReadsClosedRemoteTruthWithoutGithubIo()
+    {
+        PullRequest closed = samplePr("owner/repo", 42, "closed");
+        when(store.findIdByRepoAndNumber("owner/repo", 42))
+                .thenReturn(Optional.of(42L));
+        when(store.findById(42L)).thenReturn(Optional.of(closed));
+
+        var terminal = pullRequestService.findCachedTerminalState(
+                "owner/repo", 42);
+
+        assertThat(terminal).get().extracting(
+                PullRequestService.CachedTerminalState::status)
+                .isEqualTo("closed");
+        verifyNoInteractions(gitHub);
+    }
+
+    @Test
+    void cachedTerminalStateDoesNotOverrideAnOpenRemotePr()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 42))
+                .thenReturn(Optional.of(42L));
+        when(store.findById(42L)).thenReturn(Optional.of(
+                samplePr("owner/repo", 42, "open")));
+
+        assertThat(pullRequestService.findCachedTerminalState(
+                "owner/repo", 42)).isEmpty();
+        verifyNoInteractions(gitHub);
+    }
+
+    @Test
     void testListPullRequestsReadsFromStore()
     {
         when(store.findAll()).thenReturn(ImmutableList.of());

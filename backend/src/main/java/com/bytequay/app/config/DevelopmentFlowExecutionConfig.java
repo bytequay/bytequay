@@ -41,6 +41,8 @@ import com.bytequay.app.developmentflow.execution.provisioning.GitRunnerProvisio
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.execution.provisioning.SqliteProvisionTaskOperationStore;
 import com.bytequay.app.developmentflow.execution.publish.GitHubPublishEffects;
+import com.bytequay.app.developmentflow.execution.publish.GitLocalPublishBaseSyncEffects;
+import com.bytequay.app.developmentflow.execution.publish.LocalPublishBaseSyncOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
 import com.bytequay.app.developmentflow.execution.quality.QualityIssuePublishOperationHandler;
@@ -63,9 +65,12 @@ import com.bytequay.app.developmentflow.execution.remote.SqliteReviewPassPublica
 import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
+import com.bytequay.app.developmentflow.execution.worktree.WorktreeQuarantineRepairOperationHandler;
+import com.bytequay.app.developmentflow.execution.worktree.WorktreeQuarantineRepairRuntime;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteWorktreeQuarantineRepairStore;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.BranchSyncResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
@@ -75,6 +80,8 @@ import com.bytequay.app.developmentflow.stage.LocalBrainResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.LocalPublishBaseSyncResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.LocalPublishBaseSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.LocalValidationResultDeliveryPort;
@@ -100,13 +107,17 @@ import com.bytequay.app.developmentflow.stage.RemoteMarkReadyResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionOperationHandler;
+import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.V2ReadinessAssistanceRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssistanceStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.task.TaskBrainConversationResultDeliveryPort;
 import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
@@ -128,7 +139,6 @@ import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
@@ -194,6 +204,8 @@ public class DevelopmentFlowExecutionConfig
             PlanningBaseTurnRuntime planningBase,
             PlanRuntimeCoordinator planRuntime,
             LocalDevelopmentRuntimeCoordinator localRuntime,
+            LocalPublishBaseSyncRuntimeCoordinator localPublishBaseSync,
+            WorktreeQuarantineRepairRuntime worktreeRepairs,
             RemoteFeedbackRuntimeCoordinator remoteFeedbackRuntime,
             RemoteDevelopmentRuntimeCoordinator remoteRuntime,
             TaskCommandExecutor commands,
@@ -201,7 +213,6 @@ public class DevelopmentFlowExecutionConfig
             LocalToRemoteHandoff localToRemote,
             RemoteObservationRuntimeCoordinator remoteObservations,
             PRService prs,
-            TaskStore tasks,
             SqlitePublishResultStore publishStore,
             SqliteCleanupOperationStore cleanupStore,
             CleanupCompletionHandoff cleanupCompletion,
@@ -241,6 +252,7 @@ public class DevelopmentFlowExecutionConfig
                         "PLAN_DRAFT", plan,
                         "PLAN_SELF_REVIEW", plan,
                         "DEVELOPMENT_BRAIN_REVIEW", brainDelivery,
+                        "DEVELOPMENT_BRAIN_RESULT_REPAIR", brainDelivery,
                         "TASK_BRAIN_CONVERSATION",
                         new TaskBrainConversationResultDeliveryPort(
                                 codec, taskBrainConversation),
@@ -252,8 +264,10 @@ public class DevelopmentFlowExecutionConfig
                 new LocalValidationResultDeliveryPort(localRuntime);
         PublishResultDeliveryPort publish = new PublishResultDeliveryPort(
                 commands, localManager, localToRemote, remoteObservations,
-                prs, tasks, publishStore, json,
+                prs, publishStore, localPublishBaseSync, json,
                 Clock.systemUTC());
+        LocalPublishBaseSyncResultDeliveryPort localBaseSync =
+                new LocalPublishBaseSyncResultDeliveryPort(localPublishBaseSync);
         CleanupOperationResultDelivery cleanup = new CleanupOperationResultDelivery(
                 cleanupStore, cleanupCompletion, Clock.systemUTC());
         RemoteFeedbackTurnResultDeliveryPort remoteTurn =
@@ -278,6 +292,9 @@ public class DevelopmentFlowExecutionConfig
                 new BranchSyncResultDeliveryPort(branchSync);
         RemoteRepairTurnResultDeliveryPort repairTurns =
                 new RemoteRepairTurnResultDeliveryPort(codec, remoteRepairTurns);
+        RemoteRepairCommitAdoptionResultDeliveryPort repairAdoption =
+                new RemoteRepairCommitAdoptionResultDeliveryPort(
+                        remoteRepairTurns);
         MergeResultDeliveryPort merge = new MergeResultDeliveryPort(
                 commands, remoteManager, mergeOperations, json);
         ReviewAssignmentTurnResultDeliveryPort reviews =
@@ -301,6 +318,13 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(ReviewSessionSnapshotOperationHandler.CALLBACK_ROUTE,
                         reviewSessionSnapshots),
                 Map.entry(PublishOperationHandler.CALLBACK_ROUTE, publish),
+                Map.entry(LocalPublishBaseSyncOperationHandler.FETCH_CALLBACK,
+                        localBaseSync),
+                Map.entry(LocalPublishBaseSyncOperationHandler.REBASE_CALLBACK,
+                        localBaseSync),
+                Map.entry(
+                        WorktreeQuarantineRepairOperationHandler.CALLBACK_ROUTE,
+                        worktreeRepairs),
                 Map.entry(CleanupOperationHandler.CALLBACK_ROUTE, cleanup),
                 Map.entry(RemoteFeedbackRuntimeCoordinator.TURN_CALLBACK, remoteTurn),
                 Map.entry(RemoteFeedbackRuntimeCoordinator.VALIDATION_CALLBACK,
@@ -318,6 +342,8 @@ public class DevelopmentFlowExecutionConfig
                         observations),
                 Map.entry("REMOTE_CI_RERUN_RESULT", ciRerun),
                 Map.entry("REMOTE_CI_VALIDATION_RESULT", ciEffects),
+                Map.entry("REMOTE_CI_BASE_REWRITE_VALIDATION_RESULT",
+                        ciEffects),
                 Map.entry("REMOTE_CI_PUSH_RESULT", ciEffects),
                 Map.entry(RemoteRepairTurnRuntime.CI_STAGE_CALLBACK, repairTurns),
                 Map.entry(RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK, repairTurns),
@@ -325,6 +351,13 @@ public class DevelopmentFlowExecutionConfig
                         repairTurns),
                 Map.entry(RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK,
                         repairTurns),
+                Map.entry(RemoteRepairTurnRuntime.STEERING_CALLBACK,
+                        repairTurns),
+                Map.entry(RemoteRepairTurnRuntime.NORMALIZATION_CALLBACK,
+                        repairTurns),
+                Map.entry(
+                        RemoteRepairCommitAdoptionOperationHandler.CALLBACK_ROUTE,
+                        repairAdoption),
                 Map.entry("BRANCH_SYNC_FETCH_RESULT", branches),
                 Map.entry("BRANCH_SYNC_REBASE_RESULT", branches),
                 Map.entry("BRANCH_SYNC_VALIDATION_RESULT", branches),
@@ -466,6 +499,21 @@ public class DevelopmentFlowExecutionConfig
     }
 
     @Bean
+    @ConditionalOnMissingBean(RemoteRepairCommitAdoptionOperationHandler.class)
+    public RemoteRepairCommitAdoptionOperationHandler
+            v2RemoteRepairCommitAdoptionOperationHandler(
+                    SqliteRemoteRepairNormalizationStore operations,
+                    WorktreeWriterLeaseManager writers,
+                    GitRunner git,
+                    CodeFingerprints fingerprints,
+                    ObjectMapper json)
+    {
+        return new RemoteRepairCommitAdoptionOperationHandler(
+                operations, writers, git, fingerprints, json,
+                Clock.systemUTC());
+    }
+
+    @Bean
     @ConditionalOnMissingBean(MergeOperationHandler.class)
     public MergeOperationHandler v2MergeOperationHandler(
             SqliteMergeOperationStore operations,
@@ -505,14 +553,62 @@ public class DevelopmentFlowExecutionConfig
     }
 
     @Bean
+    @ConditionalOnMissingBean(GitLocalPublishBaseSyncEffects.class)
+    public GitLocalPublishBaseSyncEffects gitLocalPublishBaseSyncEffects(
+            GitRunner git, CodeFingerprints fingerprints)
+    {
+        return new GitLocalPublishBaseSyncEffects(git, fingerprints);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(LocalPublishBaseSyncOperationHandler.class)
+    public LocalPublishBaseSyncOperationHandler
+            localPublishBaseSyncOperationHandler(
+                    SqliteLocalPublishBaseSyncStore operations,
+                    GitLocalPublishBaseSyncEffects effects,
+                    WorktreeWriterLeaseManager writers,
+                    ObjectMapper json)
+    {
+        return new LocalPublishBaseSyncOperationHandler(
+                operations, effects, writers, json);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(WorktreeQuarantineRepairRuntime.class)
+    public WorktreeQuarantineRepairRuntime worktreeQuarantineRepairRuntime(
+            TaskCommandExecutor commands,
+            SqliteWorktreeQuarantineRepairStore operations,
+            ObjectMapper json)
+    {
+        return new WorktreeQuarantineRepairRuntime(
+                commands, operations, json, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(WorktreeQuarantineRepairOperationHandler.class)
+    public WorktreeQuarantineRepairOperationHandler
+            worktreeQuarantineRepairOperationHandler(
+                    SqliteWorktreeQuarantineRepairStore operations,
+                    WorktreeWriterLeaseManager writers,
+                    GitRunner git,
+                    CodeFingerprints fingerprints,
+                    ObjectMapper json)
+    {
+        return new WorktreeQuarantineRepairOperationHandler(
+                operations, writers, git, fingerprints, json,
+                Clock.systemUTC());
+    }
+
+    @Bean
     @ConditionalOnMissingBean(CleanupOperationHandler.class)
     public CleanupOperationHandler v2CleanupOperationHandler(
             SqliteCleanupOperationStore operations,
             SqliteCleanupEffects effects,
-            CleanupQuiescenceHandoff quiescence)
+            CleanupQuiescenceHandoff quiescence,
+            WorktreeWriterLeaseManager writers)
     {
         return new CleanupOperationHandler(
-                operations, effects, quiescence, Clock.systemUTC(),
+                operations, effects, quiescence, writers, Clock.systemUTC(),
                 Duration.ofMinutes(5), Duration.ofSeconds(30));
     }
 
@@ -619,6 +715,8 @@ public class DevelopmentFlowExecutionConfig
             TaskReviewRoundSnapshotOperationHandler taskReviewRoundSnapshots,
             ReviewSessionSnapshotOperationHandler reviewSessionSnapshots,
             PublishOperationHandler publish,
+            LocalPublishBaseSyncOperationHandler localPublishBaseSync,
+            WorktreeQuarantineRepairOperationHandler worktreeRepairs,
             CleanupOperationHandler cleanup,
             RemoteFeedbackValidationOperationHandler remoteValidation,
             RemoteFeedbackEffectOperationHandler remoteEffects,
@@ -628,6 +726,7 @@ public class DevelopmentFlowExecutionConfig
             RemoteMarkReadyOperationHandler markReady,
             RemoteObservationOperationHandler observations,
             RemoteEffectOperationHandler remoteFiniteEffects,
+            RemoteRepairCommitAdoptionOperationHandler repairAdoption,
             MergeOperationHandler merge)
     {
         Map<String, ExecutionPorts.OperationHandler> handlers = Map.ofEntries(
@@ -653,6 +752,12 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(ReviewSessionSnapshotOperationHandler.OPERATION_KIND,
                         reviewSessionSnapshots),
                 Map.entry(PublishOperationHandler.OPERATION_KIND, publish),
+                Map.entry(LocalPublishBaseSyncOperationHandler.FETCH_COMPARE,
+                        localPublishBaseSync),
+                Map.entry(LocalPublishBaseSyncOperationHandler.MECHANICAL_REBASE,
+                        localPublishBaseSync),
+                Map.entry(WorktreeQuarantineRepairOperationHandler.OPERATION_KIND,
+                        worktreeRepairs),
                 Map.entry(CleanupOperationHandler.OPERATION_KIND, cleanup),
                 Map.entry(RemoteFeedbackValidationOperationHandler.OPERATION_KIND,
                         remoteValidation),
@@ -679,6 +784,9 @@ public class DevelopmentFlowExecutionConfig
                         remoteFiniteEffects),
                 Map.entry(RemoteEffectOperationHandler.VALIDATE_CI_REPAIR,
                         remoteFiniteEffects),
+                Map.entry(RemoteEffectOperationHandler
+                                .REWRITE_VALIDATE_BASE_CI_REPAIR,
+                        remoteFiniteEffects),
                 Map.entry(RemoteEffectOperationHandler.PUSH_CI_REPAIR,
                         remoteFiniteEffects),
                 Map.entry(RemoteEffectOperationHandler.FETCH_BRANCH,
@@ -689,6 +797,9 @@ public class DevelopmentFlowExecutionConfig
                         remoteFiniteEffects),
                 Map.entry(RemoteEffectOperationHandler.PUSH_BRANCH,
                         remoteFiniteEffects),
+                Map.entry(
+                        RemoteRepairCommitAdoptionOperationHandler.OPERATION_KIND,
+                        repairAdoption),
                 Map.entry(MergeOperationHandler.OPERATION_KIND, merge));
         return operationKind -> {
             ExecutionPorts.OperationHandler handler = handlers.get(

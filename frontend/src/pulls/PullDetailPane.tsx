@@ -537,7 +537,10 @@ export function PullDetailBody({
               </>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 6 }}>
+          {/* Wraps like the branch row above: without it the review actions
+              are pushed past the pane's right edge and clip out of reach
+              whenever the pane is narrow or the title row is wide. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 6, flexWrap: 'wrap', minWidth: 0 }}>
             <button onClick={() => { setJumpTarget(null); setSubTab('overview'); }} style={{ ...tabBtnStyle, borderBottom: `2px solid ${isOverview ? '#c2632a' : 'transparent'}`, fontWeight: isOverview ? 600 : 500, color: isOverview ? '#17191c' : '#6e7781' }}>
               <CommentBubbleIcon size={14} />
               Overview

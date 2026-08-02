@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.developmentflow.persistence;
 
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -153,7 +157,13 @@ class TestLocalDispatchTriggerScope
                 "SELECT COUNT(*) FROM task_brain_request_receipt",
                 Integer.class)).isOne();
 
-        jdbc.update("DELETE FROM tasks WHERE id = 'task-1'");
+        new TransactionTemplate(new DataSourceTransactionManager(
+                jdbc.getDataSource())).executeWithoutResult(ignored -> {
+                    jdbc.update("""
+                            DELETE FROM task_creation_receipt WHERE task_id = 'task-1'
+                            """);
+                    jdbc.update("DELETE FROM tasks WHERE id = 'task-1'");
+                });
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM local_stage_command_receipt",
@@ -205,7 +215,7 @@ class TestLocalDispatchTriggerScope
     private JdbcTemplate database(String name)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name) + "?foreign_keys=ON";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return new JdbcTemplate(dataSource);
@@ -213,8 +223,7 @@ class TestLocalDispatchTriggerScope
 
     private static void migrateRuntime(JdbcTemplate jdbc)
     {
-        Flyway.configure().dataSource(jdbc.getDataSource())
-                .target("236").load().migrate();
+        Flyway.configure().dataSource(jdbc.getDataSource()).load().migrate();
     }
 
     private static void seedOwner(JdbcTemplate jdbc, String kind, String stageId)
@@ -234,26 +243,35 @@ class TestLocalDispatchTriggerScope
                     'test', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
-        jdbc.update("""
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK', 'base',
-                    'seed', 'build', 'user', 2)
-                """);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.update("""
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 'user', 2)
                 """);
-        jdbc.update("""
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, epoch, aggregate_version, lifecycle_state,
-                    assignment_id, policy_revision_id)
-                VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 1, 0, 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1", transaction ->
+                transaction.update("""
+                        INSERT INTO task_assignment(
+                            id, trunk_id, kind, planning_base_sha, plan_seed,
+                            prompt, created_by, created_at_ms,
+                            creation_authorization_id)
+                        VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
+                            'base', 'seed', 'build', 'user', 2,
+                            'authorization-assignment-1')
+                        """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", transaction ->
+                transaction.update("""
+                        INSERT INTO tasks(
+                            id, thread_id, seq, status, phase, created_at_ms,
+                            workflow_version, epoch, aggregate_version,
+                            lifecycle_state, assignment_id, policy_revision_id,
+                            creation_receipt_id, name, task_type,
+                            opening_prompt, origin)
+                        VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
+                            'V2', 1, 0, 'PROVISIONING', 'assignment-1',
+                            'policy-1', 'creation-receipt-task-1',
+                            'Test task assignment-1', 'DEVELOP', 'build', 'user')
+                        """));
         jdbc.update("""
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint,

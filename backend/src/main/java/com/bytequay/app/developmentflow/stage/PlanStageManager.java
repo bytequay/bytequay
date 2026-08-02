@@ -246,6 +246,20 @@ public final class PlanStageManager
                 failed, selfReviewId, replacementTurnId, replacement);
     }
 
+    public CommandResult<State> retryDraftInCommand(
+            Command command,
+            String failedTurnId,
+            String blockerId,
+            String replacementTurnId,
+            ResultFence failed,
+            ResultFence replacement,
+            String reason)
+    {
+        return retryPlanDraftInCommand(
+                command, failedTurnId, blockerId, replacementTurnId,
+                failed, replacement, reason);
+    }
+
     public CommandResult<State> acceptTerminalTurnInCommand(
             ResultCommand command,
             String cause,

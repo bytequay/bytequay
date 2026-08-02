@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.domain;
 
+import java.util.List;
+
 /**
  * The execution state of a single CI check run.
  *
@@ -37,4 +39,41 @@ public record PrCheckRunState(
         String conclusion,
         String htmlUrl,
         String outputTitle,
-        String outputSummary) {}
+        String outputSummary,
+        GitHubMetadata githubMetadata)
+{
+    /** Compatibility constructor for cached/UI callers that do not need proof metadata. */
+    public PrCheckRunState(
+            Long githubId,
+            String name,
+            String status,
+            String conclusion,
+            String htmlUrl,
+            String outputTitle,
+            String outputSummary)
+    {
+        this(githubId, name, status, conclusion, htmlUrl, outputTitle,
+                outputSummary, null);
+    }
+
+    /** GitHub-only lineage retained by exact Remote CI observations. */
+    public record GitHubMetadata(
+            String testedSha,
+            String externalId,
+            String detailsUrl,
+            Long checkSuiteId,
+            Long appId,
+            String appSlug,
+            Integer annotationCount,
+            List<PullRequestSubject> pullRequests)
+    {
+        public GitHubMetadata
+        {
+            pullRequests = pullRequests == null
+                    ? List.of() : List.copyOf(pullRequests);
+        }
+    }
+
+    public record PullRequestSubject(
+            int pullRequestNumber, String headSha, String baseSha) {}
+}

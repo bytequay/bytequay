@@ -144,6 +144,16 @@ public final class LocalAutoPublishRedriver
                       SELECT 1 FROM publish_operation operation
                       WHERE operation.task_id = task.id
                         AND operation.status IN ('REQUESTED', 'DISPATCHED'))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM publish_operation terminal
+                      WHERE terminal.task_id = task.id
+                        AND terminal.task_epoch = task.epoch
+                        AND terminal.local_development_stage_id = stage.id
+                        AND terminal.stage_generation = stage.generation
+                        AND terminal.code_fingerprint = report.code_fingerprint
+                        AND terminal.expected_head_sha = report.head_sha
+                        AND terminal.expected_base_sha = report.base_sha
+                        AND terminal.status IN ('FAILED', 'CANCELED'))
                 ORDER BY task.created_at_ms, task.id
                 LIMIT ?
                 """, (rs, row) -> candidate(

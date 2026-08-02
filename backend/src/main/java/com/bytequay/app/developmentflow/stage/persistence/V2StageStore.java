@@ -47,6 +47,10 @@ final class V2StageStore
         PlanStageManager.UserWaitStore,
         LocalDevelopmentStageManager.EvidenceStore
 {
+    private static final String START_LOCAL_BASE_SYNC = "START_LOCAL_BASE_SYNC";
+    private static final String BASE_SYNC_START_RECEIPT =
+            "local_publish_base_sync_start_receipt";
+
     private static final String RECEIPT_SELECT = "SELECT * FROM stage_command_receipt";
 
     private static final String RECEIPT_INSERT = """
@@ -141,6 +145,11 @@ final class V2StageStore
                 .or(() -> queryReviewRetry(
                         "WHERE stage_id = ? AND returned_stage_version = ?",
                         stageId, persisted.version()))
+                .or(() -> tableAvailable("stage_plan_draft_retry_request_v297")
+                        ? queryDraftRetry(
+                                "WHERE stage_id = ? AND returned_stage_version = ?",
+                                stageId, persisted.version())
+                        : Optional.empty())
                 .or(() -> queryPlanTerminal(
                         "WHERE stage_id = ? AND returned_stage_version = ?",
                         stageId, persisted.version()))
@@ -165,6 +174,15 @@ final class V2StageStore
                 taskId, stageId, commandId);
         if (shared.isPresent()) {
             return shared;
+        }
+        if (tableAvailable(BASE_SYNC_START_RECEIPT)) {
+            Optional<StageManager.CommandReceipt> baseSync = queryBaseSyncStartReceipt(
+                    "WHERE task_id = ? AND local_development_stage_id = ?"
+                            + " AND command_id = ?",
+                    taskId, stageId, commandId);
+            if (baseSync.isPresent()) {
+                return baseSync;
+            }
         }
         if (localReceiptsAvailable()) {
             Optional<StageManager.CommandReceipt> local = queryReceipt(
@@ -238,6 +256,11 @@ final class V2StageStore
                 .or(() -> queryReviewRetry(
                         "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
                         taskId, stageId, commandId))
+                .or(() -> tableAvailable("stage_plan_draft_retry_request_v297")
+                        ? queryDraftRetry(
+                                "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                                taskId, stageId, commandId)
+                        : Optional.empty())
                 .or(() -> queryPlanTerminal(
                         "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
                         taskId, stageId, commandId));
@@ -442,6 +465,75 @@ final class V2StageStore
     }
 
     @Override
+    public StageManager.State retryPlanDraft(
+            String commandId,
+            String actor,
+            String reason,
+            String blockerId,
+            String failedTurnId,
+            String replacementTurnId,
+            ResultFence failed,
+            ResultFence replacement,
+            StageManager.State expected,
+            StageManager.State requested)
+    {
+        requireTransaction();
+        if (expected.kind() != StageKind.PLAN
+                || expected.checkpoint() != StageCheckpoint.DRAFTING
+                || requested.checkpoint() != StageCheckpoint.DRAFTING
+                || expected.version() + 1 != requested.version()
+                || expected.pendingResult() != null
+                || !replacement.equals(requested.pendingResult())
+                || failed.equals(replacement)) {
+            throw new IllegalArgumentException("Plan draft retry is inconsistent");
+        }
+        updateSameCheckpoint(expected, requested, failed.taskEpoch());
+        long now = System.currentTimeMillis();
+        recordTransition(
+                commandId, "RETRY_PLAN_DRAFT", actor,
+                expected, requested, now);
+        String replacementTicketId = findTicketId(replacement.operationId());
+        jdbc.update("""
+                INSERT INTO stage_plan_draft_retry_request_v297(
+                    id, stage_id, task_id, command_id, actor, reason,
+                    blocker_id, predecessor_turn_id, replacement_turn_id,
+                    replacement_ticket_id, expected_task_epoch,
+                    expected_stage_generation, expected_stage_version,
+                    returned_stage_version, subject_operation_id,
+                    subject_attempt, subject_code_fingerprint,
+                    subject_head_sha, subject_base_sha, pending_operation_id,
+                    pending_attempt, pending_code_fingerprint,
+                    pending_head_sha, pending_base_sha, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?)
+                """, id(), requested.id(), requested.taskId(), commandId, actor,
+                reason, blockerId, failedTurnId, replacementTurnId,
+                replacementTicketId, failed.taskEpoch(),
+                failed.stageGeneration(), expected.version(), requested.version(),
+                failed.operationId(), failed.attempt(),
+                failed.expectedCodeFingerprint(), failed.expectedHeadSha(),
+                failed.expectedBaseSha(), replacement.operationId(),
+                replacement.attempt(), replacement.expectedCodeFingerprint(),
+                replacement.expectedHeadSha(), replacement.expectedBaseSha(), now);
+        int resolved = jdbc.update("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = ?
+                WHERE id = ? AND task_id = ? AND stage_id = ?
+                  AND owner_kind = 'STAGE' AND owner_id = ?
+                  AND blocker_type = 'OPERATION_FAILED' AND status = 'OPEN'
+                """, now,
+                "retry command " + commandId + " admitted TaskTurn "
+                        + replacementTurnId + " operation "
+                        + replacement.operationId() + ": " + reason,
+                blockerId, requested.taskId(), requested.id(), requested.id());
+        if (resolved != 1) {
+            throw concurrent("Plan draft blocker changed before retry");
+        }
+        return requested;
+    }
+
+    @Override
     public Optional<PlanStageManager.UserWaitEvidence> find(
             String taskId, String stageId, String commandId)
     {
@@ -621,6 +713,13 @@ final class V2StageStore
     {
         return jdbc.queryForObject(
                 "SELECT id FROM task_turn WHERE operation_id = ?",
+                String.class, operationId);
+    }
+
+    private String findTicketId(String operationId)
+    {
+        return jdbc.queryForObject(
+                "SELECT id FROM dispatch_ticket WHERE operation_id = ?",
                 String.class, operationId);
     }
 
@@ -1000,6 +1099,14 @@ final class V2StageStore
             StageManager.State state,
             long now)
     {
+        if (cause.equals(START_LOCAL_BASE_SYNC)) {
+            insertBaseSyncStartReceipt(
+                    commandId, cause, actor, disposition,
+                    expectedTaskEpoch, expectedStageGeneration,
+                    expectedStageVersion, sourceCheckpoint, subjectFence,
+                    proofId, state, now);
+            return;
+        }
         jdbc.update(connection -> {
             String insert = isLocalCause(cause)
                     ? LOCAL_RECEIPT_INSERT
@@ -1038,10 +1145,88 @@ final class V2StageStore
         });
     }
 
+    private void insertBaseSyncStartReceipt(
+            String commandId,
+            String cause,
+            String actor,
+            CommandResult.Disposition disposition,
+            Long expectedTaskEpoch,
+            Long expectedStageGeneration,
+            Long expectedStageVersion,
+            StageCheckpoint sourceCheckpoint,
+            ResultFence subjectFence,
+            String proofId,
+            StageManager.State state,
+            long now)
+    {
+        if (disposition != CommandResult.Disposition.APPLIED
+                || expectedTaskEpoch == null
+                || expectedStageGeneration == null
+                || expectedStageVersion == null
+                || sourceCheckpoint != StageCheckpoint.LOCAL_REVIEW
+                || subjectFence == null
+                || proofId == null
+                || state.kind() != StageKind.LOCAL_DEVELOPMENT
+                || state.checkpoint() != StageCheckpoint.IMPLEMENTING
+                || state.endReason() != null
+                || !subjectFence.equals(state.pendingResult())) {
+            throw new IllegalArgumentException(
+                    "Local publish base-sync start receipt is inconsistent");
+        }
+        int inserted = jdbc.update("""
+                INSERT INTO local_publish_base_sync_start_receipt(
+                    id, cause, episode_id, stage_turn_request_id,
+                    command_id, actor, task_id, local_development_stage_id,
+                    task_epoch, stage_generation, expected_stage_version,
+                    returned_stage_version, operation_id, semantic_attempt,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, target_base_sha, recorded_at_ms)
+                SELECT ?, ?, request.base_sync_episode_id, request.id,
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       request.target_base_sha, ?
+                FROM local_stage_turn_request request
+                JOIN stage_turn turn ON turn.id = request.stage_turn_id
+                WHERE request.command_id = ?
+                  AND request.task_id = ?
+                  AND request.local_development_stage_id = ?
+                  AND request.task_epoch = ?
+                  AND request.stage_generation = ?
+                  AND request.kind = 'BASE_SYNC'
+                  AND request.base_sync_episode_id = ?
+                  AND turn.operation_id = ?
+                  AND turn.attempt = ?
+                  AND turn.expected_code_fingerprint = ?
+                  AND turn.expected_head_sha = ?
+                  AND turn.expected_base_sha = ?
+                """,
+                id(), cause, commandId, actor, state.taskId(), state.id(),
+                expectedTaskEpoch, expectedStageGeneration,
+                expectedStageVersion, state.version(), subjectFence.operationId(),
+                subjectFence.attempt(), subjectFence.expectedCodeFingerprint(),
+                subjectFence.expectedHeadSha(), subjectFence.expectedBaseSha(), now,
+                commandId, state.taskId(), state.id(), expectedTaskEpoch,
+                expectedStageGeneration, proofId, subjectFence.operationId(),
+                subjectFence.attempt(), subjectFence.expectedCodeFingerprint(),
+                subjectFence.expectedHeadSha(), subjectFence.expectedBaseSha());
+        if (inserted != 1) {
+            throw concurrent(
+                    "Exact Local publish base-sync StageTurn request is missing");
+        }
+    }
+
     private Optional<StageManager.CommandReceipt> queryReceipt(
             String sql, Object... arguments)
     {
         return jdbc.query(sql, (rs, row) -> receipt(rs), arguments)
+                .stream().findFirst();
+    }
+
+    private Optional<StageManager.CommandReceipt> queryBaseSyncStartReceipt(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT * FROM local_publish_base_sync_start_receipt
+                """ + suffix, (rs, row) -> baseSyncStartReceipt(rs), arguments)
                 .stream().findFirst();
     }
 
@@ -1055,6 +1240,15 @@ final class V2StageStore
                 stageId, version);
         if (shared.isPresent()) {
             return shared;
+        }
+        if (tableAvailable(BASE_SYNC_START_RECEIPT)) {
+            Optional<StageManager.CommandReceipt> baseSync = queryBaseSyncStartReceipt(
+                    "WHERE local_development_stage_id = ?"
+                            + " AND returned_stage_version = ?",
+                    stageId, version);
+            if (baseSync.isPresent()) {
+                return baseSync;
+            }
         }
         if (localReceiptsAvailable()) {
             Optional<StageManager.CommandReceipt> local = queryReceipt(
@@ -1337,6 +1531,15 @@ final class V2StageStore
                 .stream().findFirst();
     }
 
+    private Optional<StageManager.CommandReceipt> queryDraftRetry(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT * FROM stage_plan_draft_retry_request_v297
+                """ + suffix, (rs, row) -> draftRetry(rs), arguments)
+                .stream().findFirst();
+    }
+
     private Optional<StageManager.CommandReceipt> queryPlanTerminal(
             String suffix, Object... arguments)
     {
@@ -1411,6 +1614,38 @@ final class V2StageStore
                 CommandResult.Disposition.APPLIED);
     }
 
+    private static StageManager.CommandReceipt draftRetry(ResultSet rs)
+            throws SQLException
+    {
+        ResultFence subject = new ResultFence(
+                rs.getLong("expected_task_epoch"), rs.getString("stage_id"),
+                rs.getLong("expected_stage_generation"),
+                rs.getString("subject_operation_id"),
+                rs.getInt("subject_attempt"),
+                rs.getString("subject_code_fingerprint"),
+                rs.getString("subject_head_sha"),
+                rs.getString("subject_base_sha"));
+        ResultFence pending = new ResultFence(
+                rs.getLong("expected_task_epoch"), rs.getString("stage_id"),
+                rs.getLong("expected_stage_generation"),
+                rs.getString("pending_operation_id"),
+                rs.getInt("pending_attempt"),
+                rs.getString("pending_code_fingerprint"),
+                rs.getString("pending_head_sha"),
+                rs.getString("pending_base_sha"));
+        StageManager.State state = new StageManager.State(
+                rs.getString("stage_id"), rs.getString("task_id"), StageKind.PLAN,
+                subject.stageGeneration(), rs.getLong("returned_stage_version"),
+                StageCheckpoint.DRAFTING, null, pending);
+        return new StageManager.CommandReceipt(
+                state.taskId(), state, "RETRY_PLAN_DRAFT",
+                rs.getString("actor"), rs.getLong("expected_task_epoch"),
+                rs.getLong("expected_stage_generation"),
+                rs.getLong("expected_stage_version"), StageCheckpoint.DRAFTING,
+                subject, rs.getString("blocker_id"),
+                CommandResult.Disposition.APPLIED);
+    }
+
     private static StageManager.CommandReceipt planTerminal(ResultSet rs)
             throws SQLException
     {
@@ -1464,6 +1699,34 @@ final class V2StageStore
                 readFence(rs, "subject_", true),
                 rs.getString("proof_id"),
                 CommandResult.Disposition.valueOf(rs.getString("disposition")));
+    }
+
+    private static StageManager.CommandReceipt baseSyncStartReceipt(ResultSet rs)
+            throws SQLException
+    {
+        ResultFence pending = new ResultFence(
+                rs.getLong("task_epoch"),
+                rs.getString("local_development_stage_id"),
+                rs.getLong("stage_generation"),
+                rs.getString("operation_id"),
+                rs.getInt("semantic_attempt"),
+                rs.getString("expected_code_fingerprint"),
+                rs.getString("expected_head_sha"),
+                rs.getString("expected_base_sha"));
+        StageManager.State state = new StageManager.State(
+                rs.getString("local_development_stage_id"),
+                rs.getString("task_id"), StageKind.LOCAL_DEVELOPMENT,
+                rs.getLong("stage_generation"),
+                rs.getLong("returned_stage_version"),
+                StageCheckpoint.IMPLEMENTING, null, pending);
+        return new StageManager.CommandReceipt(
+                state.taskId(), state, rs.getString("cause"),
+                rs.getString("actor"), rs.getLong("task_epoch"),
+                rs.getLong("stage_generation"),
+                rs.getLong("expected_stage_version"),
+                StageCheckpoint.LOCAL_REVIEW, pending,
+                rs.getString("episode_id"),
+                CommandResult.Disposition.APPLIED);
     }
 
     private static ResultFence readFence(

@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.service.mcp.approval;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.core.annotation.Order;
@@ -28,12 +30,11 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Worktree-edit auto-approval. While a Task is in one of the autonomous
- * work stages (Development, Addressing-comments, Cleanup) — or has a live
- * {@link com.bytequay.app.domain.AgentRun} (e.g. a {@code ci_fix} run
- * working in the same worktree) — a file-edit tool whose target path is
- * inside that Task's worktree is allowed without a prompt: editing the
- * worktree is the whole job of those stages / runs.
+ * Worktree-edit auto-approval. An exact typed StageTurn gets its stage and
+ * worktree from its registered runtime context. The retained legacy path uses
+ * the Task phase/worktree or a live {@link com.bytequay.app.domain.AgentRun}.
+ * A file-edit tool whose target is inside that worktree is allowed without a
+ * prompt: editing the worktree is the whole job of those stages / runs.
  *
  * <p>Deliberately narrow so the app's "nothing reaches GitHub without an
  * explicit action" invariant holds:
@@ -75,12 +76,19 @@ public class WorktreeEditStep
 
     private final TaskStore taskStore;
     private final AgentRunStore agentRuns;
+    private final ActiveAgentContextRegistry activeContexts;
     private final McpResponses responses;
 
-    public WorktreeEditStep(TaskStore taskStore, AgentRunStore agentRuns, McpResponses responses)
+    public WorktreeEditStep(
+            TaskStore taskStore,
+            AgentRunStore agentRuns,
+            ActiveAgentContextRegistry activeContexts,
+            McpResponses responses)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.activeContexts = requireNonNull(
+                activeContexts, "activeContexts is null");
         this.responses = requireNonNull(responses, "responses is null");
     }
 
@@ -90,16 +98,9 @@ public class WorktreeEditStep
         if (!FILE_EDIT_TOOLS.contains(ctx.toolName())) {
             return ApprovalStepResult.cont();
         }
-        // Resolve the task from the turn's stamped task_id — NOT a thread-level
-        // "active task" guess, which excluded shipped (IN_REVIEW) tasks and so
-        // never auto-approved a CI-fix stage's edits to its own worktree.
-        Task active = ctx.taskId() == null
-                ? null
-                : taskStore.findTaskById(ctx.taskId()).orElse(null);
-        if (active == null || !editsAllowed(active)) {
-            return ApprovalStepResult.cont();
-        }
-        String worktree = active.worktreePath();
+        String worktree = ctx.isTypedV2Owner()
+                ? typedWorktree(ctx)
+                : legacyWorktree(ctx);
         if (worktree == null || worktree.isBlank()) {
             return ApprovalStepResult.cont();
         }
@@ -113,15 +114,42 @@ public class WorktreeEditStep
                 responses.toolResponse(ctx.id(), responses.allow(ctx.toolInput())));
     }
 
-    /** Whether the task's edits to its own worktree need no prompt: true in
-     *  the autonomous work stages (editing is their whole job), so
-     *  Development / Addressing-comments / Cleanup never block on approval —
-     *  or when the task has a live {@link com.bytequay.app.domain.AgentRun}
-     *  (a {@code ci_fix} run doesn't move the task's phase, so it needs this
-     *  separate check). The read-only PlanStage and cross-cutting phases that
-     *  map to no stage and have no live run (e.g. NEEDS_ATTENTION) fall
-     *  through to a normal prompt. */
-    private boolean editsAllowed(Task task)
+    /** Resolve edit authority and worktree only from the exact typed runtime. */
+    private String typedWorktree(ApprovalContext ctx)
+    {
+        ActiveAgentContextRegistry.TypedOwner owner = activeContexts
+                .findTypedOwner(ctx.threadId(), ctx.agentKey())
+                .orElse(null);
+        StageType stageType = activeContexts
+                .find(ctx.threadId(), ctx.agentKey())
+                .map(context -> context.stageType())
+                .orElse(null);
+        if (owner == null
+                || owner.kind() != DispatchTicket.OwnerKind.STAGE_TURN
+                || stageType == null
+                || !ALWAYS_EDIT_STAGES.contains(stageType)) {
+            return null;
+        }
+        return activeContexts.findWorktreePath(ctx.threadId(), ctx.agentKey())
+                .orElse(null);
+    }
+
+    private String legacyWorktree(ApprovalContext ctx)
+    {
+        // Resolve the task from the turn's stamped task_id — NOT a thread-level
+        // "active task" guess, which excluded shipped (IN_REVIEW) tasks and so
+        // never auto-approved a CI-fix stage's edits to its own worktree.
+        Task task = ctx.taskId() == null
+                ? null
+                : taskStore.findTaskById(ctx.taskId()).orElse(null);
+        if (task == null || !legacyEditsAllowed(task)) {
+            return null;
+        }
+        return task.worktreePath();
+    }
+
+    /** The retained legacy Task phase/live-run edit policy. */
+    private boolean legacyEditsAllowed(Task task)
     {
         boolean stageAllows = StageType.forPhase(task.phase())
                 .map(ALWAYS_EDIT_STAGES::contains)

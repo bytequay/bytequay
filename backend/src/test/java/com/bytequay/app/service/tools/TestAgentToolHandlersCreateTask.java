@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.Reactions;
@@ -31,6 +32,8 @@ import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.backlog.BacklogService;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
@@ -79,6 +82,11 @@ class TestAgentToolHandlersCreateTask
     private final WorktreeService worktreeService = mock(WorktreeService.class);
     private final BacklogService backlog = mock(BacklogService.class);
     private final RepoService repoService = mock(RepoService.class);
+    private final TestRunnerDetector testRunnerDetector =
+            mock(TestRunnerDetector.class);
+    private final ShellRunner shellRunner = mock(ShellRunner.class);
+    private final ActiveAgentContextRegistry activeContexts =
+            new ActiveAgentContextRegistry();
     private final ObjectMapper mapper =
             new ObjectMapper().findAndRegisterModules();
 
@@ -98,16 +106,74 @@ class TestAgentToolHandlersCreateTask
                 mock(AgentToolRegistry.class),
                 mock(SkillTools.class),
                 mock(ThreadCheckpointStore.class),
-                mock(TestRunnerDetector.class),
-                mock(ShellRunner.class),
+                testRunnerDetector,
+                shellRunner,
                 watchedRepos,
                 threads,
                 worktreeService,
                 mapper,
                 backlog,
-                repoService);
+                repoService,
+                activeContexts);
 
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(trunkThread()));
+    }
+
+    @Test
+    void runChecksUsesTheExactTypedWorktreeWithoutLegacyTaskMetadata()
+            throws Exception
+    {
+        Path worktree = Files.createDirectories(tempDir.resolve("v2-worktree"));
+        String agentKey = "stage-turn:turn-1:operation-1";
+        activeContexts.put(
+                THREAD_ID, agentKey, mock(ResolvedAgentContext.class),
+                PermissionResolver.RunningScope.NONE,
+                new ActiveAgentContextRegistry.TypedOwner(
+                        DispatchTicket.OwnerKind.STAGE_TURN,
+                        "turn-1", "operation-1"),
+                worktree.toString());
+        var detected = new TestRunnerDetector.Detected(
+                "npm", List.of("npm", "test", "--silent"));
+        when(testRunnerDetector.detect(worktree)).thenReturn(Optional.of(detected));
+        when(shellRunner.runArgv(
+                worktree, detected.argv(), 300L, ShellRunner.MAX_OUTPUT_BYTES))
+                .thenReturn(new ShellRunner.Result(
+                        true, 0, "green", false, null));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.runChecks(
+                new AgentToolHandlers.RunChecksArgs(),
+                new ToolCall(
+                        THREAD_ID, mapper.createObjectNode(), AgentRole.TASK,
+                        "v2-task", "stage-1", null, ThreadScope.STAGE,
+                        agentKey, "call-1"));
+
+        assertThat(result.isError()).isFalse();
+        assertThat(mapper.readTree(result.text()).path("output").asText())
+                .isEqualTo("green");
+        verify(taskStore, never()).findTaskById("v2-task");
+    }
+
+    @Test
+    void runChecksNeverFallsBackFromATypedOwnerToLegacyTaskMetadata()
+    {
+        String agentKey = "stage-turn:turn-1:operation-1";
+        activeContexts.put(
+                THREAD_ID, agentKey, mock(ResolvedAgentContext.class),
+                PermissionResolver.RunningScope.NONE,
+                new ActiveAgentContextRegistry.TypedOwner(
+                        DispatchTicket.OwnerKind.STAGE_TURN,
+                        "turn-1", "operation-1"));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.runChecks(
+                new AgentToolHandlers.RunChecksArgs(),
+                new ToolCall(
+                        THREAD_ID, mapper.createObjectNode(), AgentRole.TASK,
+                        "v2-task", "stage-1", null, ThreadScope.STAGE,
+                        agentKey, "call-1"));
+
+        assertThat(result.isError()).isTrue();
+        assertThat(result.text()).contains("requires a task with a worktree");
+        verify(taskStore, never()).findTaskById("v2-task");
     }
 
     @Test

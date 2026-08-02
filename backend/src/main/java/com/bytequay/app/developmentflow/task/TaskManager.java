@@ -1084,6 +1084,41 @@ public final class TaskManager
                 null, null, null, current, updated));
     }
 
+    /** Clears one exact malformed Brain result without consuming its budget. */
+    public CommandResult<State> acceptBrainProtocolFailureInCommand(
+            ResultCommand command, String blockerId)
+    {
+        requireNonNull(command, "command is null");
+        requireText(blockerId, "blockerId");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+
+        Optional<CommandReceipt> duplicate = findCommandResult(
+                command.taskId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(),
+                    "ACCEPT_BRAIN_PROTOCOL_FAILURE", command.actor(),
+                    null, null, command.resultFence(), null, blockerId,
+                    null, null, null).state());
+        }
+
+        State current = load(command.taskId());
+        ResultFence result = command.resultFence();
+        if (!ownsBrainResult(current, result)) {
+            throw rejected(INVALID_STATE,
+                    "Task no longer owns this Brain protocol result");
+        }
+        State updated = new State(
+                current.id(), current.trunkId(), current.lifecycle(), current.epoch(),
+                current.version() + 1, current.currentStageId(), null,
+                current.lastBrainVerdict(), current.lastBrainResult(),
+                current.terminalIntent());
+        return CommandResult.applied(store.commit(
+                command.commandId(), "ACCEPT_BRAIN_PROTOCOL_FAILURE",
+                command.actor(), null, null, result, null, blockerId,
+                null, null, null, current, updated));
+    }
+
     /** Read-only preflight for an owner delivery already holding the Task stripe. */
     public boolean isCurrentBrainResultInCommand(ResultCommand command)
     {
@@ -2727,6 +2762,12 @@ public final class TaskManager
         default Optional<PolicyRevision> findPolicy(String taskId)
         {
             return Optional.empty();
+        }
+
+        /** Returns whether unattended approval is currently authorized. */
+        default boolean effectiveAutoApprove(String taskId)
+        {
+            return false;
         }
 
         default Optional<PolicyCommandReceipt> findPolicyCommand(

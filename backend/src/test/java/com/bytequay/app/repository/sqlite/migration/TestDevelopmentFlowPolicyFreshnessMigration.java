@@ -52,12 +52,12 @@ class TestDevelopmentFlowPolicyFreshnessMigration
     {
         String url = "jdbc:sqlite:"
                 + tempDir.resolve("policy-freshness.db") + "?foreign_keys=ON";
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        migrate(url, "268");
+        migrate(url);
 
         try (Connection connection = connect(url)) {
             seedRemoteSubject(connection);
@@ -121,7 +121,7 @@ class TestDevelopmentFlowPolicyFreshnessMigration
                     """);
         }
 
-        migrate(url, "268");
+        migrate(url);
         try (Connection connection = connect(url)) {
             assertThat(number(connection, """
                     SELECT COUNT(*) FROM remote_policy_stage_receipt_v268

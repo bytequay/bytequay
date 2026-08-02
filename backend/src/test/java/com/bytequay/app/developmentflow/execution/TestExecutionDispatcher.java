@@ -266,6 +266,31 @@ class TestExecutionDispatcher
     }
 
     @Test
+    void resultProtocolDeliveryFailureIsDurablyClassified()
+    {
+        SharedState state = sharedState(4);
+        state.delivery.failure = new ExecutionPorts.ResultProtocolException(
+                "owner result is not strict JSON",
+                new IllegalArgumentException("invalid JSON"));
+        state.tickets.put(requested(
+                "protocol-failure", "unused", VALIDATION, false)
+                .resultPending(success("protocol-failure"), NOW));
+
+        try (ExecutionDispatcher dispatcher = dispatcher(
+                state, "dispatcher",
+                new InMemoryExecutionSupport.DirectExecutorService())) {
+            dispatcher.runMaintenance();
+        }
+
+        DispatchTicket retry = state.tickets.get("protocol-failure");
+        assertThat(retry.state()).isEqualTo(RESULT_PENDING);
+        assertThat(DispatchTicket.resultProtocolFailureDetail(retry.lastError()))
+                .isEqualTo("owner result is not strict JSON");
+        assertThat(retry.nextAttemptAt()).isEqualTo(NOW.plusSeconds(5));
+        assertThat(state.tickets.getDeliveryClaim(retry.id())).isEmpty();
+    }
+
+    @Test
     void restartRetriesClaimedWorkButReconcilesRunningWork()
     {
         SharedState state = sharedState(4);
@@ -1581,6 +1606,7 @@ class TestExecutionDispatcher
         private final CountDownLatch started = new CountDownLatch(1);
         private final CountDownLatch release = new CountDownLatch(1);
         private boolean block;
+        private Exception failure;
         private int calls;
         private int uniqueAcceptances;
 
@@ -1595,6 +1621,9 @@ class TestExecutionDispatcher
             owners.add(owner);
             expectedFences.add(expectedFence);
             results.add(result);
+            if (failure != null) {
+                throw failure;
+            }
             if (acceptedOperations.add(result.fence().operationId())) {
                 uniqueAcceptances++;
             }

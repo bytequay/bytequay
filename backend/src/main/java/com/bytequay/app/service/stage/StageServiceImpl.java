@@ -197,7 +197,8 @@ public class StageServiceImpl
                 branchGuards.get(taskId),
                 liveRound,
                 buildDevPhases(task.phase(), dev, liveRuns, reviewRounds.findByTask(taskId),
-                        phaseEvents));
+                        phaseEvents),
+                null);
     }
 
     /** Development's in-stage phase ladder (plan-rail-runs.md R29):

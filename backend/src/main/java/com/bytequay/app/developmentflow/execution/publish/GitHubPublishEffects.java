@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.execution.publish;
 
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.AmbiguousEffectException;
+import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.BaseMovedException;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.EffectEvidence;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.EffectKind;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.MissingEffectException;
@@ -125,7 +126,7 @@ public final class GitHubPublishEffects
                     .orElseThrow(() -> rejected(
                             "frozen remote base branch does not exist"));
             if (!request.expectedBaseSha().equals(remoteBase)) {
-                throw rejected("remote base moved after publish authorization");
+                throw new BaseMovedException(remoteBase);
             }
             if (!request.branchName().equals(git.currentBranch(worktree))
                     || !request.expectedHeadSha().equals(git.headSha(worktree))) {

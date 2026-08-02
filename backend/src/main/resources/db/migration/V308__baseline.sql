@@ -2,8 +2,9 @@
 --
 -- This file replaces the V1..V308 migration chain, which had grown to 293
 -- files whose only remaining job was to build an empty database up to the
--- schema below. It is generated from a database migrated through that full
--- chain, so it is the same schema the chain produced, object for object.
+-- schema and static data below. It is generated from a database migrated
+-- through that full chain, so it is the same fresh-install state the chain
+-- produced.
 --
 -- Nothing here upgrades an existing database. Any database created before
 -- the squash must already be at 308; there is no path forward from an
@@ -8377,6 +8378,63 @@ WHEN NEW.origin <> OLD.origin
 BEGIN
     SELECT RAISE(ABORT, 'backlog item origin is immutable');
 END;
+
+-- Static data that the pre-squash migration chain installed on every fresh
+-- database.  A baseline is the complete fresh-install state, not only its
+-- schema: omitting these rows leaves current runtime foreign keys and default
+-- settings unresolved.
+INSERT INTO app_settings (key, value) VALUES
+    ('sync.interval.seconds', '60'),
+    ('github.pat', ''),
+    ('pr.sort.order', 'smart');
+
+INSERT INTO skill (
+    scope, repo, thread_id, name, description, body, kind,
+    role_tag, enabled, is_default, source, provenance, content_hash,
+    created_at, updated_at, usage)
+VALUES (
+    'repo',
+    'trinodb/trino',
+    NULL,
+    'Trino code style',
+    'Default review context for the Trino repo — code style, commit-message conventions, and review priorities.',
+    'You are reviewing a pull request against trinodb/trino. Apply Trino''s code style and review conventions:
+
+- Java code style: 4-space indentation; no tabs; opening brace on its own line; one statement per line.
+- Imports: java.* / javax.* / jakarta.* first, then everything else, alphabetical within each group; static imports last.
+- Method ordering: public before private, instance before static where reasonable; keep related methods adjacent.
+- Tests use JUnit 5 + Airlift testing utilities; avoid Mockito where a real test fixture is feasible.
+- Prefer explicit types over var; avoid Optional in fields.
+- Commit messages do NOT use Conventional Commits — use Trino''s standard imperative subject + body explaining motivation.
+- Flag anything that looks like a regression in coordinator startup time, query planner cost, or worker memory pressure.
+- Suggest using existing Trino utilities (e.g., io.airlift.* helpers, Trino''s own Slice/Block/Page abstractions) over hand-rolled equivalents.',
+    'rubric',
+    NULL,
+    1,
+    0,
+    'authored',
+    NULL,
+    'migrated:1',
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP,
+    'review');
+
+INSERT INTO reviewer_def
+    (id, name, description, runner, runner_json, persona, eligible_kinds, enabled)
+VALUES
+    ('general-api', 'Generalist', 'Single bounded correctness investigator',
+     'api', '{"provider":"auto"}', NULL,
+     '["trivial","standard","high-risk"]', 1),
+    ('general-cli', 'CLI generalist', 'Read-only CLI correctness investigator',
+     'cli', '{"provider":"auto"}', NULL,
+     '["trivial","standard","high-risk"]', 1),
+    ('independent-verifier', 'Independent verifier', 'Cross-family evidence verifier',
+     'api', '{"provider":"auto-cross-family"}', NULL,
+     '["standard","high-risk"]', 1),
+    ('review-planner', 'Review planner', 'Replans the active frozen review scope',
+     'api', '{}',
+     'Act as the review planner. Re-evaluate objectives, hypotheses, and coverage; do not impersonate an investigator or verifier.',
+     '["trivial","standard","high-risk"]', 1);
 CREATE TRIGGER brain_review_episode_identity_immutable
 BEFORE UPDATE OF task_brain_id, task_id, task_epoch,
         local_development_stage_id, stage_generation, dev_report_id,

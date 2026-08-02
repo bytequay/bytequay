@@ -769,6 +769,69 @@ public abstract class StageManager
                 replacementTurnId, failed, replacement, current, requested));
     }
 
+    /** Re-arms one exact failed Plan draft while its ACTIVE owner stays DRAFTING. */
+    protected final CommandResult<State> retryPlanDraftInCommand(
+            Command command,
+            String failedTurnId,
+            String blockerId,
+            String replacementTurnId,
+            ResultFence failed,
+            ResultFence replacement,
+            String reason)
+    {
+        requireNonNull(command, "command is null");
+        requireText(failedTurnId, "failedTurnId");
+        requireText(blockerId, "blockerId");
+        requireText(replacementTurnId, "replacementTurnId");
+        requireNonNull(failed, "failed is null");
+        requireNonNull(replacement, "replacement is null");
+        requireText(reason, "reason");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        if (kind != StageKind.PLAN
+                || failed.taskEpoch() != command.expectedTaskEpoch()
+                || !command.stageId().equals(failed.stageId())
+                || failed.stageGeneration() != command.expectedStageGeneration()
+                || replacement.taskEpoch() != failed.taskEpoch()
+                || !replacement.stageId().equals(failed.stageId())
+                || replacement.stageGeneration() != failed.stageGeneration()
+                || replacement.equals(failed)) {
+            throw rejected(INVALID_STATE,
+                    "Plan draft replacement targets another owner");
+        }
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            State state = requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    command.stageId(), command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), StageCheckpoint.DRAFTING,
+                    "RETRY_PLAN_DRAFT", failed, blockerId).state();
+            if (!replacement.equals(state.pendingResult())) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Plan draft retry command has another replacement");
+            }
+            return CommandResult.duplicate(state);
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        State current = owner.stage();
+        if (!accepts(owner.taskLifecycle())
+                || current.checkpoint() != StageCheckpoint.DRAFTING
+                || current.pendingResult() != null) {
+            throw rejected(INVALID_STATE,
+                    "Cannot retry Plan draft from " + current.checkpoint());
+        }
+        State requested = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, current.checkpoint(), null, replacement);
+        return CommandResult.applied(store.retryPlanDraft(
+                command.commandId(), command.actor(), reason, blockerId,
+                failedTurnId, replacementTurnId, failed, replacement,
+                current, requested));
+    }
+
     protected final CommandResult<State> acceptPlanTerminalResultInCommand(
             ResultCommand command,
             String cause,
@@ -1444,6 +1507,22 @@ public abstract class StageManager
         {
             throw new UnsupportedOperationException(
                     "Plan self-review retries are not supported");
+        }
+
+        default State retryPlanDraft(
+                String commandId,
+                String actor,
+                String reason,
+                String blockerId,
+                String failedTurnId,
+                String replacementTurnId,
+                ResultFence failed,
+                ResultFence replacement,
+                State expected,
+                State requested)
+        {
+            throw new UnsupportedOperationException(
+                    "Plan draft retries are not supported");
         }
 
         default State acceptPlanTerminalResult(

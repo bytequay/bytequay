@@ -23,6 +23,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -76,12 +77,14 @@ public interface AgentTurnProviderSession
             String prompt,
             List<ImageAttachment> images,
             OwnerToolEndpoint toolEndpoint,
+            String permissionPromptTool,
             Access access,
             Long maxCostUsdMilli,
             String resumeSessionId,
             String fallbackPrompt,
             long priorCumulativeInputTokens,
-            long priorCumulativeOutputTokens)
+            long priorCumulativeOutputTokens,
+            Set<String> preapprovedMcpTools)
     {
         public Request
         {
@@ -93,6 +96,14 @@ public interface AgentTurnProviderSession
             images = images == null ? List.of() : List.copyOf(images);
             requireNonNull(toolEndpoint, "toolEndpoint is null");
             requireNonNull(access, "access is null");
+            preapprovedMcpTools = preapprovedMcpTools == null
+                    ? Set.of() : Set.copyOf(preapprovedMcpTools);
+            if (permissionPromptTool != null
+                    && !permissionPromptTool.equals(
+                            toolEndpoint.approvalPromptTool())) {
+                throw new IllegalArgumentException(
+                        "permissionPromptTool must name the frozen owner gate");
+            }
             if (!workingDirectory.isAbsolute()
                     || !workingDirectory.normalize().equals(workingDirectory)) {
                 throw new IllegalArgumentException(
@@ -143,6 +154,18 @@ public interface AgentTurnProviderSession
                 throw new IllegalArgumentException(
                         "prior cumulative usage requires a resumed session");
             }
+            if (!preapprovedMcpTools.isEmpty()
+                    && (access != Access.READ_ONLY
+                    || toolEndpoint.profile() != ToolProfile.TASK_BRAIN_READ_ONLY
+                    || permissionPromptTool != null)) {
+                throw new IllegalArgumentException(
+                        "preapproved MCP tools require a finite read-only Task Brain");
+            }
+            if (preapprovedMcpTools.stream().anyMatch(
+                    tool -> tool == null || !tool.matches("[a-z][a-z0-9_]*"))) {
+                throw new IllegalArgumentException(
+                        "preapproved MCP tools must use bare tool names");
+            }
             if ((access == Access.READ_ONLY
                     && toolEndpoint.profile() != ToolProfile.TASK_BRAIN_READ_ONLY
                     && toolEndpoint.profile() != ToolProfile.TRUNK_CONTROL_READ_ONLY
@@ -168,7 +191,8 @@ public interface AgentTurnProviderSession
         {
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    List.of(), toolEndpoint, access, null, null, null, 0, 0);
+                    List.of(), toolEndpoint, toolEndpoint.approvalPromptTool(),
+                    access, null, null, null, 0, 0, Set.of());
         }
 
         public Request(
@@ -186,7 +210,8 @@ public interface AgentTurnProviderSession
         {
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    images, toolEndpoint, access, null, null, null, 0, 0);
+                    images, toolEndpoint, toolEndpoint.approvalPromptTool(),
+                    access, null, null, null, 0, 0, Set.of());
         }
 
         public Request(
@@ -205,8 +230,8 @@ public interface AgentTurnProviderSession
         {
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    images, toolEndpoint, access, maxCostUsdMilli, null, null,
-                    0, 0);
+                    images, toolEndpoint, toolEndpoint.approvalPromptTool(),
+                    access, maxCostUsdMilli, null, null, 0, 0, Set.of());
         }
 
         public Request(
@@ -227,8 +252,64 @@ public interface AgentTurnProviderSession
         {
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
-                    images, toolEndpoint, access, maxCostUsdMilli,
-                    resumeSessionId, fallbackPrompt, 0, 0);
+                    images, toolEndpoint, toolEndpoint.approvalPromptTool(),
+                    access, maxCostUsdMilli,
+                    resumeSessionId, fallbackPrompt, 0, 0, Set.of());
+        }
+
+        /** Compatibility constructor for callers whose complete catalog exposes the gate. */
+        public Request(
+                Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String prompt,
+                List<ImageAttachment> images,
+                OwnerToolEndpoint toolEndpoint,
+                Access access,
+                Long maxCostUsdMilli,
+                String resumeSessionId,
+                String fallbackPrompt,
+                long priorCumulativeInputTokens,
+                long priorCumulativeOutputTokens)
+        {
+            this(transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    images, toolEndpoint, toolEndpoint.approvalPromptTool(),
+                    access, maxCostUsdMilli, resumeSessionId, fallbackPrompt,
+                    priorCumulativeInputTokens, priorCumulativeOutputTokens,
+                    Set.of());
+        }
+
+        /** Compatibility shape for callers that choose the permission bridge. */
+        public Request(
+                Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String prompt,
+                List<ImageAttachment> images,
+                OwnerToolEndpoint toolEndpoint,
+                String permissionPromptTool,
+                Access access,
+                Long maxCostUsdMilli,
+                String resumeSessionId,
+                String fallbackPrompt,
+                long priorCumulativeInputTokens,
+                long priorCumulativeOutputTokens)
+        {
+            this(transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, prompt,
+                    images, toolEndpoint, permissionPromptTool, access,
+                    maxCostUsdMilli, resumeSessionId, fallbackPrompt,
+                    priorCumulativeInputTokens, priorCumulativeOutputTokens,
+                    Set.of());
         }
     }
 
@@ -298,7 +379,9 @@ public interface AgentTurnProviderSession
             requireText(ownerId, "ownerId");
             requireText(operationId, "operationId");
             requireNonNull(profile, "profile is null");
-            requireText(approvalPromptTool, "approvalPromptTool");
+            if (approvalPromptTool != null) {
+                requireText(approvalPromptTool, "approvalPromptTool");
+            }
             if (!"bytequay".equals(serverName)) {
                 throw new IllegalArgumentException(
                         "only the ByteQuay MCP server is allowed");
@@ -310,7 +393,8 @@ public interface AgentTurnProviderSession
                 throw new IllegalArgumentException(
                         "Agent Turn MCP endpoint needs a typed Turn owner");
             }
-            if (!("mcp__" + serverName + "__approval_prompt")
+            if (approvalPromptTool != null
+                    && !("mcp__" + serverName + "__approval_prompt")
                     .equals(approvalPromptTool)) {
                 throw new IllegalArgumentException(
                         "approvalPromptTool must name the scoped ByteQuay gate");

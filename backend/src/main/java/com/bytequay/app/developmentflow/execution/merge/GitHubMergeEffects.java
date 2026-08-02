@@ -13,12 +13,15 @@
  */
 package com.bytequay.app.developmentflow.execution.merge;
 
+import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.ClaimMode;
+import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.ClaimSpec;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.EffectClaim;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.EffectEvidence;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.EffectKind;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.MergeMode;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.MergeRequest;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.PermissionDeniedException;
+import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.PreparedEffect;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.RemoteTruthPendingException;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.SubjectRejectedException;
 import com.bytequay.app.domain.MergePullRequestCommand;
@@ -51,23 +54,50 @@ public final class GitHubMergeEffects
     }
 
     @Override
-    public EffectEvidence execute(MergeRequest request, EffectClaim claim)
+    public PreparedEffect prepare(MergeRequest request, ClaimSpec claim)
     {
         requireNonNull(request, "request is null");
         requireNonNull(claim, "claim is null");
         try {
+            requireEffectKind(request, claim.kind());
             Subject subject = subject(request);
             PrRawDetail detail = exactDetail(subject, request);
             if (detail.merged()) {
-                return new EffectEvidence(
-                        detail.mergeCommitSha(),
-                        "exact pull request was already merged; awaiting observer",
-                        true);
+                return new PreparedGitHubEffect(
+                        request, claim, subject, null,
+                        new EffectEvidence(
+                                detail.mergeCommitSha(),
+                                "exact pull request was already merged; awaiting observer",
+                                true));
             }
-            return switch (claim.spec().kind()) {
-                case DIRECT_MERGE -> executeDirect(subject, request);
-                case ENTER_QUEUE -> executeQueue(subject, request);
-            };
+            PullRequestRepository.MergeQueueInfo queue =
+                    pullRequests.fetchMergeQueueInfo(subject.pat(), subject.ref());
+            requireQueueMode(request, queue.queueConfigured());
+            if (claim.mode() == ClaimMode.PROBE) {
+                EffectEvidence evidence = claim.kind() == EffectKind.ENTER_QUEUE
+                        ? new EffectEvidence(
+                                null,
+                                queue.entryState() == null
+                                        ? "GitHub probe does not yet see a queue entry"
+                                        : "GitHub probe sees queue state " + queue.entryState()
+                                                + "; awaiting persisted RemoteObserver truth",
+                                queue.entryState() != null)
+                        : new EffectEvidence(
+                                null, "GitHub probe sees the exact head still open", false);
+                return new PreparedGitHubEffect(
+                        request, claim, subject, null, evidence);
+            }
+            String queueNodeId = null;
+            if (claim.kind() == EffectKind.ENTER_QUEUE) {
+                queueNodeId = pullRequests.pullRequestNodeId(
+                                subject.pat(), subject.ref())
+                        .filter(id -> !id.isBlank())
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.BAD_GATEWAY,
+                                "GitHub did not return the pull request node id"));
+            }
+            return new PreparedGitHubEffect(
+                    request, claim, subject, queueNodeId, null);
         }
         catch (ResponseStatusException failure) {
             throw permission(failure);
@@ -75,36 +105,27 @@ public final class GitHubMergeEffects
     }
 
     @Override
-    public EffectEvidence probe(MergeRequest request, EffectClaim claim)
+    public EffectEvidence perform(
+            MergeRequest request, EffectClaim claim, PreparedEffect preparedEffect)
     {
         requireNonNull(request, "request is null");
         requireNonNull(claim, "claim is null");
+        requireNonNull(preparedEffect, "preparedEffect is null");
+        if (!(preparedEffect instanceof PreparedGitHubEffect prepared)
+                || !prepared.request().equals(request)
+                || !prepared.claim().equals(claim.spec())) {
+            throw new IllegalArgumentException(
+                    "prepared merge effect does not match the durable claim");
+        }
+        if (prepared.evidence() != null) {
+            return prepared.evidence();
+        }
         try {
-            Subject subject = subject(request);
-            PrRawDetail detail = exactDetail(subject, request);
-            if (detail.merged()) {
-                return new EffectEvidence(
-                        detail.mergeCommitSha(),
-                        "GitHub probe sees merged; awaiting persisted RemoteObserver truth",
-                        true);
-            }
-            if (claim.spec().kind() == EffectKind.ENTER_QUEUE) {
-                PullRequestRepository.MergeQueueInfo queue =
-                        pullRequests.fetchMergeQueueInfo(subject.pat(), subject.ref());
-                requireQueueMode(request, queue.queueConfigured());
-                return new EffectEvidence(
-                        null,
-                        queue.entryState() == null
-                                ? "GitHub probe does not yet see a queue entry"
-                                : "GitHub probe sees queue state " + queue.entryState()
-                                        + "; awaiting persisted RemoteObserver truth",
-                        queue.entryState() != null);
-            }
-            PullRequestRepository.MergeQueueInfo queue =
-                    pullRequests.fetchMergeQueueInfo(subject.pat(), subject.ref());
-            requireQueueMode(request, queue.queueConfigured());
-            return new EffectEvidence(
-                    null, "GitHub probe sees the exact head still open", false);
+            return switch (claim.spec().kind()) {
+                case DIRECT_MERGE -> executeDirect(prepared.subject(), request);
+                case ENTER_QUEUE -> executeQueue(
+                        prepared.subject(), request, prepared.queueNodeId());
+            };
         }
         catch (ResponseStatusException failure) {
             throw permission(failure);
@@ -128,9 +149,6 @@ public final class GitHubMergeEffects
 
     private EffectEvidence executeDirect(Subject subject, MergeRequest request)
     {
-        PullRequestRepository.MergeQueueInfo queue =
-                pullRequests.fetchMergeQueueInfo(subject.pat(), subject.ref());
-        requireQueueMode(request, queue.queueConfigured());
         MergeResult result = pullRequests.mergePullRequest(
                 subject.pat(), subject.ref(),
                 new MergePullRequestCommand(
@@ -145,14 +163,11 @@ public final class GitHubMergeEffects
                 result.sha(), "direct merge accepted; awaiting RemoteObserver", false);
     }
 
-    private EffectEvidence executeQueue(Subject subject, MergeRequest request)
+    private EffectEvidence executeQueue(
+            Subject subject, MergeRequest request, String queueNodeId)
     {
-        Optional<PullRequestRepository.MergeQueueProbe> queue =
-                pullRequests.probeMergeQueue(subject.pat(), subject.ref());
-        requireQueueMode(request, queue.isPresent());
-        String nodeId = queue.orElseThrow().pullRequestNodeId();
         MergeResult result = pullRequests.enqueuePullRequest(
-                subject.pat(), nodeId, request.headSha());
+                subject.pat(), queueNodeId, request.headSha());
         if (!result.queued() || result.merged()) {
             throw new SubjectRejectedException(
                     "GitHub did not accept the exact pull request into merge queue");
@@ -187,6 +202,16 @@ public final class GitHubMergeEffects
         }
     }
 
+    private static void requireEffectKind(MergeRequest request, EffectKind kind)
+    {
+        EffectKind expected = request.mode() == MergeMode.MERGE_QUEUE
+                ? EffectKind.ENTER_QUEUE : EffectKind.DIRECT_MERGE;
+        if (kind != expected) {
+            throw new SubjectRejectedException(
+                    "merge mode and requested effect kind do not match");
+        }
+    }
+
     private Subject subject(MergeRequest request)
     {
         RepoRef repository = RepoRef.parse(request.remoteRepositoryId());
@@ -201,6 +226,30 @@ public final class GitHubMergeEffects
         {
             requireNonNull(ref, "ref is null");
             requireNonNull(pat, "pat is null");
+        }
+    }
+
+    private record PreparedGitHubEffect(
+            MergeRequest request,
+            ClaimSpec claim,
+            Subject subject,
+            String queueNodeId,
+            EffectEvidence evidence)
+            implements PreparedEffect
+    {
+        private PreparedGitHubEffect
+        {
+            requireNonNull(request, "request is null");
+            requireNonNull(claim, "claim is null");
+            requireNonNull(subject, "subject is null");
+            if (queueNodeId != null && queueNodeId.isBlank()) {
+                throw new IllegalArgumentException("queueNodeId must not be blank");
+            }
+            if (evidence == null
+                    && (claim.kind() == EffectKind.ENTER_QUEUE) != (queueNodeId != null)) {
+                throw new IllegalArgumentException(
+                        "prepared mutation does not match its effect kind");
+            }
         }
     }
 }

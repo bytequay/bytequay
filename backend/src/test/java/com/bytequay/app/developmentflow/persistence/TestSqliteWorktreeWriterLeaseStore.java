@@ -78,13 +78,11 @@ class TestSqliteWorktreeWriterLeaseStore
 
         Instant later = NOW.plusSeconds(31);
         first.capacityStore().expire(later);
-        DispatchTicket replacementTicket = ticket("replacement", later);
-        SqliteExecutionTestSupport.insertTicket(first.database(), replacementTicket);
         CapacityManager replacementManager = manager(first.capacityStore(), later);
         CapacityManager.CapacityLease replacementCapacity = replacementManager
                 .tryAcquireForTicket(
-                        replacementTicket.id(),
-                        replacementTicket.envelope().capacityRequest(),
+                        first.ticket().id(),
+                        first.ticket().envelope().capacityRequest(),
                         "replacement")
                 .lease().orElseThrow();
         WorktreeWriterLeaseManager.Lease replacement = lease(
@@ -116,8 +114,14 @@ class TestSqliteWorktreeWriterLeaseStore
                 SqliteExecutionTestSupport.database(tempDir.resolve(file));
         SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk");
         SqliteExecutionTestSupport.seedTask(database, "trunk", "task", 1);
-        DispatchTicket ticket = ticket("first", now);
-        SqliteExecutionTestSupport.insertTicket(database, ticket);
+        database.jdbc().update("""
+                UPDATE provision_task_operation
+                SET status = 'DISPATCHED'
+                WHERE task_id = 'task'
+                """);
+        DispatchTicket ticket = new SqliteDispatchTicketStore(database.dataSource())
+                .findById("provision-ticket-task")
+                .orElseThrow();
         SqliteCapacityLeaseStore capacityStore = new SqliteCapacityLeaseStore(
                 database.dataSource());
         CapacityManager.CapacityLease capacity = manager(capacityStore, now)
@@ -128,16 +132,8 @@ class TestSqliteWorktreeWriterLeaseStore
                 database,
                 capacityStore,
                 new SqliteWorktreeWriterLeaseStore(database.dataSource()),
+                ticket,
                 capacity);
-    }
-
-    private static DispatchTicket ticket(String suffix, Instant createdAt)
-    {
-        return SqliteExecutionTestSupport.requestedTaskTicket(
-                "ticket-" + suffix,
-                "operation-" + suffix,
-                "workspace", "trunk", "task",
-                createdAt, LOCAL_GIT, true, true);
     }
 
     private static CapacityManager manager(
@@ -181,5 +177,7 @@ class TestSqliteWorktreeWriterLeaseStore
             SqliteExecutionTestSupport.Database database,
             SqliteCapacityLeaseStore capacityStore,
             SqliteWorktreeWriterLeaseStore store,
+            DispatchTicket ticket,
             CapacityManager.CapacityLease capacity) {}
+
 }

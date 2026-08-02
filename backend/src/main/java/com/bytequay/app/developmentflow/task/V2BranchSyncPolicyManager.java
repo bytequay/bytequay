@@ -28,7 +28,7 @@ import static java.util.Objects.requireNonNull;
 /** Sole Task-owned writer for the V2 scheduled branch-sync policy. */
 public final class V2BranchSyncPolicyManager
 {
-    public static final int DEFAULT_ATTEMPT_LIMIT = 3;
+    public static final int DEFAULT_ATTEMPT_LIMIT = 8;
     private static final String FIRST_PUSH_SOURCE = "FIRST_PUSH_DEFAULT";
     private static final String USER_SOURCE = "USER_CONFIGURED";
 

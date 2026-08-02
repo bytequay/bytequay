@@ -299,6 +299,16 @@ public final class ExecutionPorts
         }
     }
 
+    /** A durable provider result cannot satisfy its typed owner contract. */
+    public static final class ResultProtocolException
+            extends Exception
+    {
+        public ResultProtocolException(String message, Throwable cause)
+        {
+            super(requireNonNull(message, "message is null"), cause);
+        }
+    }
+
     public static final class IndeterminateExecutionException
             extends Exception
     {

@@ -19,6 +19,8 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeSto
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiBudgets;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiEffectDelivery;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiEpisode;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiPushSubject;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiTurnFreshness;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.EffectDeliveryReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.RemoteContext;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -71,7 +73,7 @@ public final class RemoteCiRepairRuntimeCoordinator
     }
 
     /** Called after the Remote owner accepted the snapshot in the same command. */
-    public void acceptObservationInCommand(Candidate candidate)
+    public ObservationDisposition acceptObservationInCommand(Candidate candidate)
     {
         requireNonNull(candidate, "candidate is null");
         TaskCommandExecutor.requireCurrent(candidate.context().taskId());
@@ -79,11 +81,35 @@ public final class RemoteCiRepairRuntimeCoordinator
         CiEpisode episode = store.findLiveCiEpisode(
                         candidate.context().stageId())
                 .orElse(null);
+        if (candidate.observation().prState()
+                    == RemoteObservationOperationHandler.PrState.MERGED
+                || candidate.observation().prState()
+                    == RemoteObservationOperationHandler.PrState.CLOSED) {
+            if (episode != null) {
+                store.stopCiEpisode(
+                        episode,
+                        "Remote pull request became terminal before CI repair completed",
+                        now);
+            }
+            return ObservationDisposition.CONTINUE;
+        }
         boolean pushedHead = episode != null
                 && Objects.equals(episode.lastPushedHeadSha(),
                         candidate.evidence().headSha())
                 && episode.subjectBaseSha().equals(
                         candidate.evidence().baseSha());
+        CiPushSubject livePush = episode == null ? null
+                : store.findLiveCiPushSubject(episode.id()).orElse(null);
+        boolean provisionalPushedHead = livePush != null
+                && livePush.headSha().equals(candidate.evidence().headSha())
+                && livePush.baseSha().equals(candidate.evidence().baseSha());
+        if (provisionalPushedHead && !pushedHead) {
+            // The remote observer can win the Task stripe after the push has
+            // reached GitHub but before its delivery is folded. The push
+            // callback owns this transition; re-observe after it records the
+            // pushed head rather than stopping the still-live Episode.
+            return ObservationDisposition.DEFER_UNTIL_PUSH_DELIVERY;
+        }
         if (episode != null && !pushedHead
                 && (!episode.subjectHeadSha().equals(
                         candidate.evidence().headSha())
@@ -93,13 +119,14 @@ public final class RemoteCiRepairRuntimeCoordinator
                     episode, "Remote subject changed before repair completed", now);
             episode = null;
         }
-
         switch (candidate.ciEvaluation().outcome()) {
             case WAITING -> {
-                return;
+                return ObservationDisposition.CONTINUE;
             }
             case ACCEPTED -> {
                 if (episode != null) {
+                    store.cancelPendingCiTurnIntents(
+                            episode.id(), "fresh Remote CI accepted", now);
                     if (pushedHead
                             && episode.lastPushResultEvaluationId() == null) {
                         store.recordCiPushResult(
@@ -108,60 +135,122 @@ public final class RemoteCiRepairRuntimeCoordinator
                     store.succeedCiEpisode(
                             episode, candidate.evidence().ciEvaluationId(), now);
                 }
-                return;
+                return ObservationDisposition.CONTINUE;
             }
             case FAILED -> {
+                if (episode != null
+                        && store.hasPendingCiTurnIntent(episode.id())) {
+                    return continueRepair(candidate, episode, now);
+                }
+                Classification observedClassification = null;
                 if (episode == null) {
-                    if (store.hasExhaustedCiSubject(
+                    if (store.hasSuppressedCiSubject(
                             candidate.context().stageId(),
                             candidate.evidence().headSha(),
                             candidate.evidence().baseSha())) {
-                        return;
+                        return ObservationDisposition.CONTINUE;
                     }
-                    Classification classification = requireNonNull(
+                    observedClassification = requireNonNull(
                             classifier.classify(candidate),
                             "CI failure classification is null");
                     episode = store.openCiEpisode(
                             candidate.context(), candidate.evidence(),
-                            classification.name(), budgets, now);
+                            observedClassification.name(), budgets, now);
                 }
                 else if (pushedHead
                         && episode.lastPushResultEvaluationId() == null) {
                     store.recordCiPushResult(
                             episode, candidate.evidence().ciEvaluationId());
                 }
-                continueRepair(candidate, episode, now);
+                else if (Classification.UNKNOWN.name().equals(
+                        episode.classification())) {
+                    observedClassification = requireNonNull(
+                            classifier.classify(candidate),
+                            "CI failure classification is null");
+                    if (observedClassification != Classification.UNKNOWN) {
+                        if (store.hasLiveCiOperation(episode.id())) {
+                            return ObservationDisposition.CONTINUE;
+                        }
+                        episode = store.supersedeUnknownCiEpisode(
+                                episode, candidate.context(),
+                                candidate.evidence(),
+                                observedClassification.name(),
+                                digest(write(candidate.observation()
+                                        .ciProvenance())),
+                                now);
+                    }
+                }
+                return continueRepair(candidate, episode, now);
             }
         }
+        return ObservationDisposition.CONTINUE;
     }
 
-    private void continueRepair(
+    private ObservationDisposition continueRepair(
             Candidate candidate, CiEpisode episode, Instant now)
     {
         if (store.hasLiveCiOperation(episode.id())) {
-            return;
+            return ObservationDisposition.CONTINUE;
         }
         Classification classification = Classification.valueOf(
                 episode.classification());
+        if (classification == Classification.BASE_DETERMINISTIC) {
+            if (episode.fixAttemptCount() >= episode.fixAttemptLimit()
+                    || episode.pushCount() >= episode.pushLimit()) {
+                store.exhaustCiEpisode(
+                        episode, candidate.evidence().ciEvaluationId(), now);
+                return ObservationDisposition.CONTINUE;
+            }
+            return startFreshDeterministicRepair(candidate, episode, now);
+        }
+        if (store.hasOpenCiBlocker(episode.id())) {
+            return ObservationDisposition.CONTINUE;
+        }
         if (classification == Classification.FLAKY
                 || classification == Classification.INFRASTRUCTURE) {
             if (episode.rerunCount() < episode.rerunLimit()) {
                 RemoteContext context = store.requireRemoteContext(
                         episode.taskId(), episode.stageId());
                 store.insertCiRerun(context, episode, now);
-                return;
+                return ObservationDisposition.CONTINUE;
             }
             store.exhaustCiEpisode(
                     episode, candidate.evidence().ciEvaluationId(), now);
-            return;
+            return ObservationDisposition.CONTINUE;
         }
         if (episode.fixAttemptCount() >= episode.fixAttemptLimit()
                 || episode.pushCount() >= episode.pushLimit()) {
             store.exhaustCiEpisode(
                     episode, candidate.evidence().ciEvaluationId(), now);
-            return;
+            return ObservationDisposition.CONTINUE;
         }
-        deterministicRepairs.startInCommand(candidate, episode);
+        return startFreshDeterministicRepair(candidate, episode, now);
+    }
+
+    private ObservationDisposition startFreshDeterministicRepair(
+            Candidate candidate, CiEpisode episode, Instant now)
+    {
+        CiTurnFreshness proof = store.authorizeCiTurn(candidate, episode, now)
+                .orElse(null);
+        if (proof == null) {
+            return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
+        }
+        switch (proof.intentKind()) {
+            case "NO_CHANGE_CONTINUATION" -> deterministicRepairs
+                    .startPendingCiNoChangeContinuationInCommand(episode);
+            case "NEXT_FIX" -> deterministicRepairs
+                    .startPendingCiNextFixInCommand(episode);
+            case "MANUAL_BASE_REPAIR" -> deterministicRepairs
+                    .startPendingManualCiFixInCommand(episode);
+            case "STEERING" -> {
+                return ObservationDisposition.DEFER_UNTIL_BRANCH_FRESH;
+            }
+            case "OBSERVED_FAILURE" ->
+                    deterministicRepairs.startInCommand(candidate, episode);
+            default -> throw new IllegalStateException(
+                    "Unsupported CI freshness intent " + proof.intentKind());
+        }
+        return ObservationDisposition.CONTINUE;
     }
 
     public DispatchTicket.DeliveryReceipt deliverRerun(
@@ -193,6 +282,8 @@ public final class RemoteCiRepairRuntimeCoordinator
         if (owner.kind() != DispatchTicket.OwnerKind.STAGE
                 || !expectedFence.equals(rawResult.fence())
                 || !"REMOTE_CI_VALIDATION_RESULT".equals(
+                        owner.callbackRoute())
+                    && !"REMOTE_CI_BASE_REWRITE_VALIDATION_RESULT".equals(
                         owner.callbackRoute())
                     && !"REMOTE_CI_PUSH_RESULT".equals(
                         owner.callbackRoute())) {
@@ -251,6 +342,52 @@ public final class RemoteCiRepairRuntimeCoordinator
     {
         return control(
                 taskId, episodeId, commandId, "STOP_AUTOMATION", actor, reason);
+    }
+
+    public CiEpisode startBaseRepair(
+            String taskId,
+            String episodeId,
+            String blockerId,
+            String commandId,
+            String actor,
+            String reason)
+    {
+        requireText(taskId, "taskId");
+        requireText(episodeId, "episodeId");
+        requireText(blockerId, "blockerId");
+        requireText(commandId, "commandId");
+        requireText(actor, "actor");
+        requireText(reason, "reason");
+        return commands.execute(taskId, () -> {
+            CiEpisode episode = store.requireCiEpisode(taskId, episodeId);
+            if (!Classification.BASE_DETERMINISTIC.name().equals(
+                    episode.classification())) {
+                throw new IllegalStateException(
+                        "Only a proven base-owned CI Episode accepts base repair");
+            }
+            deterministicRepairs.startBaseRepairInCommand(
+                    episode, blockerId, commandId, actor, reason);
+            return store.requireCiEpisode(taskId, episodeId);
+        });
+    }
+
+    public CiEpisode retryNoChange(
+            String taskId,
+            String episodeId,
+            String blockerId,
+            String commandId,
+            String actor,
+            String reason)
+    {
+        requireText(taskId, "taskId");
+        requireText(episodeId, "episodeId");
+        requireText(blockerId, "blockerId");
+        requireText(commandId, "commandId");
+        requireText(actor, "actor");
+        requireText(reason, "reason");
+        return commands.execute(taskId, () -> store.authorizeCiNoChangeRetry(
+                taskId, episodeId, blockerId, commandId, actor, reason,
+                clock.instant()));
     }
 
     private CiEpisode changeBudget(
@@ -354,9 +491,14 @@ public final class RemoteCiRepairRuntimeCoordinator
         }
         CiEffectDelivery context = store.requireCiEffectDelivery(
                 expectedFence.operationId());
-        String expectedRoute = switch (context.kind()) {
-            case "VALIDATE" -> "REMOTE_CI_VALIDATION_RESULT";
-            case "PUSH_HEAD" -> "REMOTE_CI_PUSH_RESULT";
+        String expectedRoute = switch (context.operationKind()) {
+            case RemoteEffectOperationHandler.VALIDATE_CI_REPAIR ->
+                    "REMOTE_CI_VALIDATION_RESULT";
+            case RemoteEffectOperationHandler
+                    .REWRITE_VALIDATE_BASE_CI_REPAIR ->
+                    "REMOTE_CI_BASE_REWRITE_VALIDATION_RESULT";
+            case RemoteEffectOperationHandler.PUSH_CI_REPAIR ->
+                    "REMOTE_CI_PUSH_RESULT";
             default -> null;
         };
         boolean exact = owner.id().equals(context.stageId())
@@ -405,7 +547,18 @@ public final class RemoteCiRepairRuntimeCoordinator
                             + "\"}", clock.instant());
             return receipt(ACCEPTED, "CI push failed");
         }
+        requestObservationAfterPush(context);
         return receipt(ACCEPTED, "awaiting pushed-head CI observation");
+    }
+
+    private void requestObservationAfterPush(CiEffectDelivery context)
+    {
+        if (store.findLiveObservation(context.stageId()).isPresent()) {
+            return;
+        }
+        store.insertObservation(
+                store.requireRemoteContext(context.taskId(), context.stageId()),
+                clock.instant());
     }
 
     private static boolean matches(
@@ -477,8 +630,20 @@ public final class RemoteCiRepairRuntimeCoordinator
     @FunctionalInterface
     public interface DeterministicRepairPort
     {
-        /** Starts the exact StageTurn -> validation -> optional Brain -> push arm. */
+        /** Starts the exact StageTurn -> validation -> push arm. */
         void startInCommand(Candidate candidate, CiEpisode episode);
+
+        /** Starts one explicitly authorized repair of a proven base failure. */
+        default void startBaseRepairInCommand(
+                CiEpisode episode,
+                String blockerId,
+                String commandId,
+                String actor,
+                String reason)
+        {
+            throw new IllegalStateException(
+                    "Explicit CI base repair is not configured");
+        }
 
         /** Continues the same finite arm after canonical validation. */
         default void acceptValidationInCommand(
@@ -487,6 +652,22 @@ public final class RemoteCiRepairRuntimeCoordinator
             throw new IllegalStateException(
                     "Deterministic CI validation continuation is not configured");
         }
+
+        default boolean startPendingCiNoChangeContinuationInCommand(
+                CiEpisode episode)
+        {
+            return false;
+        }
+
+        default boolean startPendingCiNextFixInCommand(CiEpisode episode)
+        {
+            return false;
+        }
+
+        default boolean startPendingManualCiFixInCommand(CiEpisode episode)
+        {
+            return false;
+        }
     }
 
     public enum Classification
@@ -494,7 +675,15 @@ public final class RemoteCiRepairRuntimeCoordinator
         FLAKY,
         INFRASTRUCTURE,
         TASK_DETERMINISTIC,
+        TASK_BRANCH_REPAIRABLE,
         BASE_DETERMINISTIC,
         UNKNOWN
+    }
+
+    public enum ObservationDisposition
+    {
+        CONTINUE,
+        DEFER_UNTIL_PUSH_DELIVERY,
+        DEFER_UNTIL_BRANCH_FRESH
     }
 }

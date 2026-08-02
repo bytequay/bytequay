@@ -18,7 +18,7 @@ import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResult
 
 import static java.util.Objects.requireNonNull;
 
-/** Narrow TASK_TURN_RESULT consumer for DEVELOPMENT_BRAIN_REVIEW only. */
+/** Narrow consumer for Development Brain verdict and result-repair Turns. */
 public final class LocalBrainResultDeliveryPort
         implements AgentTurnOwnerResultCodec.OwnerDeliveryPort
 {

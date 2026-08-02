@@ -19,13 +19,9 @@ import com.bytequay.app.developmentflow.task.creation.TaskAssignment;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
-import com.bytequay.app.repository.sqlite.migration.BackfillLocalReviewSubmissions;
-import com.bytequay.app.repository.sqlite.migration.BackfillTurnLiveness;
-import com.bytequay.app.repository.sqlite.migration.NormalizeDeadLifecycleStates;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.stage.StageLifecycle;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -110,11 +106,6 @@ class TestV2RestartLegacyIsolation
     {
         Flyway.configure()
                 .dataSource(url, "", "")
-                .target("277")
-                .javaMigrations(
-                        new BackfillTurnLiveness(),
-                        new BackfillLocalReviewSubmissions(new ObjectMapper()),
-                        new NormalizeDeadLifecycleStates())
                 .load()
                 .migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();

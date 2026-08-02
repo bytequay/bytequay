@@ -827,12 +827,43 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:tasks:resume', { threadId, taskId }),
   retryFailedCi: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:retry-ci', { threadId, taskId }),
+  recoverV2Plan: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:plan:recover', { taskId, failedTurnId, command }),
+  recoverV2DevelopmentBrainReview: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:development-brain:recover', {
+      taskId, failedTurnId, command,
+    }),
+  recoverV2RemoteRepairBrainReview: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:remote-repair-brain:recover', {
+      taskId, failedTurnId, command,
+    }),
+  recoverV2Stage: (
+    taskId: string,
+    failedTurnId: string,
+    command: { blockerId: string; commandId: string; reason: string },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:local-stage:recover', {
+      taskId, failedTurnId, command,
+    }),
   recoverV2Ci: (
     taskId: string,
     episodeId: string,
     command: {
       commandId: string;
-      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
+      blockerId?: string | null;
+      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'START_BASE_REPAIR' | 'START_BRANCH_SYNC' | 'RETRY_ONCE' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
       rerunDelta: number;
       fixDelta: number;
       pushDelta: number;
@@ -840,6 +871,52 @@ const bridge: Bridge = {
     },
   ): Promise<unknown> => ipcRenderer.invoke(
     'development-flow:ci:recover', { taskId, episodeId, command }),
+  recoverV2BranchSync: (
+    taskId: string,
+    episodeId: string,
+    command: {
+      blockerId: string;
+      commandId: string;
+      action: 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
+      reason: string;
+    },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:branch-sync:recover', { taskId, episodeId, command }),
+  recoverV2Worktree: (
+    taskId: string,
+    quarantineId: string,
+    command: {
+      blockerId: string;
+      taskEpoch: number;
+      stageId: string;
+      stageGeneration: number;
+      worktreePath: string;
+      expectedBranchName: string;
+      expectedCodeFingerprint: string;
+      expectedHeadSha: string;
+      expectedBaseSha: string;
+      commandId: string;
+      action: 'REPAIR_WORKTREE';
+      reason: string;
+    },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:worktree:recover', {
+      taskId, quarantineId, command,
+    }),
+  approveV2LocalPublishBaseSync: (
+    taskId: string,
+    blockerId: string,
+  ) => ipcRenderer.invoke(
+    'development-flow:local-publish-base-sync:approve', { taskId, blockerId }),
+  extendV2LocalPublishBaseSync: (
+    taskId: string,
+    episodeId: string,
+    blockerId: string,
+    command: { commandId: string; reason: string },
+  ) => ipcRenderer.invoke(
+    'development-flow:local-publish-base-sync:extend', {
+      taskId, episodeId, blockerId, command,
+    }),
   recoverV2Cleanup: (
     taskId: string,
     stepId: string,
@@ -1010,8 +1087,12 @@ const bridge: Bridge = {
     text: string,
     images?: string[],
     mode: 'APPEND' | 'CANCEL_AND_REPLACE' = 'APPEND',
+    expectedPredecessorStageTurnId?: string,
   ): Promise<{ turnId: string }> =>
-    ipcRenderer.invoke('stages:steer', stageId, text, images, mode),
+    ipcRenderer.invoke(
+      'stages:steer', stageId, text, images, mode,
+      expectedPredecessorStageTurnId,
+    ),
   getV2ReadinessAssistance: (taskId: string, stageId: string) =>
     ipcRenderer.invoke('stages:getReadinessAssistance', taskId, stageId),
   authorizeV2ReadinessAssistance: (

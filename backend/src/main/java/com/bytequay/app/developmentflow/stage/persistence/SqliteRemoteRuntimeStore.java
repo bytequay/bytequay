@@ -16,7 +16,11 @@ package com.bytequay.app.developmentflow.stage.persistence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.RemoteCiPolicy;
 import com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler;
+import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -28,10 +32,12 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.digest;
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.id;
 import static java.util.Objects.requireNonNull;
 
@@ -41,11 +47,109 @@ public class SqliteRemoteRuntimeStore
         implements RemoteObservationOperationHandler.Store,
         RemoteEffectOperationHandler.Store
 {
-    private final JdbcTemplate jdbc;
+    private static final String LEGACY_PUBLISH_CI_POLICY =
+            "PUBLISH_HANDOFF_FAIL_CLOSED";
+    private static final String CI_POLICY_UPGRADE_ACTOR =
+            "remote-observation-owner";
 
+    private final JdbcTemplate jdbc;
+    private final ObjectMapper json;
+
+    @Autowired
     public SqliteRemoteRuntimeStore(JdbcTemplate jdbc)
     {
+        this(jdbc, new ObjectMapper());
+    }
+
+    SqliteRemoteRuntimeStore(JdbcTemplate jdbc, ObjectMapper json)
+    {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.json = requireNonNull(json, "json is null");
+    }
+
+    /** Appends the current default after the obsolete publish policy. */
+    public boolean adoptDefaultRepositoryCiPolicy(
+            String taskId, String stageId, Instant at)
+    {
+        requireTransaction();
+        requireText(taskId, "taskId");
+        requireText(stageId, "stageId");
+        requireNonNull(at, "at is null");
+        List<CiPolicyUpgradeSubject> rows = jdbc.query("""
+                SELECT policy.id, policy.source,
+                       policy.remote_pr_binding_id,
+                       (SELECT COALESCE(MAX(candidate.revision), 0) + 1
+                        FROM remote_ci_policy_revision candidate
+                        WHERE candidate.task_id = task.id) AS next_revision
+                FROM remote_development_stage remote
+                JOIN stage owner ON owner.id = remote.stage_id
+                JOIN tasks task ON task.id = remote.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN remote_ci_policy_revision policy
+                 ON policy.task_id = task.id
+                 AND policy.remote_pr_binding_id = remote.remote_pr_binding_id
+                 AND policy.revision = (
+                    SELECT MAX(candidate.revision)
+                    FROM remote_ci_policy_revision candidate
+                    WHERE candidate.task_id = task.id
+                      AND candidate.remote_pr_binding_id =
+                            remote.remote_pr_binding_id)
+                WHERE task.id = ? AND remote.stage_id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND owner.kind = 'REMOTE_DEVELOPMENT'
+                  AND owner.completed_at_ms IS NULL
+                  AND current.stage_id = remote.stage_id
+                  AND current.stage_generation = remote.generation
+                """, (rs, row) -> new CiPolicyUpgradeSubject(
+                        rs.getString("id"), rs.getString("source"),
+                        rs.getString("remote_pr_binding_id"),
+                        rs.getInt("next_revision")), taskId, stageId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one current Remote CI policy, found " + rows.size());
+        }
+        CiPolicyUpgradeSubject subject = rows.getFirst();
+        if (!LEGACY_PUBLISH_CI_POLICY.equals(subject.source())) {
+            return false;
+        }
+
+        int revision = subject.nextRevision();
+        String policyId = id(
+                "remote-ci-policy-upgrade",
+                taskId + ":" + subject.bindingId() + ":" + revision + ":"
+                        + RemoteCiPolicy.DEFAULT_REPOSITORY_CI_POLICY_V1_SOURCE);
+        RemoteCiPolicy.Policy policy =
+                RemoteCiPolicy.DEFAULT_REPOSITORY_CI_POLICY_V1;
+        int inserted = jdbc.update("""
+                INSERT INTO remote_ci_policy_revision(
+                    id, task_id, remote_pr_binding_id, revision, source,
+                    none_outcome, missing_outcome, queued_outcome,
+                    pending_outcome, neutral_outcome, skipped_outcome,
+                    canceled_outcome, created_by, created_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, policyId, taskId, subject.bindingId(), revision,
+                RemoteCiPolicy.DEFAULT_REPOSITORY_CI_POLICY_V1_SOURCE,
+                policy.outcome(RemoteCiPolicy.CheckState.NONE).name(),
+                policy.outcome(RemoteCiPolicy.CheckState.MISSING).name(),
+                policy.outcome(RemoteCiPolicy.CheckState.QUEUED).name(),
+                policy.outcome(RemoteCiPolicy.CheckState.PENDING).name(),
+                policy.outcome(RemoteCiPolicy.CheckState.NEUTRAL).name(),
+                policy.outcome(RemoteCiPolicy.CheckState.SKIPPED).name(),
+                policy.outcome(RemoteCiPolicy.CheckState.CANCELED).name(),
+                CI_POLICY_UPGRADE_ACTOR, at.toEpochMilli());
+        if (inserted != 1) {
+            throw new IllegalStateException(
+                    "Default repository CI policy was not appended");
+        }
+        jdbc.update("""
+                INSERT INTO remote_ci_required_check(
+                    ci_policy_revision_id, check_name)
+                SELECT ?, check_name
+                FROM remote_ci_required_check
+                WHERE ci_policy_revision_id = ?
+                """, policyId, subject.policyId());
+        return true;
     }
 
     public RemoteContext requireRemoteContext(String taskId, String stageId)
@@ -138,6 +242,29 @@ public class SqliteRemoteRuntimeStore
                 .stream().findFirst();
     }
 
+    /** Exact request identity retained for idempotent recovery-command replay. */
+    public ObservationRequest requireObservationRequest(String operationId)
+    {
+        requireText(operationId, "operationId");
+        List<ObservationRequest> rows = jdbc.query("""
+                SELECT id, operation_id, task_id,
+                       remote_development_stage_id AS stage_id,
+                       semantic_attempt, requested_at_ms
+                FROM remote_observation_operation
+                WHERE operation_id = ?
+                """, (rs, row) -> new ObservationRequest(
+                        rs.getString("id"), rs.getString("operation_id"),
+                        rs.getString("task_id"), rs.getString("stage_id"),
+                        rs.getInt("semantic_attempt"),
+                        instant(rs, "requested_at_ms")), operationId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one retained Remote observation request, found "
+                            + rows.size());
+        }
+        return rows.getFirst();
+    }
+
     /** Current V2 Remote owners whose last observation is old and has no live ticket. */
     public List<ObservationTarget> findDueObservations(
             Instant requestedNotAfter, int limit)
@@ -174,6 +301,61 @@ public class SqliteRemoteRuntimeStore
                         rs.getString("stage_id"),
                         Instant.ofEpochMilli(rs.getLong("last_requested_at_ms"))),
                 requestedNotAfter.toEpochMilli(), limit);
+    }
+
+    /** Exact current read-only observations parked after bounded reconciliation. */
+    public List<ParkedObservation> findParkedObservations(
+            Instant attemptedNotAfter, int limit)
+    {
+        requireNonNull(attemptedNotAfter, "attemptedNotAfter is null");
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        return jdbc.query("""
+                SELECT ticket.id AS ticket_id, operation.task_id,
+                       operation.remote_development_stage_id AS stage_id,
+                       COALESCE(ticket.started_at_ms, ticket.created_at_ms)
+                           AS last_attempted_at_ms
+                FROM remote_observation_operation operation
+                JOIN dispatch_ticket ticket
+                  ON ticket.operation_id = operation.operation_id
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = operation.remote_development_stage_id
+                JOIN stage owner ON owner.id = remote.stage_id
+                JOIN tasks task ON task.id = operation.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                WHERE operation.status = 'DISPATCHED'
+                  AND ticket.operation_kind = 'OBSERVE_REMOTE_PR'
+                  AND ticket.async_family = 'REMOTE_OBSERVATION'
+                  AND ticket.owner_kind = 'STAGE'
+                  AND ticket.owner_id = operation.remote_development_stage_id
+                  AND ticket.callback_route = 'REMOTE_OBSERVATION_RESULT'
+                  AND ticket.status = 'RECONCILE_WAIT'
+                  AND ticket.next_attempt_at_ms IS NULL
+                  AND ticket.cancel_requested_at_ms IS NULL
+                  AND ticket.task_id = operation.task_id
+                  AND ticket.task_epoch = operation.task_epoch
+                  AND ticket.stage_id = operation.remote_development_stage_id
+                  AND ticket.stage_generation = operation.stage_generation
+                  AND ticket.attempt = operation.semantic_attempt
+                  AND ticket.expected_head_sha = operation.expected_head_sha
+                  AND ticket.expected_base_sha = operation.expected_base_sha
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = operation.task_epoch
+                  AND owner.completed_at_ms IS NULL
+                  AND current.stage_id = operation.remote_development_stage_id
+                  AND current.stage_generation = operation.stage_generation
+                  AND remote.generation = operation.stage_generation
+                  AND COALESCE(ticket.started_at_ms, ticket.created_at_ms) <= ?
+                ORDER BY last_attempted_at_ms, operation.task_id,
+                         operation.remote_development_stage_id
+                LIMIT ?
+                """, (rs, row) -> new ParkedObservation(
+                        rs.getString("ticket_id"), rs.getString("task_id"),
+                        rs.getString("stage_id"),
+                        instant(rs, "last_attempted_at_ms")),
+                attemptedNotAfter.toEpochMilli(), limit);
     }
 
     public ObservationRequest insertObservation(RemoteContext context, Instant at)
@@ -223,20 +405,19 @@ public class SqliteRemoteRuntimeStore
     public RemoteObservationOperationHandler.OperationContext requireObservation(
             String operationId)
     {
-        List<RemoteObservationOperationHandler.OperationContext> rows = jdbc.query("""
+        List<ObservationOperationRow> rows = jdbc.query("""
                 SELECT operation.operation_id, operation.remote_development_stage_id,
                        operation.task_epoch, operation.stage_generation,
                        operation.semantic_attempt, operation.expected_head_sha,
                        operation.expected_base_sha,
                        binding.remote_repository_id, binding.remote_pr_number,
-                       binding.remote_head_ref,
                        operation.ci_policy_revision_id
                 FROM remote_observation_operation operation
                 JOIN remote_pr_binding binding
                   ON binding.id = operation.remote_pr_binding_id
                 WHERE operation.operation_id = ?
                   AND operation.status = 'DISPATCHED'
-                """, (rs, row) -> new RemoteObservationOperationHandler.OperationContext(
+                """, (rs, row) -> new ObservationOperationRow(
                         rs.getString("operation_id"),
                         rs.getString("remote_development_stage_id"),
                         rs.getLong("task_epoch"),
@@ -244,19 +425,23 @@ public class SqliteRemoteRuntimeStore
                         rs.getInt("semantic_attempt"),
                         rs.getString("expected_head_sha"),
                         rs.getString("expected_base_sha"),
-                        new RemoteObservationOperationHandler.Request(
-                                rs.getString("remote_repository_id"),
-                                rs.getInt("remote_pr_number"),
-                                rs.getString("expected_head_sha"),
-                                rs.getString("expected_base_sha"),
-                                requiredChecks(rs.getString(
-                                        "ci_policy_revision_id")))), operationId);
+                        rs.getString("remote_repository_id"),
+                        rs.getInt("remote_pr_number"),
+                        rs.getString("ci_policy_revision_id")), operationId);
         if (rows.size() != 1) {
             throw new IllegalStateException(
                     "Expected one dispatched Remote observation, found "
                             + rows.size());
         }
-        return rows.getFirst();
+        ObservationOperationRow row = rows.getFirst();
+        return new RemoteObservationOperationHandler.OperationContext(
+                row.operationId(), row.stageId(), row.taskEpoch(),
+                row.stageGeneration(), row.semanticAttempt(),
+                row.expectedHeadSha(), row.expectedBaseSha(),
+                new RemoteObservationOperationHandler.Request(
+                        row.repositoryId(), row.pullRequestNumber(),
+                        row.expectedHeadSha(), row.expectedBaseSha(),
+                        requiredChecks(row.ciPolicyRevisionId())));
     }
 
     public String requireObservationTaskId(String operationId)
@@ -304,6 +489,12 @@ public class SqliteRemoteRuntimeStore
                        current.stage_id AS current_stage_id,
                        current.stage_generation AS current_stage_generation,
                        owner.completed_at_ms,
+                       policy.id = (
+                         SELECT candidate.id
+                         FROM remote_ci_policy_revision candidate
+                         WHERE candidate.task_id = operation.task_id
+                         ORDER BY candidate.revision DESC
+                         LIMIT 1) AS current_ci_policy,
                        policy.none_outcome, policy.missing_outcome,
                        policy.queued_outcome, policy.pending_outcome,
                        policy.neutral_outcome, policy.skipped_outcome,
@@ -395,6 +586,10 @@ public class SqliteRemoteRuntimeStore
         String columns = observation.schemaVersion() == 1 ? "" :
                 ", viewer_login, viewer_can_merge";
         String values = observation.schemaVersion() == 1 ? "" : ", ?, ?";
+        if (observation.schemaVersion() >= 3) {
+            columns += ", ci_provenance_json";
+            values += ", ?";
+        }
         List<Object> arguments = new ArrayList<>(List.of(
                 snapshotId, context.stageId(), context.taskId(),
                 context.taskEpoch(), context.stageGeneration(),
@@ -404,6 +599,7 @@ public class SqliteRemoteRuntimeStore
                 observation.baseSha(), observation.prState().name(),
                 observation.mergeability().name(),
                 observation.mergeQueueState().name(),
+                observation.mergeQueueCapability().name(),
                 observation.effectiveApprovalCount(),
                 observation.writeApprovalCount(),
                 observation.changesRequestedCount(),
@@ -411,9 +607,12 @@ public class SqliteRemoteRuntimeStore
                 observation.unresolvedThreadCount(),
                 observation.unresolvedCommentCount(), observation.observedAtMs(),
                 observation.rawEvidence()));
-        if (observation.schemaVersion() == 2) {
+        if (observation.schemaVersion() >= 2) {
             arguments.add(observation.viewerLogin());
             arguments.add(observation.viewerCanMerge() ? 1 : 0);
+        }
+        if (observation.schemaVersion() >= 3) {
+            arguments.add(writeJson(observation.ciProvenance()));
         }
         jdbc.update("""
                 INSERT INTO remote_pr_snapshot(
@@ -422,13 +621,25 @@ public class SqliteRemoteRuntimeStore
                     observation_revision, observation_key,
                     remote_repository_id, remote_pr_number, head_sha, base_sha,
                     pr_state, mergeability, merge_queue_state,
+                    merge_queue_capability,
                     effective_approval_count, write_approval_count,
                     changes_requested_count, requested_reviewer_count,
                     unresolved_thread_count, unresolved_comment_count,
                     observed_at_ms, raw_evidence%s)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?%s)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?%s)
                 """.formatted(columns, values), arguments.toArray());
+    }
+
+    private String writeJson(Object value)
+    {
+        try {
+            return json.writeValueAsString(value);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                    "Could not serialize typed Remote CI provenance", e);
+        }
     }
 
     public void acceptObservation(
@@ -530,14 +741,22 @@ public class SqliteRemoteRuntimeStore
                 .stream().findFirst();
     }
 
-    public boolean hasExhaustedCiSubject(
+    public boolean hasSuppressedCiSubject(
             String stageId, String headSha, String baseSha)
     {
         Integer count = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM ci_repair_episode
-                WHERE remote_development_stage_id = ?
-                  AND subject_head_sha = ? AND subject_base_sha = ?
-                  AND status = 'EXHAUSTED'
+                SELECT COUNT(*)
+                FROM ci_repair_episode episode
+                WHERE episode.remote_development_stage_id = ?
+                  AND episode.subject_head_sha = ?
+                  AND episode.subject_base_sha = ?
+                  AND (episode.status = 'EXHAUSTED'
+                    OR (episode.status = 'STOPPED' AND EXISTS (
+                        SELECT 1 FROM ci_repair_control_command command
+                        WHERE command.ci_repair_episode_id = episode.id
+                          AND command.kind IN (
+                              'STOP_AUTOMATION', 'MANUAL_TAKEOVER')
+                          AND command.consumed_at_ms IS NOT NULL)))
                 """, Integer.class, stageId, headSha, baseSha);
         return count != null && count > 0;
     }
@@ -570,9 +789,96 @@ public class SqliteRemoteRuntimeStore
         return findLiveCiEpisode(context.stageId()).orElseThrow();
     }
 
+    public CiEpisode supersedeUnknownCiEpisode(
+            CiEpisode predecessor,
+            ObservationDelivery context,
+            ObservationEvidence evidence,
+            String classification,
+            String provenanceDigest,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(predecessor, "predecessor is null");
+        requireNonNull(context, "context is null");
+        requireNonNull(evidence, "evidence is null");
+        requireText(classification, "classification");
+        requireText(provenanceDigest, "provenanceDigest");
+        if (!"UNKNOWN".equals(predecessor.classification())
+                || "UNKNOWN".equals(classification)) {
+            throw new IllegalArgumentException(
+                    "CI supersession requires UNKNOWN followed by proof");
+        }
+        if (!predecessor.subjectHeadSha().equals(evidence.headSha())
+                || !predecessor.subjectBaseSha().equals(evidence.baseSha())) {
+            throw new IllegalArgumentException(
+                    "CI supersession changed the exact subject");
+        }
+        String reason = "superseded by stronger exact CI provenance";
+        updateOne("""
+                UPDATE ci_repair_episode
+                SET status = 'STOPPED', completed_at_ms = ?, stop_reason = ?
+                WHERE id = ? AND classification = 'UNKNOWN'
+                  AND status NOT IN ('SUCCEEDED', 'EXHAUSTED', 'STOPPED')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ci_repair_operation operation
+                      WHERE operation.ci_repair_episode_id = ci_repair_episode.id
+                        AND operation.status IN ('REQUESTED', 'DISPATCHED'))
+                """, "UNKNOWN CI Episode changed before supersession",
+                at.toEpochMilli(), reason, predecessor.id());
+        resolveCiBlocker(predecessor.id(), reason, at);
+
+        String successorId = id("ci-repair-episode", evidence.ciEvaluationId());
+        jdbc.update("""
+                INSERT INTO ci_repair_episode(
+                    id, remote_development_stage_id, task_id, task_epoch,
+                    stage_generation, remote_pr_binding_id,
+                    failed_ci_evaluation_id, subject_head_sha,
+                    subject_base_sha, classification, status,
+                    rerun_count, rerun_limit, fix_attempt_count,
+                    fix_attempt_limit, delivery_retry_count,
+                    delivery_retry_limit, push_count, push_limit,
+                    last_pushed_head_sha, last_push_result_evaluation_id,
+                    opened_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?)
+                """, successorId, context.stageId(), context.taskId(),
+                context.taskEpoch(), context.stageGeneration(),
+                context.remotePrBindingId(), evidence.ciEvaluationId(),
+                evidence.headSha(), evidence.baseSha(), classification,
+                predecessor.rerunCount(), predecessor.rerunLimit(),
+                predecessor.fixAttemptCount(), predecessor.fixAttemptLimit(),
+                predecessor.deliveryRetryCount(),
+                predecessor.deliveryRetryLimit(), predecessor.pushCount(),
+                predecessor.pushLimit(), predecessor.lastPushedHeadSha(),
+                predecessor.lastPushResultEvaluationId(), at.toEpochMilli());
+
+        String predecessorSnapshot = requireSingleString("""
+                SELECT remote_pr_snapshot_id FROM remote_ci_evaluation
+                WHERE id = ?
+                """, predecessor.failedCiEvaluationId(),
+                "Predecessor CI snapshot is missing");
+        jdbc.update("""
+                INSERT INTO ci_repair_episode_supersession_v303(
+                    predecessor_episode_id, successor_episode_id,
+                    predecessor_evaluation_id, successor_evaluation_id,
+                    predecessor_snapshot_id, successor_snapshot_id,
+                    head_sha, base_sha, provenance_digest, superseded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, predecessor.id(), successorId,
+                predecessor.failedCiEvaluationId(), evidence.ciEvaluationId(),
+                predecessorSnapshot, evidence.snapshotId(), evidence.headSha(),
+                evidence.baseSha(), provenanceDigest, at.toEpochMilli());
+        return requireCiEpisode(context.taskId(), successorId);
+    }
+
     public void stopCiEpisode(CiEpisode episode, String reason, Instant at)
     {
         requireTransaction();
+        CiEpisode current = requireCiEpisode(episode.taskId(), episode.id());
+        if (List.of("SUCCEEDED", "EXHAUSTED", "STOPPED")
+                .contains(current.status())) {
+            return;
+        }
         updateOne("""
                 UPDATE ci_repair_episode
                 SET status = 'STOPPED', completed_at_ms = ?, stop_reason = ?
@@ -580,16 +886,974 @@ public class SqliteRemoteRuntimeStore
                   AND status NOT IN ('SUCCEEDED', 'EXHAUSTED', 'STOPPED')
                 """, "CI repair Episode changed before stop",
                 at.toEpochMilli(), reason, episode.id());
+        resolveCiBlocker(episode.id(), reason, at);
+    }
+
+    /** Requests cancellation of every old CI writer before BranchSync starts. */
+    public int requestCancelLiveCiWork(
+            String stageId, String reason, Instant at)
+    {
+        requireTransaction();
+        return jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1,
+                    cancel_requested_at_ms = COALESCE(
+                        cancel_requested_at_ms, ?),
+                    last_error = ?
+                WHERE operation_id IN (
+                    SELECT operation.operation_id
+                    FROM ci_repair_operation operation
+                    WHERE operation.remote_development_stage_id = ?
+                      AND operation.status IN ('REQUESTED', 'DISPATCHED')
+                    UNION ALL
+                    SELECT operation.operation_id
+                    FROM ci_repair_fix_continuation_operation_v318 operation
+                    WHERE operation.remote_development_stage_id = ?
+                      AND operation.status IN ('REQUESTED', 'DISPATCHED'))
+                  AND status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELED')
+                  AND cancel_requested_at_ms IS NULL
+                """, at.toEpochMilli(), reason, stageId, stageId);
+    }
+
+    public boolean hasUnsettledCiWork(String stageId)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM (
+                    SELECT operation.id
+                    FROM ci_repair_operation operation
+                    WHERE operation.remote_development_stage_id = ?
+                      AND operation.status IN ('REQUESTED', 'DISPATCHED')
+                    UNION ALL
+                    SELECT operation.id
+                    FROM ci_repair_fix_continuation_operation_v318 operation
+                    WHERE operation.remote_development_stage_id = ?
+                      AND operation.status IN ('REQUESTED', 'DISPATCHED'))
+                """, Integer.class, stageId, stageId);
+        return count != null && count > 0;
+    }
+
+    public Optional<String> findCurrentAutoApprovePolicyId(String taskId)
+    {
+        return jdbc.query("""
+                SELECT id FROM task_automation_policy
+                WHERE task_id = ? AND auto_approve = 1
+                  AND stewardship_exception = 0
+                  AND revision = (
+                      SELECT MAX(current.revision)
+                      FROM task_automation_policy current
+                      WHERE current.task_id = task_automation_policy.task_id)
+                ORDER BY revision DESC LIMIT 1
+                """, (rs, row) -> rs.getString(1), taskId)
+                .stream().findFirst();
+    }
+
+    public String openCiBranchSyncBlocker(
+            RemoteObservationConsumer.Candidate candidate, Instant at)
+    {
+        requireTransaction();
+        String blockerId = id("ci-branch-sync-blocker",
+                candidate.context().stageId() + ":"
+                        + candidate.evidence().headSha() + ":"
+                        + candidate.evidence().baseSha());
+        jdbc.update("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = 'superseded Remote branch subject'
+                WHERE stage_id = ? AND owner_kind = 'STAGE' AND owner_id = ?
+                  AND blocker_type = 'CI_BRANCH_SYNC_REQUIRED'
+                  AND status = 'OPEN' AND id <> ?
+                """, at.toEpochMilli(), candidate.context().stageId(),
+                candidate.context().stageId(), blockerId);
+        jdbc.update("""
+                INSERT INTO task_blocker(
+                    id, task_id, stage_id, owner_kind, owner_id,
+                    subject_revision, blocker_type, status, payload_json,
+                    opened_at_ms)
+                VALUES (?, ?, ?, 'STAGE', ?, ?, 'CI_BRANCH_SYNC_REQUIRED',
+                    'OPEN', ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    subject_revision = excluded.subject_revision,
+                    payload_json = excluded.payload_json
+                WHERE task_blocker.status = 'OPEN'
+                """, blockerId, candidate.context().taskId(),
+                candidate.context().stageId(), candidate.context().stageId(),
+                candidate.evidence().snapshotId(),
+                "{\"choices\":[\"START_BRANCH_SYNC\","
+                        + "\"MANUAL_TAKEOVER\",\"STOP_AUTOMATION\"]}",
+                at.toEpochMilli());
+        return blockerId;
+    }
+
+    public void resolveCiBranchSyncBlocker(
+            String blockerId, String evidence, Instant at)
+    {
+        requireTransaction();
+        updateOne("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = ?
+                WHERE id = ? AND blocker_type = 'CI_BRANCH_SYNC_REQUIRED'
+                  AND status = 'OPEN'
+                """, "CI branch-sync blocker changed before resolution",
+                at.toEpochMilli(), evidence, blockerId);
+    }
+
+    public void resolveOpenCiBranchSyncBlockers(
+            String stageId, String evidence, Instant at)
+    {
+        requireTransaction();
+        requireText(stageId, "stageId");
+        requireText(evidence, "evidence");
+        requireNonNull(at, "at is null");
+        jdbc.update("""
+                UPDATE ci_branch_sync_manual_authorization_v319
+                SET status = 'CANCELED', consumed_at_ms = ?
+                WHERE stage_id = ? AND status = 'CLAIMED'
+                """, at.toEpochMilli(), stageId);
+        jdbc.update("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = ?
+                WHERE stage_id = ? AND owner_kind = 'STAGE' AND owner_id = ?
+                  AND blocker_type = 'CI_BRANCH_SYNC_REQUIRED'
+                  AND status = 'OPEN'
+                """, at.toEpochMilli(), evidence, stageId, stageId);
+    }
+
+    public ManualCiBranchSyncAuthorization claimCiBranchSyncManualAuthorization(
+            String taskId,
+            String stageId,
+            String episodeId,
+            String blockerId,
+            String commandId,
+            ObservationRequest observation,
+            String actor,
+            String reason,
+            Instant at)
+    {
+        requireTransaction();
+        requireText(taskId, "taskId");
+        requireText(stageId, "stageId");
+        requireText(episodeId, "episodeId");
+        requireText(blockerId, "blockerId");
+        requireText(commandId, "commandId");
+        requireNonNull(observation, "observation is null");
+        requireText(actor, "actor");
+        requireText(reason, "reason");
+        requireNonNull(at, "at is null");
+        ManualCiBranchSyncAuthorization duplicate =
+                findCiBranchSyncManualAuthorization(commandId).orElse(null);
+        if (duplicate != null) {
+            if (!taskId.equals(duplicate.taskId())
+                    || !stageId.equals(duplicate.stageId())
+                    || !episodeId.equals(duplicate.episodeId())
+                    || !blockerId.equals(duplicate.blockerId())
+                    || !observation.operationId().equals(
+                            duplicate.observationOperationId())
+                    || !actor.equals(duplicate.actor())
+                    || !reason.equals(duplicate.reason())) {
+                throw new IllegalArgumentException(
+                        "CI branch-sync command was already used with other values");
+            }
+            return duplicate;
+        }
+        RemoteAcceptedSubject accepted = jdbc.query("""
+                SELECT accepted_snapshot_id, accepted_observation_revision
+                FROM remote_development_stage
+                WHERE stage_id = ? AND task_id = ?
+                  AND accepted_snapshot_id IS NOT NULL
+                """, (rs, row) -> new RemoteAcceptedSubject(
+                        rs.getString("accepted_snapshot_id"),
+                        rs.getInt("accepted_observation_revision")),
+                stageId, taskId).stream().findFirst().orElseThrow(() ->
+                        new IllegalStateException(
+                                "CI branch-sync accepted Remote snapshot is missing"));
+        String authorizationId = id(
+                "ci-branch-sync-manual-authorization", commandId);
+        jdbc.update("""
+                INSERT INTO ci_branch_sync_manual_authorization_v319(
+                    id, blocker_id, ci_repair_episode_id, task_id, stage_id,
+                    predecessor_snapshot_id,
+                    predecessor_observation_revision, command_id,
+                    observation_operation_id, actor, reason, status,
+                    claimed_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLAIMED', ?)
+                """, authorizationId, blockerId, episodeId, taskId, stageId,
+                accepted.snapshotId(), accepted.revision(), commandId,
+                observation.operationId(), actor, reason, at.toEpochMilli());
+        return findCiBranchSyncManualAuthorization(commandId).orElseThrow();
+    }
+
+    public Optional<ManualCiBranchSyncAuthorization>
+            findCiBranchSyncManualAuthorization(String commandId)
+    {
+        requireText(commandId, "commandId");
+        return jdbc.query("""
+                SELECT id, blocker_id, ci_repair_episode_id, task_id, stage_id,
+                       predecessor_snapshot_id,
+                       predecessor_observation_revision,
+                       command_id, observation_operation_id, actor, reason,
+                       status,
+                       branch_sync_episode_id, claimed_at_ms, consumed_at_ms
+                FROM ci_branch_sync_manual_authorization_v319
+                WHERE command_id = ?
+                """, (rs, row) -> new ManualCiBranchSyncAuthorization(
+                        rs.getString("id"), rs.getString("blocker_id"),
+                        rs.getString("ci_repair_episode_id"),
+                        rs.getString("task_id"), rs.getString("stage_id"),
+                        rs.getString("predecessor_snapshot_id"),
+                        rs.getInt("predecessor_observation_revision"),
+                        rs.getString("command_id"),
+                        rs.getString("observation_operation_id"),
+                        rs.getString("actor"),
+                        rs.getString("reason"), rs.getString("status"),
+                        rs.getString("branch_sync_episode_id"),
+                        instant(rs, "claimed_at_ms"),
+                        nullableInstant(rs, "consumed_at_ms")), commandId)
+                .stream().findFirst();
+    }
+
+    public Optional<ManualCiBranchSyncAuthorization>
+            findClaimedCiBranchSyncManualAuthorization(String stageId)
+    {
+        requireText(stageId, "stageId");
+        List<ManualCiBranchSyncAuthorization> rows = jdbc.query("""
+                SELECT id, blocker_id, ci_repair_episode_id, task_id, stage_id,
+                       predecessor_snapshot_id,
+                       predecessor_observation_revision,
+                       command_id, observation_operation_id, actor, reason,
+                       status,
+                       branch_sync_episode_id, claimed_at_ms, consumed_at_ms
+                FROM ci_branch_sync_manual_authorization_v319
+                WHERE stage_id = ? AND status = 'CLAIMED'
+                """, (rs, row) -> new ManualCiBranchSyncAuthorization(
+                        rs.getString("id"), rs.getString("blocker_id"),
+                        rs.getString("ci_repair_episode_id"),
+                        rs.getString("task_id"), rs.getString("stage_id"),
+                        rs.getString("predecessor_snapshot_id"),
+                        rs.getInt("predecessor_observation_revision"),
+                        rs.getString("command_id"),
+                        rs.getString("observation_operation_id"),
+                        rs.getString("actor"),
+                        rs.getString("reason"), rs.getString("status"),
+                        rs.getString("branch_sync_episode_id"),
+                        instant(rs, "claimed_at_ms"),
+                        nullableInstant(rs, "consumed_at_ms")), stageId);
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "Remote Stage has multiple claimed CI branch-sync intents");
+        }
+        return rows.stream().findFirst();
+    }
+
+    public void consumeCiBranchSyncManualAuthorization(
+            ManualCiBranchSyncAuthorization authorization,
+            BranchEpisode episode,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(authorization, "authorization is null");
+        requireNonNull(episode, "episode is null");
+        requireNonNull(at, "at is null");
+        updateOne("""
+                UPDATE ci_branch_sync_manual_authorization_v319
+                SET status = 'CONSUMED', branch_sync_episode_id = ?,
+                    consumed_at_ms = ?
+                WHERE id = ? AND status = 'CLAIMED'
+                """, "CI branch-sync manual authority changed before consumption",
+                episode.id(), at.toEpochMilli(), authorization.id());
+        resolveCiBranchSyncBlocker(
+                authorization.blockerId(),
+                "START_BRANCH_SYNC: " + authorization.commandId(), at);
     }
 
     public boolean hasLiveCiOperation(String episodeId)
     {
         Integer count = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM ci_repair_operation
-                WHERE ci_repair_episode_id = ?
-                  AND status IN ('REQUESTED', 'DISPATCHED')
-                """, Integer.class, episodeId);
+                SELECT COUNT(*) FROM (
+                    SELECT id FROM ci_repair_operation
+                    WHERE ci_repair_episode_id = ?
+                      AND status IN ('REQUESTED', 'DISPATCHED')
+                    UNION ALL
+                    SELECT id FROM ci_repair_fix_continuation_operation_v318
+                    WHERE ci_repair_episode_id = ?
+                      AND status IN ('REQUESTED', 'DISPATCHED'))
+                """, Integer.class, episodeId, episodeId);
         return count != null && count > 0;
+    }
+
+    public Optional<CiPushSubject> findLiveCiPushSubject(String episodeId)
+    {
+        List<CiPushSubject> rows = jdbc.query("""
+                SELECT expected_head_sha, expected_base_sha
+                FROM ci_repair_operation
+                WHERE ci_repair_episode_id = ? AND kind = 'PUSH_HEAD'
+                  AND status IN ('REQUESTED', 'DISPATCHED')
+                """, (rs, row) -> new CiPushSubject(
+                        rs.getString("expected_head_sha"),
+                        rs.getString("expected_base_sha")), episodeId);
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "Expected at most one live CI push, found " + rows.size());
+        }
+        return rows.stream().findFirst();
+    }
+
+    public boolean hasOpenCiBlocker(String episodeId)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM task_blocker blocker
+                WHERE blocker.status = 'OPEN'
+                  AND ((blocker.owner_kind = 'EPISODE'
+                        AND blocker.owner_id = ?)
+                    OR EXISTS (
+                        SELECT 1
+                        FROM remote_repair_brain_failure_receipt_v309 failure
+                        WHERE failure.ci_repair_episode_id = ?
+                          AND failure.blocker_id = blocker.id))
+                """, Integer.class, episodeId, episodeId);
+        return count != null && count > 0;
+    }
+
+    /**
+     * Freezes the exact accepted Remote observation that authorizes the next
+     * CI writer Turn. A continuation is eligible only on a strictly newer
+     * observation revision than the one frozen by its terminal predecessor.
+     */
+    public Optional<CiTurnFreshness> authorizeCiTurn(
+            RemoteObservationConsumer.Candidate candidate,
+            CiEpisode episode,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(candidate, "candidate is null");
+        requireNonNull(episode, "episode is null");
+        requireNonNull(at, "at is null");
+        CodeSubject code = requireCodeSubject(episode.taskId());
+        if (!code.baseSha().equals(candidate.evidence().baseSha())) {
+            return Optional.empty();
+        }
+
+        CiTurnIntent intent = findCiTurnIntent(episode, candidate);
+        if (intent == null
+                || intent.predecessorRevision() != null
+                    && (candidate.evidence().revision()
+                            <= intent.predecessorRevision()
+                        || candidate.evidence().snapshotId().equals(
+                                intent.predecessorSnapshotId()))) {
+            return Optional.empty();
+        }
+        String proofId = id("ci-repair-turn-freshness",
+                intent.kind() + ":" + intent.id());
+        String prepublishBranchEpisodeId = findPrepublishBranchEpisode(
+                episode, code, candidate.evidence().headSha(),
+                candidate.evidence().baseSha());
+        jdbc.update("""
+                INSERT OR IGNORE INTO ci_repair_turn_freshness_v319(
+                    id, ci_repair_episode_id, intent_kind, intent_id,
+                    semantic_attempt, execution_attempt,
+                    predecessor_snapshot_id,
+                    predecessor_observation_revision,
+                    accepted_snapshot_id, accepted_observation_revision,
+                    accepted_ci_evaluation_id, remote_head_sha,
+                    authoritative_base_sha, code_fingerprint, code_head_sha,
+                    code_base_sha, prepublish_branch_sync_episode_id,
+                    authorized_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, proofId, episode.id(), intent.kind(), intent.id(),
+                intent.semanticAttempt(), intent.executionAttempt(),
+                intent.predecessorSnapshotId(), intent.predecessorRevision(),
+                candidate.evidence().snapshotId(),
+                candidate.evidence().revision(),
+                candidate.evidence().ciEvaluationId(),
+                candidate.evidence().headSha(),
+                candidate.evidence().baseSha(), code.codeFingerprint(),
+                code.headSha(), code.baseSha(), prepublishBranchEpisodeId,
+                at.toEpochMilli());
+        return findCiTurnFreshness(intent.kind(), intent.id());
+    }
+
+    private String findPrepublishBranchEpisode(
+            CiEpisode episode,
+            CodeSubject code,
+            String remoteHeadSha,
+            String authoritativeBaseSha)
+    {
+        List<String> rows = jdbc.query("""
+                WITH RECURSIVE lineage(
+                        code_fingerprint, head_sha, base_sha) AS (
+                    SELECT ?, ?, ?
+                    UNION
+                    SELECT predecessor.source_code_fingerprint,
+                           predecessor.source_head_sha,
+                           predecessor.source_base_sha
+                    FROM remote_code_subject_predecessor_v319 predecessor
+                    JOIN lineage child
+                      ON child.code_fingerprint =
+                            predecessor.code_fingerprint
+                     AND child.head_sha = predecessor.head_sha
+                     AND child.base_sha = predecessor.base_sha
+                    WHERE predecessor.task_id = ?
+                      AND predecessor.task_epoch = ?
+                      AND predecessor.remote_development_stage_id = ?
+                      AND predecessor.stage_generation = ?
+                      AND predecessor.source_code_fingerprint IS NOT NULL)
+                SELECT DISTINCT branch.id
+                FROM branch_sync_episode branch
+                JOIN lineage subject
+                  ON subject.code_fingerprint = branch.result_code_fingerprint
+                 AND subject.head_sha = branch.result_head_sha
+                 AND subject.base_sha = branch.target_base_sha
+                WHERE branch.ci_repair_episode_id = ?
+                  AND branch.purpose = 'CI_PRECONDITION_LOCAL'
+                  AND branch.status = 'SUCCEEDED'
+                  AND branch.old_head_sha = ?
+                  AND branch.target_base_sha = ?
+                """, (rs, row) -> rs.getString("id"),
+                code.codeFingerprint(), code.headSha(), code.baseSha(),
+                episode.taskId(), episode.taskEpoch(), episode.stageId(),
+                episode.stageGeneration(), episode.id(), remoteHeadSha,
+                authoritativeBaseSha);
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "CI freshness has more than one prepublish BranchSync lineage");
+        }
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    public Optional<CiTurnFreshness> findCiTurnFreshness(
+            String intentKind, String intentId)
+    {
+        return jdbc.query("""
+                SELECT id, ci_repair_episode_id, intent_kind, intent_id,
+                       semantic_attempt, execution_attempt,
+                       predecessor_snapshot_id,
+                       predecessor_observation_revision,
+                       accepted_snapshot_id, accepted_observation_revision,
+                       accepted_ci_evaluation_id, remote_head_sha,
+                       authoritative_base_sha, code_fingerprint,
+                       code_head_sha, code_base_sha,
+                       prepublish_branch_sync_episode_id, authorized_at_ms
+                FROM ci_repair_turn_freshness_v319
+                WHERE intent_kind = ? AND intent_id = ?
+                """, (rs, row) -> ciTurnFreshness(rs),
+                intentKind, intentId).stream().findFirst();
+    }
+
+    public boolean hasPendingCiTurnIntent(String episodeId)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM (
+                    SELECT id FROM ci_repair_fix_continuation_due_v318
+                    WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                    UNION ALL
+                    SELECT id FROM ci_repair_next_fix_due_v318
+                    WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                    UNION ALL
+                    SELECT id FROM ci_repair_manual_turn_intent_v319
+                    WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                    UNION ALL
+                    SELECT fence.request_id
+                    FROM ci_repair_steering_fence_v319 fence
+                    JOIN stage_steering_request_v257 steering
+                      ON steering.id = fence.request_id
+                    WHERE fence.ci_repair_episode_id = ?
+                      AND steering.status = 'PENDING')
+                """, Integer.class,
+                episodeId, episodeId, episodeId, episodeId);
+        return count != null && count > 0;
+    }
+
+    /** A fresh green Remote result makes every not-yet-dispatched repair intent moot. */
+    public void cancelPendingCiTurnIntents(
+            String episodeId, String reason, Instant at)
+    {
+        requireTransaction();
+        requireText(episodeId, "episodeId");
+        requireText(reason, "reason");
+        requireNonNull(at, "at is null");
+        long consumedAt = at.toEpochMilli();
+        jdbc.update("""
+                UPDATE ci_repair_fix_continuation_due_v318
+                SET status = 'CANCELED', consumed_at_ms = ?
+                WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                """, consumedAt, episodeId);
+        jdbc.update("""
+                UPDATE ci_repair_next_fix_due_v318
+                SET status = 'CANCELED', consumed_at_ms = ?
+                WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                """, consumedAt, episodeId);
+        jdbc.update("""
+                UPDATE ci_repair_manual_turn_intent_v319
+                SET status = 'CANCELED', consumed_at_ms = ?
+                WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                """, consumedAt, episodeId);
+        jdbc.update("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = ?
+                WHERE id IN (
+                    SELECT blocker_id
+                    FROM ci_branch_sync_manual_authorization_v319
+                    WHERE ci_repair_episode_id = ? AND status = 'CLAIMED')
+                  AND status = 'OPEN'
+                """, consumedAt, reason, episodeId);
+        jdbc.update("""
+                UPDATE ci_branch_sync_manual_authorization_v319
+                SET status = 'CANCELED', consumed_at_ms = ?
+                WHERE ci_repair_episode_id = ? AND status = 'CLAIMED'
+                """, consumedAt, episodeId);
+        jdbc.update("""
+                UPDATE stage_steering_request_v257
+                SET status = 'SUPERSEDED', terminal_reason = ?
+                WHERE id IN (
+                    SELECT request_id FROM ci_repair_steering_fence_v319
+                    WHERE ci_repair_episode_id = ?)
+                  AND status = 'PENDING'
+                """, reason, episodeId);
+    }
+
+    private CiTurnIntent findCiTurnIntent(
+            CiEpisode episode, RemoteObservationConsumer.Candidate candidate)
+    {
+        CiTurnIntent pending = findPendingCiTurnIntent(episode);
+        if (pending != null) {
+            return pending;
+        }
+        if (candidate.ciEvaluation().outcome()
+                != RemoteCiPolicy.PolicyOutcome.FAILED) {
+            return null;
+        }
+        int attempt = episode.fixAttemptCount() + 1;
+        return new CiTurnIntent(
+                "OBSERVED_FAILURE", candidate.evidence().ciEvaluationId(),
+                attempt, attempt, null, null);
+    }
+
+    public Optional<CiLocalPrecondition> findPendingCiLocalPrecondition(
+            String stageId)
+    {
+        requireText(stageId, "stageId");
+        CiEpisode episode = findLiveCiEpisode(stageId).orElse(null);
+        if (episode == null) {
+            return Optional.empty();
+        }
+        CiTurnIntent intent = findPendingCiTurnIntent(episode);
+        if (intent == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new CiLocalPrecondition(
+                episode, intent.kind(), intent.id(),
+                requireCodeSubject(episode.taskId())));
+    }
+
+    private CiTurnIntent findPendingCiTurnIntent(CiEpisode episode)
+    {
+        List<CiTurnIntent> noChange = jdbc.query("""
+                SELECT 'NO_CHANGE_CONTINUATION' AS kind, id,
+                       semantic_attempt, execution_attempt,
+                       predecessor_accepted_snapshot_id AS predecessor_snapshot_id,
+                       predecessor_accepted_observation_revision AS predecessor_revision
+                FROM ci_repair_fix_continuation_due_v318
+                WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                """, (rs, row) -> ciTurnIntent(rs), episode.id());
+        if (!noChange.isEmpty()) {
+            return noChange.getFirst();
+        }
+        List<CiTurnIntent> next = jdbc.query("""
+                SELECT 'NEXT_FIX' AS kind, id,
+                       requested_semantic_attempt AS semantic_attempt,
+                       requested_semantic_attempt AS execution_attempt,
+                       predecessor_accepted_snapshot_id AS predecessor_snapshot_id,
+                       predecessor_accepted_observation_revision AS predecessor_revision
+                FROM ci_repair_next_fix_due_v318
+                WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                """, (rs, row) -> ciTurnIntent(rs), episode.id());
+        if (!next.isEmpty()) {
+            return next.getFirst();
+        }
+        List<CiTurnIntent> manual = jdbc.query("""
+                SELECT 'MANUAL_BASE_REPAIR' AS kind, id,
+                       semantic_attempt, semantic_attempt AS execution_attempt,
+                       predecessor_snapshot_id,
+                       predecessor_observation_revision AS predecessor_revision
+                FROM ci_repair_manual_turn_intent_v319
+                WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                """, (rs, row) -> ciTurnIntent(rs), episode.id());
+        if (!manual.isEmpty()) {
+            return manual.getFirst();
+        }
+        List<CiTurnIntent> steering = jdbc.query("""
+                SELECT 'STEERING' AS kind, fence.request_id AS id,
+                       fence.semantic_attempt, fence.semantic_attempt AS execution_attempt,
+                       fence.predecessor_snapshot_id,
+                       fence.predecessor_observation_revision AS predecessor_revision
+                FROM ci_repair_steering_fence_v319 fence
+                JOIN stage_steering_request_v257 request
+                  ON request.id = fence.request_id
+                WHERE fence.ci_repair_episode_id = ?
+                  AND request.status = 'PENDING'
+                """, (rs, row) -> ciTurnIntent(rs), episode.id());
+        if (!steering.isEmpty()) {
+            return steering.getFirst();
+        }
+        return null;
+    }
+
+    public ManualCiTurnIntent insertManualCiTurnIntent(
+            CiEpisode episode, String authorizationId, Instant at)
+    {
+        requireTransaction();
+        RemoteAcceptedSubject accepted = requireAcceptedRemoteSubject(episode.id());
+        int attempt = episode.fixAttemptCount() + 1;
+        String intentId = id("ci-repair-manual-turn-intent", authorizationId);
+        jdbc.update("""
+                INSERT OR IGNORE INTO ci_repair_manual_turn_intent_v319(
+                    id, ci_repair_episode_id, base_repair_authorization_id,
+                    predecessor_snapshot_id,
+                    predecessor_observation_revision, semantic_attempt,
+                    status, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                """, intentId, episode.id(), authorizationId,
+                accepted.snapshotId(), accepted.revision(), attempt,
+                at.toEpochMilli());
+        return findManualCiTurnIntent(episode.id()).orElseThrow();
+    }
+
+    public Optional<ManualCiTurnIntent> findManualCiTurnIntent(String episodeId)
+    {
+        return jdbc.query("""
+                SELECT id, ci_repair_episode_id,
+                       base_repair_authorization_id,
+                       predecessor_snapshot_id,
+                       predecessor_observation_revision,
+                       semantic_attempt, requested_at_ms
+                FROM ci_repair_manual_turn_intent_v319
+                WHERE ci_repair_episode_id = ? AND status = 'PENDING'
+                """, (rs, row) -> new ManualCiTurnIntent(
+                        rs.getString("id"), rs.getString("ci_repair_episode_id"),
+                        rs.getString("base_repair_authorization_id"),
+                        rs.getString("predecessor_snapshot_id"),
+                        rs.getInt("predecessor_observation_revision"),
+                        rs.getInt("semantic_attempt"),
+                        instant(rs, "requested_at_ms")), episodeId)
+                .stream().findFirst();
+    }
+
+    public void consumeManualCiTurnIntent(
+            ManualCiTurnIntent intent, Instant at)
+    {
+        requireTransaction();
+        updateOne("""
+                UPDATE ci_repair_manual_turn_intent_v319
+                SET status = 'DISPATCHED',
+                    dispatched_operation_row_id = (
+                        SELECT id FROM ci_repair_operation
+                        WHERE ci_repair_episode_id = ?
+                          AND kind = 'FIX_STAGE_TURN'
+                          AND semantic_attempt = ?
+                          AND status = 'DISPATCHED'),
+                    consumed_at_ms = ?
+                WHERE id = ? AND status = 'PENDING'
+                """, "Manual CI repair intent changed before dispatch",
+                intent.episodeId(), intent.semanticAttempt(),
+                at.toEpochMilli(), intent.id());
+    }
+
+    public boolean prepareCiSteeringFence(
+            String requestId, String episodeId, int semanticAttempt, Instant at)
+    {
+        requireTransaction();
+        RemoteAcceptedSubject accepted = requireAcceptedRemoteSubject(episodeId);
+        jdbc.update("""
+                INSERT OR IGNORE INTO ci_repair_steering_fence_v319(
+                    request_id, ci_repair_episode_id,
+                    predecessor_snapshot_id,
+                    predecessor_observation_revision,
+                    semantic_attempt, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, requestId, episodeId, accepted.snapshotId(),
+                accepted.revision(), semanticAttempt, at.toEpochMilli());
+        return findCiTurnFreshness("STEERING", requestId).isPresent();
+    }
+
+    private RemoteAcceptedSubject requireAcceptedRemoteSubject(String episodeId)
+    {
+        List<RemoteAcceptedSubject> rows = jdbc.query("""
+                SELECT remote.accepted_snapshot_id,
+                       remote.accepted_observation_revision
+                FROM ci_repair_episode episode
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = episode.remote_development_stage_id
+                WHERE episode.id = ? AND remote.accepted_snapshot_id IS NOT NULL
+                """, (rs, row) -> new RemoteAcceptedSubject(
+                        rs.getString("accepted_snapshot_id"),
+                        rs.getInt("accepted_observation_revision")), episodeId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "CI repair accepted Remote subject is missing");
+        }
+        return rows.getFirst();
+    }
+
+    public BaseRepairAuthorization authorizeBaseRepair(
+            CiEpisode episode,
+            String automationPolicyId,
+            String blockerId,
+            String commandId,
+            String authorityKind,
+            String actor,
+            String reason,
+            String expectedWorktreeHeadSha,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(episode, "episode is null");
+        requireText(commandId, "commandId");
+        requireText(authorityKind, "authorityKind");
+        requireText(reason, "reason");
+        requireText(expectedWorktreeHeadSha, "expectedWorktreeHeadSha");
+        if ("AUTO_APPROVE_POLICY".equals(authorityKind)) {
+            requireText(automationPolicyId, "automationPolicyId");
+            if (blockerId != null || actor != null) {
+                throw new IllegalArgumentException(
+                        "Automatic base repair cannot carry manual authority");
+            }
+        }
+        else if ("MANUAL".equals(authorityKind)) {
+            requireText(blockerId, "blockerId");
+            requireText(actor, "actor");
+            if (automationPolicyId != null) {
+                throw new IllegalArgumentException(
+                        "Manual base repair cannot carry policy authority");
+            }
+        }
+        else {
+            throw new IllegalArgumentException(
+                    "Unsupported base repair authority " + authorityKind);
+        }
+        List<BaseRepairAuthorization> existing = jdbc.query("""
+                SELECT id, ci_repair_episode_id, manifest_id,
+                       semantic_attempt, authority_kind,
+                       automation_policy_id, blocker_id, command_id, actor,
+                       reason, failed_ci_evaluation_id,
+                       remote_pr_snapshot_id, expected_worktree_head_sha,
+                       subject_head_sha, subject_base_sha, manifest_digest,
+                       status, claimed_at_ms, terminal_at_ms,
+                       terminal_evidence
+                FROM ci_base_repair_authorization_v303
+                WHERE command_id = ?
+                """, (rs, row) -> baseRepairAuthorization(rs), commandId);
+        if (!existing.isEmpty()) {
+            BaseRepairAuthorization authorization = existing.getFirst();
+            if (existing.size() != 1
+                    || !authorization.episodeId().equals(episode.id())
+                    || !authorization.authorityKind().equals(authorityKind)
+                    || !Objects.equals(authorization.automationPolicyId(),
+                            automationPolicyId)
+                    || !Objects.equals(authorization.blockerId(), blockerId)
+                    || !Objects.equals(authorization.actor(), actor)
+                    || !authorization.reason().equals(reason)
+                    || !authorization.expectedWorktreeHeadSha().equals(
+                            expectedWorktreeHeadSha)) {
+                throw new IllegalArgumentException(
+                        "CI base-repair command was already used with other values");
+            }
+            return authorization;
+        }
+
+        List<String> snapshotIds = jdbc.query("""
+                SELECT evaluation.remote_pr_snapshot_id
+                FROM remote_ci_evaluation evaluation
+                JOIN remote_pr_snapshot snapshot
+                  ON snapshot.id = evaluation.remote_pr_snapshot_id
+                WHERE evaluation.id = ? AND evaluation.task_id = ?
+                  AND evaluation.head_sha = ? AND evaluation.base_sha = ?
+                  AND snapshot.ci_provenance_json IS NOT NULL
+                  AND json_valid(snapshot.ci_provenance_json)
+                  AND json_extract(snapshot.ci_provenance_json,
+                      '$.schemaVersion') IN (3, 4, 5)
+                  AND json_extract(snapshot.ci_provenance_json,
+                      '$.complete') = 1
+                """, (rs, row) -> rs.getString(1),
+                episode.failedCiEvaluationId(), episode.taskId(),
+                episode.subjectHeadSha(), episode.subjectBaseSha());
+        if (snapshotIds.size() != 1) {
+            throw new IllegalStateException(
+                    "Base repair requires one complete typed CI proof");
+        }
+        String snapshotId = snapshotIds.getFirst();
+        String manifestJson = writeJson(Map.of(
+                "schema", "CI_BASE_REPAIR_SUBJECT_V1",
+                "baseSha", episode.subjectBaseSha(),
+                "originalHeadSha", episode.subjectHeadSha(),
+                "failedCiEvaluationId", episode.failedCiEvaluationId(),
+                "remotePrSnapshotId", snapshotId));
+        String manifestDigest = digest(manifestJson);
+        String manifestId = id("ci-base-repair-manifest", episode.id());
+        jdbc.update("""
+                INSERT OR IGNORE INTO ci_base_repair_manifest_v303(
+                    id, ci_repair_episode_id, failed_ci_evaluation_id,
+                    remote_pr_snapshot_id, subject_head_sha,
+                    subject_base_sha, subject_manifest_json,
+                    manifest_digest, created_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, manifestId, episode.id(), episode.failedCiEvaluationId(),
+                snapshotId, episode.subjectHeadSha(), episode.subjectBaseSha(),
+                manifestJson, manifestDigest, at.toEpochMilli());
+
+        String authorizationId = id("ci-base-repair-authorization", commandId);
+        jdbc.update("""
+                INSERT INTO ci_base_repair_authorization_v303(
+                    id, ci_repair_episode_id, manifest_id, semantic_attempt,
+                    authority_kind, automation_policy_id, blocker_id,
+                    command_id, actor, reason, failed_ci_evaluation_id,
+                    remote_pr_snapshot_id, expected_worktree_head_sha,
+                    subject_head_sha, subject_base_sha, manifest_digest,
+                    status, claimed_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    'CLAIMED', ?)
+                """, authorizationId, episode.id(), manifestId,
+                episode.fixAttemptCount() + 1, authorityKind,
+                automationPolicyId, blockerId, commandId, actor, reason,
+                episode.failedCiEvaluationId(), snapshotId,
+                expectedWorktreeHeadSha, episode.subjectHeadSha(),
+                episode.subjectBaseSha(), manifestDigest, at.toEpochMilli());
+        resolveBaseRepairBlockers(episode.id(), blockerId, at);
+        return requireBaseRepairAuthorization(authorizationId);
+    }
+
+    public void consumeBaseRepairAuthorization(
+            String authorizationId, String evidence, Instant at)
+    {
+        requireTransaction();
+        BaseRepairAuthorization authorization =
+                requireBaseRepairAuthorization(authorizationId);
+        if (!"CLAIMED".equals(authorization.status())) {
+            terminalizeCompatibilityReauthorization(
+                    authorization.id(), "CONSUMED", evidence, at);
+            return;
+        }
+        updateOne("""
+                UPDATE ci_base_repair_authorization_v303
+                SET status = 'CONSUMED', terminal_at_ms = ?,
+                    terminal_evidence = ?
+                WHERE id = ? AND status = 'CLAIMED'
+                """, "CI base-repair authorization was not consumed",
+                at.toEpochMilli(), evidence, authorization.id());
+    }
+
+    public void closeBaseRepairAuthorization(
+            String authorizationId, String evidence, Instant at)
+    {
+        requireTransaction();
+        BaseRepairAuthorization authorization =
+                requireBaseRepairAuthorization(authorizationId);
+        if (!"CLAIMED".equals(authorization.status())) {
+            terminalizeCompatibilityReauthorization(
+                    authorization.id(), "CLOSED", evidence, at);
+            return;
+        }
+        updateOne("""
+                UPDATE ci_base_repair_authorization_v303
+                SET status = 'CLOSED', terminal_at_ms = ?,
+                    terminal_evidence = ?
+                WHERE id = ? AND status = 'CLAIMED'
+                """, "CI base-repair authorization was not closed",
+                at.toEpochMilli(), evidence, authorization.id());
+    }
+
+    private void terminalizeCompatibilityReauthorization(
+            String authorizationId,
+            String status,
+            String evidence,
+            Instant at)
+    {
+        requireText(evidence, "evidence");
+        int updated = jdbc.update("""
+                UPDATE ci_base_repair_reauthorization_v322
+                SET status = ?, terminal_at_ms = ?, terminal_evidence = ?
+                WHERE source_authorization_id = ? AND status = 'CLAIMED'
+                """, status, at.toEpochMilli(), evidence, authorizationId);
+        if (updated > 1) {
+            throw new IllegalStateException(
+                    "Multiple compatibility base-repair authorizations changed");
+        }
+    }
+
+    public BaseRepairAuthorization requireBaseRepairAuthorization(String id)
+    {
+        List<BaseRepairAuthorization> rows = jdbc.query("""
+                SELECT id, ci_repair_episode_id, manifest_id,
+                       semantic_attempt, authority_kind,
+                       automation_policy_id, blocker_id, command_id, actor,
+                       reason, failed_ci_evaluation_id,
+                       remote_pr_snapshot_id, expected_worktree_head_sha,
+                       subject_head_sha, subject_base_sha, manifest_digest,
+                       status, claimed_at_ms, terminal_at_ms,
+                       terminal_evidence
+                FROM ci_base_repair_authorization_v303 WHERE id = ?
+                """, (rs, row) -> baseRepairAuthorization(rs), id);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one base repair authorization, found "
+                            + rows.size());
+        }
+        return rows.getFirst();
+    }
+
+    public Optional<BaseRepairAuthorization> findClaimedBaseRepairAuthorization(
+            String episodeId)
+    {
+        return jdbc.query("""
+                SELECT id, ci_repair_episode_id, manifest_id,
+                       semantic_attempt, authority_kind,
+                       automation_policy_id, blocker_id, command_id, actor,
+                       reason, failed_ci_evaluation_id,
+                       remote_pr_snapshot_id, expected_worktree_head_sha,
+                       subject_head_sha, subject_base_sha, manifest_digest,
+                       status, claimed_at_ms, terminal_at_ms,
+                       terminal_evidence
+                FROM ci_base_repair_authorization_v303
+                WHERE ci_repair_episode_id = ?
+                  AND (status = 'CLAIMED' OR (status = 'CLOSED' AND EXISTS (
+                      SELECT 1
+                      FROM ci_base_repair_reauthorization_v322 continuation
+                      WHERE continuation.source_authorization_id =
+                            ci_base_repair_authorization_v303.id
+                        AND continuation.status = 'CLAIMED')))
+                ORDER BY semantic_attempt DESC LIMIT 1
+                """, (rs, row) -> baseRepairAuthorization(rs), episodeId)
+                .stream().findFirst();
+    }
+
+    public void reopenBaseRepairEpisode(CiEpisode episode)
+    {
+        requireTransaction();
+        updateOne("""
+                UPDATE ci_repair_episode SET status = 'OPEN'
+                WHERE id = ? AND classification = 'BASE_DETERMINISTIC'
+                  AND status IN ('FIXING', 'VALIDATING', 'AWAITING_PUSH_CI')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ci_repair_operation operation
+                      WHERE operation.ci_repair_episode_id = ci_repair_episode.id
+                        AND operation.status IN ('REQUESTED', 'DISPATCHED'))
+                """, "Base repair Episode is not ready for a new authorization",
+                episode.id());
+    }
+
+    public String requireFailedCiEvidence(CiEpisode episode)
+    {
+        requireNonNull(episode, "episode is null");
+        List<String> rows = jdbc.query("""
+                SELECT evidence FROM remote_ci_evaluation
+                WHERE id = ? AND task_id = ?
+                """, (rs, row) -> rs.getString(1),
+                episode.failedCiEvaluationId(), episode.taskId());
+        if (rows.size() != 1) {
+            throw new IllegalStateException("Failed CI evidence is missing");
+        }
+        return rows.getFirst();
     }
 
     public EffectRequest insertCiRerun(
@@ -662,6 +1926,9 @@ public class SqliteRemoteRuntimeStore
         List<CiEffectDelivery> rows = jdbc.query("""
                 SELECT operation.id AS row_id, operation.operation_id,
                        operation.ci_repair_episode_id, operation.kind,
+                       ticket.operation_kind,
+                       operation.base_repair_authorization_id,
+                       operation.lease_expected_sha,
                        operation.task_id, operation.task_epoch,
                        operation.remote_development_stage_id AS stage_id,
                        operation.stage_generation,
@@ -774,6 +2041,13 @@ public class SqliteRemoteRuntimeStore
                 result == null ? null : result.headSha(),
                 result == null ? null : result.evidence(), at.toEpochMilli(),
                 result == null ? null : result.error(), context.rowId());
+        if (RemoteEffectOperationHandler.REWRITE_VALIDATE_BASE_CI_REPAIR
+                .equals(context.operationKind())
+                && "ACCEPTED".equals(acceptance)
+                && "SUCCEEDED".equals(rawOutcome)
+                && result != null) {
+            persistBaseRewrite(context, result, at);
+        }
         if (succeeded && "PUSH_HEAD".equals(context.kind())) {
             updateOne("""
                     UPDATE ci_repair_episode
@@ -786,6 +2060,28 @@ public class SqliteRemoteRuntimeStore
                     """, "CI push counter changed before delivery",
                     result.headSha(), context.episodeId(), context.pushCount());
         }
+        if (context.baseRepairAuthorizationId() != null
+                && "PUSH_HEAD".equals(context.kind())) {
+            if (succeeded) {
+                consumeBaseRepairAuthorization(
+                        context.baseRepairAuthorizationId(),
+                        result.evidence(), at);
+            }
+            else {
+                closeBaseRepairAuthorization(
+                        context.baseRepairAuthorizationId(),
+                        "authorized push did not succeed", at);
+            }
+        }
+        else if (context.baseRepairAuthorizationId() != null
+                && RemoteEffectOperationHandler
+                        .REWRITE_VALIDATE_BASE_CI_REPAIR
+                        .equals(context.operationKind())
+                && !succeeded) {
+            closeBaseRepairAuthorization(
+                    context.baseRepairAuthorizationId(),
+                    "base rewrite validation did not pass", at);
+        }
         jdbc.update("""
                 INSERT INTO ci_repair_delivery_receipt(
                     ci_repair_operation_id, operation_id, raw_outcome,
@@ -793,6 +2089,92 @@ public class SqliteRemoteRuntimeStore
                 VALUES (?, ?, ?, ?, ?, ?)
                 """, context.rowId(), context.operationId(), rawOutcome,
                 rawDigest, acceptance, at.toEpochMilli());
+    }
+
+    private void persistBaseRewrite(
+            CiEffectDelivery context,
+            RemoteEffectOperationHandler.Result result,
+            Instant at)
+    {
+        RemoteEffectOperationHandler.BaseRewriteEvidence evidence;
+        try {
+            evidence = json.readValue(
+                    result.evidence(),
+                    RemoteEffectOperationHandler.BaseRewriteEvidence.class);
+        }
+        catch (JsonProcessingException | IllegalArgumentException failure) {
+            throw new IllegalArgumentException(
+                    "Base rewrite returned malformed typed proof", failure);
+        }
+        BaseRepairAuthorization authorization =
+                requireBaseRepairAuthorization(
+                        context.baseRepairAuthorizationId());
+        if (!"CI_BASE_REWRITE_V1".equals(evidence.schema())
+                || !authorization.id().equals(evidence.authorizationId())
+                || !authorization.manifestDigest().equals(
+                        evidence.manifestDigest())) {
+            throw new IllegalArgumentException(
+                    "Base rewrite proof differs from its authorization");
+        }
+        if (result.disposition()
+                == RemoteEffectOperationHandler.Disposition.CONFLICT) {
+            throw new IllegalArgumentException(
+                    "Base rewrite validation cannot report a conflict");
+        }
+        boolean passed = result.disposition()
+                == RemoteEffectOperationHandler.Disposition.SUCCEEDED;
+        if (passed != evidence.validationFailures().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Base rewrite disposition differs from validation proof");
+        }
+        if (evidence.proof() == null) {
+            if (passed) {
+                throw new IllegalArgumentException(
+                        "Missing base rewrite proof is not a typed failure");
+            }
+            return;
+        }
+        if (!context.expectedHeadSha().equals(
+                        evidence.proof().stageTurnOutputHeadSha())
+                || !context.subjectHeadSha().equals(
+                        evidence.proof().frozenOriginalHeadSha())
+                || !context.expectedBaseSha().equals(
+                        evidence.proof().baseSha())
+                || !result.headSha().equals(
+                        evidence.proof().rewrittenHeadSha())) {
+            throw new IllegalArgumentException(
+                    "Base rewrite proof differs from its authorization");
+        }
+        String proofJson = writeJson(evidence.proof());
+        jdbc.update("""
+                INSERT INTO ci_base_repair_rewrite_result_v303(
+                    authorization_id, ci_repair_operation_id,
+                    input_head_sha, output_head_sha, repair_commit_sha,
+                    original_commits_json, proof_json, proof_digest,
+                    validation_outcome, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, authorization.id(), context.rowId(),
+                context.expectedHeadSha(), result.headSha(),
+                evidence.proof().repairCommitSha(),
+                writeJson(evidence.proof().originalCommitShas()), proofJson,
+                digest(proofJson),
+                passed ? "PASSED" : "FAILED",
+                at.toEpochMilli());
+        if (!passed) {
+            return;
+        }
+        jdbc.update("""
+                INSERT INTO ci_base_repair_subject_v303(
+                    id, task_id, task_epoch, remote_development_stage_id,
+                    stage_generation, authorization_id,
+                    ci_repair_operation_id, code_fingerprint,
+                    head_sha, base_sha, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id("ci-base-repair-subject", authorization.id()),
+                context.taskId(), context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), authorization.id(), context.rowId(),
+                result.codeFingerprint(), result.headSha(),
+                context.expectedBaseSha(), at.toEpochMilli());
     }
 
     public void recordCiPushResult(
@@ -817,7 +2199,10 @@ public class SqliteRemoteRuntimeStore
             Instant at)
     {
         requireTransaction();
-        stopCiEpisode(episode, reason, at);
+        String blockerIdentity = episode.id() + ":" + blockerType;
+        if ("CI_BASE_REPAIR_REQUIRED".equals(blockerType)) {
+            blockerIdentity += ":" + (episode.fixAttemptCount() + 1);
+        }
         jdbc.update("""
                 INSERT INTO task_blocker(
                     id, task_id, stage_id, owner_kind, owner_id,
@@ -825,7 +2210,7 @@ public class SqliteRemoteRuntimeStore
                     opened_at_ms)
                 VALUES (?, ?, ?, 'EPISODE', ?, ?, ?, 'OPEN', ?, ?)
                 ON CONFLICT(id) DO NOTHING
-                """, id("ci-repair-blocker", episode.id() + ":" + blockerType),
+                """, id("ci-repair-blocker", blockerIdentity),
                 episode.taskId(), episode.stageId(), episode.id(),
                 episode.subjectHeadSha(), blockerType, payload,
                 at.toEpochMilli());
@@ -843,6 +2228,7 @@ public class SqliteRemoteRuntimeStore
                   AND status NOT IN ('SUCCEEDED', 'EXHAUSTED', 'STOPPED')
                 """, "CI repair Episode changed before success",
                 evaluationId, at.toEpochMilli(), episode.id());
+        resolveCiBlocker(episode.id(), "CI accepted", at);
     }
 
     public void exhaustCiEpisode(
@@ -1018,6 +2404,141 @@ public class SqliteRemoteRuntimeStore
         return requireCiEpisode(taskId, episodeId);
     }
 
+    /**
+     * Converts one exact {@code CI_REPAIR_NO_CHANGE} blocker into a parked
+     * third execution intent. The semantic attempt and every CI budget remain
+     * unchanged; a later accepted V319 observation owns writer admission.
+     */
+    public CiEpisode authorizeCiNoChangeRetry(
+            String taskId,
+            String episodeId,
+            String blockerId,
+            String commandId,
+            String actor,
+            String reason,
+            Instant at)
+    {
+        requireTransaction();
+        List<Boolean> duplicate = jdbc.query("""
+                SELECT ci_repair_episode_id = ? AND blocker_id = ?
+                    AND actor = ? AND reason = ? AS exact
+                FROM ci_repair_no_change_retry_authorization_v318
+                WHERE command_id = ?
+                """, (rs, row) -> rs.getBoolean("exact"), episodeId,
+                blockerId, actor, reason, commandId);
+        if (!duplicate.isEmpty()) {
+            if (duplicate.size() != 1 || !duplicate.getFirst()) {
+                throw new IllegalArgumentException(
+                        "CI no-change retry command was already used with other values");
+            }
+            return requireCiEpisode(taskId, episodeId);
+        }
+
+        List<CiNoChangeRetrySource> sources = jdbc.query("""
+                SELECT result.id AS tree_result_id, result.operation_id,
+                       result.stage_turn_id, result.semantic_attempt,
+                       result.execution_attempt,
+                       freshness.accepted_snapshot_id,
+                       freshness.accepted_observation_revision
+                  FROM ci_repair_fix_tree_result_v318 result
+                  JOIN ci_repair_fix_continuation_operation_v318 operation
+                    ON operation.id = result.source_operation_row_id
+                  JOIN ci_repair_fix_continuation_due_v318 predecessor_due
+                    ON predecessor_due.id = operation.continuation_due_id
+                  JOIN ci_repair_turn_freshness_v319 freshness
+                    ON freshness.intent_kind = 'NO_CHANGE_CONTINUATION'
+                   AND freshness.intent_id = predecessor_due.id
+                  JOIN ci_repair_episode episode
+                    ON episode.id = result.ci_repair_episode_id
+                  JOIN task_blocker blocker ON blocker.id = ?
+                 WHERE episode.id = ? AND episode.task_id = ?
+                   AND episode.status = 'FIXING'
+                   AND result.source_kind = 'CONTINUATION'
+                   AND result.disposition = 'NO_CHANGE'
+                   AND result.semantic_attempt = episode.fix_attempt_count + 1
+                   AND blocker.task_id = episode.task_id
+                   AND blocker.stage_id = episode.remote_development_stage_id
+                   AND blocker.owner_kind = 'EPISODE'
+                   AND blocker.owner_id = episode.id
+                   AND blocker.blocker_type = 'CI_REPAIR_NO_CHANGE'
+                   AND blocker.status = 'OPEN'
+                   AND (SELECT COUNT(*)
+                          FROM ci_repair_fix_tree_result_v318 prior
+                         WHERE prior.ci_repair_episode_id = episode.id
+                           AND prior.semantic_attempt = result.semantic_attempt
+                           AND prior.disposition = 'NO_CHANGE') = 2
+                   AND NOT EXISTS (
+                       SELECT 1 FROM ci_repair_fix_continuation_due_v318 due
+                        WHERE due.ci_repair_episode_id = episode.id
+                          AND due.status = 'PENDING')
+                 ORDER BY result.execution_attempt DESC
+                """, (rs, row) -> new CiNoChangeRetrySource(
+                        rs.getString("tree_result_id"),
+                        rs.getString("operation_id"),
+                        rs.getString("stage_turn_id"),
+                        rs.getInt("semantic_attempt"),
+                        rs.getInt("execution_attempt"),
+                        rs.getString("accepted_snapshot_id"),
+                        rs.getInt("accepted_observation_revision")),
+                blockerId, episodeId, taskId);
+        if (sources.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one exact CI no-change retry source, found "
+                            + sources.size());
+        }
+        CiNoChangeRetrySource source = sources.getFirst();
+        String authorizationId = id("ci-no-change-retry-authorization",
+                commandId);
+        int executionAttempt = source.executionAttempt() + 1;
+        jdbc.update("""
+                INSERT INTO ci_repair_no_change_retry_authorization_v318(
+                    id, ci_repair_episode_id, blocker_id,
+                    predecessor_tree_result_id, predecessor_operation_id,
+                    predecessor_stage_turn_id,
+                    predecessor_accepted_snapshot_id,
+                    predecessor_accepted_observation_revision,
+                    semantic_attempt, execution_attempt, command_id, actor,
+                    reason, authorized_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, authorizationId, episodeId, blockerId,
+                source.treeResultId(), source.operationId(),
+                source.stageTurnId(), source.acceptedSnapshotId(),
+                source.acceptedObservationRevision(), source.semanticAttempt(),
+                executionAttempt, commandId, actor, reason, at.toEpochMilli());
+        jdbc.update("""
+                INSERT INTO ci_repair_fix_continuation_due_v318(
+                    id, ci_repair_episode_id, predecessor_tree_result_id,
+                    predecessor_operation_id, predecessor_stage_turn_id,
+                    predecessor_accepted_snapshot_id,
+                    predecessor_accepted_observation_revision,
+                    recovery_authorization_id, semantic_attempt,
+                    execution_attempt, status, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                """, id("ci-repair-fix-continuation-due", authorizationId),
+                episodeId, source.treeResultId(), source.operationId(),
+                source.stageTurnId(), source.acceptedSnapshotId(),
+                source.acceptedObservationRevision(), authorizationId,
+                source.semanticAttempt(), executionAttempt, at.toEpochMilli());
+        updateOne("""
+                UPDATE ci_repair_no_change_retry_authorization_v318
+                   SET consumed_at_ms = ?
+                 WHERE id = ? AND consumed_at_ms IS NULL
+                """, "CI no-change retry was not consumed into intent",
+                at.toEpochMilli(), authorizationId);
+        updateOne("""
+                UPDATE task_blocker
+                   SET status = 'RESOLVED', resolved_at_ms = ?,
+                       resolution_evidence = ?
+                 WHERE id = ? AND task_id = ?
+                   AND owner_kind = 'EPISODE' AND owner_id = ?
+                   AND blocker_type = 'CI_REPAIR_NO_CHANGE'
+                   AND status = 'OPEN'
+                """, "CI no-change blocker changed before retry authority",
+                at.toEpochMilli(), "RETRY_ONCE: " + commandId,
+                blockerId, taskId, episodeId);
+        return requireCiEpisode(taskId, episodeId);
+    }
+
     public CiEpisode requireCiEpisode(String taskId, String episodeId)
     {
         List<CiEpisode> rows = jdbc.query("""
@@ -1051,6 +2572,24 @@ public class SqliteRemoteRuntimeStore
                 """, at.toEpochMilli(), evidence, episodeId);
     }
 
+    private void resolveBaseRepairBlockers(
+            String episodeId, String blockerId, Instant at)
+    {
+        int changed = jdbc.update("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = 'base repair authorization claimed'
+                WHERE owner_kind = 'EPISODE' AND owner_id = ?
+                  AND blocker_type = 'CI_BASE_REPAIR_REQUIRED'
+                  AND status = 'OPEN'
+                  AND (? IS NULL OR id = ?)
+                """, at.toEpochMilli(), episodeId, blockerId, blockerId);
+        if (blockerId != null && changed != 1) {
+            throw new IllegalStateException(
+                    "Exact base repair blocker was not resolved");
+        }
+    }
+
     public Optional<BranchEpisode> findLiveBranchEpisode(String stageId)
     {
         return jdbc.query("""
@@ -1058,8 +2597,13 @@ public class SqliteRemoteRuntimeStore
                        stage_generation, remote_pr_binding_id,
                        source_snapshot_id, old_head_sha, observed_base_sha,
                        target_base_sha, branch_sync_policy_revision_id,
-                       policy_source, status, attempt_count,
-                       attempt_limit, result_head_sha, result_snapshot_id,
+                       policy_source, purpose, authority_kind, authority_id,
+                       ci_repair_episode_id, ci_turn_intent_kind,
+                       ci_turn_intent_id, source_code_fingerprint,
+                       source_code_head_sha, source_code_base_sha,
+                       status, attempt_count,
+                       attempt_limit, result_code_fingerprint,
+                       result_head_sha, result_snapshot_id,
                        opened_at_ms, completed_at_ms, error_message
                 FROM branch_sync_episode
                 WHERE remote_development_stage_id = ?
@@ -1075,12 +2619,144 @@ public class SqliteRemoteRuntimeStore
                        stage_generation, remote_pr_binding_id,
                        source_snapshot_id, old_head_sha, observed_base_sha,
                        target_base_sha, branch_sync_policy_revision_id,
-                       policy_source, status, attempt_count,
-                       attempt_limit, result_head_sha, result_snapshot_id,
+                       policy_source, purpose, authority_kind, authority_id,
+                       ci_repair_episode_id, ci_turn_intent_kind,
+                       ci_turn_intent_id, source_code_fingerprint,
+                       source_code_head_sha, source_code_base_sha,
+                       status, attempt_count,
+                       attempt_limit, result_code_fingerprint,
+                       result_head_sha, result_snapshot_id,
                        opened_at_ms, completed_at_ms, error_message
                 FROM branch_sync_episode WHERE id = ?
                 """, (rs, row) -> branchEpisode(rs), episodeId)
                 .stream().findFirst();
+    }
+
+    public boolean hasExactBranchSyncExhaustion(
+            RemoteContext context, CodeSubject code)
+    {
+        requireNonNull(context, "context is null");
+        requireNonNull(code, "code is null");
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM branch_sync_exhaustion_v319 exhaustion
+                WHERE exhaustion.task_id = ? AND exhaustion.stage_id = ?
+                  AND exhaustion.remote_head_sha = ?
+                  AND exhaustion.remote_base_sha = ?
+                  AND exhaustion.code_fingerprint = ?
+                  AND exhaustion.code_head_sha = ?
+                  AND exhaustion.code_base_sha = ?
+                """, Integer.class, context.taskId(), context.stageId(),
+                context.headSha(), context.baseSha(), code.codeFingerprint(),
+                code.headSha(), code.baseSha());
+        return count != null && count > 0;
+    }
+
+    public BranchControlReceipt controlBranchExhaustion(
+            String taskId,
+            String episodeId,
+            String blockerId,
+            String commandId,
+            String kind,
+            String actor,
+            String reason,
+            Instant at)
+    {
+        requireTransaction();
+        requireText(taskId, "taskId");
+        requireText(episodeId, "episodeId");
+        requireText(blockerId, "blockerId");
+        requireText(commandId, "commandId");
+        requireText(kind, "kind");
+        requireText(actor, "actor");
+        requireText(reason, "reason");
+        requireNonNull(at, "at is null");
+        BranchControlReceipt replay = findBranchControl(commandId).orElse(null);
+        if (replay != null) {
+            if (!taskId.equals(replay.taskId())
+                    || !episodeId.equals(replay.episodeId())
+                    || !blockerId.equals(replay.blockerId())
+                    || !kind.equals(replay.kind())
+                    || !actor.equals(replay.actor())
+                    || !reason.equals(replay.reason())) {
+                throw new IllegalArgumentException(
+                        "Branch sync control command was already used with other values");
+            }
+            return replay;
+        }
+        String controlId = id("branch-sync-control-command", commandId);
+        jdbc.update("""
+                INSERT INTO branch_sync_control_command_v319(
+                    id, branch_sync_episode_id, blocker_id, task_id, stage_id,
+                    command_id, kind, actor, reason, created_at_ms,
+                    consumed_at_ms)
+                SELECT ?, exhaustion.branch_sync_episode_id,
+                    exhaustion.blocker_id, exhaustion.task_id,
+                    exhaustion.stage_id, ?, ?, ?, ?, ?, ?
+                FROM branch_sync_exhaustion_v319 exhaustion
+                WHERE exhaustion.branch_sync_episode_id = ?
+                  AND exhaustion.blocker_id = ?
+                  AND exhaustion.task_id = ?
+                """, controlId, commandId, kind, actor, reason,
+                at.toEpochMilli(), at.toEpochMilli(), episodeId, blockerId,
+                taskId);
+        updateOne("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = ?
+                WHERE id = ? AND task_id = ? AND stage_id IS NOT NULL
+                  AND owner_kind = 'EPISODE' AND owner_id = ?
+                  AND blocker_type = 'BRANCH_SYNC_EXHAUSTED'
+                  AND status = 'OPEN'
+                """, "Branch sync exhaustion changed before control",
+                at.toEpochMilli(), kind + ": " + reason, blockerId, taskId,
+                episodeId);
+        return findBranchControl(commandId).orElseThrow(() ->
+                new IllegalStateException(
+                        "Branch sync control receipt is missing"));
+    }
+
+    private Optional<BranchControlReceipt> findBranchControl(String commandId)
+    {
+        return jdbc.query("""
+                SELECT branch_sync_episode_id, blocker_id, task_id, stage_id,
+                       command_id, kind, actor, reason, consumed_at_ms
+                FROM branch_sync_control_command_v319
+                WHERE command_id = ?
+                """, (rs, row) -> new BranchControlReceipt(
+                        rs.getString("task_id"),
+                        rs.getString("branch_sync_episode_id"),
+                        rs.getString("blocker_id"), rs.getString("stage_id"),
+                        rs.getString("command_id"), rs.getString("kind"),
+                        rs.getString("actor"), rs.getString("reason"),
+                        instant(rs, "consumed_at_ms")), commandId)
+                .stream().findFirst();
+    }
+
+    public void resolveStaleBranchSyncExhaustions(
+            RemoteContext context, CodeSubject code, Instant at)
+    {
+        requireTransaction();
+        requireNonNull(context, "context is null");
+        requireNonNull(code, "code is null");
+        requireNonNull(at, "at is null");
+        jdbc.update("""
+                UPDATE task_blocker
+                SET status = 'RESOLVED', resolved_at_ms = ?,
+                    resolution_evidence = 'BranchSync subject changed'
+                WHERE id IN (
+                    SELECT exhaustion.blocker_id
+                    FROM branch_sync_exhaustion_v319 exhaustion
+                    WHERE exhaustion.task_id = ? AND exhaustion.stage_id = ?
+                      AND (exhaustion.remote_head_sha <> ?
+                        OR exhaustion.remote_base_sha <> ?
+                        OR exhaustion.code_fingerprint <> ?
+                        OR exhaustion.code_head_sha <> ?
+                        OR exhaustion.code_base_sha <> ?))
+                  AND status = 'OPEN'
+                """, at.toEpochMilli(), context.taskId(), context.stageId(),
+                context.headSha(), context.baseSha(), code.codeFingerprint(),
+                code.headSha(), code.baseSha());
     }
 
     public BranchEpisode insertBranchEpisode(
@@ -1100,10 +2776,13 @@ public class SqliteRemoteRuntimeStore
                 WHERE stage_id = ? AND accepted_snapshot_id IS NOT NULL
                 """, context.stageId(),
                 "Branch sync requires an accepted Remote snapshot");
+        CodeSubject sourceCode = requireCodeSubject(context.taskId());
         return insertBranchEpisode(
                 context, commandId, sourceSnapshotId, context.headSha(),
                 context.baseSha(), targetBaseSha, policyRevisionId,
-                policySource, attemptLimit, at);
+                policySource, "SCHEDULED", "BRANCH_SYNC_POLICY",
+                policyRevisionId, sourceCode, null, null, null,
+                attemptLimit, at);
     }
 
     /**
@@ -1132,10 +2811,100 @@ public class SqliteRemoteRuntimeStore
                 WHERE stage_id = ? AND accepted_snapshot_id IS NOT NULL
                 """, context.stageId(),
                 "Branch sync requires an accepted Remote snapshot");
+        CodeSubject sourceCode = requireCodeSubject(context.taskId());
         return insertBranchEpisode(
                 context, commandId, sourceSnapshotId, context.headSha(),
                 context.baseSha(), context.baseSha(), policyRevisionId, policySource,
+                "SCHEDULED", "BRANCH_SYNC_POLICY", policyRevisionId,
+                sourceCode, null, null, null, attemptLimit, at);
+    }
+
+    public BranchEpisode insertCiPreconditionBranchEpisode(
+            RemoteContext context,
+            String commandId,
+            String policyRevisionId,
+            int attemptLimit,
+            String authorityKind,
+            String authorityId,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(context, "context is null");
+        requireText(commandId, "commandId");
+        requireText(policyRevisionId, "policyRevisionId");
+        requireText(authorityKind, "authorityKind");
+        requireText(authorityId, "authorityId");
+        String sourceSnapshotId = requireSingleString("""
+                SELECT accepted_snapshot_id FROM remote_development_stage
+                WHERE stage_id = ? AND accepted_snapshot_id IS NOT NULL
+                """, context.stageId(),
+                "CI BranchSync requires an accepted Remote snapshot");
+        CodeSubject sourceCode = requireCodeSubject(context.taskId());
+        return insertBranchEpisode(
+                context, commandId, sourceSnapshotId, context.headSha(),
+                context.baseSha(), context.baseSha(), policyRevisionId,
+                "CI_PRECONDITION", "CI_PRECONDITION", authorityKind,
+                authorityId, sourceCode, null, null, null, attemptLimit, at);
+    }
+
+    public BranchEpisode insertManualCiPreconditionBranchEpisode(
+            RemoteContext context,
+            CiEpisode ciEpisode,
+            String commandId,
+            String policyRevisionId,
+            int attemptLimit,
+            String authorizationId,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(context, "context is null");
+        requireNonNull(ciEpisode, "ciEpisode is null");
+        requireText(commandId, "commandId");
+        requireText(policyRevisionId, "policyRevisionId");
+        requireText(authorizationId, "authorizationId");
+        String sourceSnapshotId = requireSingleString("""
+                SELECT accepted_snapshot_id FROM remote_development_stage
+                WHERE stage_id = ? AND accepted_snapshot_id IS NOT NULL
+                """, context.stageId(),
+                "Manual CI precondition requires an accepted Remote snapshot");
+        CodeSubject sourceCode = requireCodeSubject(context.taskId());
+        return insertBranchEpisode(
+                context, commandId, sourceSnapshotId, context.headSha(),
+                context.baseSha(), context.baseSha(), policyRevisionId,
+                "CI_PRECONDITION", "CI_PRECONDITION", "MANUAL",
+                authorizationId, sourceCode, ciEpisode.id(), null, null,
                 attemptLimit, at);
+    }
+
+    public BranchEpisode insertCiLocalPreconditionBranchEpisode(
+            RemoteContext context,
+            CiLocalPrecondition precondition,
+            String commandId,
+            String policyRevisionId,
+            int attemptLimit,
+            String authorityKind,
+            String authorityId,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(context, "context is null");
+        requireNonNull(precondition, "precondition is null");
+        requireText(commandId, "commandId");
+        requireText(policyRevisionId, "policyRevisionId");
+        requireText(authorityKind, "authorityKind");
+        requireText(authorityId, "authorityId");
+        String sourceSnapshotId = requireSingleString("""
+                SELECT accepted_snapshot_id FROM remote_development_stage
+                WHERE stage_id = ? AND accepted_snapshot_id IS NOT NULL
+                """, context.stageId(),
+                "Local CI precondition requires an accepted Remote snapshot");
+        return insertBranchEpisode(
+                context, commandId, sourceSnapshotId, context.headSha(),
+                context.baseSha(), context.baseSha(), policyRevisionId,
+                "CI_PRECONDITION", "CI_PRECONDITION_LOCAL", authorityKind,
+                authorityId, precondition.codeSubject(),
+                precondition.episode().id(), precondition.intentKind(),
+                precondition.intentId(), attemptLimit, at);
     }
 
     private BranchEpisode insertBranchEpisode(
@@ -1147,6 +2916,13 @@ public class SqliteRemoteRuntimeStore
             String targetBaseSha,
             String policyRevisionId,
             String policySource,
+            String purpose,
+            String authorityKind,
+            String authorityId,
+            CodeSubject sourceCode,
+            String ciRepairEpisodeId,
+            String ciTurnIntentKind,
+            String ciTurnIntentId,
             int attemptLimit,
             Instant at)
     {
@@ -1156,13 +2932,21 @@ public class SqliteRemoteRuntimeStore
                     id, remote_development_stage_id, task_id, task_epoch,
                     stage_generation, remote_pr_binding_id, source_snapshot_id,
                     old_head_sha, observed_base_sha, target_base_sha,
-                    branch_sync_policy_revision_id, policy_source, status,
+                    branch_sync_policy_revision_id, policy_source, purpose,
+                    authority_kind, authority_id, ci_repair_episode_id,
+                    ci_turn_intent_kind, ci_turn_intent_id,
+                    source_code_fingerprint, source_code_head_sha,
+                    source_code_base_sha, status,
                     attempt_limit, opened_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, 'OPEN', ?, ?)
                 """, episodeId, context.stageId(), context.taskId(),
                 context.taskEpoch(), context.stageGeneration(),
                 context.remotePrBindingId(), sourceSnapshotId, oldHeadSha,
                 observedBaseSha, targetBaseSha, policyRevisionId, policySource,
+                purpose, authorityKind, authorityId, ciRepairEpisodeId,
+                ciTurnIntentKind, ciTurnIntentId, sourceCode.codeFingerprint(),
+                sourceCode.headSha(), sourceCode.baseSha(),
                 attemptLimit, at.toEpochMilli());
         List<String> kinds = List.of(
                 "FETCH_COMPARE", "MECHANICAL_REBASE", "CONFLICT_REPAIR",
@@ -1434,6 +3218,30 @@ public class SqliteRemoteRuntimeStore
                 rawDigest, acceptance, at.toEpochMilli());
     }
 
+    public Optional<BranchStep> rearmFailedBranchEffect(
+            BranchEffectDelivery context)
+    {
+        requireTransaction();
+        requireNonNull(context, "context is null");
+        BranchStep step = requireBranchStep(context.episodeId(), context.ordinal());
+        if (!"FAILED".equals(step.status())
+                || step.attemptCount() >= step.attemptLimit()) {
+            return Optional.empty();
+        }
+        updateOne("""
+                UPDATE branch_sync_effect_step
+                SET status = 'REQUESTED', claim_mode = NULL,
+                    claim_owner = NULL, claimed_at_ms = NULL,
+                    lease_until_ms = NULL, evidence = NULL,
+                    last_error = NULL, completed_at_ms = NULL
+                WHERE id = ? AND status = 'FAILED'
+                  AND attempt_count = ? AND attempt_count < attempt_limit
+                """, "Branch sync step changed before retry", step.id(),
+                step.attemptCount());
+        return Optional.of(requireBranchStep(
+                context.episodeId(), context.ordinal()));
+    }
+
     public void awaitBranchHead(
             BranchEpisode episode, String resultHeadSha)
     {
@@ -1459,13 +3267,39 @@ public class SqliteRemoteRuntimeStore
             BranchEpisode episode, String error, Instant at)
     {
         requireTransaction();
+        String reason = error == null || error.isBlank()
+                ? "BranchSync exhausted without error evidence" : error;
+        RemoteContext remote = requireRemoteContext(
+                episode.taskId(), episode.stageId());
+        CodeSubject code = requireCodeSubject(episode.taskId());
         updateOne("""
                 UPDATE branch_sync_episode
                 SET status = 'FAILED', completed_at_ms = ?, error_message = ?
                 WHERE id = ?
                   AND status NOT IN ('SUCCEEDED', 'FAILED', 'STOPPED')
                 """, "Branch sync changed before failure",
-                at.toEpochMilli(), error, episode.id());
+                at.toEpochMilli(), reason, episode.id());
+        String blockerId = id("branch-sync-exhausted-blocker", episode.id());
+        jdbc.update("""
+                INSERT INTO task_blocker(
+                    id, task_id, stage_id, owner_kind, owner_id,
+                    subject_revision, blocker_type, status, payload_json,
+                    opened_at_ms)
+                VALUES (?, ?, ?, 'EPISODE', ?, ?, 'BRANCH_SYNC_EXHAUSTED',
+                    'OPEN', '{"choices":["MANUAL_TAKEOVER",'
+                        || '"STOP_AUTOMATION"]}', ?)
+                """, blockerId, episode.taskId(), episode.stageId(),
+                episode.id(), episode.id(), at.toEpochMilli());
+        jdbc.update("""
+                INSERT INTO branch_sync_exhaustion_v319(
+                    branch_sync_episode_id, blocker_id, task_id, stage_id,
+                    remote_head_sha, remote_base_sha, code_fingerprint,
+                    code_head_sha, code_base_sha, reason, exhausted_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, episode.id(), blockerId, episode.taskId(),
+                episode.stageId(), remote.headSha(), remote.baseSha(),
+                code.codeFingerprint(), code.headSha(), code.baseSha(),
+                reason, at.toEpochMilli());
     }
 
     public void stopBranchEpisode(
@@ -1492,6 +3326,25 @@ public class SqliteRemoteRuntimeStore
                 WHERE id = ? AND status = 'AWAITING_HEAD'
                 """, "Branch sync changed before observed success",
                 snapshotId, at.toEpochMilli(), episode.id());
+    }
+
+    public void succeedLocalCiPrecondition(
+            BranchEpisode episode, CodeSubject result, Instant at)
+    {
+        requireTransaction();
+        requireNonNull(episode, "episode is null");
+        requireNonNull(result, "result is null");
+        requireNonNull(at, "at is null");
+        updateOne("""
+                UPDATE branch_sync_episode
+                SET status = 'SUCCEEDED', result_code_fingerprint = ?,
+                    result_head_sha = ?, result_snapshot_id = source_snapshot_id,
+                    completed_at_ms = ?
+                WHERE id = ? AND purpose = 'CI_PRECONDITION_LOCAL'
+                  AND status IN ('REBASING', 'CONFLICT_REPAIR')
+                """, "Local CI precondition changed before completion",
+                result.codeFingerprint(), result.headSha(), at.toEpochMilli(),
+                episode.id());
     }
 
     private RemoteContext remoteContext(ResultSet rs)
@@ -1521,6 +3374,7 @@ public class SqliteRemoteRuntimeStore
                 && rs.getLong("stage_generation")
                         == rs.getLong("current_stage_generation")
                 && rs.getObject("completed_at_ms") == null
+                && rs.getInt("current_ci_policy") == 1
                 && rs.getString("expected_head_sha").equals(
                         rs.getString("current_head_sha"))
                 && rs.getString("expected_base_sha").equals(
@@ -1626,14 +3480,73 @@ public class SqliteRemoteRuntimeStore
                 rs.getString("stop_reason"));
     }
 
+    private static BaseRepairAuthorization baseRepairAuthorization(ResultSet rs)
+            throws SQLException
+    {
+        return new BaseRepairAuthorization(
+                rs.getString("id"), rs.getString("ci_repair_episode_id"),
+                rs.getString("manifest_id"), rs.getInt("semantic_attempt"),
+                rs.getString("authority_kind"),
+                rs.getString("automation_policy_id"),
+                rs.getString("blocker_id"), rs.getString("command_id"),
+                rs.getString("actor"), rs.getString("reason"),
+                rs.getString("failed_ci_evaluation_id"),
+                rs.getString("remote_pr_snapshot_id"),
+                rs.getString("expected_worktree_head_sha"),
+                rs.getString("subject_head_sha"),
+                rs.getString("subject_base_sha"),
+                rs.getString("manifest_digest"), rs.getString("status"),
+                instant(rs, "claimed_at_ms"),
+                nullableInstant(rs, "terminal_at_ms"),
+                rs.getString("terminal_evidence"));
+    }
+
+    private static CiTurnIntent ciTurnIntent(ResultSet rs) throws SQLException
+    {
+        int predecessor = rs.getInt("predecessor_revision");
+        Integer predecessorRevision = rs.wasNull() ? null : predecessor;
+        return new CiTurnIntent(
+                rs.getString("kind"), rs.getString("id"),
+                rs.getInt("semantic_attempt"),
+                rs.getInt("execution_attempt"),
+                rs.getString("predecessor_snapshot_id"),
+                predecessorRevision);
+    }
+
+    private static CiTurnFreshness ciTurnFreshness(ResultSet rs)
+            throws SQLException
+    {
+        int predecessor = rs.getInt("predecessor_observation_revision");
+        Integer predecessorRevision = rs.wasNull() ? null : predecessor;
+        return new CiTurnFreshness(
+                rs.getString("id"), rs.getString("ci_repair_episode_id"),
+                rs.getString("intent_kind"), rs.getString("intent_id"),
+                rs.getInt("semantic_attempt"),
+                rs.getInt("execution_attempt"),
+                rs.getString("predecessor_snapshot_id"), predecessorRevision,
+                rs.getString("accepted_snapshot_id"),
+                rs.getInt("accepted_observation_revision"),
+                rs.getString("accepted_ci_evaluation_id"),
+                rs.getString("remote_head_sha"),
+                rs.getString("authoritative_base_sha"),
+                rs.getString("code_fingerprint"),
+                rs.getString("code_head_sha"),
+                rs.getString("code_base_sha"),
+                rs.getString("prepublish_branch_sync_episode_id"),
+                instant(rs, "authorized_at_ms"));
+    }
+
     private static CiEffectDelivery ciEffectDelivery(ResultSet rs)
             throws SQLException
     {
         String kind = rs.getString("kind");
-        boolean remoteCurrent = rs.getString("current_head_sha").equals(
-                        rs.getString("last_pushed_head_sha") == null
-                                ? rs.getString("subject_head_sha")
-                                : rs.getString("last_pushed_head_sha"))
+        String currentHead = rs.getString("current_head_sha");
+        String episodeHead = rs.getString("last_pushed_head_sha") == null
+                ? rs.getString("subject_head_sha")
+                : rs.getString("last_pushed_head_sha");
+        boolean remoteCurrent = (currentHead.equals(episodeHead)
+                    || "PUSH_HEAD".equals(kind)
+                        && currentHead.equals(rs.getString("expected_head_sha")))
                 && rs.getString("subject_base_sha").equals(
                         rs.getString("current_base_sha"));
         boolean codeCurrent = "RERUN".equals(kind)
@@ -1658,6 +3571,9 @@ public class SqliteRemoteRuntimeStore
         return new CiEffectDelivery(
                 rs.getString("row_id"), rs.getString("operation_id"),
                 rs.getString("ci_repair_episode_id"), rs.getString("kind"),
+                rs.getString("operation_kind"),
+                rs.getString("base_repair_authorization_id"),
+                rs.getString("lease_expected_sha"),
                 rs.getString("task_id"), rs.getLong("task_epoch"),
                 rs.getString("stage_id"), rs.getLong("stage_generation"),
                 rs.getInt("semantic_attempt"),
@@ -1689,8 +3605,18 @@ public class SqliteRemoteRuntimeStore
                 rs.getString("observed_base_sha"),
                 rs.getString("target_base_sha"),
                 rs.getString("branch_sync_policy_revision_id"),
-                rs.getString("policy_source"), rs.getString("status"),
+                rs.getString("policy_source"), rs.getString("purpose"),
+                rs.getString("authority_kind"),
+                rs.getString("authority_id"),
+                rs.getString("ci_repair_episode_id"),
+                rs.getString("ci_turn_intent_kind"),
+                rs.getString("ci_turn_intent_id"),
+                rs.getString("source_code_fingerprint"),
+                rs.getString("source_code_head_sha"),
+                rs.getString("source_code_base_sha"),
+                rs.getString("status"),
                 rs.getInt("attempt_count"), rs.getInt("attempt_limit"),
+                rs.getString("result_code_fingerprint"),
                 rs.getString("result_head_sha"),
                 rs.getString("result_snapshot_id"),
                 instant(rs, "opened_at_ms"), nullableInstant(rs, "completed_at_ms"),
@@ -1865,6 +3791,14 @@ public class SqliteRemoteRuntimeStore
         }
     }
 
+    private static void requireText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " must not be blank");
+        }
+    }
+
     public record RemoteContext(
             String taskId,
             long taskEpoch,
@@ -1971,6 +3905,25 @@ public class SqliteRemoteRuntimeStore
         }
     }
 
+    public record ParkedObservation(
+            String ticketId,
+            String taskId,
+            String stageId,
+            Instant lastAttemptedAt)
+    {
+        public ParkedObservation
+        {
+            requireNonNull(ticketId, "ticketId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(stageId, "stageId is null");
+            requireNonNull(lastAttemptedAt, "lastAttemptedAt is null");
+            if (ticketId.isBlank() || taskId.isBlank() || stageId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Parked observation identity must not be blank");
+            }
+        }
+    }
+
     public record ObservationEvidence(
             String snapshotId,
             String ciEvaluationId,
@@ -2034,6 +3987,95 @@ public class SqliteRemoteRuntimeStore
             Instant completedAt,
             String stopReason) {}
 
+    public record CiPushSubject(String headSha, String baseSha) {}
+
+    public record CiTurnFreshness(
+            String id,
+            String episodeId,
+            String intentKind,
+            String intentId,
+            int semanticAttempt,
+            int executionAttempt,
+            String predecessorSnapshotId,
+            Integer predecessorObservationRevision,
+            String acceptedSnapshotId,
+            int acceptedObservationRevision,
+            String acceptedCiEvaluationId,
+            String remoteHeadSha,
+            String authoritativeBaseSha,
+            String codeFingerprint,
+            String codeHeadSha,
+            String codeBaseSha,
+            String prepublishBranchSyncEpisodeId,
+            Instant authorizedAt) {}
+
+    public record ManualCiTurnIntent(
+            String id,
+            String episodeId,
+            String baseRepairAuthorizationId,
+            String predecessorSnapshotId,
+            int predecessorObservationRevision,
+            int semanticAttempt,
+            Instant requestedAt) {}
+
+    public record ManualCiBranchSyncAuthorization(
+            String id,
+            String blockerId,
+            String episodeId,
+            String taskId,
+            String stageId,
+            String predecessorSnapshotId,
+            int predecessorObservationRevision,
+            String commandId,
+            String observationOperationId,
+            String actor,
+            String reason,
+            String status,
+            String branchSyncEpisodeId,
+            Instant claimedAt,
+            Instant consumedAt) {}
+
+    private record CiTurnIntent(
+            String kind,
+            String id,
+            int semanticAttempt,
+            int executionAttempt,
+            String predecessorSnapshotId,
+            Integer predecessorRevision) {}
+
+    private record CiNoChangeRetrySource(
+            String treeResultId,
+            String operationId,
+            String stageTurnId,
+            int semanticAttempt,
+            int executionAttempt,
+            String acceptedSnapshotId,
+            int acceptedObservationRevision) {}
+
+    private record RemoteAcceptedSubject(String snapshotId, int revision) {}
+
+    public record BaseRepairAuthorization(
+            String id,
+            String episodeId,
+            String manifestId,
+            int semanticAttempt,
+            String authorityKind,
+            String automationPolicyId,
+            String blockerId,
+            String commandId,
+            String actor,
+            String reason,
+            String failedCiEvaluationId,
+            String remotePrSnapshotId,
+            String expectedWorktreeHeadSha,
+            String subjectHeadSha,
+            String subjectBaseSha,
+            String manifestDigest,
+            String status,
+            Instant claimedAt,
+            Instant terminalAt,
+            String terminalEvidence) {}
+
     public record EffectRequest(
             String rowId,
             String operationId,
@@ -2059,6 +4101,9 @@ public class SqliteRemoteRuntimeStore
             String operationId,
             String episodeId,
             String kind,
+            String operationKind,
+            String baseRepairAuthorizationId,
+            String leaseExpectedSha,
             String taskId,
             long taskEpoch,
             String stageId,
@@ -2093,14 +4138,50 @@ public class SqliteRemoteRuntimeStore
             String targetBaseSha,
             String policyRevisionId,
             String policySource,
+            String purpose,
+            String authorityKind,
+            String authorityId,
+            String ciRepairEpisodeId,
+            String ciTurnIntentKind,
+            String ciTurnIntentId,
+            String sourceCodeFingerprint,
+            String sourceCodeHeadSha,
+            String sourceCodeBaseSha,
             String status,
             int attemptCount,
             int attemptLimit,
+            String resultCodeFingerprint,
             String resultHeadSha,
             String resultSnapshotId,
             Instant openedAt,
             Instant completedAt,
             String errorMessage) {}
+
+    public record BranchControlReceipt(
+            String taskId,
+            String episodeId,
+            String blockerId,
+            String stageId,
+            String commandId,
+            String kind,
+            String actor,
+            String reason,
+            Instant consumedAt) {}
+
+    public record CiLocalPrecondition(
+            CiEpisode episode,
+            String intentKind,
+            String intentId,
+            CodeSubject codeSubject)
+    {
+        public CiLocalPrecondition
+        {
+            requireNonNull(episode, "episode is null");
+            requireText(intentKind, "intentKind");
+            requireText(intentId, "intentId");
+            requireNonNull(codeSubject, "codeSubject is null");
+        }
+    }
 
     public record BranchStep(
             String id,
@@ -2143,6 +4224,24 @@ public class SqliteRemoteRuntimeStore
             int laneMask,
             boolean writer) {}
 
+    private record CiPolicyUpgradeSubject(
+            String policyId,
+            String source,
+            String bindingId,
+            int nextRevision) {}
+
+    private record ObservationOperationRow(
+            String operationId,
+            String stageId,
+            long taskEpoch,
+            long stageGeneration,
+            int semanticAttempt,
+            String expectedHeadSha,
+            String expectedBaseSha,
+            String repositoryId,
+            int pullRequestNumber,
+            String ciPolicyRevisionId) {}
+
     @Override
     public RemoteEffectOperationHandler.OperationContext requireEffect(
             String operationId)
@@ -2156,8 +4255,13 @@ public class SqliteRemoteRuntimeStore
                        operation.expected_code_fingerprint,
                        operation.expected_head_sha,
                        operation.expected_base_sha,
-                       COALESCE(episode.last_pushed_head_sha,
-                           episode.subject_head_sha)
+                       authorization.subject_head_sha
+                           AS base_repair_original_head_sha,
+                       authorization.id AS base_repair_authorization_id,
+                       authorization.manifest_digest
+                           AS base_repair_manifest_digest,
+                       operation.prepublish_branch_sync_episode_id,
+                       operation.lease_expected_sha
                            AS force_with_lease_expected_sha,
                        binding.remote_repository_id,
                        binding.remote_pr_number, binding.remote_head_ref,
@@ -2169,6 +4273,8 @@ public class SqliteRemoteRuntimeStore
                   ON binding.id = episode.remote_pr_binding_id
                 JOIN task_code_identity identity
                   ON identity.task_id = operation.task_id
+                LEFT JOIN ci_base_repair_authorization_v303 authorization
+                  ON authorization.id = operation.base_repair_authorization_id
                 WHERE operation.operation_id = ?
                   AND operation.status = 'DISPATCHED'
                   AND operation.kind IN ('RERUN', 'VALIDATE', 'PUSH_HEAD')
@@ -2220,7 +4326,11 @@ public class SqliteRemoteRuntimeStore
         String kind = rs.getString("kind");
         String operationKind = switch (kind) {
             case "RERUN" -> RemoteEffectOperationHandler.RERUN_CI;
-            case "VALIDATE" -> RemoteEffectOperationHandler.VALIDATE_CI_REPAIR;
+            case "VALIDATE" -> rs.getString(
+                    "base_repair_authorization_id") == null
+                    ? RemoteEffectOperationHandler.VALIDATE_CI_REPAIR
+                    : RemoteEffectOperationHandler
+                            .REWRITE_VALIDATE_BASE_CI_REPAIR;
             case "PUSH_HEAD" -> RemoteEffectOperationHandler.PUSH_CI_REPAIR;
             default -> throw new IllegalStateException(
                     "Unsupported CI effect kind " + kind);
@@ -2241,6 +4351,10 @@ public class SqliteRemoteRuntimeStore
                         rs.getString("remote_head_ref"),
                         rs.getString("expected_code_fingerprint"), expectedHead,
                         expectedBase, targetBaseSha,
+                        rs.getString("base_repair_original_head_sha"),
+                        rs.getString("base_repair_authorization_id"),
+                        rs.getString("base_repair_manifest_digest"),
+                        rs.getString("prepublish_branch_sync_episode_id"),
                         rs.getString("force_with_lease_expected_sha"),
                         operationId));
     }
@@ -2274,6 +4388,7 @@ public class SqliteRemoteRuntimeStore
                         rs.getString("remote_head_ref"),
                         rs.getString("expected_code_fingerprint"), expectedHead,
                         expectedBase, rs.getString("target_base_sha"),
+                        null, null, null, null,
                         rs.getString("force_with_lease_expected_sha"),
                         rs.getString("idempotency_key")));
     }

@@ -102,13 +102,14 @@ public class TypedTurnRepository
                 INSERT INTO review_assignment_turn(
                     id, assignment_id, purpose, status, operation_id, attempt,
                     start_commit, delivery_lane, launch_input, requested_at_ms,
-                    started_at_ms, finished_at_ms, error_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    started_at_ms, finished_at_ms, error_message,
+                    cost_cap_usd_milli)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 data.id(), turn.assignmentId(), data.purpose(), data.status().name(),
                 data.operationId(), data.attempt(), turn.startCommit(), data.deliveryLane(),
                 data.launchInput(), millis(data.requestedAt()), millis(data.startedAt()),
-                millis(data.finishedAt()), data.errorMessage());
+                millis(data.finishedAt()), data.errorMessage(), turn.costCapUsdMilli());
     }
 
     public Optional<ThreadTurn> find(ThreadTurnId id)
@@ -166,11 +167,13 @@ public class TypedTurnRepository
         return one(jdbc.query("""
                 SELECT id, assignment_id, purpose, status, operation_id, attempt,
                     start_commit, delivery_lane, launch_input, requested_at_ms,
-                    started_at_ms, finished_at_ms, error_message
+                    started_at_ms, finished_at_ms, error_message,
+                    cost_cap_usd_milli
                 FROM review_assignment_turn WHERE id = ?
                 """,
                 (rs, row) -> new ReviewAssignmentTurn(
-                        rs.getString("assignment_id"), rs.getString("start_commit"), data(rs)),
+                        rs.getString("assignment_id"), rs.getString("start_commit"),
+                        rs.getLong("cost_cap_usd_milli"), data(rs)),
                 id.value()));
     }
 
@@ -271,17 +274,21 @@ public class TypedTurnRepository
                 || expectedState == QuestionState.CANCELED) {
             throw new IllegalArgumentException("invalid expected question state/revision");
         }
+        if (expectedState == QuestionState.ANSWERED) {
+            return false;
+        }
         return jdbc.update("""
                 UPDATE %s_question
-                SET state = 'ANSWERED', answer = ?, answer_revision = ?, answered_at_ms = ?
-                WHERE turn_id = ? AND call_id = ? AND state = ? AND answer_revision = ?
+                SET state = 'ANSWERED', answer = ?, answer_free_form = ?,
+                    answer_actor = 'user', answer_revision = ?, answered_at_ms = ?,
+                    continuation_state = 'READY'
+                WHERE turn_id = ? AND call_id = ? AND state = 'OPEN'
+                    AND answer_revision = ?
                     AND created_at_ms <= ?
-                    AND (answered_at_ms IS NULL OR answered_at_ms <= ?)
-                    AND ((state = 'OPEN' AND answer IS NULL AND answered_at_ms IS NULL)
-                        OR (state = 'ANSWERED' AND answer IS NOT NULL AND answered_at_ms IS NOT NULL))
+                    AND answer IS NULL AND answered_at_ms IS NULL
                 """.formatted(table(turnId).supportPrefix),
-                answer, expectedRevision + 1, answeredAt.toEpochMilli(), turnId.value(), callId,
-                expectedState.name(), expectedRevision, answeredAt.toEpochMilli(),
+                answer, answer, expectedRevision + 1, answeredAt.toEpochMilli(),
+                turnId.value(), callId, expectedRevision,
                 answeredAt.toEpochMilli()) == 1;
     }
 
@@ -638,12 +645,20 @@ public class TypedTurnRepository
         }
     }
 
-    public record ReviewAssignmentTurn(String assignmentId, String startCommit, TurnData data)
+    public record ReviewAssignmentTurn(
+            String assignmentId,
+            String startCommit,
+            long costCapUsdMilli,
+            TurnData data)
     {
         public ReviewAssignmentTurn
         {
             required(assignmentId, "assignmentId");
             required(startCommit, "startCommit");
+            if (costCapUsdMilli < 1) {
+                throw new IllegalArgumentException(
+                        "costCapUsdMilli must be positive");
+            }
             requireNonNull(data, "data is null");
         }
     }

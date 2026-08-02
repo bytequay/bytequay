@@ -113,6 +113,57 @@ public final class MergeOperationHandler
                     snapshot.retryAt(now, observationPoll));
         }
 
+        ClaimSpec claimSpec = next.orElseThrow();
+        PreparedEffect prepared;
+        try {
+            prepared = requireNonNull(
+                    effects.prepare(snapshot.request(), claimSpec),
+                    "prepared merge effect is null");
+        }
+        catch (RemoteTruthPendingException pending) {
+            throw deferred(pending.getMessage(), now.plus(observationPoll));
+        }
+        catch (SubjectRejectedException rejected) {
+            operations.block(
+                    operationId,
+                    BlockReason.MERGEABILITY_REGRESSED,
+                    rejected.getMessage(),
+                    clock.instant());
+            return terminal(context.envelope(),
+                    operations.requireByOperationId(operationId).request());
+        }
+        catch (PermissionDeniedException denied) {
+            operations.block(
+                    operationId,
+                    BlockReason.PERMISSION_DENIED,
+                    denied.getMessage(),
+                    clock.instant());
+            return terminal(context.envelope(),
+                    operations.requireByOperationId(operationId).request());
+        }
+        catch (RuntimeException failure) {
+            throw new ExecutionPorts.RetryableExecutionException(
+                    "merge preflight failed before any remote mutation: "
+                            + failure.getMessage(),
+                    failure);
+        }
+
+        now = clock.instant();
+        snapshot = operations.requireByOperationId(operationId);
+        validate(context.envelope(), snapshot.request());
+        if (snapshot.request().status().isTerminal()) {
+            return terminal(context.envelope(), snapshot.request());
+        }
+        if (context.isCancellationRequested()) {
+            operations.cancel(operationId, "merge canceled before effect claim", now);
+            return terminal(context.envelope(),
+                    operations.requireByOperationId(operationId).request());
+        }
+        if (snapshot.nextClaim(now).filter(claimSpec::equals).isEmpty()) {
+            throw new ExecutionPorts.RetryableExecutionException(
+                    "merge operation changed during preflight");
+        }
+
         Instant leaseUntil = min(
                 context.capacityLease().expiresAt(), now.plus(observationPoll));
         if (!leaseUntil.isAfter(now)) {
@@ -120,14 +171,13 @@ public final class MergeOperationHandler
                     "merge capacity lease expired before effect claim");
         }
         EffectClaim claim = operations.tryClaim(
-                        operationId, next.orElseThrow(), context.executionId(),
+                        operationId, claimSpec, context.executionId(),
                         now, leaseUntil)
                 .orElseThrow(() -> new ExecutionPorts.RetryableExecutionException(
                         "merge effect claim changed concurrently"));
         try {
-            EffectEvidence evidence = claim.spec().mode() == ClaimMode.EXECUTE
-                    ? effects.execute(snapshot.request(), claim)
-                    : effects.probe(snapshot.request(), claim);
+            EffectEvidence evidence = effects.perform(
+                    snapshot.request(), claim, prepared);
             if (claim.spec().mode() == ClaimMode.EXECUTE
                     && evidence.observedByProbe()) {
                 throw deferred(
@@ -294,10 +344,13 @@ public final class MergeOperationHandler
 
     public interface MergeEffects
     {
-        EffectEvidence execute(MergeRequest request, EffectClaim claim);
+        PreparedEffect prepare(MergeRequest request, ClaimSpec claim);
 
-        EffectEvidence probe(MergeRequest request, EffectClaim claim);
+        EffectEvidence perform(
+                MergeRequest request, EffectClaim claim, PreparedEffect prepared);
     }
+
+    public interface PreparedEffect {}
 
     public enum MergeMode
     {

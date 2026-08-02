@@ -32,7 +32,8 @@ import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
@@ -76,7 +77,7 @@ class TestSqliteTaskStore
         seedLegacySibling(
                 jdbc, "task-legacy", 3,
                 now.minus(3, ChronoUnit.DAYS).toEpochMilli());
-        migrate(file, "263");
+        migrate(file);
 
         ControlFixture fixture = controls(dataSource);
         assertThat(fixture.controls().idleArchiveCandidates(cutoff, now, 10))
@@ -114,7 +115,7 @@ class TestSqliteTaskStore
         seedActiveTaskWithCode(
                 jdbc, "task-race", "plan-race", 1,
                 now.minus(2, ChronoUnit.DAYS).toEpochMilli());
-        migrate(file, "263");
+        migrate(file);
 
         ControlFixture fixture = controls(dataSource);
         assertThat(fixture.controls().idleArchiveCandidates(cutoff, now, 10))
@@ -126,7 +127,7 @@ class TestSqliteTaskStore
                 .isFalse();
         assertThat(fixture.store().findById("task-race").orElseThrow().lifecycle())
                 .isEqualTo(TaskLifecycle.ACTIVE);
-        assertThat(count(jdbc, "task_transition", "task-race")).isZero();
+        assertThat(count(jdbc, "task_transition", "task-race")).isOne();
         assertThat(count(jdbc, "task_command_receipt", "task-race")).isZero();
     }
 
@@ -141,7 +142,7 @@ class TestSqliteTaskStore
         long old = now.minus(2, ChronoUnit.DAYS).toEpochMilli();
         seedTrunk(jdbc);
         seedActiveTaskWithCode(jdbc, "task-wait", "plan-wait", 1, old);
-        migrate(file, "263");
+        migrate(file);
         seedLivePlanTurn(jdbc, "task-wait", "plan-wait", "wait");
         jdbc.update("""
                 UPDATE task_turn SET status = 'RUNNING', started_at_ms = ?
@@ -197,7 +198,7 @@ class TestSqliteTaskStore
         seedActiveTaskWithCode(
                 jdbc, "task-revive", "plan-revive", 1,
                 now.minus(2, ChronoUnit.DAYS).toEpochMilli());
-        migrate(file, "263");
+        migrate(file);
 
         ControlFixture beforeRestart = controls(dataSource);
         assertThat(beforeRestart.controls().archiveIfIdle(
@@ -296,7 +297,7 @@ class TestSqliteTaskStore
         TaskManager restarted = new TaskManager(
                 commands, new V2TaskStore(new JdbcTemplate(dataSource)));
         assertThat(restarted.requestPause(pause).disposition().name()).isEqualTo("DUPLICATE");
-        assertThat(count(jdbc, "task_transition", "task-1")).isEqualTo(1);
+        assertThat(count(jdbc, "task_transition", "task-1")).isEqualTo(2);
         assertThat(count(jdbc, "task_command_receipt", "task-1")).isEqualTo(1);
         assertThatThrownBy(() -> restarted.requestArchive(new TaskManager.Command(
                 "stale-1", "user", "task-1", 1, 1)))
@@ -332,7 +333,7 @@ class TestSqliteTaskStore
                         null, null, null, null, null, null, expected, updated)))
                 .isInstanceOf(DataAccessException.class);
         assertThat(store.findById("task-rollback")).contains(expected);
-        assertThat(count(jdbc, "task_transition", "task-rollback")).isZero();
+        assertThat(count(jdbc, "task_transition", "task-rollback")).isOne();
 
         seedSatisfiedPauseBarrier(jdbc, "task-rollback", "barrier-1");
         assertThat(store.findSatisfiedQuiescence("task-rollback", "barrier-1"))
@@ -357,13 +358,16 @@ class TestSqliteTaskStore
         seedRetainedWorktreeLease(jdbc, "task-control", "plan-control", 11, 20);
         seedRetainedWorktreeLease(
                 jdbc, "task-live-lease", "plan-live-lease", 12, now + 60_000);
-        migrate(file, "230");
+        migrate(file);
 
-        TaskCommandExecutor commands = new TaskCommandExecutor(
-                new DataSourceTransactionManager(dataSource));
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
         V2TaskStore store = new V2TaskStore(jdbc);
         TaskManager manager = new TaskManager(commands, store);
         TaskControlHandoff handoff = new TaskControlHandoff(commands, manager);
+        SqliteTaskControlRuntimeStore runtimeStore =
+                new SqliteTaskControlRuntimeStore(jdbc, transactionManager);
 
         assertThat(manager.requestPause(new TaskManager.Command(
                 "pause-live", "user", "task-live-lease", 1, 1)).state().lifecycle())
@@ -421,6 +425,24 @@ class TestSqliteTaskStore
                 "task-control", "resume-control", "barrier-control",
                 "plan-control", resumeAt);
         insertResumeEvidence(jdbc, resumeAt, resumeDigest);
+        SqliteTaskControlRuntimeStore.ControlContext resumeContext = runtimeStore
+                .pending().stream()
+                .filter(context -> context.taskId().equals("task-control"))
+                .findFirst()
+                .orElseThrow();
+        TaskManager.ResumeEvidence resumeEvidence = new TaskManager.ResumeEvidence(
+                "task-control", 1, "resume-control", "plan-control", 1,
+                StageCheckpoint.DRAFTING, resumeDigest);
+        Instant resumeInstant = Instant.ofEpochMilli(resumeAt);
+        SqliteTaskControlRuntimeStore.ResumeHandoff resumeOwnerHandoff =
+                runtimeStore.ensureResumeHandoff(
+                        resumeContext, resumeEvidence, resumeInstant);
+        runtimeStore.acceptResumeHandoff(
+                resumeOwnerHandoff,
+                new TaskResumeOwner.Acceptance(
+                        resumeOwnerHandoff.id(),
+                        "plan-rearm:" + resumeOwnerHandoff.id(), "test-plan"),
+                resumeInstant);
         TaskManager.ResumeCompletionCommand resume = new TaskManager.ResumeCompletionCommand(
                 new TaskManager.Command("complete-resume", "system", "task-control", 1, 4),
                 "resume-control", "plan-control", 1,
@@ -487,19 +509,6 @@ class TestSqliteTaskStore
                 new TaskManager.Command(
                         "legacy-cancel-runtime", "user",
                         "task-legacy-cancel", 1, 1));
-        jdbc.execute("DROP TRIGGER task_terminal_intent_immutable");
-        jdbc.update("""
-                UPDATE task_terminal_intent
-                   SET source = 'REQUEST_CANCEL', source_id = NULL
-                 WHERE task_id = 'task-legacy-cancel'
-                """);
-        jdbc.execute("""
-                CREATE TRIGGER task_terminal_intent_immutable
-                BEFORE UPDATE ON task_terminal_intent
-                BEGIN SELECT RAISE(ABORT, 'task terminal intent is immutable'); END
-                """);
-
-        migrate(file, "256");
         assertThat(jdbc.queryForMap("""
                 SELECT source, source_id FROM task_terminal_intent
                  WHERE task_id = 'task-legacy-cancel'
@@ -694,7 +703,11 @@ class TestSqliteTaskStore
         assertThat(count(jdbc, "cleanup_stage", "task-cancel")).isEqualTo(1);
         assertThat(count(jdbc, "cleanup_operation", "task-cancel")).isEqualTo(1);
         assertThat(count(jdbc, "cleanup_step", "task-cancel")).isEqualTo(11);
-        assertThat(count(jdbc, "dispatch_ticket", "task-cancel")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM dispatch_ticket
+                WHERE task_id = 'task-cancel'
+                  AND operation_kind = 'RUN_CLEANUP_OPERATION'
+                """, Integer.class)).isOne();
 
         ArrayList<String> restartedCancellations = new ArrayList<>();
         DataSourceTransactionManager restartedTransactions =
@@ -721,7 +734,11 @@ class TestSqliteTaskStore
         assertThat(count(jdbc, "cleanup_stage", "task-cancel")).isEqualTo(1);
         assertThat(count(jdbc, "cleanup_operation", "task-cancel")).isEqualTo(1);
         assertThat(count(jdbc, "cleanup_step", "task-cancel")).isEqualTo(11);
-        assertThat(count(jdbc, "dispatch_ticket", "task-cancel")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM dispatch_ticket
+                WHERE task_id = 'task-cancel'
+                  AND operation_kind = 'RUN_CLEANUP_OPERATION'
+                """, Integer.class)).isOne();
         jdbc.update("""
                 UPDATE task_turn SET status = 'SUCCEEDED'
                  WHERE id = 'cancel-old-turn'
@@ -744,7 +761,7 @@ class TestSqliteTaskStore
         seedActiveTaskWithCode(jdbc, "task-resume", "plan-resume", 1);
         seedActiveTaskWithCode(jdbc, "task-fault", "plan-fault", 2);
         seedActiveTaskWithCode(jdbc, "task-sibling", "plan-sibling", 3);
-        migrate(file, "257");
+        migrate(file);
         seedCanceledPlanTurn(jdbc, "task-resume", "plan-resume", "current");
         seedCanceledPlanTurn(jdbc, "task-fault", "plan-fault", "fault");
 
@@ -874,7 +891,7 @@ class TestSqliteTaskStore
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTask(jdbc, "task-policy", "plan-policy", 1);
-        migrate(file, "249");
+        migrate(file);
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
         TaskManager manager = new TaskManager(commands, new V2TaskStore(jdbc));
@@ -890,8 +907,12 @@ class TestSqliteTaskStore
                 .returns(2, TaskManager.PolicyRevision::revision)
                 .returns(true, TaskManager.PolicyRevision::autoMerge)
                 .returns(2, TaskManager.PolicyRevision::minApprovals);
-        assertThat(new V2TaskStore(new JdbcTemplate(dataSource))
-                .findById("task-policy").orElseThrow().version()).isEqualTo(2);
+        V2TaskStore durable = new V2TaskStore(new JdbcTemplate(dataSource));
+        assertThat(durable.findById(
+                "task-policy").orElseThrow().version()).isEqualTo(2);
+        assertThat(count(jdbc, "task_automation_policy", "task-policy"))
+                .isZero();
+        assertThat(durable.effectiveAutoApprove("task-policy")).isTrue();
         assertThat(manager.revisePolicy(first).disposition().name())
                 .isEqualTo("DUPLICATE");
         assertThat(count(jdbc, "task_policy_command_receipt", "task-policy"))
@@ -951,7 +972,37 @@ class TestSqliteTaskStore
     }
 
     @Test
-    void remoteClosedCleanupKeepsItsObservedHeadWithoutASubjectFence()
+    void stewardshipExceptionDisablesEffectiveAutoApprove()
+    {
+        Path file = tempDir.resolve("effective-auto-approve.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        seedActiveTask(jdbc, "task-policy", "plan-policy", 1);
+        migrate(file);
+        V2TaskStore store = new V2TaskStore(jdbc);
+        TaskManager manager = new TaskManager(
+                new TaskCommandExecutor(
+                        new DataSourceTransactionManager(dataSource)),
+                store);
+        manager.revisePolicy(new TaskManager.PolicyCommand(
+                new TaskManager.Command(
+                        "enable-auto-approve", "user", "task-policy", 1, 1),
+                "policy-enabled", true, false, 0, 3, 3, true, null));
+        assertThat(store.effectiveAutoApprove("task-policy")).isTrue();
+
+        insertAutomationPolicy(
+                jdbc, "automation-enabled", 1, true, false);
+        assertThat(store.effectiveAutoApprove("task-policy")).isTrue();
+
+        insertAutomationPolicy(
+                jdbc, "automation-stewardship", 2, false, true);
+        assertThat(store.effectiveAutoApprove("task-policy")).isFalse();
+        assertThat(store.effectiveAutoApprove("missing-task")).isFalse();
+    }
+
+    @Test
+    void remoteClosedCleanupRejectsAnUnprovenObservation()
     {
         SQLiteDataSource dataSource = database(tempDir.resolve("remote-closed.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
@@ -969,7 +1020,8 @@ class TestSqliteTaskStore
 
         // Seal the open Stage and hand off to Cleanup inside the command
         // transaction — the current-Stage foreign key is deferred to commit.
-        new TaskCommandExecutor(new DataSourceTransactionManager(dataSource))
+        assertThatThrownBy(() -> new TaskCommandExecutor(
+                new DataSourceTransactionManager(dataSource))
                 .execute("task-closed", () -> {
                     jdbc.update("""
                             UPDATE stage
@@ -988,25 +1040,38 @@ class TestSqliteTaskStore
                             "close-command", "OPEN_REMOTE_CLOSED_CLEANUP", "observer",
                             1L, 1L, observation, null, "observation-1",
                             "cleanup-closed", StageKind.CLEANUP, 1L, expected, updated);
-                });
+                }))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining(
+                        "Remote Task terminal intent lacks accepted exact-head truth");
+        assertThat(count(jdbc, "task_terminal_intent", "task-closed")).isZero();
+        assertThat(count(jdbc, "stage", "cleanup-closed")).isZero();
+    }
 
-        assertThat(jdbc.queryForObject("""
-                SELECT subject_operation_id FROM task_command_receipt
-                WHERE task_id = 'task-closed'
-                """, String.class)).isNull();
-        assertThat(jdbc.queryForMap("""
-                SELECT source, source_id, observed_head_sha
-                FROM task_terminal_intent WHERE task_id = 'task-closed'
-                """))
-                .containsEntry("source", "REMOTE_OBSERVATION")
-                .containsEntry("source_id", "observation-1")
-                .containsEntry("observed_head_sha", "head-1");
+    private static void insertAutomationPolicy(
+            JdbcTemplate jdbc,
+            String id,
+            int revision,
+            boolean autoApprove,
+            boolean stewardshipException)
+    {
+        jdbc.update("""
+                INSERT INTO task_automation_policy(
+                    id, task_id, revision, source, auto_approve, auto_merge,
+                    keep_draft, minimum_write_approvals,
+                    max_merge_queue_reenqueues, require_low_risk,
+                    require_small_effort, stewardship_exception,
+                    created_by, created_at_ms)
+                VALUES (?, 'task-policy', ?, 'TEST', ?, 0, 0, 0, 0, 0, 0, ?,
+                    'test', ?)
+                """, id, revision, autoApprove ? 1 : 0,
+                stewardshipException ? 1 : 0, revision);
     }
 
     private static SQLiteDataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;
@@ -1090,14 +1155,9 @@ class TestSqliteTaskStore
     {
         String turnId = "plan-turn-" + suffix;
         String operationId = "plan-operation-" + suffix;
-        jdbc.update("""
-                INSERT INTO task_brain(
-                    id, task_id, provider, model, engine_snapshot, created_at_ms)
-                VALUES (?, ?, 'openai', 'model', 'engine', 10)
-                """, "brain-" + suffix, taskId);
         String launch = """
                 {"schemaVersion":1,"transport":"API","provider":"openai",
-                 "model":"model","workingDirectory":"%s","prompt":"draft",
+                 "model":"review-model","workingDirectory":"%s","prompt":"draft",
                  "toolEndpoint":{"serverName":"bytequay",
                  "url":"http://127.0.0.1:8080/api/v2/task-turns/%s/operations/%s/mcp",
                  "ownerKind":"TASK_TURN","ownerId":"%s",
@@ -1130,10 +1190,10 @@ class TestSqliteTaskStore
                 """, "plan-ticket-" + suffix, operationId, turnId, taskId, stageId);
     }
 
-    private static void migrate(Path file, String target)
+    private static void migrate(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static void seedTrunk(JdbcTemplate jdbc)
@@ -1152,6 +1212,7 @@ class TestSqliteTaskStore
                 VALUES ('trunk-1', 'CLI_AGENT', 'codex', 'trunk-1', 'IDLE', 'test',
                     0, 0, 0, 1, 1, 'workspace-1', 'build', 2, 'V2', 'ACTIVE')
                 """);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.update("""
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
@@ -1163,21 +1224,27 @@ class TestSqliteTaskStore
             JdbcTemplate jdbc, String taskId, String stageId, int sequence)
     {
         String assignment = "assignment-" + taskId;
-        jdbc.update("""
+        V2TaskSeed.insertAuthorized(jdbc, assignment, seed -> seed.update("""
                 INSERT INTO task_assignment(
                     id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
+                    created_by, created_at_ms, creation_authorization_id)
                 VALUES (?, 'trunk-1', 'NEW_FROM_TRUNK', 'base', 'seed', 'prompt',
-                    'test', 1)
-                """, assignment);
-        jdbc.update("""
+                    'test', 1, ?)
+                """, assignment, "authorization-" + assignment));
+        V2TaskSeed.insertCreated(jdbc, taskId, seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, lifecycle_state, assignment_id,
-                    policy_revision_id)
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES (?, 'trunk-1', ?, 'IDLE', 'PLANNING', 1,
-                    'V2', 'PROVISIONING', ?, 'policy-1')
-                """, taskId, sequence, assignment);
+                    'V2', 'PROVISIONING', ?, 'policy-1', ?, ?, 'DEVELOP',
+                    'prompt', 'user')
+                """, taskId, sequence, assignment,
+                "creation-receipt-" + taskId, "Test task " + assignment));
+        V2TaskSeed.completeProvisioning(
+                jdbc, taskId, "base", "base", "fingerprint-" + taskId,
+                "provisioned", 2);
         jdbc.update("""
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)
@@ -1217,87 +1284,30 @@ class TestSqliteTaskStore
 
     private static void seedActiveTaskWithCode(
             JdbcTemplate jdbc, String taskId, String stageId, int sequence,
-            long createdAt)
+        long createdAt)
     {
         String assignment = "assignment-" + taskId;
-        String provision = "provision-" + taskId;
-        String operation = "provision-operation-" + taskId;
-        String ticket = "provision-ticket-" + taskId;
-        jdbc.update("""
+        V2TaskSeed.insertAuthorized(jdbc, assignment, seed -> seed.update("""
                 INSERT INTO task_assignment(
                     id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
+                    created_by, created_at_ms, creation_authorization_id)
                 VALUES (?, 'trunk-1', 'NEW_FROM_TRUNK', 'base-code',
-                    'seed', 'prompt', 'test', ?)
-                """, assignment, createdAt);
-        jdbc.update("""
+                    'seed', 'prompt', 'test', ?, ?)
+                """, assignment, createdAt, "authorization-" + assignment));
+        V2TaskSeed.insertCreated(jdbc, taskId, seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, lifecycle_state, assignment_id,
-                    policy_revision_id)
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES (?, 'trunk-1', ?, 'IDLE', 'PLANNING', ?,
-                    'V2', 'PROVISIONING', ?, 'policy-1')
-                """, taskId, sequence, createdAt, assignment);
-        jdbc.update("""
-                INSERT INTO task_creation_context(
-                    task_id, assignment_id, policy_revision_id, provenance,
-                    repository_id, publish_repository_id, planning_base_sha,
-                    engine_snapshot, work_model_snapshot, created_at_ms)
-                VALUES (?, ?, 'policy-1', 'DIRECT_USER', 'acme/widget',
-                    'acme/widget', 'base-code', 'engine', 'work-model', ?)
-                """, taskId, assignment, createdAt + 1);
-        jdbc.update("""
-                INSERT INTO provision_task_operation(
-                    id, task_id, task_epoch, assignment_id, operation_id,
-                    semantic_attempt, repository_id, expected_base_sha,
-                    requested_branch_name, requested_worktree_path,
-                    status, created_at_ms)
-                VALUES (?, ?, 1, ?, ?, 1, 'acme/widget', 'base-code', ?, ?,
-                    'REQUESTED', ?)
-                """, provision, taskId, assignment, operation,
-                "dev/" + taskId, "/tmp/" + taskId, createdAt + 2);
-        jdbc.update("""
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    exclusive_task, writer_required, workspace_id, trunk_id,
-                    task_id, task_epoch, attempt, expected_base_sha,
-                    status, created_at_ms)
-                VALUES (?, ?, 'PROVISION_TASK', 'LOCAL_GIT', 'TASK', ?,
-                    'TASK_PROVISION_RESULT', 16, 1, 1, 'workspace-1', 'trunk-1',
-                    ?, 1, 1, 'base-code', 'REQUESTED', ?)
-                """, ticket, operation, taskId, taskId, createdAt + 2);
-        jdbc.update("UPDATE provision_task_operation SET status = 'DISPATCHED' WHERE id = ?",
-                provision);
-        jdbc.update("""
-                UPDATE dispatch_ticket
-                SET version = 1, status = 'RESULT_PENDING',
-                    pending_result_outcome = 'SUCCEEDED',
-                    pending_result_payload = 'provisioned',
-                    pending_result_evidence = 'worktree-created',
-                    pending_result_task_epoch = 1,
-                    pending_result_operation_id = ?, pending_result_attempt = 1,
-                    pending_result_expected_base_sha = 'base-code'
-                WHERE id = ?
-                """, operation, ticket);
-        jdbc.update("""
-                UPDATE provision_task_operation
-                SET status = 'ACCEPTED', result_base_sha = 'base-code',
-                    result_head_sha = 'base-code',
-                    result_code_fingerprint = 'fp-code', completed_at_ms = ?
-                WHERE id = ?
-                """, createdAt + 3, provision);
-        jdbc.update("""
-                INSERT INTO task_code_identity(
-                    task_id, provision_operation_id, repository_id,
-                    publish_repository_id, branch_name, worktree_path,
-                    base_sha, local_head_sha, code_fingerprint,
-                    created_at_ms, updated_at_ms)
-                VALUES (?, ?, 'acme/widget', 'acme/widget', ?, ?,
-                    'base-code', 'base-code', 'fp-code', ?, ?)
-                """, taskId, provision, "dev/" + taskId, "/tmp/" + taskId,
-                createdAt + 3, createdAt + 3);
-        jdbc.update("DELETE FROM dispatch_ticket WHERE id = ?", ticket);
+                    'V2', 'PROVISIONING', ?, 'policy-1', ?, ?, 'DEVELOP',
+                    'prompt', 'user')
+                """, taskId, sequence, createdAt, assignment,
+                "creation-receipt-" + taskId, "Test task " + assignment));
+        V2TaskSeed.completeProvisioning(
+                jdbc, taskId, "base-code", "base-code", "fp-code",
+                "worktree-created", createdAt + 3);
         jdbc.update("""
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)

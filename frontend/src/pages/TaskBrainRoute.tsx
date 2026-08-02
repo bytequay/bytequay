@@ -91,6 +91,11 @@ export function TaskBrainRoute({
   const { data, error: viewError, pollFast } = useBrainViewData(taskId);
   const { runs: taskRuns, error: runsError } = useTaskRuns(taskId);
   const { task, brainFeed, stages, subStages } = data;
+  const developmentBrainRecovery = data.recovery?.kind === 'RETRY_DEVELOPMENT_BRAIN_REVIEW'
+    ? data.recovery : null;
+  const remoteRepairBrainRecovery = data.recovery?.kind === 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW'
+    ? data.recovery : null;
+  const brainRecovery = developmentBrainRecovery ?? remoteRepairBrainRecovery;
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
@@ -370,7 +375,8 @@ export function TaskBrainRoute({
   }, [taskId, pollFast, responseCount]);
   // Messages typed while the brain is thinking queue up and auto-send when it
   // goes idle; click one to pull it back into the composer to edit.
-  const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
+  const { queue, enqueue, takeForEdit, remove } = useMessageQueue(
+    working || brainRecovery !== null, sendNow);
   const submit = () => {
     const body = text.trim();
     if (body.length === 0 && images.length === 0) return;
@@ -396,6 +402,46 @@ export function TaskBrainRoute({
     && task.currentPhase === 'NEEDS_ATTENTION'
     && ['ci fix attempts exhausted', 'ci fix no changes'].some(
       reason => task.statusLabel.toLowerCase().startsWith(reason));
+  const planRecovery = data.recovery?.kind === 'RETRY_PLAN_DRAFT'
+    ? data.recovery : null;
+  const planRecoveryCommandId = useMemo(
+    () => `${globalThis.crypto.randomUUID()}:${planRecovery?.blockerId ?? 'none'}`,
+    [planRecovery?.blockerId],
+  );
+  const brainRecoveryCommandId = useMemo(
+    () => `${globalThis.crypto.randomUUID()}:${brainRecovery?.blockerId ?? 'none'}`,
+    [brainRecovery?.blockerId],
+  );
+  const retryPlanDraft = planRecovery === null ? undefined : () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    setActionError(null);
+    bridge?.recoverV2Plan(task.id, planRecovery.failedTurnId, {
+      blockerId: planRecovery.blockerId,
+      commandId: planRecoveryCommandId,
+      reason: 'Explicit Retry Plan action from the Task run control',
+    })
+      .then(() => pollFast())
+      .catch((reason: unknown) => setActionError(
+        reason instanceof Error ? reason.message : 'Could not retry the Plan'));
+  };
+  const retryBrainReview = brainRecovery === null ? undefined : () => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    setActionError(null);
+    const recovery = remoteRepairBrainRecovery === null
+      ? bridge?.recoverV2DevelopmentBrainReview
+      : bridge?.recoverV2RemoteRepairBrainReview;
+    recovery?.(task.id, brainRecovery.failedTurnId, {
+      blockerId: brainRecovery.blockerId,
+      commandId: brainRecoveryCommandId,
+      reason: remoteRepairBrainRecovery === null
+        ? 'Explicit Retry Development Brain review action from the Task run control'
+        : 'Explicit Retry Remote repair Brain review action from the Task run control',
+    })
+      .then(() => pollFast())
+      .catch((reason: unknown) => setActionError(
+        reason instanceof Error ? reason.message : 'Could not retry the Brain review'));
+  };
+  const canResumeTask = task.paused && task.currentPhase !== 'NEEDS_ATTENTION';
 
   // Close seals the task terminal and reaps its worktree; once it resolves
   // the page has nothing live to show, so leave for the thread trunk.
@@ -836,6 +882,7 @@ export function TaskBrainRoute({
       ) : undefined}
       composer={{
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
+        disabled: brainRecovery !== null,
         placeholder: 'Ask the brain, or steer the task…',
         images, onImagesChange: setImages,
         closedNote: task.terminal
@@ -852,13 +899,27 @@ export function TaskBrainRoute({
           : undefined,
         paused: task.paused,
         terminal: task.terminal,
-        onPause: runAction(bridge?.pauseTask),
-        onResume: runAction(retryingExhaustedCi ? bridge?.retryFailedCi : bridge?.resumePausedTask),
-        resumeLabel: retryingExhaustedCi ? 'Retry CI' : undefined,
+        onPause: task.paused ? undefined : runAction(bridge?.pauseTask),
+        onResume: retryingExhaustedCi
+          ? runAction(bridge?.retryFailedCi)
+          : retryBrainReview
+            ?? retryPlanDraft
+            ?? (canResumeTask ? runAction(bridge?.resumePausedTask) : undefined),
+        resumeLabel: retryingExhaustedCi ? 'Retry CI'
+          : brainRecovery !== null ? 'Retry Brain review'
+            : planRecovery !== null ? 'Retry Plan' : undefined,
         resumeConfirmation: retryingExhaustedCi ? {
           title: 'Retry failed CI?',
           body: `This asks GitHub Actions to rerun the failed checks for PR #${task.prNumber ?? ''}. No code will be changed unless a later CI-fix turn creates a commit.`,
           confirmLabel: 'Retry CI',
+        } : brainRecovery !== null ? {
+          title: remoteRepairBrainRecovery === null
+            ? 'Retry Development Brain review?'
+            : 'Retry Remote repair Brain review?',
+          body: remoteRepairBrainRecovery === null
+            ? 'This supersedes the malformed Brain result and starts one fresh review from the exact durable development context. The failed provider session will not be resumed.'
+            : 'This consumes the failed Remote Brain result and starts one fresh review from the exact durable CI or branch-repair context. It does not consume CI-fix budget, and the failed provider session will not be resumed.',
+          confirmLabel: 'Retry Brain review',
         } : undefined,
         onClose: closeTask,
       }}

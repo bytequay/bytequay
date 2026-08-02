@@ -15,7 +15,8 @@ package com.bytequay.app.developmentflow.persistence;
 
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteDataSource;
 
@@ -25,15 +26,15 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Set;
 
-final class SqliteExecutionTestSupport
+public final class SqliteExecutionTestSupport
 {
     private SqliteExecutionTestSupport() {}
 
-    static Database database(Path file)
+    public static Database database(Path file)
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&journal_mode=WAL&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("227").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return new Database(url, dataSource, new JdbcTemplate(dataSource));
@@ -46,7 +47,8 @@ final class SqliteExecutionTestSupport
         return dataSource;
     }
 
-    static void seedTrunk(Database database, String workspaceId, String trunkId)
+    public static void seedTrunk(
+            Database database, String workspaceId, String trunkId)
     {
         JdbcTemplate jdbc = database.jdbc();
         jdbc.update("""
@@ -59,11 +61,13 @@ final class SqliteExecutionTestSupport
                     id, kind, provider, title, status, model,
                     cost_usd_milli, tokens_in, tokens_out,
                     created_at_ms, updated_at_ms, workspace_id, flow,
-                    parallel_slots, turn_version, lifecycle_state)
+                    parallel_slots, turn_version, lifecycle_state,
+                    aggregate_version)
                 VALUES (?, 'CLI_AGENT', 'claude-code', ?, 'IDLE',
                     'claude-sonnet-4.6', 0, 0, 0, 1, 1, ?, 'build', 2,
-                    'V2', 'ACTIVE')
+                    'V2', 'ACTIVE', 1)
                 """, trunkId, trunkId, workspaceId);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.update("""
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
@@ -71,7 +75,7 @@ final class SqliteExecutionTestSupport
                 """, policyId(trunkId), trunkId);
     }
 
-    static void seedTask(
+    public static void seedTask(
             Database database,
             String trunkId,
             String taskId,
@@ -79,22 +83,32 @@ final class SqliteExecutionTestSupport
     {
         JdbcTemplate jdbc = database.jdbc();
         String assignmentId = "assignment-" + taskId;
-        jdbc.update("""
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES (?, ?, 'NEW_FROM_TRUNK', 'base', 'seed', 'prompt', 'test', 1)
-                """, assignmentId, trunkId);
-        jdbc.update("""
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id,
-                    policy_revision_id)
-                VALUES (?, ?, ?, 'IDLE', 'PLANNING', 1, 'V2', 'PROVISIONING', ?, ?)
-                """, taskId, trunkId, sequence, assignmentId, policyId(trunkId));
+        String authorizationId = "authorization-" + taskId;
+        V2TaskSeed.insertAuthorized(jdbc, assignmentId, transaction ->
+                transaction.update("""
+                        INSERT INTO task_assignment(
+                            id, trunk_id, kind, planning_base_sha, plan_seed,
+                            prompt, created_by, created_at_ms,
+                            creation_authorization_id)
+                        VALUES (?, ?, 'NEW_FROM_TRUNK', 'base', 'seed',
+                            'prompt', 'test', 1, ?)
+                        """, assignmentId, trunkId, authorizationId));
+        V2TaskSeed.insertCreated(jdbc, taskId, transaction ->
+                transaction.update("""
+                        INSERT INTO tasks(
+                            id, thread_id, seq, status, phase, created_at_ms,
+                            workflow_version, lifecycle_state, assignment_id,
+                            policy_revision_id, creation_receipt_id, name,
+                            task_type, opening_prompt, origin)
+                        VALUES (?, ?, ?, 'IDLE', 'PLANNING', 1, 'V2',
+                            'PROVISIONING', ?, ?, ?, ?, 'DEVELOP', 'prompt',
+                            'user')
+                        """, taskId, trunkId, sequence, assignmentId,
+                        policyId(trunkId), "creation-receipt-" + taskId,
+                        "Test task " + assignmentId));
     }
 
-    static void seedStage(
+    public static void seedStage(
             Database database,
             String taskId,
             String stageId)
@@ -126,6 +140,39 @@ final class SqliteExecutionTestSupport
             boolean exclusive,
             boolean writer)
     {
+        return requestedTaskTicket(
+                id, operationId, workspaceId, trunkId, taskId, createdAt,
+                lane, exclusive, writer, DispatchTicket.AsyncFamily.VALIDATION);
+    }
+
+    static DispatchTicket requestedAgentTaskTicket(
+            String id,
+            String operationId,
+            String workspaceId,
+            String trunkId,
+            String taskId,
+            Instant createdAt,
+            CapacityManager.CapacityLane lane,
+            boolean exclusive,
+            boolean writer)
+    {
+        return requestedTaskTicket(
+                id, operationId, workspaceId, trunkId, taskId, createdAt,
+                lane, exclusive, writer, DispatchTicket.AsyncFamily.AGENT_TURN);
+    }
+
+    private static DispatchTicket requestedTaskTicket(
+            String id,
+            String operationId,
+            String workspaceId,
+            String trunkId,
+            String taskId,
+            Instant createdAt,
+            CapacityManager.CapacityLane lane,
+            boolean exclusive,
+            boolean writer,
+            DispatchTicket.AsyncFamily asyncFamily)
+    {
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
                 operationId,
                 CapacityManager.WorkflowSource.V2,
@@ -139,7 +186,7 @@ final class SqliteExecutionTestSupport
                 id,
                 new DispatchTicket.DispatchEnvelope(
                         "TEST_OPERATION",
-                        DispatchTicket.AsyncFamily.VALIDATION,
+                        asyncFamily,
                         new DispatchTicket.OwnerReference(
                                 DispatchTicket.OwnerKind.TASK, taskId, "task-result"),
                         new DispatchTicket.OperationFence(
@@ -180,7 +227,7 @@ final class SqliteExecutionTestSupport
                 createdAt);
     }
 
-    static void insertTicket(Database database, DispatchTicket ticket)
+    public static void insertTicket(Database database, DispatchTicket ticket)
     {
         database.jdbc().update(connection -> {
             PreparedStatement statement = connection.prepareStatement("""
@@ -306,5 +353,6 @@ final class SqliteExecutionTestSupport
         return value == null ? null : value.name();
     }
 
-    record Database(String url, SQLiteDataSource dataSource, JdbcTemplate jdbc) {}
+    public record Database(
+            String url, SQLiteDataSource dataSource, JdbcTemplate jdbc) {}
 }

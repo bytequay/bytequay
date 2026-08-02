@@ -107,10 +107,13 @@ class TestStageCheckpoint
                 Set.of(StageCheckpoint.IMPLEMENTING));
         edges.put(StageCheckpoint.LOCAL_REVIEW, Set.of(
                 StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK,
+                StageCheckpoint.IMPLEMENTING,
                 StageCheckpoint.PUBLISHING));
         edges.put(StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK,
                 Set.of(StageCheckpoint.IMPLEMENTING));
-        edges.put(StageCheckpoint.PUBLISHING, Set.of(StageCheckpoint.COMPLETED));
+        edges.put(StageCheckpoint.PUBLISHING, Set.of(
+                StageCheckpoint.LOCAL_REVIEW,
+                StageCheckpoint.COMPLETED));
         edges.put(StageCheckpoint.WAITING_CI, Set.of(StageCheckpoint.AWAITING_READY));
         edges.put(StageCheckpoint.AWAITING_READY,
                 Set.of(StageCheckpoint.WAITING_REMOTE_REVIEW,

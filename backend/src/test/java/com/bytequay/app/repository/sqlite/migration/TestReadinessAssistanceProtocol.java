@@ -369,7 +369,8 @@ class TestReadinessAssistanceProtocol
                     "DROP TRIGGER v2_trunk_purge_authorization_insert_v269");
             execute(connection, """
                     UPDATE threads
-                    SET lifecycle_state = 'ARCHIVED', aggregate_version = 1
+                    SET lifecycle_state = 'ARCHIVED',
+                        aggregate_version = aggregate_version + 1
                     WHERE id = 'trunk-1'
                     """);
             assertFails(connection, purgeAuthorizationSql());
@@ -454,19 +455,24 @@ class TestReadinessAssistanceProtocol
                         id, trunk_id, command_id, from_state, to_state,
                         aggregate_version, cause, actor, occurred_at_ms)
                     SELECT 'deliver-outcome-transition', trunk_id, delivery_key,
-                        'ACTIVE', 'ACTIVE', 1, 'ACCEPT_TASK_OUTCOME',
-                        'test', 510
-                    FROM trunk_outcome_inbox WHERE task_id = 'task-1'
+                        'ACTIVE', 'ACTIVE', trunk.aggregate_version + 1,
+                        'ACCEPT_TASK_OUTCOME', 'test', 510
+                    FROM trunk_outcome_inbox inbox
+                    JOIN threads trunk ON trunk.id = inbox.trunk_id
+                    WHERE inbox.task_id = 'task-1'
                     """);
             execute(connection, """
-                    UPDATE threads SET aggregate_version = 1
+                    UPDATE threads
+                    SET aggregate_version = aggregate_version + 1
                     WHERE id = 'trunk-1'
                     """);
             execute(connection, """
                     UPDATE trunk_outcome_inbox
                     SET status = 'DELIVERED', delivered_at_ms = 510,
                         delivery_evidence = 'exact outcome delivery',
-                        returned_trunk_version = 1
+                        returned_trunk_version = (
+                            SELECT aggregate_version FROM threads
+                            WHERE id = trunk_outcome_inbox.trunk_id)
                     WHERE task_id = 'task-1'
                     """);
             execute(connection, """
@@ -487,7 +493,8 @@ class TestReadinessAssistanceProtocol
                     """);
             execute(connection, """
                     UPDATE threads
-                    SET lifecycle_state = 'ARCHIVED', aggregate_version = 2
+                    SET lifecycle_state = 'ARCHIVED',
+                        aggregate_version = aggregate_version + 1
                     WHERE id = 'trunk-1'
                     """);
             assertThat(number(connection, """
@@ -503,7 +510,16 @@ class TestReadinessAssistanceProtocol
         V2TrunkPurge purge = new V2TrunkPurge(
                 database.jdbc(),
                 new DataSourceTransactionManager(database.dataSource()));
-        purge.delete("trunk-1", 2, () -> {
+        int archivedVersion = database.jdbc().queryForObject("""
+                SELECT aggregate_version FROM threads WHERE id = 'trunk-1'
+                """, Integer.class);
+        purge.delete("trunk-1", archivedVersion, () -> {
+            assertThat(database.jdbc().queryForObject("""
+                    SELECT COUNT(*) FROM local_stage_turn_delivery_receipt
+                    """, Integer.class)).isZero();
+            assertThat(database.jdbc().queryForObject("""
+                    SELECT COUNT(*) FROM local_stage_turn_request
+                    """, Integer.class)).isZero();
             assertThat(database.jdbc().queryForObject("""
                     SELECT COUNT(*)
                     FROM remote_readiness_assistance_receipt_v273
@@ -534,14 +550,14 @@ class TestReadinessAssistanceProtocol
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        migrate(url, "228");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
             for (int taskNumber : taskNumbers) {
                 seedPublishedRemoteTask(connection, taskNumber);
             }
         }
-        migrate(url, "273");
+        migrate(url);
         SQLiteDataSource source = new SQLiteDataSource();
         source.setUrl(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
@@ -725,7 +741,8 @@ class TestReadinessAssistanceProtocol
         return """
                 INSERT INTO v2_trunk_purge_authorization_v269(
                     trunk_id, archived_version, authorized_at_ms)
-                VALUES ('trunk-1', 1, 100)
+                SELECT id, aggregate_version, 100
+                FROM threads WHERE id = 'trunk-1'
                 """;
     }
 

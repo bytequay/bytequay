@@ -26,6 +26,7 @@ export type TaskPageComposer = {
   onChange: (next: string) => void;
   onSubmit: () => void;
   busy?: boolean;
+  disabled?: boolean;
   queueWhenBusy?: boolean;
   /** Interrupt the running turn; wires the composer's Stop button. */
   onStop?: () => void;
@@ -205,6 +206,7 @@ export function TaskPageFrame({
                 onChange={composer.onChange}
                 onSubmit={composer.onSubmit}
                 busy={composer.busy}
+                disabled={composer.disabled}
                 queueWhenBusy={composer.queueWhenBusy}
                 onStop={composer.onStop}
                 modePill={composer.modePill}

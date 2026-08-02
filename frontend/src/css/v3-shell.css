@@ -607,12 +607,13 @@
   background: var(--accent);
 }
 
-/* Run / lifecycle dropdown in the top bar */
-.shell .run-menu {
+/* Run / lifecycle dropdown in the top bar. Unscoped from .shell — the PR
+   Changes toolbar reuses this chrome outside a Shell. */
+.run-menu {
   position: relative;
   display: inline-flex;
 }
-.shell .run-menu__pop {
+.run-menu__pop {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
@@ -627,7 +628,7 @@
   flex-direction: column;
   gap: 1px;
 }
-.shell .run-menu__item {
+.run-menu__item {
   padding: 6px 10px;
   border-radius: 6px;
   font-size: 12.5px;
@@ -638,37 +639,37 @@
   font-family: inherit;
   text-align: left;
 }
-.shell .run-menu__detail {
+.run-menu__detail {
   max-width: 260px;
   padding: 6px 10px;
   color: var(--text-3);
   font-size: 11.5px;
   line-height: 1.35;
 }
-.shell .run-menu__item:hover {
+.run-menu__item:hover {
   background: var(--bg-hover);
 }
-.shell .run-menu__item.danger {
+.run-menu__item.danger {
   color: var(--red);
 }
-.shell .commits-dropdown__pop {
+.commits-dropdown__pop {
   left: 0;
   right: auto;
   width: 320px;
   max-width: calc(100vw - 24px);
 }
-.shell .commits-dropdown__item {
+.commits-dropdown__item {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.shell .commits-dropdown__label,
-.shell .commits-dropdown__meta {
+.commits-dropdown__label,
+.commits-dropdown__meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.shell .commits-dropdown__meta {
+.commits-dropdown__meta {
   color: var(--text-3);
   font-size: 11px;
 }

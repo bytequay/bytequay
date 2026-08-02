@@ -1980,7 +1980,14 @@ public final class LocalDevelopmentRuntimeCoordinator
     {
         return "Implement this approved plan in the checked-out Task worktree:\n\n"
                 + context.planContent()
-                + "\n\nDo not push or create remote effects. When finished, return only "
+                // The commit must be asked for explicitly. Requesting only a
+                // `commitSummary` while forbidding "remote effects" read as a
+                // blanket ban on committing, and the Turn returned work that
+                // existed solely in the worktree.
+                + "\n\nCommit your work on the current Task branch as one small "
+                + "commit. Committing is local and required; the prohibition "
+                + "below is only about the remote. "
+                + "Do not push or create remote effects. When finished, return only "
                 + "strict JSON with schemaVersion=1 and these string fields: "
                 + "implementedIntent, commitSummary, fileSummary, validationSummary, "
                 + "knownRisks, unresolvedConcerns, contextRefs. "

@@ -41,16 +41,19 @@ import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -69,6 +72,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
+@ExtendWith(SqliteTestPools.class)
 class TestPlanRuntimeCoordinator
 {
     private static final Instant NOW = Instant.parse("2026-07-28T00:00:00Z");
@@ -84,7 +88,7 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Path repositoryRoot = tempDir.resolve("repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("plan-runtime.db");
+        DataSource dataSource = database("plan-runtime.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         Runtime first = runtime(dataSource);
@@ -553,7 +557,7 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Path repositoryRoot = tempDir.resolve("failed-provision-repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("failed-provision.db");
+        DataSource dataSource = database("failed-provision.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         Runtime runtime = runtime(dataSource);
@@ -1587,7 +1591,7 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Path repositoryRoot = tempDir.resolve(name + "-repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database(name);
+        DataSource dataSource = database(name);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         Runtime runtime = runtime(dataSource);
@@ -1771,17 +1775,16 @@ class TestPlanRuntimeCoordinator
                 running.owner(), running.fence(), result);
     }
 
-    private SQLiteDataSource database(String name)
+    private DataSource database(String name)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
-    private static Runtime runtime(SQLiteDataSource dataSource)
+    private static Runtime runtime(DataSource dataSource)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactionManager =
@@ -2088,7 +2091,7 @@ class TestPlanRuntimeCoordinator
             SqliteTaskControlRuntimeStore controlStore) {}
 
     private record Bootstrapped(
-            SQLiteDataSource dataSource,
+            DataSource dataSource,
             JdbcTemplate jdbc,
             Runtime runtime,
             String taskId) {}

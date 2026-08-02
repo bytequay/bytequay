@@ -18,10 +18,13 @@ import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -46,6 +49,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestPublishCiPolicyPersistence
 {
     private static final Instant OPENED_AT = Instant.ofEpochMilli(52);
@@ -139,8 +143,7 @@ class TestPublishCiPolicyPersistence
             seedWorkspaceAndTrunk(connection);
             seedPublishedRemoteTask(connection, 1);
         }
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         return new StoreFixture(jdbc, new SqlitePublishResultStore(jdbc));
     }

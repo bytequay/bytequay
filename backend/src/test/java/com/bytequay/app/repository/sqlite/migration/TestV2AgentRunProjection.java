@@ -15,18 +15,22 @@ package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.compatibility.V2AgentRunProjection;
 import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2AgentRunProjection
 {
     @TempDir
@@ -55,8 +59,7 @@ class TestV2AgentRunProjection
             DevelopmentFlowRemoteProtocolFixture.insertRemoteOwner(
                     connection, 1);
         }
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM sqlite_master

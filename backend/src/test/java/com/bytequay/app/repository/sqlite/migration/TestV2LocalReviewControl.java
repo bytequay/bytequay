@@ -42,9 +42,11 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -56,7 +58,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -78,6 +81,7 @@ import static org.mockito.Mockito.RETURNS_DEFAULTS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2LocalReviewControl
 {
     @TempDir
@@ -715,8 +719,7 @@ class TestV2LocalReviewControl
                     WHERE id = 'pr-1'
                     """);
         }
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactionManager =
                 new DataSourceTransactionManager(dataSource);

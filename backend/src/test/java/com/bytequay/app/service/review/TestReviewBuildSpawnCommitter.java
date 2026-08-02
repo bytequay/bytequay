@@ -25,12 +25,15 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -51,6 +54,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestReviewBuildSpawnCommitter
 {
     @TempDir
@@ -164,8 +168,7 @@ class TestReviewBuildSpawnCommitter
         String url = "jdbc:sqlite:" + tempDir.resolve(file)
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource source = new SQLiteDataSource();
-        source.setUrl(url);
+        DataSource source = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
         jdbc.update("""
                 INSERT INTO workspaces(
@@ -300,7 +303,7 @@ class TestReviewBuildSpawnCommitter
 
     private record Fixture(
             JdbcTemplate jdbc,
-            SQLiteDataSource dataSource,
+            DataSource dataSource,
             ThreadService threads,
             ThreadStore threadStore,
             ReviewBuildSpawnCommitter committer)

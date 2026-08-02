@@ -25,14 +25,17 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNorm
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore.NormalizationDue;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore.NormalizationOperation;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -52,6 +55,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestSqliteRemoteRepairNormalizationStore
 {
     private static final String SOURCE_DIGEST = "a".repeat(64);
@@ -239,8 +243,7 @@ class TestSqliteRemoteRepairNormalizationStore
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("normalization-store.db")
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         Flyway.configure().dataSource(dataSource).target("322").load().migrate();
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);

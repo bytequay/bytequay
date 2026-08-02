@@ -19,11 +19,14 @@ import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandle
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler.StepResult;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteWorktreeWriterLeaseStore;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -38,6 +41,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestWorktreeQuarantineCleanupFence
 {
     private static final Instant CLEARED_AT = Instant.ofEpochMilli(100);
@@ -144,8 +148,7 @@ class TestWorktreeQuarantineCleanupFence
             TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     .prepareMergedCleanup(connection);
         }
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         claimRemoveWorktree(new JdbcTemplate(dataSource));
         return new Fixture(
                 new JdbcTemplate(dataSource),

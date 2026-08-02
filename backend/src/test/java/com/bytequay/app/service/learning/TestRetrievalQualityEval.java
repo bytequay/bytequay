@@ -17,15 +17,18 @@ import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeSearchIndex;
 import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Task-level A/B measures (tool calls, tokens, review revisions with
  * learning on/off) need accumulated real usage and stay a manual protocol.
  */
+@ExtendWith(SqliteTestPools.class)
 class TestRetrievalQualityEval
 {
     private static final Logger log = LoggerFactory.getLogger(TestRetrievalQualityEval.class);
@@ -72,8 +76,7 @@ class TestRetrievalQualityEval
         String url = "jdbc:sqlite:" + tempDir.resolve("eval.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
         copyTo(tempDir.resolve("eval.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

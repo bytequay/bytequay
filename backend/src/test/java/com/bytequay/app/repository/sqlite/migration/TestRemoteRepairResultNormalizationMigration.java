@@ -27,14 +27,17 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurn
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BaseRepairAuthorization;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -57,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestRemoteRepairResultNormalizationMigration
 {
     private static final Instant NOW = Instant.ofEpochMilli(600);
@@ -452,8 +456,7 @@ class TestRemoteRepairResultNormalizationMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(fileName)
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         Flyway.configure().dataSource(dataSource).target("321").load().migrate();
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
@@ -1319,7 +1322,7 @@ class TestRemoteRepairResultNormalizationMigration
                 "episode-1")).isEmpty();
     }
 
-    private static void migrateLatest(SQLiteDataSource dataSource)
+    private static void migrateLatest(DataSource dataSource)
     {
         Flyway.configure().dataSource(dataSource).load().migrate();
     }
@@ -1329,7 +1332,7 @@ class TestRemoteRepairResultNormalizationMigration
             TaskCommandExecutor commands,
             SqliteRemoteRuntimeStore store) {}
 
-    private record Seeded(String url, SQLiteDataSource dataSource) {}
+    private record Seeded(String url, DataSource dataSource) {}
 
     private enum SourceTicketWindow
     {

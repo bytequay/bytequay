@@ -25,12 +25,15 @@ import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -39,6 +42,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentFlowSqliteHandoffRollback
 {
     @TempDir
@@ -49,8 +53,7 @@ class TestDevelopmentFlowSqliteHandoffRollback
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("handoff.db") + "?foreign_keys=ON";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedAcceptedProvisioning(jdbc);
 

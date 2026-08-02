@@ -33,13 +33,16 @@ import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -54,6 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
+@ExtendWith(SqliteTestPools.class)
 class TestSqliteTaskStore
 {
     @TempDir
@@ -63,7 +67,7 @@ class TestSqliteTaskStore
     void idleArchiveSelectsOnlyDueTypedTasksAndLeavesLegacySiblingUntouched()
     {
         Path file = tempDir.resolve("idle-archive-selection.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         Instant cutoff = now.minus(1, ChronoUnit.DAYS);
@@ -107,7 +111,7 @@ class TestSqliteTaskStore
     void idleArchiveRechecksLiveTicketInsideSerializedTaskCommand()
     {
         Path file = tempDir.resolve("idle-archive-race.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         Instant cutoff = now.minus(1, ChronoUnit.DAYS);
@@ -135,7 +139,7 @@ class TestSqliteTaskStore
     void idleArchiveBlocksOpenAndReadyTypedWaitsInsideSerializedCommand()
     {
         Path file = tempDir.resolve("idle-archive-user-wait.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         Instant cutoff = now.minus(1, ChronoUnit.DAYS);
@@ -189,7 +193,7 @@ class TestSqliteTaskStore
     void idleArchiveCompletesAfterRestartAndRevivesThroughExactStageOwner()
     {
         Path file = tempDir.resolve("idle-archive-restart.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         Instant now = Instant.now().minusMillis(100)
                 .truncatedTo(ChronoUnit.MILLIS);
@@ -278,7 +282,7 @@ class TestSqliteTaskStore
     @Test
     void duplicateStaleRollbackRestartAndDeferredEvidenceFailClosed()
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("task.db"));
+        DataSource dataSource = database(tempDir.resolve("task.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTask(jdbc, "task-1", "plan-1", 1);
@@ -349,7 +353,7 @@ class TestSqliteTaskStore
     void typedControlEvidenceDrivesRealHandoffAndUsesLeaseExpiryAtEvidenceTime()
     {
         Path file = tempDir.resolve("typed-control.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTaskWithCode(jdbc, "task-control", "plan-control", 1);
@@ -489,7 +493,7 @@ class TestSqliteTaskStore
     void maintenanceCompletesControlsAndBuildsCancellationCleanupExactlyOnce()
     {
         Path file = tempDir.resolve("task-control-runtime.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTaskWithCode(jdbc, "task-control", "plan-control", 1);
@@ -755,7 +759,7 @@ class TestSqliteTaskStore
     void resumeOwnerMaterializesOnePlanSuccessorOnlyAfterActiveAndRollsBackFaults()
     {
         Path file = tempDir.resolve("resume-rearm.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTaskWithCode(jdbc, "task-resume", "plan-resume", 1);
@@ -887,7 +891,7 @@ class TestSqliteTaskStore
     void policyCommandsAppendAndSelectRevisionsWithoutInvalidatingFrozenAutomation()
     {
         Path file = tempDir.resolve("task-policy.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTask(jdbc, "task-policy", "plan-policy", 1);
@@ -975,7 +979,7 @@ class TestSqliteTaskStore
     void stewardshipExceptionDisablesEffectiveAutoApprove()
     {
         Path file = tempDir.resolve("effective-auto-approve.db");
-        SQLiteDataSource dataSource = database(file);
+        DataSource dataSource = database(file);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTask(jdbc, "task-policy", "plan-policy", 1);
@@ -1004,7 +1008,7 @@ class TestSqliteTaskStore
     @Test
     void remoteClosedCleanupRejectsAnUnprovenObservation()
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("remote-closed.db"));
+        DataSource dataSource = database(tempDir.resolve("remote-closed.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedActiveTask(jdbc, "task-closed", "remote-closed", 1);
@@ -1068,12 +1072,11 @@ class TestSqliteTaskStore
                 stewardshipException ? 1 : 0, revision);
     }
 
-    private static SQLiteDataSource database(Path file)
+    private static DataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
@@ -1338,7 +1341,7 @@ class TestSqliteTaskStore
                 """, taskId, sequence, createdAt);
     }
 
-    private static ControlFixture controls(SQLiteDataSource dataSource)
+    private static ControlFixture controls(DataSource dataSource)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactions =

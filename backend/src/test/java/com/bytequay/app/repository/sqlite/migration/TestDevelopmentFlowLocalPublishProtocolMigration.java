@@ -25,16 +25,19 @@ import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -48,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentFlowLocalPublishProtocolMigration
 {
     @TempDir
@@ -64,8 +68,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         }
         migrate(url);
 
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
@@ -266,8 +269,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         // additive schema before exercising the manager.
         migrate(url);
 
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         try (StageStores stores = stageStores(dataSource)) {
             TaskCommandExecutor commands = new TaskCommandExecutor(
                     new DataSourceTransactionManager(dataSource));
@@ -942,8 +944,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         try (Connection connection = connect(url)) {
             seedDispatchedFailedPublish(connection);
         }
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         SqlitePublishResultStore store = new SqlitePublishResultStore(jdbc);
         try (StageStores stores = stageStores(dataSource)) {
@@ -1981,7 +1982,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                 """.formatted(at, batchId, batchId));
     }
 
-    private static StageStores stageStores(SQLiteDataSource dataSource)
+    private static StageStores stageStores(DataSource dataSource)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactionManager =

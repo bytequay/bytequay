@@ -15,13 +15,16 @@ package com.bytequay.app.developmentflow.persistence;
 
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -36,6 +39,7 @@ import static com.bytequay.app.developmentflow.execution.CapacityManager.Capacit
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestTerminalExecutionEvidenceRecoveryMigration
 {
     private static final Instant NOW = Instant.parse("2026-08-01T00:00:00Z");
@@ -49,8 +53,7 @@ class TestTerminalExecutionEvidenceRecoveryMigration
         String url = "jdbc:sqlite:" + tempDir.resolve("terminal-evidence.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
         migrate(url, "310");
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         SqliteExecutionTestSupport.Database database =
                 new SqliteExecutionTestSupport.Database(
                         url, dataSource, new JdbcTemplate(dataSource));

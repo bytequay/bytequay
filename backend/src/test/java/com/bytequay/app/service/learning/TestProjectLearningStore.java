@@ -14,11 +14,14 @@
 package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.PullRequestCommit;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -35,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * file. Covers durable-run creation and the catalog's no-duplicate-rerun
  * idempotency.
  */
+@ExtendWith(SqliteTestPools.class)
 class TestProjectLearningStore
 {
     @TempDir
@@ -48,8 +52,7 @@ class TestProjectLearningStore
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("learning.db") + "?foreign_keys=ON";
         copyTo(tempDir.resolve("learning.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

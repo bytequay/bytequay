@@ -14,12 +14,15 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.KnowledgeItem;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -31,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * FTS5 availability with the bundled driver, trigger-driven sync, and the
  * LIKE fallback returning the same rows when FTS is unavailable.
  */
+@ExtendWith(SqliteTestPools.class)
 class TestKnowledgeSearchIndex
 {
     @TempDir
@@ -46,8 +50,7 @@ class TestKnowledgeSearchIndex
         String url = "jdbc:sqlite:" + tempDir.resolve("search.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
         copyTo(tempDir.resolve("search.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

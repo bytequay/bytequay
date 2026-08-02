@@ -23,14 +23,17 @@ import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperati
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.FrozenDraft;
 import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler.SemanticAction;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -49,6 +52,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentFlowUserRemoteActionMigration
 {
     private static final Instant NOW = Instant.ofEpochMilli(1_000);
@@ -569,7 +573,7 @@ class TestDevelopmentFlowUserRemoteActionMigration
 
     private static SqliteUserRemoteActionStore store(String url)
     {
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         return new SqliteUserRemoteActionStore(
                 jdbc,
@@ -583,10 +587,9 @@ class TestDevelopmentFlowUserRemoteActionMigration
         return new JdbcTemplate(dataSource(url));
     }
 
-    private static SQLiteDataSource dataSource(String url)
+    private static DataSource dataSource(String url)
     {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 

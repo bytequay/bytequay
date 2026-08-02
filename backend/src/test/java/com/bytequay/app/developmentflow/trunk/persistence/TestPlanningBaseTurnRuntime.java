@@ -36,13 +36,16 @@ import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,6 +61,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestPlanningBaseTurnRuntime
 {
     private static final Instant NOW = Instant.parse("2026-07-28T01:00:00Z");
@@ -69,7 +73,7 @@ class TestPlanningBaseTurnRuntime
     void refreshResultLaunchesOneTurnWithItsExactSnapshotAcrossRestart()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("planning.db"));
+        DataSource dataSource = database(tempDir.resolve("planning.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("repo"));
@@ -224,7 +228,7 @@ class TestPlanningBaseTurnRuntime
     void nextCliTurnResumesItsExactTrunkSessionAndFreezesHistoryFallback()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("cli-resume.db"));
+        DataSource dataSource = database(tempDir.resolve("cli-resume.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("resume-repo"));
@@ -342,7 +346,7 @@ class TestPlanningBaseTurnRuntime
     void userWaitContinuationResumesExactSessionWithoutANormalResultReceipt()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(
+        DataSource dataSource = database(
                 tempDir.resolve("cli-user-wait-resume.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
@@ -485,7 +489,7 @@ class TestPlanningBaseTurnRuntime
     void conversationAndSessionUseTrunkVersionWhenTimestampsTie()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("turn-order.db"));
+        DataSource dataSource = database(tempDir.resolve("turn-order.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path planning = Files.createDirectory(tempDir.resolve("turn-order-worktree"));
@@ -524,7 +528,7 @@ class TestPlanningBaseTurnRuntime
     void nonConversationTurnNeitherJoinsHistoryNorConsumesConversationSession()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(
+        DataSource dataSource = database(
                 tempDir.resolve("conversation-purpose.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
@@ -590,7 +594,7 @@ class TestPlanningBaseTurnRuntime
     void fixedClockRestartKeepsPlanningFifoByReturnedTrunkVersionNotUuid()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("fifo.db"));
+        DataSource dataSource = database(tempDir.resolve("fifo.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("fifo-repo"));
@@ -625,7 +629,7 @@ class TestPlanningBaseTurnRuntime
     void poisonedAttachmentIsSuppressedAndRecoveryContinuesWithNextCandidate()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(
+        DataSource dataSource = database(
                 tempDir.resolve("planning-attachment-fence.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
@@ -692,7 +696,7 @@ class TestPlanningBaseTurnRuntime
     void cancelAfterRefreshDurablySuppressesLaunchAcrossRestart()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("suppressed.db"));
+        DataSource dataSource = database(tempDir.resolve("suppressed.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("suppressed-repo"));
@@ -755,7 +759,7 @@ class TestPlanningBaseTurnRuntime
     void suppressesOnlyTheExactReservedTurn()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("exact-suppress.db"));
+        DataSource dataSource = database(tempDir.resolve("exact-suppress.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("exact-suppress-repo"));
@@ -794,7 +798,7 @@ class TestPlanningBaseTurnRuntime
     void failedRefreshKeepsTheAcceptedTurnVisibleAndTerminal()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("failed.db"));
+        DataSource dataSource = database(tempDir.resolve("failed.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("failed-repo"));
@@ -854,7 +858,7 @@ class TestPlanningBaseTurnRuntime
     void pendingRefreshWaitsOutsideCapacityWhileATrunkTurnIsLive()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("wait.db"));
+        DataSource dataSource = database(tempDir.resolve("wait.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         jdbc.update("""
@@ -907,7 +911,7 @@ class TestPlanningBaseTurnRuntime
     void archivedTrunkSupersedesASuccessfulRefreshWithoutKeepingItsSnapshot()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("archived.db"));
+        DataSource dataSource = database(tempDir.resolve("archived.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(tempDir.resolve("archived-repo"));
@@ -1003,7 +1007,7 @@ class TestPlanningBaseTurnRuntime
     }
 
     private static TrunkManager manager(
-            SQLiteDataSource dataSource, V2TrunkStore store)
+            DataSource dataSource, V2TrunkStore store)
     {
         return new TrunkManager(
                 new TaskCommandExecutor(
@@ -1248,13 +1252,12 @@ class TestPlanningBaseTurnRuntime
                 NOW.plusSeconds(1).toEpochMilli(), ticketId);
     }
 
-    private static SQLiteDataSource database(Path file)
+    private static DataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 

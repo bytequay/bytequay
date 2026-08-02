@@ -28,13 +28,16 @@ import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.learning.KnowledgeRetrievalService;
 import com.bytequay.app.service.learning.ProjectLearningStore;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -46,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestProjectIntelligenceToolHandlers
 {
     @TempDir
@@ -62,8 +66,7 @@ class TestProjectIntelligenceToolHandlers
         String url = "jdbc:sqlite:" + tempDir.resolve("project-intelligence.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
         copyTo(tempDir.resolve("project-intelligence.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

@@ -27,13 +27,16 @@ import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.ThreadTu
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.ThreadTurnId;
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnData;
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnId;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -50,6 +53,7 @@ import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestTypedTurnRepository
 {
     private static final Instant NOW = Instant.ofEpochMilli(10);
@@ -292,8 +296,7 @@ class TestTypedTurnRepository
 
     private JdbcTemplate jdbc()
     {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(databaseUrl);
+        DataSource dataSource = SqliteTestPools.open(databaseUrl);
         return new JdbcTemplate(dataSource);
     }
 

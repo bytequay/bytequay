@@ -17,14 +17,17 @@ import com.bytequay.app.developmentflow.stage.V2ReadinessNotificationProjector;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessNotificationProjectionStore;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -52,6 +55,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2ReadinessNotificationProjector
 {
     private static final Instant NOW = Instant.parse("2026-07-29T00:00:00Z");
@@ -221,8 +225,7 @@ class TestV2ReadinessNotificationProjector
             }
         }
         migrate(url);
-        SQLiteDataSource source = new SQLiteDataSource();
-        source.setUrl(url);
+        DataSource source = SqliteTestPools.open(url);
         return new Database(url, source, new JdbcTemplate(source));
     }
 
@@ -340,5 +343,5 @@ class TestV2ReadinessNotificationProjector
     }
 
     private record Database(
-            String url, SQLiteDataSource source, JdbcTemplate jdbc) {}
+            String url, DataSource source, JdbcTemplate jdbc) {}
 }

@@ -19,13 +19,16 @@ import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -51,6 +54,7 @@ import static org.mockito.Mockito.when;
  * The store is real (temp SQLite); the doc indexer and merged-PR catalog are
  * mocked so the lifecycle is deterministic.
  */
+@ExtendWith(SqliteTestPools.class)
 class TestProjectLearningService
 {
     @TempDir
@@ -71,8 +75,7 @@ class TestProjectLearningService
         String url = "jdbc:sqlite:" + tempDir.resolve("learning.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
         copyTo(tempDir.resolve("learning.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

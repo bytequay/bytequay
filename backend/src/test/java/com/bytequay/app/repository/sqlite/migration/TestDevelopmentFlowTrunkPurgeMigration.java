@@ -14,11 +14,14 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -31,6 +34,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentFlowTrunkPurgeMigration
 {
     @TempDir
@@ -54,7 +58,7 @@ class TestDevelopmentFlowTrunkPurgeMigration
                     "DELETE FROM threads WHERE id = 'trunk-1'");
         }
 
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         long archivedVersion = jdbc.queryForObject(
                 "SELECT aggregate_version FROM threads WHERE id = 'trunk-1'",
@@ -98,10 +102,9 @@ class TestDevelopmentFlowTrunkPurgeMigration
                 + "?foreign_keys=ON&busy_timeout=30000";
     }
 
-    private static SQLiteDataSource dataSource(String url)
+    private static DataSource dataSource(String url)
     {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 }

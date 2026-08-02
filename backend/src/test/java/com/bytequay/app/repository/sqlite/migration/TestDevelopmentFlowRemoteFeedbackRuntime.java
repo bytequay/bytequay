@@ -29,13 +29,16 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLo
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.lang.reflect.Constructor;
 import java.nio.file.Path;
@@ -54,6 +57,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentFlowRemoteFeedbackRuntime
 {
     @TempDir
@@ -84,8 +88,7 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
                     """);
         }
 
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         TransactionTemplate transaction = new TransactionTemplate(
                 new DataSourceTransactionManager(dataSource));

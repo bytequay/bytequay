@@ -15,12 +15,15 @@ package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.task.SqliteTaskBrainConversationStore;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -31,6 +34,7 @@ import java.sql.SQLException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentFlowTaskBrainConversationMigration
 {
     @TempDir
@@ -113,8 +117,7 @@ class TestDevelopmentFlowTaskBrainConversationMigration
                             'image/png', '%2$s', 10)
                     """.formatted("c".repeat(64), "d".repeat(64)));
         }
-        SQLiteDataSource source = new SQLiteDataSource();
-        source.setUrl(url);
+        DataSource source = SqliteTestPools.open(url);
         SqliteTaskBrainConversationStore store =
                 new SqliteTaskBrainConversationStore(new JdbcTemplate(source));
 

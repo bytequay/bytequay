@@ -21,13 +21,16 @@ import com.bytequay.app.developmentflow.compatibility.V2StageApiService;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -47,6 +50,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2StageApiService
 {
     @TempDir
@@ -74,8 +78,7 @@ class TestV2StageApiService
             DevelopmentFlowRemoteProtocolFixture.insertRemoteOwner(connection, 2);
         }
         DevelopmentFlowRemoteProtocolFixture.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO task_branch_sync_policy_revision(

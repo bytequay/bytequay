@@ -29,14 +29,17 @@ import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnSt
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Admission;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -53,6 +56,7 @@ import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptan
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestReviewSessionPurge
 {
     private static final Instant NOW = Instant.parse("2026-07-30T04:00:00Z");
@@ -146,8 +150,7 @@ class TestReviewSessionPurge
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedReview(jdbc);
 
@@ -251,7 +254,7 @@ class TestReviewSessionPurge
 
     private static void seedTerminalSnapshot(
             JdbcTemplate jdbc,
-            SQLiteDataSource dataSource,
+            DataSource dataSource,
             SqliteDispatchTicketStore ticketStore,
             DispatchTicketControl ticketControl,
             DataSourceTransactionManager transactionManager)
@@ -372,7 +375,7 @@ class TestReviewSessionPurge
     }
 
     private record Fixture(
-            SQLiteDataSource dataSource,
+            DataSource dataSource,
             JdbcTemplate jdbc,
             SqliteDispatchTicketStore ticketStore,
             DispatchTicketControl ticketControl,
@@ -533,7 +536,7 @@ class TestReviewSessionPurge
     {
         private final CountDownLatch releaseAttempted = new CountDownLatch(1);
 
-        private ReleasingLeaseStore(SQLiteDataSource dataSource)
+        private ReleasingLeaseStore(DataSource dataSource)
         {
             super(dataSource);
         }

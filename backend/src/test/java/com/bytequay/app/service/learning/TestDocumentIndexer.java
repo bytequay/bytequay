@@ -13,11 +13,14 @@
  */
 package com.bytequay.app.service.learning;
 
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests the heading-level document index and the bounded project capsule
  * against a small on-disk fixture repository.
  */
+@ExtendWith(SqliteTestPools.class)
 class TestDocumentIndexer
 {
     @TempDir
@@ -46,8 +50,7 @@ class TestDocumentIndexer
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("docs.db") + "?foreign_keys=ON";
         copyTo(tempDir.resolve("docs.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

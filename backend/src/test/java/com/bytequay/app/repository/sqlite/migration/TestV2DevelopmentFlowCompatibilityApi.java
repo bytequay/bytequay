@@ -37,18 +37,21 @@ import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringService;
 import com.bytequay.app.service.threads.TaskTraceService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.web.StageController;
 import com.bytequay.app.web.TaskTraceController;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -69,6 +72,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2DevelopmentFlowCompatibilityApi
 {
     private static final String V2_DETAIL_STAGE =
@@ -148,8 +152,7 @@ class TestV2DevelopmentFlowCompatibilityApi
                     """);
         }
 
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         V2DevelopmentFlowProjection projection = new V2DevelopmentFlowProjection(jdbc);
         auditor = new DevelopmentFlowInvariantAuditor(jdbc);

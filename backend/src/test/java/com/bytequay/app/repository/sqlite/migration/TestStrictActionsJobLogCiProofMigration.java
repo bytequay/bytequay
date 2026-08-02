@@ -21,11 +21,14 @@ import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.CheckComparison
 import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.CheckEvidence;
 import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.CheckProfile;
 import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.PullRequestAssociation;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -49,6 +52,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestStrictActionsJobLogCiProofMigration
 {
     private static final String RAW_LOG_SENTINEL =
@@ -139,8 +143,7 @@ class TestStrictActionsJobLogCiProofMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(fileName)
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         Flyway.configure().dataSource(dataSource).target("320").load().migrate();
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);

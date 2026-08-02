@@ -17,11 +17,14 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore.Grant;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore.PermissionAnswer;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -30,6 +33,7 @@ import static com.bytequay.app.testing.MigratedSqliteDatabase.copyTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2UserWaitStore
 {
     @TempDir
@@ -44,8 +48,7 @@ class TestV2UserWaitStore
         String url = "jdbc:sqlite:" + tempDir.resolve("waits.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
         copyTo(tempDir.resolve("waits.db"));
-        SQLiteDataSource source = new SQLiteDataSource();
-        source.setUrl(url);
+        DataSource source = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(source);
         waits = new V2UserWaitStore(jdbc);
         seedTrunk();

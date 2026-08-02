@@ -24,16 +24,19 @@ import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 
@@ -41,6 +44,7 @@ import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.C
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2AggregateHandoffStore
 {
     @TempDir
@@ -49,7 +53,7 @@ class TestV2AggregateHandoffStore
     @Test
     void provisioningHandoffReplaysAfterRestartAndRollsBackAcrossOwners()
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("handoff.db"));
+        DataSource dataSource = database(tempDir.resolve("handoff.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedAcceptedProvisioning(jdbc, "task-1", 1);
@@ -154,7 +158,7 @@ class TestV2AggregateHandoffStore
     }
 
     private static ProvisionToPlanHandoff handoff(
-            SQLiteDataSource dataSource, Stores stores)
+            DataSource dataSource, Stores stores)
     {
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
@@ -164,7 +168,7 @@ class TestV2AggregateHandoffStore
         return new ProvisionToPlanHandoff(commands, tasks, plan);
     }
 
-    private static Stores stores(SQLiteDataSource dataSource)
+    private static Stores stores(DataSource dataSource)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactionManager =
@@ -206,12 +210,11 @@ class TestV2AggregateHandoffStore
                 generation);
     }
 
-    private static SQLiteDataSource database(Path file)
+    private static DataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 

@@ -30,16 +30,19 @@ import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -48,6 +51,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2StageSteeringStore
 {
     @TempDir
@@ -68,7 +72,7 @@ class TestV2StageSteeringStore
                 Integer.class)).isEqualTo(1);
         assertThat(fixture.steering().predecessorQuiesced(request)).isFalse();
 
-        SQLiteDataSource restarted = dataSource(fixture.url());
+        DataSource restarted = dataSource(fixture.url());
         SqliteStageSteeringStore recovered = new SqliteStageSteeringStore(
                 new JdbcTemplate(restarted));
         assertThat(recovered.find("steer-1")).contains(request);
@@ -680,7 +684,7 @@ class TestV2StageSteeringStore
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedOwner(jdbc, "1", 1);
         if (sibling) {
@@ -1182,15 +1186,14 @@ class TestV2StageSteeringStore
                 "fingerprint-" + suffix, "base-" + suffix, "base-" + suffix);
     }
 
-    private static SQLiteDataSource dataSource(String url)
+    private static DataSource dataSource(String url)
     {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
     private record Fixture(
-            String url, SQLiteDataSource dataSource, JdbcTemplate jdbc,
+            String url, DataSource dataSource, JdbcTemplate jdbc,
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             SqliteStageSteeringStore steering) {}

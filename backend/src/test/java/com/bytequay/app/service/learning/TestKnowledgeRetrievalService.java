@@ -17,12 +17,15 @@ import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeSearchIndex;
 import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -35,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * scheduler knowledge (not unrelated UI conventions), pending rows never
  * surface, and audience filters hold.
  */
+@ExtendWith(SqliteTestPools.class)
 class TestKnowledgeRetrievalService
 {
     @TempDir
@@ -49,8 +53,7 @@ class TestKnowledgeRetrievalService
         String url = "jdbc:sqlite:" + tempDir.resolve("retrieval.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
         copyTo(tempDir.resolve("retrieval.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

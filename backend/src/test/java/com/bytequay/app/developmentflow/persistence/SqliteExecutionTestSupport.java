@@ -16,9 +16,12 @@ package com.bytequay.app.developmentflow.persistence;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
@@ -26,6 +29,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Set;
 
+@ExtendWith(SqliteTestPools.class)
 public final class SqliteExecutionTestSupport
 {
     private SqliteExecutionTestSupport() {}
@@ -35,15 +39,13 @@ public final class SqliteExecutionTestSupport
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&journal_mode=WAL&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return new Database(url, dataSource, new JdbcTemplate(dataSource));
     }
 
-    static SQLiteDataSource dataSource(String url)
+    static DataSource dataSource(String url)
     {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
@@ -354,5 +356,5 @@ public final class SqliteExecutionTestSupport
     }
 
     public record Database(
-            String url, SQLiteDataSource dataSource, JdbcTemplate jdbc) {}
+            String url, DataSource dataSource, JdbcTemplate jdbc) {}
 }

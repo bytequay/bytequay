@@ -16,15 +16,19 @@ package com.bytequay.app.repository.sqlite.migration;
 import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowCanaryRoute;
 import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowInvariantAuditor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentFlowCanaryGuardsMigration
 {
     @TempDir
@@ -34,8 +38,7 @@ class TestDevelopmentFlowCanaryGuardsMigration
     void exposesFailClosedCanaryControlsAndEmptyDatabaseDiagnostics()
     {
         String url = migrated("diagnostics.db");
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         DevelopmentFlowInvariantAuditor auditor =
                 new DevelopmentFlowInvariantAuditor(new JdbcTemplate(dataSource));
 

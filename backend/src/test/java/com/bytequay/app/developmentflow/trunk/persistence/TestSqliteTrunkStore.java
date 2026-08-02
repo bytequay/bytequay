@@ -18,12 +18,15 @@ import com.bytequay.app.developmentflow.trunk.TrunkLifecycle;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 
@@ -31,6 +34,7 @@ import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.S
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestSqliteTrunkStore
 {
     @TempDir
@@ -39,7 +43,7 @@ class TestSqliteTrunkStore
     @Test
     void duplicateStaleRollbackAndRestartUseOneDurableReceipt()
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("trunk.db"));
+        DataSource dataSource = database(tempDir.resolve("trunk.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, "trunk-1");
         TaskCommandExecutor commands = new TaskCommandExecutor(
@@ -85,12 +89,11 @@ class TestSqliteTrunkStore
                 .hasMessageContaining("command transaction");
     }
 
-    private static SQLiteDataSource database(Path file)
+    private static DataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 

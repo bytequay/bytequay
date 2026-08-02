@@ -17,12 +17,15 @@ import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -31,6 +34,7 @@ import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(SqliteTestPools.class)
 class TestReviewBuildOutcomeService
 {
     @TempDir
@@ -148,8 +152,7 @@ class TestReviewBuildOutcomeService
         String url = "jdbc:sqlite:" + tempDir.resolve(file)
                 + "?busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource source = new SQLiteDataSource();
-        source.setUrl(url);
+        DataSource source = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
         for (String trigger : List.of(
                 "task_assignment_v2_exact_insert",

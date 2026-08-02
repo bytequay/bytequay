@@ -20,14 +20,17 @@ import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperati
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -36,6 +39,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestSqliteReviewPassPublicationStore
 {
     private static final Instant NOW = Instant.ofEpochMilli(10_000);
@@ -219,8 +223,7 @@ class TestSqliteReviewPassPublicationStore
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource source = new SQLiteDataSource();
-        source.setUrl(url);
+        DataSource source = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
         seed(jdbc);
         return new Fixture(
@@ -284,7 +287,7 @@ class TestSqliteReviewPassPublicationStore
 
     private record Fixture(
             JdbcTemplate jdbc,
-            SQLiteDataSource source,
+            DataSource source,
             DataSourceTransactionManager transactionManager)
     {
         SqliteReviewPassPublicationStore store()

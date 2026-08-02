@@ -22,8 +22,10 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.stage.StageLifecycle;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -31,7 +33,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -42,6 +45,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SuppressWarnings("StringConcatToTextBlock")
+@ExtendWith(SqliteTestPools.class)
 class TestV2RestartLegacyIsolation
 {
     private static final String WORKSPACE = "workspace-restart";
@@ -64,7 +68,7 @@ class TestV2RestartLegacyIsolation
                 "bytequay-test-v2-planning-restart.db").toAbsolutePath();
         String url = "jdbc:sqlite:" + databasePath
                 + "?foreign_keys=ON&busy_timeout=30000";
-        SQLiteDataSource dataSource = database(url);
+        DataSource dataSource = database(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         String taskId = createPlanningTask(dataSource, repositoryRoot);
@@ -102,14 +106,13 @@ class TestV2RestartLegacyIsolation
         assertThat(process.waitFor()).isZero();
     }
 
-    private static SQLiteDataSource database(String url)
+    private static DataSource database(String url)
     {
         Flyway.configure()
                 .dataSource(url, "", "")
                 .load()
                 .migrate();
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
@@ -142,7 +145,7 @@ class TestV2RestartLegacyIsolation
     }
 
     private static String createPlanningTask(
-            SQLiteDataSource dataSource, Path repositoryRoot)
+            DataSource dataSource, Path repositoryRoot)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactionManager =

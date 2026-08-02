@@ -21,14 +21,17 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBase
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore.DeliveryReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore.ManualBlocker;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore.OpenRequest;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -47,6 +50,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestLocalPublishBaseSyncMigration
 {
     @TempDir
@@ -122,7 +126,7 @@ class TestLocalPublishBaseSyncMigration
             throws Exception
     {
         String url = url("populated-foreign-key.db");
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         Flyway.configure().dataSource(dataSource).target("314").load().migrate();
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);
@@ -431,16 +435,15 @@ class TestLocalPublishBaseSyncMigration
                 + "?foreign_keys=ON&busy_timeout=30000";
     }
 
-    private static SQLiteDataSource dataSource(String url)
+    private static DataSource dataSource(String url)
     {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
     private static StoreHarness harness(String url)
     {
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         return new StoreHarness(
                 jdbc, new TransactionTemplate(

@@ -23,14 +23,17 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.domain.TrunkTraceEvent;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -41,6 +44,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(SqliteTestPools.class)
 class TestThreadTurnTraceProjection
 {
     private static final Instant NOW = Instant.parse("2026-07-29T00:00:00Z");
@@ -52,7 +56,7 @@ class TestThreadTurnTraceProjection
     void reloadsStableExactTrunkTraceWithoutConversationOrSiblingLeakage()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("traces.db"));
+        DataSource dataSource = database(tempDir.resolve("traces.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedOwners(jdbc);
         Flyway.configure().dataSource(dataSource).load().migrate();
@@ -264,13 +268,12 @@ class TestThreadTurnTraceProjection
                 prompt, prompt, List.of(), null, null);
     }
 
-    private static SQLiteDataSource database(Path file)
+    private static DataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 

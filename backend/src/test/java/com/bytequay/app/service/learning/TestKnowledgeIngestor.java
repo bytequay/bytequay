@@ -19,13 +19,16 @@ import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.workspaces.MemoryItemService;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -45,6 +48,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
  * SQLite canonical store. The extraction model is out of scope — lessons
  * arrive pre-parsed.
  */
+@ExtendWith(SqliteTestPools.class)
 class TestKnowledgeIngestor
 {
     @TempDir
@@ -64,8 +68,7 @@ class TestKnowledgeIngestor
         String url = "jdbc:sqlite:" + tempDir.resolve("knowledge.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
         copyTo(tempDir.resolve("knowledge.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

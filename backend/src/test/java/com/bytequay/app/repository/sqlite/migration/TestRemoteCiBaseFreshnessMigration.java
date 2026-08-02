@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.testing.SqliteTestPools;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -35,6 +38,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestRemoteCiBaseFreshnessMigration
 {
     @TempDir
@@ -46,8 +50,7 @@ class TestRemoteCiBaseFreshnessMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("v319-forward.db")
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         Flyway.configure().dataSource(dataSource).target("318").load().migrate();
         try (Connection connection = connect(url)) {
             seedWorkspaceAndTrunk(connection);

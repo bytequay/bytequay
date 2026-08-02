@@ -21,14 +21,17 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -45,6 +48,7 @@ import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.I
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2TaskCreationHandoff
 {
     private static final Instant NOW = Instant.parse("2026-07-28T00:00:00Z");
@@ -59,7 +63,7 @@ class TestV2TaskCreationHandoff
     void persistsAllAssignmentVariantsAndBothNewTaskCreationSources()
     {
         Path repositoryRoot = tempDir.resolve("repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("all-shapes.db");
+        DataSource dataSource = database("all-shapes.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         CreationRuntime handoff = runtime(dataSource);
@@ -144,7 +148,7 @@ class TestV2TaskCreationHandoff
     void exactReplaySurvivesRestartAndCloneRelocationWhileProviderConflictFailsClosed()
     {
         Path repositoryRoot = tempDir.resolve("repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("replay.db");
+        DataSource dataSource = database("replay.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         TaskCreationInput input = allInputs().getFirst();
@@ -205,7 +209,7 @@ class TestV2TaskCreationHandoff
     void keepsCreationCommandIdsExclusiveAcrossOwnerReceiptTables()
     {
         Path repositoryRoot = tempDir.resolve("repo").toAbsolutePath();
-        SQLiteDataSource ordinaryFirst = database("ordinary-first.db");
+        DataSource ordinaryFirst = database("ordinary-first.db");
         JdbcTemplate ordinaryJdbc = new JdbcTemplate(ordinaryFirst);
         seedTrunk(ordinaryJdbc, repositoryRoot);
         CreationRuntime ordinaryRuntime = runtime(ordinaryFirst);
@@ -217,7 +221,7 @@ class TestV2TaskCreationHandoff
         assertThat(count(ordinaryJdbc, "trunk_task_creation_authorization")).isZero();
         assertThat(count(ordinaryJdbc, "tasks")).isZero();
 
-        SQLiteDataSource creationFirst = database("creation-first.db");
+        DataSource creationFirst = database("creation-first.db");
         JdbcTemplate creationJdbc = new JdbcTemplate(creationFirst);
         seedTrunk(creationJdbc, repositoryRoot);
         CreationRuntime creationRuntime = runtime(creationFirst);
@@ -248,7 +252,7 @@ class TestV2TaskCreationHandoff
     void persistsForkProvenanceFromUpstreamBaseToForkPublishRepository()
     {
         Path repositoryRoot = tempDir.resolve("fork-repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("fork.db");
+        DataSource dataSource = database("fork.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedForkTrunk(jdbc, repositoryRoot);
         TaskAssignment.Fork repositories = new TaskAssignment.Fork(
@@ -295,7 +299,7 @@ class TestV2TaskCreationHandoff
     void rejectsWrongRepositoryRootAndResumesTheDurableAuthorization()
     {
         Path repositoryRoot = tempDir.resolve("repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("repository-root.db");
+        DataSource dataSource = database("repository-root.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         TaskCreationInput input = allInputs().getFirst();
@@ -318,7 +322,7 @@ class TestV2TaskCreationHandoff
     void lateBundleFailureRollsBackEveryTaskOwnedRecord()
     {
         Path repositoryRoot = tempDir.resolve("repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("rollback.db");
+        DataSource dataSource = database("rollback.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         jdbc.execute("DROP TRIGGER dispatch_ticket_requested_wake_insert");
@@ -344,7 +348,7 @@ class TestV2TaskCreationHandoff
     void createsSiblingTasksWhileAnExistingTaskIsRunningWithoutInterference()
     {
         Path repositoryRoot = tempDir.resolve("repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("siblings.db");
+        DataSource dataSource = database("siblings.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         jdbc.update("""
@@ -377,7 +381,7 @@ class TestV2TaskCreationHandoff
             throws Exception
     {
         Path repositoryRoot = tempDir.resolve("concurrent-repo").toAbsolutePath();
-        SQLiteDataSource dataSource = database("concurrent.db");
+        DataSource dataSource = database("concurrent.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc, repositoryRoot);
         CreationRuntime runtime = runtime(dataSource);
@@ -416,17 +420,16 @@ class TestV2TaskCreationHandoff
         assertThat(count(jdbc, "tasks")).isEqualTo(2);
     }
 
-    private SQLiteDataSource database(String name)
+    private DataSource database(String name)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
-    private static CreationRuntime runtime(SQLiteDataSource dataSource)
+    private static CreationRuntime runtime(DataSource dataSource)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactionManager =

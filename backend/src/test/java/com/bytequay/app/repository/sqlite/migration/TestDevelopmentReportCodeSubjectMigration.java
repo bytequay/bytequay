@@ -31,14 +31,17 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNorm
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore.NormalizationDue;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore.NormalizationOperation;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -76,6 +79,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestDevelopmentReportCodeSubjectMigration
 {
     private static final String[] REBUILT_TABLES = {
@@ -108,7 +112,7 @@ class TestDevelopmentReportCodeSubjectMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("v323.db")
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         migrate(dataSource, "321");
         try (Connection connection = connect(url)) {
             seedRemoteTask(connection);
@@ -167,7 +171,7 @@ class TestDevelopmentReportCodeSubjectMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("v323-ticket-lag.db")
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         migrate(dataSource, "321");
         try (Connection connection = connect(url)) {
             seedRemoteTask(connection);
@@ -236,7 +240,7 @@ class TestDevelopmentReportCodeSubjectMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("v324-rearm.db")
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         migrate(dataSource, "321");
         try (Connection connection = connect(url)) {
             seedRemoteTask(connection);
@@ -431,7 +435,7 @@ class TestDevelopmentReportCodeSubjectMigration
     {
         String url = "jdbc:sqlite:" + tempDir.resolve("v324-near-miss.db")
                 + "?foreign_keys=ON";
-        SQLiteDataSource dataSource = dataSource(url);
+        DataSource dataSource = dataSource(url);
         migrate(dataSource, "321");
         try (Connection connection = connect(url)) {
             seedRemoteTask(connection);
@@ -468,7 +472,7 @@ class TestDevelopmentReportCodeSubjectMigration
     }
 
     private static FailedNormalization failNormalizationBeforeProvider(
-            SQLiteDataSource dataSource)
+            DataSource dataSource)
             throws Exception
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
@@ -916,7 +920,7 @@ class TestDevelopmentReportCodeSubjectMigration
     }
 
     private static void completeLegacyNormalizationAndAdoption(
-            SQLiteDataSource dataSource)
+            DataSource dataSource)
             throws Exception
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
@@ -1231,14 +1235,13 @@ class TestDevelopmentReportCodeSubjectMigration
         return Map.copyOf(snapshot);
     }
 
-    private static SQLiteDataSource dataSource(String url)
+    private static DataSource dataSource(String url)
     {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
-    private static void migrate(SQLiteDataSource dataSource, String target)
+    private static void migrate(DataSource dataSource, String target)
     {
         var configuration = Flyway.configure().dataSource(dataSource);
         if (target != null) {

@@ -24,13 +24,16 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssista
 import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssistanceStore.Availability;
 import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -51,6 +54,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestReadinessAssistanceProtocol
 {
     private static final Instant NOW = Instant.parse("2026-07-29T00:00:00Z");
@@ -558,8 +562,7 @@ class TestReadinessAssistanceProtocol
             }
         }
         migrate(url);
-        SQLiteDataSource source = new SQLiteDataSource();
-        source.setUrl(url);
+        DataSource source = SqliteTestPools.open(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
         return new Database(
                 url, jdbc,
@@ -836,7 +839,7 @@ class TestReadinessAssistanceProtocol
             String url,
             JdbcTemplate jdbc,
             TransactionTemplate transactions,
-            SQLiteDataSource dataSource)
+            DataSource dataSource)
     {
     }
 }

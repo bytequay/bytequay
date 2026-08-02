@@ -22,11 +22,14 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import com.bytequay.app.testing.SqliteTestPools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,6 +47,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** Approval, evidence thresholds, and module-root derivation for code areas. */
+@ExtendWith(SqliteTestPools.class)
 class TestDirectoryScopeService
 {
     @TempDir
@@ -61,8 +65,7 @@ class TestDirectoryScopeService
         String url = "jdbc:sqlite:" + tempDir.resolve("directory-scopes.db")
                 + "?foreign_keys=ON&busy_timeout=5000";
         copyTo(tempDir.resolve("directory-scopes.db"));
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.update("""
                 INSERT INTO workspaces (id, name, memory_md, is_scratch,

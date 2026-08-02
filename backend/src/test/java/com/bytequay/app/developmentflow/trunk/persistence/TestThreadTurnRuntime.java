@@ -38,14 +38,17 @@ import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -63,6 +66,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
+@ExtendWith(SqliteTestPools.class)
 class TestThreadTurnRuntime
 {
     private static final Instant NOW = Instant.parse("2026-07-28T00:00:00Z");
@@ -74,7 +78,7 @@ class TestThreadTurnRuntime
     void cancelFallbackPrefersRunningTurnBeforeNewerQueuedTurn()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(
+        DataSource dataSource = database(
                 tempDir.resolve("thread-turn-cancel-order.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
@@ -104,7 +108,7 @@ class TestThreadTurnRuntime
     void requestDeliverCancelAndRestartKeepOneExactConversation()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("thread-turn.db"));
+        DataSource dataSource = database(tempDir.resolve("thread-turn.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         ObjectMapper json = new ObjectMapper();
@@ -289,7 +293,7 @@ class TestThreadTurnRuntime
     void threadAttachmentsAreAtomicOwnersAndPartOfCommandReplay()
             throws Exception
     {
-        SQLiteDataSource dataSource = database(
+        DataSource dataSource = database(
                 tempDir.resolve("thread-turn-attachments.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
@@ -361,7 +365,7 @@ class TestThreadTurnRuntime
     @Test
     void migrationRejectsOrdinaryCapacityForAThreadTurnAndRestarts()
     {
-        SQLiteDataSource dataSource = database(tempDir.resolve("guards.db"));
+        DataSource dataSource = database(tempDir.resolve("guards.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         jdbc.update("""
@@ -395,7 +399,7 @@ class TestThreadTurnRuntime
     void v2SseReadsOnlyCommittedLogsForItsExactTrunk()
             throws Exception
     {
-        SQLiteDataSource dataSource = latestDatabase(
+        DataSource dataSource = latestDatabase(
                 tempDir.resolve("thread-turn-sse.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
@@ -577,23 +581,21 @@ class TestThreadTurnRuntime
                 null, null, null);
     }
 
-    private static SQLiteDataSource database(Path file)
+    private static DataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
-    private static SQLiteDataSource latestDatabase(Path file)
+    private static DataSource latestDatabase(Path file)
     {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 

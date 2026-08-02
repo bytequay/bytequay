@@ -64,7 +64,7 @@ class TestTypedTurnRepository
     void setUp()
     {
         databaseUrl = "jdbc:sqlite:" + tempDir.resolve("typed-turns.db") + "?foreign_keys=ON";
-        copyTo(tempDir.resolve("typed-turns.db"), "223");
+        copyTo(tempDir.resolve("typed-turns.db"));
         jdbc = jdbc();
         seedOwners(jdbc);
         turns = open();

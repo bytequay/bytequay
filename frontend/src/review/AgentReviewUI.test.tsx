@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DiffInlineComments, diffInlineCommentFromLocalPr } from '../diff/DiffInlineComments';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
@@ -27,6 +27,7 @@ const ROUND_LEFT_WIDTH_KEY = 'bq.agentReviewRoundLeftWidth.v2';
 const ROUND_PR_WIDTH_KEY = 'bq.agentReviewRoundPrWidth.v2';
 
 afterEach(() => {
+  cleanup();
   localStorage.removeItem(ROUND_LEFT_WIDTH_KEY);
   localStorage.removeItem(ROUND_PR_WIDTH_KEY);
 });

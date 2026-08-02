@@ -561,8 +561,11 @@ describe('TaskBrainRoute', () => {
     render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
 
     await screen.findByText('Build the meter');
-    expect(document.querySelector('.plan-feed-event__copy strong')?.textContent)
-      .toBe('Plan drafting');
+    // The steps render before the card's own copy settles, so reading the
+    // label synchronously off the first match races the last update.
+    await waitFor(() => expect(
+      document.querySelector('.plan-feed-event__copy strong')?.textContent)
+      .toBe('Plan drafting'));
   });
 
   it('labels a finalized plan as under Brain review until approval unlocks', async () => {

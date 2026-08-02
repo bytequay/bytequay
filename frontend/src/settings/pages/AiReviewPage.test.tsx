@@ -84,7 +84,9 @@ describe('AiReviewPage', () => {
     render(<AiReviewPage />);
 
     const picker = await screen.findByLabelText('Code writing & tests engine');
-    expect((picker as HTMLSelectElement).value).toBe('cli:codex');
+    // The select exists before its loaded defaults arrive, so its value is
+    // briefly empty.
+    await waitFor(() => expect((picker as HTMLSelectElement).value).toBe('cli:codex'));
 
     fireEvent.change(picker, { target: { value: 'cli:claude-code' } });
 

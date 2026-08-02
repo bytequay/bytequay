@@ -3402,8 +3402,11 @@ duplicate-delivery variants where applicable.
     process, delivery claim, capacity lease, and worktree mutation are already
     quiescent, verify recovery does not wait forever for the predecessor's
     `RESULT_PENDING` ticket to become terminal: it atomically admits one fresh
-    StageTurn from the predecessor's complete frozen launch context, ordered
-    durable provider trace, and protocol-failure evidence. Verify it uses the
+    StageTurn from the predecessor's complete frozen launch context and a
+    concise rejection brief: why the predecessor was rejected, the rejected
+    Turn's exact id, that its edits already exist in the shared worktree, and
+    the read-only tool that serves the full transcript on demand. Verify the
+    replacement does not inline the durable provider trace. Verify it uses the
     frozen fallback prompt when the predecessor was a resumed CLI Turn, strips
     resume and cumulative-token fields, rebinds the typed MCP endpoint, and
     swaps the exact Stage pending fence. A repeated retry returns the same
@@ -3962,6 +3965,22 @@ reconciliation; they are never reassigned using latest/active inference.
   promised extension until separately designed and implemented.
 
 ## Change log
+
+### 3.35 — 2026-08-03
+
+- Replaced the inlined provider trace in a malformed-result replacement with a
+  concise rejection brief. The successor now receives the frozen launch, why
+  its predecessor was rejected, the rejected Turn's exact id, the fact that the
+  predecessor's edits already exist in the shared worktree, and the read-only
+  tool that serves the full transcript on demand.
+- Rationale: the successor runs in the predecessor's own worktree, so Git
+  already describes the work exactly. Inlining the trace added roughly 138KB to
+  one observed replacement, and because a replacement reuses its predecessor's
+  prompt as its own prior prompt, a second failure embedded the trace twice.
+  The brief is bounded and cannot compound.
+- The replacement's identity, fencing, supersession, resume-stripping, and
+  idempotency rules are unchanged. Only the prompt payload narrows; nothing
+  about admission or recovery authority moves.
 
 ### 3.34 — 2026-08-02
 

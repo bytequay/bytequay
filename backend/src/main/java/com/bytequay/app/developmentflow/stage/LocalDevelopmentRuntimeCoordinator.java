@@ -335,16 +335,23 @@ public final class LocalDevelopmentRuntimeCoordinator
                     ? required(retryLaunch.path("fallbackPrompt").asText(),
                             "fallbackPrompt")
                     : required(retryLaunch.path("prompt").asText(), "prompt");
+            // Design 3.35: a concise rejection brief, not the inlined trace.
+            // The successor shares the predecessor's worktree, so Git already
+            // describes the work. Inlining the trace cost ~138KB, and since a
+            // replacement reuses this prompt as its own prior prompt, a second
+            // failure embedded the trace twice.
             StringBuilder retryPrompt = new StringBuilder(priorPrompt);
-            List<String> trace = store.executionLog(frozen.ticketId());
-            if (!trace.isEmpty()) {
-                retryPrompt.append(
-                        "\n\nDurable provider trace from the malformed Turn:\n");
-                trace.forEach(event -> retryPrompt.append(event).append('\n'));
-            }
-            retryPrompt.append("\n\nFailure evidence:\n")
+            retryPrompt.append("\n\nYour previous attempt on this Stage was ")
+                    .append("rejected before it could be accepted.\n")
+                    .append("Reason: ")
                     .append(DispatchTicket.resultProtocolFailureDetail(
                             required(frozen.ticketLastError(), "ticketLastError")))
+                    .append("\nRejected Turn: ").append(predecessor.ownerId())
+                    .append("\nAny edits it made are already in this worktree; "
+                            + "inspect them with git rather than redoing the work.")
+                    .append("\nRead that Turn's full transcript with "
+                            + "read_dev_conversation only if the reason above is "
+                            + "not enough.")
                     .append("\n\nRetry instruction:\n")
                     .append(RETRY_INSTRUCTION);
             retryLaunch.put("prompt", retryPrompt.toString());

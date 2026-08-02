@@ -147,7 +147,7 @@ class TestLegacyExecutionRetirement
             throws IOException
     {
         String migration = Files.readString(MAIN.resolve(
-                "resources/db/migration/V277__retire_legacy_task_creation.sql"));
+                "resources/db/migration/V308__baseline.sql"));
         assertThat(migration)
                 .contains("BEFORE INSERT ON tasks")
                 .contains("NEW.workflow_version <> 'V2'")

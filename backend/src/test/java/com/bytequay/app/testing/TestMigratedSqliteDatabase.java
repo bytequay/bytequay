@@ -43,16 +43,28 @@ class TestMigratedSqliteDatabase
         copyTo(second);
         copyTo(latest);
 
-        assertThat(currentVersion(first)).isEqualTo("228");
-        assertThat(currentVersion(second)).isEqualTo("228");
+        assertThat(currentVersion(first)).isEqualTo("999");
+        assertThat(currentVersion(second)).isEqualTo("999");
         assertThat(currentVersion(latest)).isEqualTo("999");
-        assertThat(workspaceExists(latest, "ws-default")).isFalse();
+        assertThat(workspaceExists(latest, "ws-default")).isTrue();
+        assertThat(text(latest, """
+                SELECT value FROM app_settings
+                WHERE key = 'sync.interval.seconds'
+                """)).isEqualTo("60");
+        assertThat(text(latest, """
+                SELECT COUNT(*) FROM reviewer_def
+                WHERE id IN ('general-api', 'general-cli',
+                    'independent-verifier', 'review-planner')
+                """)).isEqualTo("4");
+        assertThat(text(latest, """
+                SELECT usage FROM skill WHERE name = 'Trino code style'
+                """)).isEqualTo("review");
         execute(first, "CREATE TABLE copy_marker (id INTEGER PRIMARY KEY)");
         assertThat(tableExists(first, "copy_marker")).isTrue();
         assertThat(tableExists(second, "copy_marker")).isFalse();
 
         Flyway.configure().dataSource(url(second), "", "").load().migrate();
-        assertThat(currentVersion(second)).isEqualTo("229");
+        assertThat(currentVersion(second)).isEqualTo("999");
     }
 
     private static String currentVersion(Path database)
@@ -95,6 +107,17 @@ class TestMigratedSqliteDatabase
             try (ResultSet row = statement.executeQuery()) {
                 return row.next();
             }
+        }
+    }
+
+    private static String text(Path database, String sql)
+            throws SQLException
+    {
+        try (Connection connection = DriverManager.getConnection(url(database));
+                Statement statement = connection.createStatement();
+                ResultSet row = statement.executeQuery(sql)) {
+            assertThat(row.next()).isTrue();
+            return row.getString(1);
         }
     }
 

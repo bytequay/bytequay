@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -194,83 +194,6 @@ class TestDevelopmentFlowUserWaitMigration
         }
     }
 
-    @Test
-    void originalV263ConsumptionUpgradesWithStableLegacyCallIdentity()
-            throws Exception
-    {
-        String url = database("permission-upgrade.db");
-        migrate(url, "263");
-        try (Connection connection = connect(url)) {
-            seedThreadTurn(connection);
-            execute(connection, """
-                    INSERT INTO permission_request(
-                        id, call_id, turn_kind, turn_id, operation_id,
-                        capability, tool_name, parameters_json,
-                        parameters_digest, policy_snapshot, state, answer,
-                        answer_revision, requested_at_ms, answered_at_ms,
-                        grant_scope_kind, grant_scope_id, granted_uses,
-                        remaining_uses, consumed_uses, answer_actor,
-                        last_consumed_at_ms, continuation_state)
-                    VALUES ('permission-upgrade', 'original-call', 'THREAD',
-                        'thread-turn-1', 'thread-operation-1', 'CODE_WRITE',
-                        'run_shell', '{"command":"make test"}', 'digest-1',
-                        '{}', 'ALLOWED_NEXT', '{"decision":"allow"}', 1,
-                        10, 20, 'TRUNK', 'trunk-1', 2, 1, 1, 'user', 21,
-                        'READY')
-                    """);
-            execute(connection, """
-                    INSERT INTO permission_grant_consumption(
-                        id, permission_id, turn_kind, turn_id, operation_id,
-                        parameters_digest, remaining_after, consumed_at_ms)
-                    VALUES ('legacy-consumption', 'permission-upgrade',
-                        'THREAD', 'thread-turn-1', 'thread-operation-1',
-                        'digest-1', 1, 21)
-                    """);
-        }
-
-        migrate(url, "265");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT call_id FROM permission_grant_consumption
-                    WHERE id = 'legacy-consumption'
-                    """)).isEqualTo(
-                            "__legacy_v263_consumption__:legacy-consumption");
-            execute(connection, """
-                    INSERT INTO permission_grant_consumption(
-                        id, permission_id, turn_kind, turn_id, operation_id,
-                        call_id, parameters_digest, remaining_after,
-                        consumed_at_ms)
-                    VALUES ('exact-consumption', 'permission-upgrade',
-                        'THREAD', 'thread-turn-1', 'thread-operation-1',
-                        'future-call', 'digest-1', 0, 22)
-                    """);
-            assertFails(connection, """
-                    INSERT INTO permission_grant_consumption(
-                        id, permission_id, turn_kind, turn_id, operation_id,
-                        call_id, parameters_digest, remaining_after,
-                        consumed_at_ms)
-                    VALUES ('duplicate-consumption', 'permission-upgrade',
-                        'THREAD', 'thread-turn-1', 'thread-operation-1',
-                        'future-call', 'digest-1', 0, 23)
-                    """);
-            execute(connection, """
-                    INSERT INTO permission_grant_consumption(
-                        id, permission_id, turn_kind, turn_id, operation_id,
-                        call_id, parameters_digest, remaining_after,
-                        consumed_at_ms)
-                    VALUES ('other-call-consumption', 'permission-upgrade',
-                        'THREAD', 'thread-turn-1', 'thread-operation-1',
-                        'other-call', 'digest-1', 0, 24)
-                    """);
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM permission_grant_consumption
-                    WHERE permission_id = 'permission-upgrade'
-                    """)).isEqualTo(3);
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
-        }
-    }
-
     private String database(String name)
     {
         return "jdbc:sqlite:" + tempDir.resolve(name) + "?foreign_keys=ON";
@@ -278,12 +201,7 @@ class TestDevelopmentFlowUserWaitMigration
 
     private static void migrate(String url)
     {
-        Flyway.configure().dataSource(url, "", "").load().migrate();
-    }
-
-    private static void migrate(String url, String target)
-    {
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static void seedThreadTurn(Connection connection)

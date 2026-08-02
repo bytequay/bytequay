@@ -66,7 +66,8 @@ public class StageSteeringServiceImpl
 
     @Override
     public SteerResult steer(
-            UUID stageId, String text, List<String> images, Mode mode)
+            UUID stageId, String text, List<String> images, Mode mode,
+            String expectedPredecessorStageTurnId)
     {
         requireNonNull(mode, "mode is null");
         String trimmed = text == null ? "" : text.strip();
@@ -81,7 +82,8 @@ public class StageSteeringServiceImpl
             }
             String turnId = v2Steering.steer(
                     v2TaskId, stageId.toString(), trimmed, images,
-                    V2StageSteeringControl.Mode.valueOf(mode.name()));
+                    V2StageSteeringControl.Mode.valueOf(mode.name()),
+                    expectedPredecessorStageTurnId);
             return new SteerResult(turnId);
         }
         if (mode != Mode.APPEND) {

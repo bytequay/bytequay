@@ -29,6 +29,7 @@ import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.backlog.BacklogService;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
@@ -120,6 +121,7 @@ public class AgentToolHandlers
     private final ObjectMapper mapper;
     private final BacklogService backlog;
     private final RepoService repoService;
+    private final ActiveAgentContextRegistry activeContexts;
 
     private static final Logger log = LoggerFactory.getLogger(AgentToolHandlers.class);
 
@@ -141,7 +143,31 @@ public class AgentToolHandlers
     {
         this(taskStore, prStore, threadStore, workspaces, registry, skillTools,
                 checkpoints, testRunnerDetector, shellRunner, watchedRepos,
-                threads, worktreeService, mapper, backlog, null);
+                threads, worktreeService, mapper, backlog, null,
+                new ActiveAgentContextRegistry());
+    }
+
+    public AgentToolHandlers(
+            TaskStore taskStore,
+            PullRequestStore prStore,
+            ThreadStore threadStore,
+            WorkspaceService workspaces,
+            AgentToolRegistry registry,
+            SkillTools skillTools,
+            ThreadCheckpointStore checkpoints,
+            TestRunnerDetector testRunnerDetector,
+            ShellRunner shellRunner,
+            WatchedRepoStore watchedRepos,
+            ThreadService threads,
+            WorktreeService worktreeService,
+            ObjectMapper mapper,
+            BacklogService backlog,
+            RepoService repoService)
+    {
+        this(taskStore, prStore, threadStore, workspaces, registry, skillTools,
+                checkpoints, testRunnerDetector, shellRunner, watchedRepos,
+                threads, worktreeService, mapper, backlog, repoService,
+                new ActiveAgentContextRegistry());
     }
 
     @Autowired
@@ -160,7 +186,8 @@ public class AgentToolHandlers
             WorktreeService worktreeService,
             ObjectMapper mapper,
             BacklogService backlog,
-            RepoService repoService)
+            RepoService repoService,
+            ActiveAgentContextRegistry activeContexts)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.prStore = requireNonNull(prStore, "prStore is null");
@@ -177,6 +204,8 @@ public class AgentToolHandlers
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.backlog = requireNonNull(backlog, "backlog is null");
         this.repoService = repoService;
+        this.activeContexts = requireNonNull(
+                activeContexts, "activeContexts is null");
     }
 
     /** Args record for {@code read_task}. */
@@ -715,14 +744,25 @@ public class AgentToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome runChecks(RunChecksArgs args, ToolCall call)
     {
-        Optional<Task> active = call.scope() == ThreadScope.TRUNK
+        String agentKey = call.runtimeAgentKey();
+        Optional<ActiveAgentContextRegistry.TypedOwner> typedOwner =
+                activeContexts.findTypedOwner(call.threadId(), agentKey);
+        Optional<String> typedWorktree = typedOwner
+                .flatMap(ignored -> activeContexts.findWorktreePath(
+                        call.threadId(), agentKey));
+        Optional<String> legacyWorktree = typedOwner.isPresent()
                 ? Optional.empty()
-                : taskStore.findTaskById(call.requireTaskId());
-        if (active.isEmpty() || active.get().worktreePath() == null
-                || active.get().worktreePath().isBlank()) {
+                : call.scope() == ThreadScope.TRUNK
+                    ? Optional.empty()
+                    : taskStore.findTaskById(call.requireTaskId())
+                            .map(Task::worktreePath);
+        String path = typedWorktree.or(() -> legacyWorktree)
+                .filter(value -> !value.isBlank())
+                .orElse(null);
+        if (path == null) {
             return ToolOutcome.Completed.error("run_checks requires a task with a worktree");
         }
-        Path worktree = Path.of(active.get().worktreePath());
+        Path worktree = Path.of(path);
         Optional<TestRunnerDetector.Detected> detected = testRunnerDetector.detect(worktree);
         if (detected.isEmpty()) {
             return ToolOutcome.Completed.error(

@@ -14,10 +14,25 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.BranchSyncRecoveryCommand;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.BranchSyncRecoveryResult;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CiRecoveryCommand;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CiRecoveryResult;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryCommand;
 import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryResult;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.DevelopmentBrainRecoveryCommand;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.DevelopmentBrainRecoveryResult;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.LocalPublishBaseSyncApprovalResult;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.LocalPublishBaseSyncExtensionCommand;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.LocalPublishBaseSyncExtensionResult;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.LocalStageRecoveryCommand;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.LocalStageRecoveryResult;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.PlanRecoveryCommand;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.PlanRecoveryResult;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.RemoteRepairBrainRecoveryCommand;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.RemoteRepairBrainRecoveryResult;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.WorktreeRecoveryCommand;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.WorktreeRecoveryResult;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -45,6 +60,46 @@ public class TaskRecoveryController
         return recovery.recoverCi(taskId, episodeId, command);
     }
 
+    @PostMapping("/api/tasks/{taskId}/branch-sync/{episodeId}/recover")
+    public BranchSyncRecoveryResult recoverBranchSync(
+            @PathVariable String taskId,
+            @PathVariable String episodeId,
+            @RequestBody BranchSyncRecoveryCommand command)
+    {
+        return recovery.recoverBranchSync(taskId, episodeId, command);
+    }
+
+    @PostMapping("/api/tasks/{taskId}/worktree-quarantines/"
+            + "{quarantineId}/recover")
+    public WorktreeRecoveryResult recoverWorktree(
+            @PathVariable String taskId,
+            @PathVariable String quarantineId,
+            @RequestBody WorktreeRecoveryCommand command)
+    {
+        return recovery.recoverWorktree(taskId, quarantineId, command);
+    }
+
+    @PostMapping("/api/tasks/{taskId}/local-publish/base-sync/blockers/"
+            + "{blockerId}/approve")
+    public LocalPublishBaseSyncApprovalResult approveLocalPublishBaseSync(
+            @PathVariable String taskId,
+            @PathVariable String blockerId)
+    {
+        return recovery.approveLocalPublishBaseSync(taskId, blockerId);
+    }
+
+    @PostMapping("/api/tasks/{taskId}/local-publish/base-sync/episodes/"
+            + "{episodeId}/blockers/{blockerId}/extend")
+    public LocalPublishBaseSyncExtensionResult extendLocalPublishBaseSync(
+            @PathVariable String taskId,
+            @PathVariable String episodeId,
+            @PathVariable String blockerId,
+            @RequestBody LocalPublishBaseSyncExtensionCommand command)
+    {
+        return recovery.extendLocalPublishBaseSync(
+                taskId, episodeId, blockerId, command);
+    }
+
     @PostMapping("/api/tasks/{taskId}/cleanup/steps/{stepId}/recover")
     public CleanupRecoveryResult recoverCleanup(
             @PathVariable String taskId,
@@ -52,5 +107,45 @@ public class TaskRecoveryController
             @RequestBody CleanupRecoveryCommand command)
     {
         return recovery.recoverCleanup(taskId, stepId, command);
+    }
+
+    @PostMapping("/api/tasks/{taskId}/plan/turns/{failedTurnId}/recover")
+    public PlanRecoveryResult recoverPlanDraft(
+            @PathVariable String taskId,
+            @PathVariable String failedTurnId,
+            @RequestBody PlanRecoveryCommand command)
+    {
+        return recovery.recoverPlanDraft(taskId, failedTurnId, command);
+    }
+
+    @PostMapping("/api/tasks/{taskId}/local-development/turns/"
+            + "{failedTurnId}/recover")
+    public LocalStageRecoveryResult recoverLocalStageTurn(
+            @PathVariable String taskId,
+            @PathVariable String failedTurnId,
+            @RequestBody LocalStageRecoveryCommand command)
+    {
+        return recovery.recoverLocalStageTurn(taskId, failedTurnId, command);
+    }
+
+    @PostMapping("/api/tasks/{taskId}/local-development/brain-turns/"
+            + "{failedTurnId}/recover")
+    public DevelopmentBrainRecoveryResult recoverDevelopmentBrain(
+            @PathVariable String taskId,
+            @PathVariable String failedTurnId,
+            @RequestBody DevelopmentBrainRecoveryCommand command)
+    {
+        return recovery.recoverDevelopmentBrain(taskId, failedTurnId, command);
+    }
+
+    @PostMapping("/api/tasks/{taskId}/remote-repair/brain-turns/"
+            + "{failedTurnId}/recover")
+    public RemoteRepairBrainRecoveryResult recoverRemoteRepairBrain(
+            @PathVariable String taskId,
+            @PathVariable String failedTurnId,
+            @RequestBody RemoteRepairBrainRecoveryCommand command)
+    {
+        return recovery.recoverRemoteRepairBrain(
+                taskId, failedTurnId, command);
     }
 }

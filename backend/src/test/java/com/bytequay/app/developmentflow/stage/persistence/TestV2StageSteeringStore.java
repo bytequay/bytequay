@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.stage.persistence;
 
 import com.bytequay.app.developmentflow.ResultFence;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
@@ -28,6 +29,8 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -391,6 +394,140 @@ class TestV2StageSteeringStore
     }
 
     @Test
+    void malformedResultPendingIsFencedBeforeOneExactReplacementIsArmed()
+    {
+        Fixture fixture = fixture("malformed-result.db", false);
+        Request request = request(
+                fixture, "steer-malformed", "command-malformed",
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.steering().insert(request, List.of()));
+        markMalformedResultPending(fixture.jdbc());
+
+        assertThat(fixture.steering().predecessorQuiesced(request)).isFalse();
+        assertThat(fixture.steering().malformedLocalResultPendingReady(
+                request, fence("1"))).isTrue();
+
+        LocalTurn replacement = malformedReplacementTurn();
+        fixture.commands().executeVoid("task-1", () -> {
+            fixture.steering().insertMalformedLocalResultReplacementTurn(
+                    replacement, request);
+            fixture.local().replaceImplementationTurnInCommand(
+                    new StageManager.ResultCommand(
+                            "replace-malformed", "test", "task-1", fence("1")),
+                    replacement.fence(), replacement.localRequestId());
+            fixture.steering().markAdmitted(
+                    request.id(), "STAGE_TURN", replacement.turnId(),
+                    replacement.operationId(), Instant.ofEpochMilli(10));
+        });
+
+        assertThat(fixture.jdbc().queryForMap("""
+                SELECT previous.status AS previous_status,
+                       replacement.status AS replacement_status,
+                       steering.status AS steering_status,
+                       local_request.predecessor_turn_id
+                FROM stage_turn previous
+                JOIN stage_turn replacement ON replacement.id = 'replacement-turn'
+                JOIN local_stage_turn_request local_request
+                  ON local_request.stage_turn_id = replacement.id
+                JOIN stage_steering_request_v257 steering
+                  ON steering.id = 'steer-malformed'
+                WHERE previous.id = 'turn-1'
+                """))
+                .containsEntry("previous_status", "SUPERSEDED")
+                .containsEntry("replacement_status", "QUEUED")
+                .containsEntry("steering_status", "ADMITTED")
+                .containsEntry("predecessor_turn_id", "turn-1");
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT returned_pending_operation_id
+                FROM local_stage_command_receipt
+                WHERE command_id = 'replace-malformed'
+                """, String.class)).isEqualTo("replacement-operation");
+        assertThat(fixture.steering().findByCommand("command-malformed"))
+                .get()
+                .extracting(Request::successorOwnerId)
+                .isEqualTo("replacement-turn");
+        assertThat(fixture.steering().cancellationRequestedFor("operation-1"))
+                .as("late delivery remains fenced after admission")
+                .isTrue();
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM stage_turn
+                WHERE stage_id = 'local-stage-1' AND attempt = 2
+                """, Integer.class)).isOne();
+    }
+
+    @Test
+    void malformedResultReplacementRejectsEveryLiveExecutionAuthority()
+    {
+        Fixture fixture = fixture("malformed-result-live-authority.db", false);
+        Request request = request(
+                fixture, "steer-malformed", "command-malformed",
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.steering().insert(request, List.of()));
+        markMalformedResultPending(fixture.jdbc());
+        assertThat(fixture.steering().malformedLocalResultPendingReady(
+                request, fence("1"))).isTrue();
+
+        fixture.jdbc().update("""
+                INSERT INTO dispatch_delivery_claim(
+                    ticket_id, ticket_version, claim_owner, claimed_at_ms,
+                    heartbeat_at_ms, expires_at_ms)
+                SELECT id, version, 'delivery-worker', 8, 8, 100
+                FROM dispatch_ticket WHERE id = 'ticket-1'
+                """);
+        assertThat(fixture.steering().malformedLocalResultPendingReady(
+                request, fence("1"))).isFalse();
+        fixture.jdbc().update("""
+                DELETE FROM dispatch_delivery_claim WHERE ticket_id = 'ticket-1'
+                """);
+
+        fixture.jdbc().update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, status, started_at_ms)
+                VALUES ('live-execution', 'ticket-1', 2, 'RUNNING', 8)
+                """);
+        assertThat(fixture.steering().malformedLocalResultPendingReady(
+                request, fence("1"))).isFalse();
+        fixture.jdbc().update("""
+                DELETE FROM agent_execution WHERE id = 'live-execution'
+                """);
+
+        fixture.jdbc().update("""
+                INSERT INTO capacity_lease(
+                    id, ticket_id, operation_id, workflow_source, lane_mask,
+                    trunk_control, exclusive_task, writer_required, workspace_id,
+                    trunk_id, task_id, task_epoch, holder, fencing_token,
+                    acquired_at_ms, heartbeat_at_ms, expires_at_ms)
+                VALUES ('live-capacity', 'ticket-1', 'operation-1', 'V2', 2,
+                    0, 1, 1, 'workspace-1', 'trunk-1', 'task-1', 1,
+                    'holder', 1, 8, 8, 100)
+                """);
+        assertThat(fixture.steering().malformedLocalResultPendingReady(
+                request, fence("1"))).isFalse();
+        fixture.jdbc().update("""
+                INSERT INTO worktree_leases(
+                    worktree_path, task_id, agent_kind, acquired_at_ms,
+                    expires_at_ms, workflow_version, operation_id, task_epoch,
+                    fencing_token, lease_owner)
+                VALUES ('/tmp/task-1', 'task-1', 'CLI_AGENT', 8, 100,
+                    'V2', 'operation-1', 1, 1, 'holder')
+                """);
+        fixture.jdbc().update("""
+                UPDATE capacity_lease SET released_at_ms = 9,
+                    release_reason = 'done' WHERE id = 'live-capacity'
+                """);
+        assertThat(fixture.steering().malformedLocalResultPendingReady(
+                request, fence("1"))).isFalse();
+        fixture.jdbc().update("""
+                DELETE FROM worktree_leases WHERE worktree_path = '/tmp/task-1'
+                """);
+
+        assertThat(fixture.steering().malformedLocalResultPendingReady(
+                request, fence("1"))).isTrue();
+    }
+
+    @Test
     void staleFenceAndDuplicateCommandCannotAffectSiblingTask()
     {
         Fixture fixture = fixture("sibling.db", true);
@@ -542,14 +679,14 @@ class TestV2StageSteeringStore
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("228").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedOwner(jdbc, "1", 1);
         if (sibling) {
             seedOwner(jdbc, "2", 2);
         }
-        Flyway.configure().dataSource(dataSource).target("265").load().migrate();
+        Flyway.configure().dataSource(dataSource).load().migrate();
         seedImplementation(jdbc, "1", cli);
         if (sibling) {
             seedImplementation(jdbc, "2", cli);
@@ -618,6 +755,16 @@ class TestV2StageSteeringStore
                 "d".repeat(64), "test", Instant.ofEpochMilli(10));
     }
 
+    private static LocalTurn malformedReplacementTurn()
+    {
+        return new LocalTurn(
+                "replacement-request", "persist-replacement", "replacement-turn",
+                "replacement-operation", "replacement-ticket", "workspace-1",
+                "trunk-1", "task-1", 1, "local-stage-1", 1, 2,
+                "fingerprint-1", "base-1", "base-1", "API", 2, "{}",
+                "d".repeat(64), "test", Instant.ofEpochMilli(10));
+    }
+
     private static void terminalizePredecessor(JdbcTemplate jdbc)
     {
         jdbc.update("""
@@ -631,6 +778,36 @@ class TestV2StageSteeringStore
                     delivery_acceptance = 'SUPERSEDED',
                     delivery_evidence = 'replaced', completed_at_ms = 8
                 WHERE id = 'ticket-1'
+                """);
+    }
+
+    private static void markMalformedResultPending(JdbcTemplate jdbc)
+    {
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'RESULT_PENDING',
+                    infrastructure_attempts = 1,
+                    pending_result_outcome = 'SUCCEEDED',
+                    pending_result_payload = 'malformed-owner-payload',
+                    pending_result_evidence = 'provider-finished',
+                    pending_result_task_epoch = 1,
+                    pending_result_stage_id = 'local-stage-1',
+                    pending_result_stage_generation = 1,
+                    pending_result_operation_id = 'operation-1',
+                    pending_result_attempt = 1,
+                    pending_result_expected_code_fingerprint = 'fingerprint-1',
+                    pending_result_expected_head_sha = 'base-1',
+                    pending_result_expected_base_sha = 'base-1',
+                    last_error = ?
+                WHERE id = 'ticket-1'
+                """, DispatchTicket.resultProtocolFailure(
+                "strict Local result could not be decoded"));
+        jdbc.update("""
+                INSERT INTO agent_execution(
+                    id, ticket_id, infrastructure_attempt, status,
+                    started_at_ms, finished_at_ms, raw_result)
+                VALUES ('malformed-execution', 'ticket-1', 1, 'SUCCEEDED',
+                    8, 9, 'malformed-owner-payload')
                 """);
     }
 
@@ -894,42 +1071,37 @@ class TestV2StageSteeringStore
                     'test', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.update("""
-                INSERT OR IGNORE INTO task_policy_revision(
+                INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
-                VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 'test', 1)
+                SELECT 'policy-1', 'trunk-1', 1, 'TRUNK', 'test', 1
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM task_policy_revision WHERE id = 'policy-1')
                 """);
-        jdbc.update("""
+        String assignmentId = "assignment-" + suffix;
+        V2TaskSeed.insertAuthorized(jdbc, assignmentId, seed -> seed.update("""
                 INSERT INTO task_assignment(
                     id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
+                    created_by, created_at_ms, creation_authorization_id)
                 VALUES (?, 'trunk-1', 'NEW_FROM_TRUNK', ?, 'seed', 'build',
-                    'test', 2)
-                """, "assignment-" + suffix, "base-" + suffix);
-        jdbc.update("""
+                    'test', 2, ?)
+                """, assignmentId, "base-" + suffix,
+                "authorization-" + assignmentId));
+        String taskId = "task-" + suffix;
+        String taskInsert = """
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, epoch, aggregate_version, lifecycle_state,
-                    assignment_id, policy_revision_id)
+                    assignment_id, policy_revision_id, creation_receipt_id,
+                    name, task_type, opening_prompt, origin)
                 VALUES (?, 'trunk-1', ?, 'IDLE', 'PLANNING', 2,
-                    'V2', 1, 0, 'PROVISIONING', ?, 'policy-1')
-                """, "task-" + suffix, sequence, "assignment-" + suffix);
-        jdbc.update("""
-                INSERT INTO task_creation_context(
-                    task_id, assignment_id, policy_revision_id, provenance,
-                    repository_id, publish_repository_id, planning_base_sha,
-                    engine_snapshot, work_model_snapshot, created_at_ms)
-                VALUES (?, ?, 'policy-1', 'DIRECT_USER', 'acme/widget',
-                    'acme/widget', ?, 'engine',
-                    '{"kind":"API","agentOrProvider":"openai",'
-                    || '"model":"model","account":null,'
-                    || '"reasoningEffort":null}', 2)
-                """, "task-" + suffix, "assignment-" + suffix, "base-" + suffix);
-        jdbc.update("""
-                INSERT INTO task_brain(
-                    id, task_id, provider, model, engine_snapshot, created_at_ms)
-                VALUES (?, ?, 'openai', 'model', 'engine', 2)
-                """, "brain-" + suffix, "task-" + suffix);
+                    'V2', 1, 0, 'PROVISIONING', ?, 'policy-1', ?, ?,
+                    'DEVELOP', 'build', 'user')
+                """;
+        V2TaskSeed.insertCreated(jdbc, taskId, seed -> seed.update(
+                taskInsert, taskId, sequence, assignmentId,
+                "creation-receipt-" + taskId, "Test task " + assignmentId));
         seedCode(jdbc, suffix);
         jdbc.update("""
                 INSERT INTO stage(
@@ -953,62 +1125,10 @@ class TestV2StageSteeringStore
 
     private static void seedCode(JdbcTemplate jdbc, String suffix)
     {
-        jdbc.update("""
-                INSERT INTO provision_task_operation(
-                    id, task_id, task_epoch, assignment_id, operation_id,
-                    semantic_attempt, repository_id, expected_base_sha,
-                    requested_branch_name, requested_worktree_path,
-                    status, created_at_ms)
-                VALUES (?, ?, 1, ?, ?, 1, 'acme/widget', ?, ?, ?,
-                    'REQUESTED', 2)
-                """, "provision-" + suffix, "task-" + suffix,
-                "assignment-" + suffix, "provision-operation-" + suffix,
-                "base-" + suffix, "dev/task-" + suffix, "/tmp/task-" + suffix);
-        jdbc.update("""
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family, owner_kind,
-                    owner_id, callback_route, lane_mask, exclusive_task,
-                    writer_required, workspace_id, trunk_id, task_id, task_epoch,
-                    attempt, expected_base_sha, status, created_at_ms)
-                VALUES (?, ?, 'PROVISION_TASK', 'LOCAL_GIT', 'TASK', ?,
-                    'TASK_PROVISION_RESULT', 16, 1, 1, 'workspace-1', 'trunk-1',
-                    ?, 1, 1, ?, 'REQUESTED', 2)
-                """, "provision-ticket-" + suffix,
-                "provision-operation-" + suffix, "task-" + suffix,
-                "task-" + suffix, "base-" + suffix);
-        jdbc.update("UPDATE provision_task_operation SET status = 'DISPATCHED' WHERE id = ?",
-                "provision-" + suffix);
-        jdbc.update("""
-                UPDATE dispatch_ticket
-                SET version = 1, status = 'RESULT_PENDING',
-                    pending_result_outcome = 'SUCCEEDED',
-                    pending_result_payload = 'provisioned',
-                    pending_result_evidence = 'created',
-                    pending_result_task_epoch = 1,
-                    pending_result_operation_id = ?, pending_result_attempt = 1,
-                    pending_result_expected_base_sha = ?
-                WHERE id = ?
-                """, "provision-operation-" + suffix, "base-" + suffix,
-                "provision-ticket-" + suffix);
-        jdbc.update("""
-                UPDATE provision_task_operation SET status = 'ACCEPTED',
-                    result_base_sha = ?, result_head_sha = ?,
-                    result_code_fingerprint = ?, completed_at_ms = 3
-                WHERE id = ?
-                """, "base-" + suffix, "base-" + suffix,
-                "fingerprint-" + suffix, "provision-" + suffix);
-        jdbc.update("""
-                INSERT INTO task_code_identity(
-                    task_id, provision_operation_id, repository_id,
-                    publish_repository_id, branch_name, worktree_path,
-                    base_sha, local_head_sha, code_fingerprint,
-                    created_at_ms, updated_at_ms)
-                VALUES (?, ?, 'acme/widget', 'acme/widget', ?, ?, ?, ?, ?, 3, 3)
-                """, "task-" + suffix, "provision-" + suffix,
-                "dev/task-" + suffix, "/tmp/task-" + suffix,
-                "base-" + suffix, "base-" + suffix, "fingerprint-" + suffix);
-        jdbc.update("DELETE FROM dispatch_ticket WHERE id = ?",
-                "provision-ticket-" + suffix);
+        String taskId = "task-" + suffix;
+        V2TaskSeed.completeProvisioning(
+                jdbc, taskId, "base-" + suffix, "base-" + suffix,
+                "fingerprint-" + suffix, "created", 3);
     }
 
     private static void seedImplementation(

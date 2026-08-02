@@ -15,8 +15,8 @@ package com.bytequay.app.developmentflow.persistence;
 
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -47,7 +47,7 @@ class TestSqliteExecutionEvidencePort
         SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk");
         SqliteExecutionTestSupport.seedTask(database, "trunk", "task", 1);
         migrateToProcessAttempts(database);
-        DispatchTicket requested = SqliteExecutionTestSupport.requestedTaskTicket(
+        DispatchTicket requested = SqliteExecutionTestSupport.requestedAgentTaskTicket(
                 "ticket", "operation", "workspace", "trunk", "task",
                 NOW, VALIDATION, true, false);
         SqliteExecutionTestSupport.insertTicket(database, requested);
@@ -219,6 +219,156 @@ class TestSqliteExecutionEvidencePort
     }
 
     @Test
+    void maintenanceFinalizesDurableResultEvidenceBeforeDeliveryCanBeClaimed()
+    {
+        StartedExecution fixture = runningExecution("pending-evidence-recovery.db");
+        SqliteExecutionEvidencePort evidence = new SqliteExecutionEvidencePort(
+                fixture.database().dataSource(), new ObjectMapper(), () -> "execution-recovery");
+        String executionId = evidence.start(
+                fixture.running(), fixture.lease(),
+                DispatchTicket.ClaimPurpose.EXECUTE, NOW.plusSeconds(1));
+        DispatchTicket.DispatchResult result = result("operation", 1);
+        DispatchTicket pending = fixture.running().resultPending(
+                result, NOW.plusSeconds(2));
+        assertThat(fixture.tickets().compareAndSet(
+                fixture.running().id(), fixture.running().version(), pending)).isTrue();
+
+        assertThat(fixture.tickets().claimDelivery(
+                pending.id(), pending.version(), "delivery-worker",
+                NOW.plusSeconds(2), NOW.plusSeconds(20))).isEmpty();
+
+        evidence.maintain(NOW.plusSeconds(3));
+
+        // The live worker can arrive immediately after the maintenance sweep
+        // won the RESULT_PENDING crash-window race. The same exact result
+        // converges; an ordinary duplicate finish remains rejected above.
+        evidence.finish(executionId, result, null, NOW.plusSeconds(4));
+
+        assertThat(fixture.database().jdbc().queryForMap("""
+                SELECT status, finished_at_ms, raw_result, error_class,
+                    error_message
+                FROM agent_execution WHERE id = ?
+                """, executionId))
+                .containsEntry("status", "SUCCEEDED")
+                .containsEntry("finished_at_ms", NOW.plusSeconds(3).toEpochMilli())
+                .containsEntry("error_class", "RECOVERED_PENDING_RESULT")
+                .satisfies(row -> assertThat((String) row.get("raw_result"))
+                        .contains("operation", "SUCCEEDED"))
+                .satisfies(row -> assertThat((String) row.get("error_message"))
+                        .contains("RECOVERED_PENDING_RESULT"));
+        assertThat(fixture.tickets().claimDelivery(
+                pending.id(), pending.version(), "delivery-worker",
+                NOW.plusSeconds(3), NOW.plusSeconds(20))).isPresent();
+    }
+
+    @Test
+    void retryCannotOvertakeUnfinishedExecutionEvidenceFromItsPriorAttempt()
+    {
+        StartedExecution fixture = runningExecution("retry-evidence-recovery.db");
+        SqliteExecutionEvidencePort evidence = new SqliteExecutionEvidencePort(
+                fixture.database().dataSource(), new ObjectMapper(),
+                () -> "execution-retry-recovery");
+        String executionId = evidence.start(
+                fixture.running(), fixture.lease(),
+                DispatchTicket.ClaimPurpose.EXECUTE, NOW.plusSeconds(1));
+        DispatchTicket waiting = fixture.running().retryWait(
+                "provider unavailable", NOW.plusSeconds(3));
+        assertThat(fixture.tickets().compareAndSet(
+                fixture.running().id(), fixture.running().version(), waiting)).isTrue();
+
+        DispatchTicket prematureClaim = waiting.claim(
+                "worker", fixture.lease().id(), NOW.plusSeconds(20));
+        assertThat(prematureClaim.state()).isEqualTo(DispatchTicket.State.CLAIMED);
+        assertThat(fixture.database().jdbc().queryForObject("""
+                SELECT COUNT(*) FROM agent_execution
+                WHERE ticket_id = ? AND finished_at_ms IS NULL
+                """, Integer.class, waiting.id())).isOne();
+        assertThat(fixture.tickets().compareAndSet(
+                waiting.id(), waiting.version(), prematureClaim)).isFalse();
+
+        evidence.maintain(NOW.plusSeconds(3));
+
+        assertThat(fixture.database().jdbc().queryForMap("""
+                SELECT status, finished_at_ms, raw_result, error_message
+                FROM agent_execution WHERE id = ?
+                """, executionId))
+                .containsEntry("status", "FAILED")
+                .containsEntry("finished_at_ms", NOW.plusSeconds(3).toEpochMilli())
+                .containsEntry("raw_result", null)
+                .satisfies(row -> assertThat((String) row.get("error_message"))
+                        .contains("RECOVERED_FAILED_EXECUTION",
+                                "Recovered unfinished execution evidence",
+                                "provider unavailable"));
+        assertThat(fixture.tickets().compareAndSet(
+                waiting.id(), waiting.version(), prematureClaim)).isTrue();
+    }
+
+    @Test
+    void reconcileRecoveryKeepsAnAmbiguousExecutionUnknown()
+    {
+        StartedExecution fixture = runningExecution("reconcile-evidence-recovery.db");
+        SqliteExecutionEvidencePort evidence = new SqliteExecutionEvidencePort(
+                fixture.database().dataSource(), new ObjectMapper(),
+                () -> "execution-reconcile-recovery");
+        String executionId = evidence.start(
+                fixture.running(), fixture.lease(),
+                DispatchTicket.ClaimPurpose.EXECUTE, NOW.plusSeconds(1));
+        DispatchTicket waiting = fixture.running().reconcileWait(
+                "execution lease expired; reconciliation required",
+                NOW.plusSeconds(3));
+        assertThat(fixture.tickets().compareAndSet(
+                fixture.running().id(), fixture.running().version(), waiting)).isTrue();
+
+        evidence.maintain(NOW.plusSeconds(3));
+
+        assertThat(fixture.database().jdbc().queryForMap("""
+                SELECT status, finished_at_ms, raw_result, error_message
+                FROM agent_execution WHERE id = ?
+                """, executionId))
+                .containsEntry("status", "UNKNOWN")
+                .containsEntry("finished_at_ms", NOW.plusSeconds(3).toEpochMilli())
+                .containsEntry("raw_result", null)
+                .satisfies(row -> assertThat((String) row.get("error_message"))
+                        .contains("RECOVERED_INDETERMINATE_EXECUTION",
+                                "RECONCILE_WAIT"));
+    }
+
+    @Test
+    void overtakenPriorAttemptRecoveryKeepsItsRawOutcomeUnknown()
+    {
+        StartedExecution fixture = runningExecution("prior-attempt-recovery.db");
+        SqliteExecutionEvidencePort evidence = new SqliteExecutionEvidencePort(
+                fixture.database().dataSource(), new ObjectMapper(),
+                () -> "execution-prior-attempt");
+        String executionId = evidence.start(
+                fixture.running(), fixture.lease(),
+                DispatchTicket.ClaimPurpose.EXECUTE, NOW.plusSeconds(1));
+        DispatchTicket waiting = fixture.running().retryWait(
+                "provider unavailable", NOW.plusSeconds(30));
+        assertThat(fixture.tickets().compareAndSet(
+                fixture.running().id(), fixture.running().version(), waiting)).isTrue();
+
+        fixture.database().jdbc().update("""
+                UPDATE dispatch_ticket
+                SET infrastructure_attempts = 2, version = version + 1
+                WHERE id = ? AND status = 'RETRY_WAIT'
+                """, waiting.id());
+
+        evidence.maintain(NOW.plusSeconds(2));
+
+        assertThat(fixture.database().jdbc().queryForMap("""
+                SELECT status, finished_at_ms, raw_result, error_message
+                FROM agent_execution WHERE id = ?
+                """, executionId))
+                .containsEntry("status", "UNKNOWN")
+                .containsEntry("finished_at_ms", NOW.plusSeconds(2).toEpochMilli())
+                .containsEntry("raw_result", null)
+                .satisfies(row -> assertThat((String) row.get("error_message"))
+                        .contains("RECOVERED_INDETERMINATE_EXECUTION",
+                                "execution attempt 1", "ticket attempt 2"));
+    }
+
+    @Test
     void finishPersistsAnExplicitFailureWithoutAResult()
     {
         StartedExecution fixture = runningExecution("failed-finish.db");
@@ -281,7 +431,7 @@ class TestSqliteExecutionEvidencePort
         SqliteExecutionTestSupport.seedTrunk(database, "workspace", "trunk");
         SqliteExecutionTestSupport.seedTask(database, "trunk", "task", 1);
         migrateToProcessAttempts(database);
-        DispatchTicket requested = SqliteExecutionTestSupport.requestedTaskTicket(
+        DispatchTicket requested = SqliteExecutionTestSupport.requestedAgentTaskTicket(
                 "ticket", "operation", "workspace", "trunk", "task",
                 NOW, VALIDATION, true, false);
         SqliteExecutionTestSupport.insertTicket(database, requested);
@@ -308,11 +458,7 @@ class TestSqliteExecutionEvidencePort
     private static void migrateToProcessAttempts(
             SqliteExecutionTestSupport.Database database)
     {
-        Flyway.configure()
-                .dataSource(database.url(), "", "")
-                .target("294")
-                .load()
-                .migrate();
+        MigratedSqliteDatabase.migrate(database.url());
     }
 
     private static DispatchTicket.DispatchResult result(String operationId, int attempt)

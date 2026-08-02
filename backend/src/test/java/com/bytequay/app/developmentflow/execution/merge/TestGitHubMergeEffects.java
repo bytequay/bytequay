@@ -21,6 +21,7 @@ import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.Me
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.MergeRequest;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.OperationStatus;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.PermissionDeniedException;
+import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.PreparedEffect;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.RemoteTruthPendingException;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.SubjectRejectedException;
 import com.bytequay.app.domain.MergeResult;
@@ -29,6 +30,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -40,6 +42,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -71,7 +74,7 @@ class TestGitHubMergeEffects
         when(pullRequests.fetchMergeQueueInfo(anyString(), any()))
                 .thenReturn(new PullRequestRepository.MergeQueueInfo(true, null));
 
-        assertThatThrownBy(() -> effects.execute(request, claim(EffectKind.DIRECT_MERGE)))
+        assertThatThrownBy(() -> execute(request, claim(EffectKind.DIRECT_MERGE)))
                 .isInstanceOf(SubjectRejectedException.class)
                 .hasMessageContaining("unsafe mode fallback");
         verify(pullRequests, never()).mergePullRequest(anyString(), any(), any());
@@ -84,10 +87,10 @@ class TestGitHubMergeEffects
         PrRawDetail detail = openExactDetail(request);
         when(pullRequests.fetchPrDetail(anyString(), any()))
                 .thenReturn(detail);
-        when(pullRequests.probeMergeQueue(anyString(), any()))
-                .thenReturn(Optional.empty());
+        when(pullRequests.fetchMergeQueueInfo(anyString(), any()))
+                .thenReturn(new PullRequestRepository.MergeQueueInfo(false, null));
 
-        assertThatThrownBy(() -> effects.execute(request, claim(EffectKind.ENTER_QUEUE)))
+        assertThatThrownBy(() -> execute(request, claim(EffectKind.ENTER_QUEUE)))
                 .isInstanceOf(SubjectRejectedException.class)
                 .hasMessageContaining("unsafe mode fallback");
         verify(pullRequests, never()).mergePullRequest(anyString(), any(), any());
@@ -103,7 +106,7 @@ class TestGitHubMergeEffects
         when(detail.baseSha()).thenReturn(null);
         when(pullRequests.fetchPrDetail(anyString(), any())).thenReturn(detail);
 
-        assertThatThrownBy(() -> effects.execute(request, claim(EffectKind.DIRECT_MERGE)))
+        assertThatThrownBy(() -> execute(request, claim(EffectKind.DIRECT_MERGE)))
                 .isInstanceOf(RemoteTruthPendingException.class)
                 .hasMessageContaining("awaiting RemoteObserver");
         verify(pullRequests, never()).fetchMergeQueueInfo(anyString(), any());
@@ -117,15 +120,27 @@ class TestGitHubMergeEffects
         PrRawDetail detail = openExactDetail(request);
         when(pullRequests.fetchPrDetail(anyString(), any()))
                 .thenReturn(detail);
-        when(pullRequests.probeMergeQueue(anyString(), any()))
-                .thenReturn(Optional.of(
-                        new PullRequestRepository.MergeQueueProbe("node")));
+        when(pullRequests.fetchMergeQueueInfo(anyString(), any()))
+                .thenReturn(new PullRequestRepository.MergeQueueInfo(true, null));
+        when(pullRequests.pullRequestNodeId(anyString(), any()))
+                .thenReturn(Optional.of("node"));
         when(pullRequests.enqueuePullRequest("pat", "node", "head"))
                 .thenReturn(MergeResult.enqueued("queued"));
 
-        effects.execute(request, claim(EffectKind.ENTER_QUEUE));
+        EffectClaim claim = claim(EffectKind.ENTER_QUEUE);
+        PreparedEffect prepared = effects.prepare(request, claim.spec());
 
-        verify(pullRequests).enqueuePullRequest("pat", "node", "head");
+        verify(pullRequests, never()).enqueuePullRequest(
+                anyString(), anyString(), anyString());
+        effects.perform(request, claim, prepared);
+
+        InOrder order = inOrder(pullRequests);
+        order.verify(pullRequests).fetchPrDetail(anyString(), any());
+        order.verify(pullRequests).fetchMergeQueueInfo(anyString(), any());
+        order.verify(pullRequests).pullRequestNodeId(anyString(), any());
+        order.verify(pullRequests).enqueuePullRequest("pat", "node", "head");
+        verify(pullRequests, never()).probeMergeQueue(anyString(), any());
+        verify(pullRequests, never()).mergePullRequest(anyString(), any(), any());
         verify(pullRequests, never()).enqueuePullRequest("pat", "node");
     }
 
@@ -141,7 +156,7 @@ class TestGitHubMergeEffects
         when(pullRequests.mergePullRequest(anyString(), any(), any()))
                 .thenReturn(new MergeResult("merge-sha", true, "merged"));
 
-        effects.execute(request, claim(EffectKind.DIRECT_MERGE));
+        execute(request, claim(EffectKind.DIRECT_MERGE));
 
         verify(pullRequests).mergePullRequest(eq("pat"), any(), argThat(command ->
                 command.mergeMethod().equals("rebase")
@@ -156,7 +171,7 @@ class TestGitHubMergeEffects
                 new ResponseStatusException(
                         HttpStatus.FORBIDDEN, "API rate limit exceeded"));
 
-        assertThatThrownBy(() -> effects.execute(
+        assertThatThrownBy(() -> execute(
                 request, claim(EffectKind.DIRECT_MERGE)))
                 .isInstanceOf(ResponseStatusException.class)
                 .isNotInstanceOf(PermissionDeniedException.class);
@@ -171,7 +186,7 @@ class TestGitHubMergeEffects
                         HttpStatus.FORBIDDEN,
                         "The configured GitHub token cannot perform this action"));
 
-        assertThatThrownBy(() -> effects.execute(
+        assertThatThrownBy(() -> execute(
                 request, claim(EffectKind.DIRECT_MERGE)))
                 .isInstanceOf(PermissionDeniedException.class);
     }
@@ -187,10 +202,16 @@ class TestGitHubMergeEffects
                 new ResponseStatusException(
                         HttpStatus.BAD_GATEWAY, "incomplete GraphQL data"));
 
-        assertThatThrownBy(() -> effects.execute(
+        assertThatThrownBy(() -> execute(
                 request, claim(EffectKind.DIRECT_MERGE)))
                 .isInstanceOf(ResponseStatusException.class);
         verify(pullRequests, never()).mergePullRequest(anyString(), any(), any());
+    }
+
+    private void execute(MergeRequest request, EffectClaim claim)
+    {
+        PreparedEffect prepared = effects.prepare(request, claim.spec());
+        effects.perform(request, claim, prepared);
     }
 
     private static MergeRequest request(MergeMode mode)

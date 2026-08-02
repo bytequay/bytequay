@@ -27,6 +27,7 @@ import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.ThreadTu
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.ThreadTurnId;
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnData;
 import com.bytequay.app.developmentflow.persistence.TypedTurnRepository.TurnId;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -64,7 +65,7 @@ class TestTypedTurnRepository
     void setUp()
     {
         databaseUrl = "jdbc:sqlite:" + tempDir.resolve("typed-turns.db") + "?foreign_keys=ON";
-        copyTo(tempDir.resolve("typed-turns.db"), "223");
+        copyTo(tempDir.resolve("typed-turns.db"));
         jdbc = jdbc();
         seedOwners(jdbc);
         turns = open();
@@ -81,7 +82,8 @@ class TestTypedTurnRepository
                 "stage-1", 1, 1, "fp-1", "head-1", "base-1",
                 turn("turn-stage", "op-stage"));
         ReviewAssignmentTurn review = new ReviewAssignmentTurn(
-                "assignment-1", "head-1", turn("turn-review", "op-review"));
+                "assignment-1", "head-1", 100,
+                turn("turn-review", "op-review"));
 
         turns.insert(thread);
         turns.insert(task);
@@ -113,7 +115,8 @@ class TestTypedTurnRepository
                 "stage-1", 1, 1, null, null, null,
                 requestedTurn("turn-stage", "op-stage"));
         ReviewAssignmentTurn review = new ReviewAssignmentTurn(
-                "assignment-1", "head-1", requestedTurn("turn-review", "op-review"));
+                "assignment-1", "head-1", 100,
+                requestedTurn("turn-review", "op-review"));
         turns.insert(thread);
         turns.insert(task);
         turns.insert(stage);
@@ -177,13 +180,13 @@ class TestTypedTurnRepository
         TypedTurnRepository afterSecondReopen = open();
         assertThat(afterSecondReopen.answer(
                 turnId, "call-thread", ANSWERED, 1, "revised answer", Instant.ofEpochMilli(30)))
-                .isTrue();
+                .isFalse();
         assertThat(afterSecondReopen.answer(
                 turnId, "call-thread", ANSWERED, 1, "stale revision", Instant.ofEpochMilli(31)))
                 .isFalse();
         assertThat(afterSecondReopen.listQuestions(turnId)).containsExactly(new Question<>(
                 "question-thread", turnId, "call-thread", "prompt", ANSWERED,
-                "revised answer", 2, NOW, Instant.ofEpochMilli(30)));
+                "first answer", 1, NOW, Instant.ofEpochMilli(20)));
 
         assertThatThrownBy(() -> new Question<>(
                 "bad-open", turnId, "bad-open", "prompt", OPEN,
@@ -310,25 +313,35 @@ class TestTypedTurnRepository
                     'claude-sonnet-4.6', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
-        jdbc.update("""
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('task-assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'build it', 'user', 2)
-                """);
+        V2TaskSeed.prepareWorkspaces(jdbc);
         jdbc.update("""
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 'user', 2)
                 """);
-        jdbc.update("""
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
-                VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'task-assignment-1', 'policy-1')
-                """);
+        V2TaskSeed.insertAuthorized(jdbc, "task-assignment-1", transaction ->
+                transaction.update("""
+                        INSERT INTO task_assignment(
+                            id, trunk_id, kind, planning_base_sha, plan_seed,
+                            prompt, created_by, created_at_ms,
+                            creation_authorization_id)
+                        VALUES ('task-assignment-1', 'trunk-1',
+                            'NEW_FROM_TRUNK', 'base-1', 'seed', 'build it',
+                            'user', 2, 'authorization-task-assignment-1')
+                        """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", transaction ->
+                transaction.update("""
+                        INSERT INTO tasks(
+                            id, thread_id, seq, status, phase, created_at_ms,
+                            workflow_version, lifecycle_state, assignment_id,
+                            policy_revision_id, creation_receipt_id, name,
+                            task_type, opening_prompt, origin)
+                        VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
+                            'V2', 'PROVISIONING', 'task-assignment-1',
+                            'policy-1', 'creation-receipt-task-1',
+                            'Test task task-assignment-1', 'DEVELOP',
+                            'build it', 'user')
+                        """));
         jdbc.update("""
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)
@@ -343,8 +356,12 @@ class TestTypedTurnRepository
                     2, 7, 'external', 'acme/widget')
                 """);
         jdbc.update("""
-                INSERT INTO agent_run(id, kind, status, started_at_ms)
-                VALUES ('review-run-1', 'panel_review', 'RUNNING', 2)
+                INSERT INTO agent_run(
+                    id, kind, source, review_round_id, status, iterations,
+                    started_at_ms, finished_at_ms, outcome)
+                VALUES ('review-run-1', 'review_compatibility_header',
+                    'v2_review_assignment_turn_fk', 'review-round-1',
+                    'succeeded', 0, 2, 2, 'completed')
                 """);
         jdbc.update("""
                 INSERT INTO review_session(
@@ -358,7 +375,7 @@ class TestTypedTurnRepository
                     id, session_id, agent_run_id, trigger, scope, start_commit,
                     status, budget_json, created_at_ms)
                 VALUES ('review-round-1', 'review-session-1', 'review-run-1', 'USER',
-                    'FULL', 'head-1', 'RUNNING', '{}', 2)
+                    'FULL', 'head-1', 'RUNNING', '{"cost_cap_cents":100}', 2)
                 """);
         jdbc.update("""
                 INSERT INTO reviewer_def(

@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ObservationTarget;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ParkedObservation;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -28,17 +30,20 @@ public final class RemoteObservationMaintainer
 {
     private final SqliteRemoteRuntimeStore store;
     private final RemoteObservationRuntimeCoordinator observations;
+    private final DispatchTicketControl tickets;
     private final Duration interval;
     private final int batchSize;
 
     public RemoteObservationMaintainer(
             SqliteRemoteRuntimeStore store,
             RemoteObservationRuntimeCoordinator observations,
+            DispatchTicketControl tickets,
             Duration interval,
             int batchSize)
     {
         this.store = requireNonNull(store, "store is null");
         this.observations = requireNonNull(observations, "observations is null");
+        this.tickets = requireNonNull(tickets, "tickets is null");
         this.interval = requireNonNull(interval, "interval is null");
         if (interval.isNegative() || interval.isZero() || batchSize < 1) {
             throw new IllegalArgumentException(
@@ -52,22 +57,36 @@ public final class RemoteObservationMaintainer
     {
         requireNonNull(now, "now is null");
         RuntimeException firstFailure = null;
+        for (ParkedObservation parked : store.findParkedObservations(
+                now.minus(interval), batchSize)) {
+            try {
+                tickets.resumeDeferred(parked.ticketId());
+            }
+            catch (RuntimeException failure) {
+                firstFailure = accumulate(firstFailure, failure);
+            }
+        }
         for (ObservationTarget target : store.findDueObservations(
                 now.minus(interval), batchSize)) {
             try {
                 observations.requestObservation(target.taskId(), target.stageId());
             }
             catch (RuntimeException failure) {
-                if (firstFailure == null) {
-                    firstFailure = failure;
-                }
-                else {
-                    firstFailure.addSuppressed(failure);
-                }
+                firstFailure = accumulate(firstFailure, failure);
             }
         }
         if (firstFailure != null) {
             throw firstFailure;
         }
+    }
+
+    private static RuntimeException accumulate(
+            RuntimeException first, RuntimeException next)
+    {
+        if (first == null) {
+            return next;
+        }
+        first.addSuppressed(next);
+        return first;
     }
 }

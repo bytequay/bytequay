@@ -48,9 +48,16 @@ public interface StageSteeringService
      */
     default SteerResult steer(UUID stageId, String text, List<String> images)
     {
-        return steer(stageId, text, images, Mode.APPEND);
+        return steer(stageId, text, images, Mode.APPEND, null);
+    }
+
+    default SteerResult steer(
+            UUID stageId, String text, List<String> images, Mode mode)
+    {
+        return steer(stageId, text, images, mode, null);
     }
 
     SteerResult steer(
-            UUID stageId, String text, List<String> images, Mode mode);
+            UUID stageId, String text, List<String> images, Mode mode,
+            String expectedPredecessorStageTurnId);
 }

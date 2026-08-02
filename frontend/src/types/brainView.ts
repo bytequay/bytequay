@@ -374,6 +374,15 @@ export type TaskBrainViewData = {
    *  review, plan-rail-runs.md R29) — empty until a Development stage
    *  exists. */
   devPhases: DevPhaseDto[];
+  /** Exact current V2 owner operation that the user may replace. Null for
+   * ordinary Pause/Resume and for blockers without a typed recovery. */
+  recovery: {
+    kind: 'RETRY_PLAN_DRAFT' | 'RETRY_DEVELOPMENT_BRAIN_REVIEW'
+      | 'RETRY_REMOTE_REPAIR_BRAIN_REVIEW';
+    stageId: string;
+    blockerId: string;
+    failedTurnId: string;
+  } | null;
 };
 
 /** Result of posting a brain message: the answering turn id and the
@@ -440,15 +449,27 @@ export type StageDetailData = {
   /** Exact V2 owner-scoped recovery targets. Null members mean there is no
    *  eligible action; the renderer must never guess a latest episode/step. */
   recovery?: {
+    failure?: {
+      stageTurnId: string;
+      blockerId: string;
+      reason: string;
+    } | null;
+    replacement?: {
+      stageTurnId: string;
+      reason: string;
+    } | null;
     ci: {
       episodeId: string;
+      blockerId?: string | null;
+      blockerType?: string | null;
+      message?: string | null;
       rerunCount: number;
       rerunLimit: number;
       fixAttemptCount: number;
       fixAttemptLimit: number;
       pushCount: number;
       pushLimit: number;
-      actions: Array<'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION'>;
+      actions: Array<'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'START_BASE_REPAIR' | 'START_BRANCH_SYNC' | 'RETRY_ONCE' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION'>;
     } | null;
     cleanup: {
       stepId: string;
@@ -459,7 +480,62 @@ export type StageDetailData = {
       error: string | null;
       actions: Array<'RETRY' | 'WAIVE_OPTIONAL'>;
     } | null;
+    localPublishBaseSync?: {
+      blockerId: string;
+      blockerType: 'LOCAL_PUBLISH_BASE_SYNC_REQUIRED' | 'LOCAL_PUBLISH_BASE_SYNC_RETRY_REQUIRED' | 'LOCAL_PUBLISH_BASE_SYNC_EXHAUSTED';
+      episodeId: string | null;
+      sourceBaseSha: string;
+      targetBaseSha: string;
+      attemptNo: number | null;
+      attemptLimit: number | null;
+      message: string;
+    } | null;
+    branchSync?: {
+      episodeId: string;
+      blockerId: string;
+      message: string;
+      attemptCount: number;
+      attemptLimit: number;
+      actions: Array<'MANUAL_TAKEOVER' | 'STOP_AUTOMATION'>;
+    } | null;
+    worktreeQuarantine?: {
+      quarantineId: string;
+      blockerId: string;
+      sourceOperationId: string;
+      taskEpoch: number;
+      stageId: string;
+      stageGeneration: number;
+      worktreePath: string;
+      expectedBranchName: string;
+      expectedCodeFingerprint: string;
+      expectedHeadSha: string;
+      expectedBaseSha: string;
+      repairOperationId: string | null;
+      repairStatus: string | null;
+      message: string;
+      actions: Array<'REPAIR_WORKTREE'>;
+    } | null;
   };
+};
+
+export type LocalPublishBaseSyncApprovalDto = {
+  taskId: string;
+  stageId: string;
+  blockerId: string;
+  episodeId: string;
+  operationId: string;
+};
+
+export type LocalPublishBaseSyncExtensionDto = {
+  taskId: string;
+  stageId: string;
+  exhaustedEpisodeId: string;
+  blockerId: string;
+  commandId: string;
+  retryEpisodeId: string;
+  operationId: string;
+  attemptNo: number;
+  attemptLimit: number;
 };
 
 /** The PR-tab payload surfaced on the stage detail (frames 6/7). */

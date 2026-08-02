@@ -300,6 +300,175 @@ public class GitRunner
     }
 
     /**
+     * Returns durable Git control-state markers which mean the checkout is
+     * still inside a multi-step mutation. Clean porcelain and an exact HEAD
+     * are not sufficient while any of these markers remains.
+     */
+    public List<String> inProgressOperations(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(workingDir, "workingDir is null");
+        List<String> active = new ArrayList<>();
+        addDirectoryMarker(workingDir, active, "rebase-merge");
+        addDirectoryMarker(workingDir, active, "rebase-apply");
+        addFileMarker(workingDir, active, "REBASE_HEAD");
+        addDirectoryMarker(workingDir, active, "sequencer");
+        addFileMarker(workingDir, active, "MERGE_HEAD");
+        addFileMarker(workingDir, active, "MERGE_AUTOSTASH");
+        addFileMarker(workingDir, active, "AUTO_MERGE");
+        addFileMarker(workingDir, active, "CHERRY_PICK_HEAD");
+        addFileMarker(workingDir, active, "REVERT_HEAD");
+        addFileMarker(workingDir, active, "BISECT_START");
+        addFileMarker(workingDir, active, "BISECT_HEAD");
+        addFileMarker(workingDir, active, "BISECT_NAMES");
+        addFileMarker(workingDir, active, "BISECT_LOG");
+        addFileMarker(workingDir, active, "BISECT_RUN");
+        addFileMarker(workingDir, active, "BISECT_TERMS");
+        addFileMarker(workingDir, active, "BISECT_EXPECTED_REV");
+        addFileMarker(workingDir, active, "BISECT_ANCESTORS_OK");
+        addRefNamespaceMarker(workingDir, active, "refs/bisect");
+        return List.copyOf(active);
+    }
+
+    /**
+     * Aborts one recognized multi-step Git mutation under the caller's
+     * explicit quarantine-repair authority. Ambiguous or foreign control
+     * state is left untouched and fails closed.
+     */
+    public boolean abortInProgressOperationForRepair(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        List<String> active = inProgressOperations(workingDir);
+        if (active.isEmpty()) {
+            return false;
+        }
+        List<String> command;
+        boolean rebaseMerge = active.contains("rebase-merge");
+        boolean rebaseApply = active.contains("rebase-apply");
+        if (rebaseMerge || rebaseApply) {
+            if (rebaseMerge && rebaseApply) {
+                throw new IllegalStateException(
+                        "Git has ambiguous in-progress operation state: " + active);
+            }
+            requireOnly(
+                    active,
+                    rebaseMerge ? "rebase-merge" : "rebase-apply",
+                    "REBASE_HEAD",
+                    "AUTO_MERGE");
+            if (rebaseApply
+                    && Files.isRegularFile(
+                            gitPath(workingDir, "rebase-apply/applying"))) {
+                command = List.of("git", "am", "--abort");
+            }
+            else {
+                command = List.of("git", "rebase", "--abort");
+            }
+        }
+        else if (active.contains("CHERRY_PICK_HEAD")) {
+            requireOnly(active, "CHERRY_PICK_HEAD", "sequencer", "AUTO_MERGE");
+            command = List.of("git", "cherry-pick", "--abort");
+        }
+        else if (active.contains("REVERT_HEAD")) {
+            requireOnly(active, "REVERT_HEAD", "sequencer", "AUTO_MERGE");
+            command = List.of("git", "revert", "--abort");
+        }
+        else if (active.contains("MERGE_HEAD")) {
+            requireOnly(active, "MERGE_HEAD", "MERGE_AUTOSTASH", "AUTO_MERGE");
+            command = List.of("git", "merge", "--abort");
+        }
+        else if (active.contains("BISECT_START")) {
+            requireOnly(
+                    active,
+                    "BISECT_START",
+                    "BISECT_HEAD",
+                    "BISECT_NAMES",
+                    "BISECT_LOG",
+                    "BISECT_RUN",
+                    "BISECT_TERMS",
+                    "BISECT_EXPECTED_REV",
+                    "BISECT_ANCESTORS_OK",
+                    "refs/bisect");
+            command = List.of("git", "bisect", "reset");
+        }
+        else if (active.equals(List.of("sequencer"))) {
+            String first = Files.readAllLines(
+                            gitPath(workingDir, "sequencer/todo"),
+                            StandardCharsets.UTF_8)
+                    .stream()
+                    .map(String::strip)
+                    .filter(line -> !line.isEmpty())
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Git sequencer has no operation identity"));
+            if (first.startsWith("pick ")) {
+                command = List.of("git", "cherry-pick", "--abort");
+            }
+            else if (first.startsWith("revert ")) {
+                command = List.of("git", "revert", "--abort");
+            }
+            else {
+                throw new IllegalStateException(
+                        "Git sequencer operation is not recognized");
+            }
+        }
+        else {
+            throw new IllegalStateException(
+                    "Git has ambiguous in-progress operation state: " + active);
+        }
+        run(command, workingDir, 60).requireSuccess();
+        if (active.contains("AUTO_MERGE")
+                && Files.isRegularFile(gitPath(workingDir, "AUTO_MERGE"))) {
+            run(List.of("git", "update-ref", "-d", "AUTO_MERGE"), workingDir)
+                    .requireSuccess();
+        }
+        List<String> remaining = inProgressOperations(workingDir);
+        if (!remaining.isEmpty()) {
+            throw new IllegalStateException(
+                    "Git operation abort left control state: " + remaining);
+        }
+        return true;
+    }
+
+    private static void requireOnly(List<String> active, String... allowed)
+    {
+        if (!Set.of(allowed).containsAll(active)) {
+            throw new IllegalStateException(
+                    "Git has ambiguous in-progress operation state: " + active);
+        }
+    }
+
+    private void addDirectoryMarker(
+            Path workingDir, List<String> active, String marker)
+            throws IOException, InterruptedException
+    {
+        if (Files.isDirectory(gitPath(workingDir, marker))) {
+            active.add(marker);
+        }
+    }
+
+    private void addFileMarker(
+            Path workingDir, List<String> active, String marker)
+            throws IOException, InterruptedException
+    {
+        if (Files.isRegularFile(gitPath(workingDir, marker))) {
+            active.add(marker);
+        }
+    }
+
+    private void addRefNamespaceMarker(
+            Path workingDir, List<String> active, String namespace)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "for-each-ref", "--format=%(refname)", namespace),
+                workingDir);
+        result.requireSuccess();
+        if (!result.stdout().isBlank()) {
+            active.add(namespace);
+        }
+    }
+
+    /**
      * Runs {@code git fetch --all --prune} in {@code workingDir} —
      * pulls every remote's refs, drops dead remote-tracking branches.
      * The fetched data updates ahead/behind counts on the next
@@ -534,6 +703,28 @@ public class GitRunner
     {
         requireNonNull(ref, "ref is null");
         run(List.of("git", "reset", "--hard", ref), workingDir).requireSuccess();
+    }
+
+    /**
+     * Removes untracked files from a ByteQuay-owned worktree after a rejected
+     * writer attempt. App-managed paths can be retained explicitly; ignored
+     * files are not touched.
+     */
+    public void cleanUntracked(Path workingDir, List<String> excludePaths)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(workingDir, "workingDir is null");
+        requireNonNull(excludePaths, "excludePaths is null");
+        List<String> args = new ArrayList<>(List.of("git", "clean", "-f", "-d"));
+        for (String path : excludePaths) {
+            requireNonNull(path, "exclude path is null");
+            if (path.isBlank()) {
+                throw new IllegalArgumentException("exclude path is blank");
+            }
+            args.add("-e");
+            args.add(path.endsWith("/") ? path : path + "/");
+        }
+        run(args, workingDir).requireSuccess();
     }
 
     /**
@@ -1084,6 +1275,169 @@ public class GitRunner
     }
 
     /**
+     * Applies a real rebase and distinguishes an actual content conflict from
+     * every other Git failure. Conflict paths are captured before aborting, and
+     * a conflict is returned only after the clean source HEAD is restored.
+     * Unknown or infrastructure failures still throw.
+     */
+    public RebaseApplyResult rebaseAndClassify(Path workingDir, String base)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        String sourceHead = headSha(workingDir);
+        if (!statusPorcelainZ(workingDir).isEmpty()) {
+            throw new IllegalStateException(
+                    "Cannot apply an exact rebase to a dirty worktree");
+        }
+        GitResult result = run(List.of("git", "rebase", base), workingDir, 120);
+        if (result.exitCode() == 0) {
+            return RebaseApplyResult.success();
+        }
+
+        List<String> conflicts;
+        try {
+            conflicts = unresolvedPaths(workingDir);
+        }
+        catch (IOException | InterruptedException | RuntimeException failure) {
+            try {
+                restoreRebaseSource(workingDir, sourceHead);
+            }
+            catch (IOException | InterruptedException | RuntimeException restoreFailure) {
+                failure.addSuppressed(restoreFailure);
+            }
+            throw failure;
+        }
+        restoreRebaseSource(workingDir, sourceHead);
+        if (!conflicts.isEmpty()) {
+            return RebaseApplyResult.conflict(conflicts);
+        }
+        result.requireSuccess();
+        throw new IllegalStateException("Unreachable rebase result");
+    }
+
+    private void restoreRebaseSource(Path workingDir, String sourceHead)
+            throws IOException, InterruptedException
+    {
+        GitResult abort = run(
+                List.of("git", "rebase", "--abort"), workingDir, 30);
+        boolean restored = sourceHead.equals(headSha(workingDir))
+                && statusPorcelainZ(workingDir).isEmpty();
+        if (restored) {
+            return;
+        }
+        abort.requireSuccess();
+        throw new IllegalStateException(
+                "Git rebase abort did not restore the exact source");
+    }
+
+    /**
+     * Aborts only the in-progress rebase that exactly belongs to the supplied
+     * immutable operation. A foreign or malformed rebase is left untouched.
+     * The return value is false when no rebase is in progress.
+     */
+    public boolean abortExactRebase(
+            Path workingDir,
+            String branch,
+            String sourceHead,
+            String targetBase)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(workingDir, "workingDir is null");
+        requireNonNull(branch, "branch is null");
+        requireNonNull(sourceHead, "sourceHead is null");
+        requireNonNull(targetBase, "targetBase is null");
+        Path mergeState = gitPath(workingDir, "rebase-merge");
+        Path applyState = gitPath(workingDir, "rebase-apply");
+        boolean mergeActive = Files.isDirectory(mergeState);
+        boolean applyActive = Files.isDirectory(applyState);
+        if (!mergeActive && !applyActive) {
+            return false;
+        }
+        if (mergeActive && applyActive) {
+            throw new IllegalStateException(
+                    "Git has multiple in-progress rebase states");
+        }
+
+        Path state = mergeActive ? mergeState : applyState;
+        String original = requireRebaseMetadata(state, "orig-head");
+        String headName = requireRebaseMetadata(state, "head-name");
+        String onto = requireRebaseMetadata(state, "onto");
+        if (!sourceHead.equals(original)
+                || !("refs/heads/" + branch).equals(headName)
+                || !targetBase.equals(onto)) {
+            throw new IllegalStateException(
+                    "In-progress rebase does not match the exact operation");
+        }
+
+        GitResult abort = run(
+                List.of("git", "rebase", "--abort"), workingDir, 30);
+        abort.requireSuccess();
+        if (Files.isDirectory(mergeState) || Files.isDirectory(applyState)
+                || !branch.equals(currentBranch(workingDir))
+                || !sourceHead.equals(headSha(workingDir))
+                || !statusPorcelainZ(workingDir).isEmpty()) {
+            throw new IllegalStateException(
+                    "Git rebase abort did not restore the exact operation source");
+        }
+        return true;
+    }
+
+    private Path gitPath(Path workingDir, String name)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "rev-parse", "--git-path", name), workingDir);
+        result.requireSuccess();
+        Path path = Path.of(result.stdout().strip());
+        if (!path.isAbsolute()) {
+            path = workingDir.resolve(path);
+        }
+        return path.toAbsolutePath().normalize();
+    }
+
+    private static String requireRebaseMetadata(Path state, String name)
+            throws IOException
+    {
+        Path path = state.resolve(name);
+        if (!Files.isRegularFile(path)) {
+            throw new IllegalStateException(
+                    "In-progress rebase lacks exact " + name + " metadata");
+        }
+        String value = Files.readString(path, StandardCharsets.UTF_8).strip();
+        if (value.isEmpty()) {
+            throw new IllegalStateException(
+                    "In-progress rebase has blank " + name + " metadata");
+        }
+        return value;
+    }
+
+    public record RebaseApplyResult(
+            boolean rebased,
+            List<String> conflictPaths)
+    {
+        public RebaseApplyResult
+        {
+            conflictPaths = List.copyOf(requireNonNull(
+                    conflictPaths, "conflictPaths is null"));
+            if (rebased == !conflictPaths.isEmpty()
+                    || conflictPaths.stream().anyMatch(String::isBlank)) {
+                throw new IllegalArgumentException(
+                        "Rebase result must be either rebased or exact conflicts");
+            }
+        }
+
+        public static RebaseApplyResult success()
+        {
+            return new RebaseApplyResult(true, List.of());
+        }
+
+        public static RebaseApplyResult conflict(List<String> conflictPaths)
+        {
+            return new RebaseApplyResult(false, conflictPaths);
+        }
+    }
+
+    /**
      * Replays {@code base..HEAD} using an explicit todo list instead of
      * whatever {@code git rebase -i} would have generated. Both editors
      * are neutralised: {@code sequence.editor} just copies our file over
@@ -1119,6 +1473,31 @@ public class GitRunner
     {
         return run(
                 List.of("git", "push", "--force-with-lease", "-u", "origin", "HEAD"),
+                workingDir,
+                300);
+    }
+
+    /**
+     * Publishes one rewritten branch under an explicit named lease. The
+     * expected remote SHA is part of the command itself, so neither a stale
+     * tracking ref nor a missing upstream can weaken the authorization. There
+     * is deliberately no plain-push fallback.
+     */
+    public GitResult pushRewrittenBranch(
+            Path workingDir, String branch, String expectedRemoteSha)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branch, "branch is null");
+        requireNonNull(expectedRemoteSha, "expectedRemoteSha is null");
+        if (branch.isBlank() || expectedRemoteSha.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Rewritten branch and exact lease SHA are required");
+        }
+        String ref = "refs/heads/" + branch;
+        return run(
+                List.of("git", "push",
+                        "--force-with-lease=" + ref + ":" + expectedRemoteSha,
+                        "-u", "origin", "HEAD:" + ref),
                 workingDir,
                 300);
     }
@@ -1366,6 +1745,140 @@ public class GitRunner
         }
         catch (NumberFormatException e) {
             return null;
+        }
+    }
+
+    /**
+     * Proves the constrained history shape used by a base-owned CI repair:
+     * one new repair commit directly on {@code base}, followed by the exact
+     * original Task patch series in the same order.
+     */
+    public boolean preservesBaseRepairHistory(
+            Path workingDir,
+            String base,
+            String originalHead,
+            String repairedHead)
+            throws IOException, InterruptedException
+    {
+        List<String> original = commitShasInRange(workingDir, base, originalHead);
+        List<String> repaired = commitShasInRange(workingDir, base, repairedHead);
+        if (original.isEmpty() || repaired.size() != original.size() + 1) {
+            return false;
+        }
+        String repairCommit = repaired.getFirst();
+        GitResult parent = run(
+                List.of("git", "rev-list", "--parents", "-n", "1",
+                        repairCommit),
+                workingDir, 15);
+        String[] parentParts = parent.exitCode() == 0
+                ? parent.stdout().strip().split("\\s+") : new String[0];
+        if (parentParts.length != 2 || !base.equals(parentParts[1])) {
+            return false;
+        }
+        GitResult rangeDiff = run(
+                List.of("git", "range-diff", "--no-color",
+                        base + ".." + originalHead,
+                        repairCommit + ".." + repairedHead),
+                workingDir, 30);
+        if (rangeDiff.exitCode() != 0) {
+            return false;
+        }
+        int position = 1;
+        for (String line : rangeDiff.stdout().lines().toList()) {
+            if (line.isBlank()) {
+                continue;
+            }
+            String[] parts = line.strip().split("\\s+");
+            String ordinal = position + ":";
+            if (parts.length < 5 || !ordinal.equals(parts[0])
+                    || !"=".equals(parts[2])
+                    || !ordinal.equals(parts[3])) {
+                return false;
+            }
+            position++;
+        }
+        return position == original.size() + 1;
+    }
+
+    /**
+     * Full commit SHAs in {@code base..head}, oldest first. Unlike the
+     * presentation-oriented commit-list methods, an unresolvable range is an
+     * error: lifecycle code uses this as an exact history proof.
+     */
+    public List<String> commitShasInRange(
+            Path workingDir, String base, String head)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        requireNonNull(head, "head is null");
+        GitResult result = run(
+                List.of("git", "rev-list", "--reverse", head, "^" + base),
+                workingDir, 15);
+        result.requireSuccess();
+        return result.stdout().lines()
+                .map(String::strip)
+                .filter(value -> !value.isEmpty())
+                .toList();
+    }
+
+    /** Direct parents of one exact commit, in Git's stored order. */
+    public List<String> commitParentShas(Path workingDir, String commit)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(commit, "commit is null");
+        GitResult result = run(
+                List.of("git", "rev-list", "--parents", "-n", "1", commit),
+                workingDir, 15);
+        result.requireSuccess();
+        String[] fields = result.stdout().strip().split("\\s+");
+        if (fields.length == 0 || fields[0].isBlank()) {
+            throw new IllegalStateException("commit has no identity: " + commit);
+        }
+        return Arrays.stream(fields).skip(1).toList();
+    }
+
+    /** Immutable tree object named by one commit. */
+    public String commitTreeSha(Path workingDir, String commit)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(commit, "commit is null");
+        GitResult result = run(
+                List.of("git", "rev-parse", "--verify", commit + "^{tree}"),
+                workingDir, 15);
+        result.requireSuccess();
+        return result.stdout().strip();
+    }
+
+    /**
+     * Git's stable patch identity for one non-empty commit. The patch is fed
+     * through a temporary file so no shell pipeline or platform quoting is
+     * involved.
+     */
+    public String stablePatchId(Path workingDir, String commit)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(commit, "commit is null");
+        GitResult patch = run(
+                List.of("git", "show", "--pretty=format:", "--binary",
+                        "--no-ext-diff", commit),
+                workingDir, 30);
+        patch.requireSuccess();
+        Path input = Files.createTempFile("bytequay-patch-id-", ".diff");
+        try {
+            Files.writeString(input, patch.stdout(), StandardCharsets.UTF_8);
+            GitResult result = run(
+                    List.of("git", "patch-id", "--stable"),
+                    workingDir, 30, input);
+            result.requireSuccess();
+            String[] fields = result.stdout().strip().split("\\s+");
+            if (fields.length < 1 || !fields[0].matches("[0-9a-f]{40,64}")) {
+                throw new IllegalStateException(
+                        "commit has no stable patch id: " + commit);
+            }
+            return fields[0];
+        }
+        finally {
+            Files.deleteIfExists(input);
         }
     }
 
@@ -2427,10 +2940,23 @@ public class GitRunner
     private GitResult run(List<String> args, Path workingDir, long timeoutSeconds)
             throws IOException, InterruptedException
     {
+        return run(args, workingDir, timeoutSeconds, null);
+    }
+
+    private GitResult run(
+            List<String> args,
+            Path workingDir,
+            long timeoutSeconds,
+            Path standardInput)
+            throws IOException, InterruptedException
+    {
         requireNonNull(args, "args is null");
         ProcessBuilder pb = new ProcessBuilder(args);
         if (workingDir != null) {
             pb.directory(workingDir.toFile());
+        }
+        if (standardInput != null) {
+            pb.redirectInput(standardInput.toFile());
         }
         // Force English output regardless of the user's LANG so we can
         // pattern-match error strings reliably.

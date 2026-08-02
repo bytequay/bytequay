@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -187,6 +188,38 @@ class TestGitRunnerCommitsAhead
         assertThat(patch).contains("new file").contains("+brand new file");
     }
 
+    @Test
+    void provesOneBaseRepairBeforeTheExactTaskSeries(@TempDir Path repo)
+            throws Exception
+    {
+        git(repo, "init", "-b", "main");
+        git(repo, "config", "user.email", "t@example.com");
+        git(repo, "config", "user.name", "Test");
+        commit(repo, "base.txt", "base");
+        String base = gitOutput(repo, "rev-parse", "HEAD");
+        git(repo, "checkout", "-b", "original");
+        commit(repo, "task-a.txt", "task a");
+        commit(repo, "task-b.txt", "task b");
+        String originalHead = gitOutput(repo, "rev-parse", "HEAD");
+        String taskA = gitOutput(repo, "rev-parse", "HEAD~1");
+        String taskB = gitOutput(repo, "rev-parse", "HEAD");
+
+        git(repo, "checkout", "-b", "repaired", base);
+        commit(repo, "base-fix.txt", "base repair");
+        git(repo, "cherry-pick", taskA, taskB);
+        String repairedHead = gitOutput(repo, "rev-parse", "HEAD");
+
+        assertThat(git.preservesBaseRepairHistory(
+                repo, base, originalHead, repairedHead)).isTrue();
+
+        git(repo, "checkout", "-b", "reordered", base);
+        commit(repo, "another-base-fix.txt", "another base repair");
+        git(repo, "cherry-pick", taskB, taskA);
+        assertThat(git.preservesBaseRepairHistory(
+                repo, base, originalHead,
+                gitOutput(repo, "rev-parse", "HEAD"))).isFalse();
+    }
+
     private static void commit(Path repo, String file, String message)
             throws IOException, InterruptedException
     {
@@ -210,5 +243,24 @@ class TestGitRunnerCommitsAhead
             throw new IllegalStateException(
                     "git " + String.join(" ", args) + " failed (" + code + ") in " + repo);
         }
+    }
+
+    private static String gitOutput(Path repo, String... args)
+            throws IOException, InterruptedException
+    {
+        String[] cmd = new String[args.length + 1];
+        cmd[0] = "git";
+        System.arraycopy(args, 0, cmd, 1, args.length);
+        Process process = new ProcessBuilder(cmd)
+                .directory(repo.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(
+                process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        if (process.waitFor() != 0) {
+            throw new IllegalStateException(
+                    "git " + String.join(" ", args) + " failed in " + repo);
+        }
+        return output.strip();
     }
 }

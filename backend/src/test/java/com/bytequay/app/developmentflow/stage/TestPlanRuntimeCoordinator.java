@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
@@ -31,10 +34,13 @@ import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
@@ -166,7 +172,7 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Bootstrapped bootstrap = bootstrap("plan-user-wait.db");
-        Flyway.configure().dataSource(bootstrap.dataSource()).target("265")
+        Flyway.configure().dataSource(bootstrap.dataSource())
                 .load().migrate();
         Runtime first = runtime(bootstrap.dataSource());
         RunningTurn predecessor = startCurrentTurn(
@@ -272,7 +278,7 @@ class TestPlanRuntimeCoordinator
                 new Case("provider-mismatch", "claude-code", "foreign-session"),
                 new Case("missing-session", "codex", null))) {
             Bootstrapped bootstrap = bootstrap("plan-wait-" + test.name() + ".db");
-            Flyway.configure().dataSource(bootstrap.dataSource()).target("265")
+            Flyway.configure().dataSource(bootstrap.dataSource())
                     .load().migrate();
             Runtime runtime = runtime(bootstrap.dataSource());
             RunningTurn predecessor = startCurrentTurn(
@@ -334,7 +340,7 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Bootstrapped bootstrap = bootstrap("plan-wait-live-consumer.db");
-        Flyway.configure().dataSource(bootstrap.dataSource()).target("265")
+        Flyway.configure().dataSource(bootstrap.dataSource())
                 .load().migrate();
         Runtime runtime = runtime(bootstrap.dataSource());
         RunningTurn predecessor = startCurrentTurn(
@@ -416,7 +422,7 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Bootstrapped bootstrap = bootstrap("plan-resume-review.db");
-        Flyway.configure().dataSource(bootstrap.dataSource()).target("272")
+        Flyway.configure().dataSource(bootstrap.dataSource())
                 .load().migrate();
         Runtime first = runtime(bootstrap.dataSource());
         JdbcTemplate jdbc = bootstrap.jdbc();
@@ -590,6 +596,310 @@ class TestPlanRuntimeCoordinator
         DispatchTicket.DeliveryReceipt replay = runtime(dataSource).plan()
                 .deliverProvisioning(owner, fence, result);
         assertThat(replay).isEqualTo(accepted);
+    }
+
+    @Test
+    void retriesOnlyTheExactFailedActivePlanDraftAndReplaysIdempotently()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-draft-recovery.db");
+        Flyway.configure().dataSource(bootstrap.dataSource())
+                .load().migrate();
+        JdbcTemplate jdbc = bootstrap.jdbc();
+        PlanRuntimeCoordinator plan = runtime(bootstrap.dataSource()).plan();
+        RunningTurn failed = startCurrentTurn(jdbc, bootstrap.taskId());
+        JsonNode predecessorLaunch = new ObjectMapper().readTree(
+                jdbc.queryForObject("""
+                        SELECT launch_input FROM task_turn WHERE id = ?
+                        """, String.class, failed.turnId()));
+
+        deliverSucceeded(plan, jdbc, failed);
+        finalizePendingTickets(jdbc);
+        String blockerId = jdbc.queryForObject("""
+                SELECT id FROM task_blocker
+                WHERE task_id = ? AND blocker_type = 'OPERATION_FAILED'
+                  AND status = 'OPEN'
+                """, String.class, bootstrap.taskId());
+        assertThat(jdbc.queryForObject("""
+                SELECT subject_revision FROM task_blocker WHERE id = ?
+                """, String.class, blockerId)).isEqualTo(failed.turnId());
+        int turnsBeforeRetry = count(jdbc, "task_turn");
+
+        assertThatThrownBy(() -> plan.retryFailedDraft(
+                bootstrap.taskId(), "another-turn", blockerId,
+                "retry-wrong-turn", "user", "retry the Plan"))
+                .isInstanceOf(CommandRejectedException.class);
+        assertThat(count(jdbc, "task_turn")).isEqualTo(turnsBeforeRetry);
+
+        String stageId = jdbc.queryForObject("""
+                SELECT stage_id FROM task_current_stage WHERE task_id = ?
+                """, String.class, bootstrap.taskId());
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO task_blocker(
+                    id, task_id, stage_id, owner_kind, owner_id, blocker_type,
+                    status, payload_json, opened_at_ms)
+                VALUES ('ambiguous-plan-failure', ?, ?, 'STAGE', ?,
+                    'OPERATION_FAILED', 'OPEN', '{}', ?)
+                """, bootstrap.taskId(), stageId, stageId,
+                NOW.plusSeconds(20).toEpochMilli()))
+                .hasMessageContaining("UNIQUE constraint failed");
+        assertThat(count(jdbc, "task_turn")).isEqualTo(turnsBeforeRetry);
+
+        jdbc.update("""
+                UPDATE task_blocker SET subject_revision = 'another-turn'
+                WHERE id = ?
+                """, blockerId);
+        assertThatThrownBy(() -> plan.retryFailedDraft(
+                bootstrap.taskId(), failed.turnId(), blockerId,
+                "retry-wrong-lineage", "user", "retry the Plan"))
+                .isInstanceOf(CommandRejectedException.class);
+        assertThat(count(jdbc, "task_turn")).isEqualTo(turnsBeforeRetry);
+
+        // A blocker created before subject_revision was populated remains
+        // recoverable only through its deterministic failed-turn identifier.
+        jdbc.update("""
+                UPDATE task_blocker SET subject_revision = NULL WHERE id = ?
+                """, blockerId);
+        PlanRuntimeCoordinator.PlanDraftRetryReceipt accepted =
+                plan.retryFailedDraft(
+                        bootstrap.taskId(), failed.turnId(), blockerId,
+                        "retry-plan-draft", "user", "retry the exact failed Plan");
+
+        assertThat(accepted.taskId()).isEqualTo(bootstrap.taskId());
+        assertThat(accepted.failedTurnId()).isEqualTo(failed.turnId());
+        assertThat(accepted.blockerId()).isEqualTo(blockerId);
+        assertThat(jdbc.queryForMap("""
+                SELECT task.lifecycle_state, stage.checkpoint, stage.version,
+                    blocker.status AS blocker_status,
+                    failed.status AS failed_status,
+                    replacement.status AS replacement_status,
+                    ticket.status AS ticket_status
+                FROM stage_plan_draft_retry_request_v297 retry
+                JOIN tasks task ON task.id = retry.task_id
+                JOIN stage ON stage.id = retry.stage_id
+                JOIN task_blocker blocker ON blocker.id = retry.blocker_id
+                JOIN task_turn failed ON failed.id = retry.predecessor_turn_id
+                JOIN task_turn replacement
+                  ON replacement.id = retry.replacement_turn_id
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = retry.replacement_ticket_id
+                WHERE retry.task_id = ? AND retry.command_id = ?
+                """, bootstrap.taskId(), "retry-plan-draft"))
+                .containsEntry("lifecycle_state", "ACTIVE")
+                .containsEntry("checkpoint", "DRAFTING")
+                .containsEntry("version", 3)
+                .containsEntry("blocker_status", "RESOLVED")
+                .containsEntry("failed_status", "FAILED")
+                .containsEntry("replacement_status", "REQUESTED")
+                .containsEntry("ticket_status", "REQUESTED");
+        JsonNode replacementLaunch = new ObjectMapper().readTree(
+                jdbc.queryForObject("""
+                        SELECT launch_input FROM task_turn WHERE id = ?
+                        """, String.class, accepted.replacementTurnId()));
+        String frozenPrompt = predecessorLaunch.hasNonNull("fallbackPrompt")
+                ? predecessorLaunch.path("fallbackPrompt").asText()
+                : predecessorLaunch.path("prompt").asText();
+        assertThat(replacementLaunch.path("prompt").asText())
+                .isEqualTo(frozenPrompt);
+        assertThat(replacementLaunch.has("resumeSessionId")).isFalse();
+        assertThat(count(jdbc, "stage_plan_draft_retry_request_v297")).isOne();
+        assertThat(count(jdbc, "task_turn")).isEqualTo(turnsBeforeRetry + 1);
+
+        PlanRuntimeCoordinator.PlanDraftRetryReceipt replay =
+                runtime(bootstrap.dataSource()).plan().retryFailedDraft(
+                        bootstrap.taskId(), failed.turnId(), blockerId,
+                        "retry-plan-draft", "user", "retry the exact failed Plan");
+        assertThat(replay).isEqualTo(accepted);
+        assertThat(count(jdbc, "task_turn")).isEqualTo(turnsBeforeRetry + 1);
+
+        assertThatThrownBy(() -> plan.retryFailedDraft(
+                bootstrap.taskId(), failed.turnId(), blockerId,
+                "retry-stale-plan-draft", "user", "retry again"))
+                .isInstanceOf(CommandRejectedException.class);
+        assertThat(count(jdbc, "task_turn")).isEqualTo(turnsBeforeRetry + 1);
+    }
+
+    @Test
+    void projectsReviewedCanonicalJsonPlanAsTheAwaitingApprovalCard()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("canonical-plan-card-projection.db");
+        JdbcTemplate jdbc = bootstrap.jdbc();
+        PlanRuntimeCoordinator plan = bootstrap.runtime().plan();
+        RunningTurn draft = startCurrentTurn(jdbc, bootstrap.taskId());
+        plan.recordPlan(
+                draft.turnId(), draft.operationId(), bootstrap.taskId(), """
+                {
+                  "status": "finalized",
+                  "understanding": {
+                    "summary": "Task names use one shared left-navigation CSS rule."
+                  },
+                  "intent": {
+                    "summary": "Use the standard 14px token for task names.",
+                    "steps": [
+                      {
+                        "order": 1,
+                        "file": "frontend/src/css/workspace-task-v2.css",
+                        "action": "Replace the nested font-size token with the 14px token."
+                      },
+                      {
+                        "order": 2,
+                        "files": [
+                          "frontend/src/ui/shell/TaskSidebar.tsx",
+                          "frontend/src/ui/shell/TaskSidebar.test.tsx"
+                        ],
+                        "action": "Confirm active and sibling task rows share the selector."
+                      },
+                      {
+                        "order": 3,
+                        "action": "Inspect the final diff for only the intended substitution."
+                      }
+                    ],
+                    "validationStrategy": [
+                      "Run the focused TaskSidebar tests.",
+                      "Run npx tsc --noEmit."
+                    ],
+                    "expectedFilesChanged": [
+                      "frontend/src/css/workspace-task-v2.css"
+                    ]
+                  }
+                }
+                """);
+        deliverSucceeded(plan, jdbc, draft);
+
+        RunningTurn review = startCurrentTurn(jdbc, bootstrap.taskId());
+        plan.recordSelfReview(
+                review.turnId(), review.operationId(), bootstrap.taskId(),
+                "APPROVED", List.of(), List.of(), List.of());
+        deliverSucceeded(plan, jdbc, review);
+
+        TaskBrainViewData.PlanCard card = new V2DevelopmentFlowProjection(jdbc)
+                .brain(legacyTask(bootstrap.taskId())).rightRail().plan();
+
+        assertThat(card).isNotNull();
+        assertThat(card.state()).isEqualTo("awaiting");
+        assertThat(card.goal())
+                .isEqualTo("Task names use one shared left-navigation CSS rule.");
+        assertThat(card.understandingSummary()).isEqualTo(card.goal());
+        assertThat(card.intentSummary())
+                .isEqualTo("Use the standard 14px token for task names.");
+        assertThat(card.steps()).hasSize(3);
+        assertThat(card.steps().get(0)).satisfies(step -> {
+            assertThat(step.ordinal()).isEqualTo(1);
+            assertThat(step.action())
+                    .isEqualTo("Replace the nested font-size token with the 14px token.");
+            assertThat(step.files())
+                    .containsExactly("frontend/src/css/workspace-task-v2.css");
+        });
+        assertThat(card.steps().get(1).files()).containsExactly(
+                "frontend/src/ui/shell/TaskSidebar.tsx",
+                "frontend/src/ui/shell/TaskSidebar.test.tsx");
+        assertThat(card.steps().get(2).ordinal()).isEqualTo(3);
+        assertThat(card.validationStrategy()).isEqualTo("""
+                Run the focused TaskSidebar tests.
+                Run npx tsc --noEmit.""");
+    }
+
+    @Test
+    void projectsReviewedMarkdownPlanAsTheAwaitingApprovalCard()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-card-projection.db");
+        JdbcTemplate jdbc = bootstrap.jdbc();
+        PlanRuntimeCoordinator plan = bootstrap.runtime().plan();
+        RunningTurn draft = startCurrentTurn(jdbc, bootstrap.taskId());
+        plan.recordPlan(
+                draft.turnId(), draft.operationId(), bootstrap.taskId(), """
+                # Plan: Increase left-nav task name font size to 14px
+
+                ## Goal
+                Bump the shared left-nav nested row font size from 13px to 14px.
+
+                ## Change (single edit)
+                `frontend/src/css/base.css:359`
+                ```
+                -  --left-nav-nested-font-size: 13px;
+                +  --left-nav-nested-font-size: 14px;
+                ```
+
+                ## Why one edit suffices
+                Every left-nav task row reads the shared variable.
+
+                ## Validation
+                - No automated tests cover these font sizes.
+                - Visually confirm task rows match the thread-row size.
+
+                ## Scope guardrails
+                - Do NOT touch `--left-nav-font-size`.
+                - Single-line change only.
+                """);
+        deliverSucceeded(plan, jdbc, draft);
+
+        RunningTurn review = startCurrentTurn(jdbc, bootstrap.taskId());
+        plan.recordSelfReview(
+                review.turnId(), review.operationId(), bootstrap.taskId(),
+                "APPROVED", List.of(),
+                List.of("Confirm nested stage rows remain readable"), List.of());
+        deliverSucceeded(plan, jdbc, review);
+
+        V2DevelopmentFlowProjection projection =
+                new V2DevelopmentFlowProjection(jdbc);
+        TaskBrainViewData.PlanCard card = projection
+                .brain(legacyTask(bootstrap.taskId())).rightRail().plan();
+
+        assertThat(card).isNotNull();
+        assertThat(card.state()).isEqualTo("awaiting");
+        assertThat(card.status()).isEqualTo("finalized");
+        assertThat(card.source()).isEqualTo("brain");
+        assertThat(card.goal())
+                .isEqualTo("Bump the shared left-nav nested row font size from 13px to 14px.");
+        assertThat(card.steps()).singleElement().satisfies(step -> {
+            assertThat(step.action())
+                    .isEqualTo("Update frontend/src/css/base.css:359");
+            assertThat(step.files()).containsExactly("frontend/src/css/base.css");
+            assertThat(step.detail())
+                    .contains("## Why one edit suffices")
+                    .contains("## Scope guardrails");
+        });
+        assertThat(card.validationStrategy())
+                .contains("Visually confirm task rows");
+        assertThat(card.outOfScope()).containsExactly(
+                "Do NOT touch `--left-nav-font-size`.",
+                "Single-line change only.");
+        assertThat(card.followups()).singleElement()
+                .satisfies(followup -> assertThat(followup.note())
+                        .isEqualTo("Confirm nested stage rows remain readable"));
+
+        Map<String, Object> owner = jdbc.queryForMap("""
+                SELECT task.epoch, task.aggregate_version,
+                       stage.id AS stage_id, stage.generation, stage.version,
+                       revision.id AS revision_id, review.id AS review_id
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                JOIN plan_revision revision ON revision.plan_stage_id = stage.id
+                JOIN plan_self_review review
+                  ON review.plan_revision_id = revision.id
+                WHERE task.id = ?
+                ORDER BY revision.revision DESC LIMIT 1
+                """, bootstrap.taskId());
+        plan.approvePlan(new PlanRuntimeCoordinator.PlanApprovalCommand(
+                "approve-projected-plan", "user", bootstrap.taskId(),
+                ((Number) owner.get("epoch")).longValue(),
+                ((Number) owner.get("aggregate_version")).longValue(),
+                (String) owner.get("stage_id"),
+                ((Number) owner.get("generation")).longValue(),
+                ((Number) owner.get("version")).longValue(),
+                (String) owner.get("revision_id"),
+                (String) owner.get("review_id")));
+
+        TaskBrainViewData.PlanCard locked = projection
+                .brain(legacyTask(bootstrap.taskId())).rightRail().plan();
+        assertThat(locked).isNotNull();
+        assertThat(locked.state()).isEqualTo("locked");
+        assertThat(locked.goal()).isEqualTo(card.goal());
+        assertThat(locked.steps()).isEqualTo(card.steps());
+        assertThat(locked.followups()).isEqualTo(card.followups());
     }
 
     @Test
@@ -941,6 +1251,38 @@ class TestPlanRuntimeCoordinator
     }
 
     @Test
+    void initialAndRetryReviewPromptsPublishTheStrictAcceptedSubmissionContract()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-review-prompt-contract.db");
+        JdbcTemplate jdbc = bootstrap.jdbc();
+        PlanRuntimeCoordinator plan = bootstrap.runtime().plan();
+
+        RunningTurn draft = startCurrentTurn(jdbc, bootstrap.taskId());
+        plan.recordPlan(
+                draft.turnId(), draft.operationId(), bootstrap.taskId(),
+                "1. Implement.\n2. Validate.");
+        deliverSucceeded(plan, jdbc, draft);
+
+        JsonNode initial = new ObjectMapper().readTree(jdbc.queryForObject("""
+                SELECT launch_input FROM task_turn
+                WHERE task_id = ? AND purpose = 'PLAN_SELF_REVIEW'
+                """, String.class, bootstrap.taskId()));
+        assertStrictReviewSubmissionContract(initial);
+
+        RunningTurn failed = startCurrentTurn(jdbc, bootstrap.taskId());
+        deliverFailed(plan, jdbc, failed, "provider exited");
+
+        JsonNode retry = new ObjectMapper().readTree(jdbc.queryForObject("""
+                SELECT turn.launch_input
+                FROM plan_self_review_attempt attempt
+                JOIN task_turn turn ON turn.id = attempt.task_turn_id
+                WHERE attempt.attempt = 2
+                """, String.class));
+        assertStrictReviewSubmissionContract(retry);
+    }
+
+    @Test
     void satisfiedReplanOpensANewEpochAndArmsOneFreshDraft()
             throws Exception
     {
@@ -1212,6 +1554,28 @@ class TestPlanRuntimeCoordinator
                 (String) owner.get("self_review_id"), followupId);
     }
 
+    private static Task legacyTask(String taskId)
+    {
+        return new Task(
+                taskId, TRUNK, 1, TaskStatus.IDLE,
+                "legacy-fallback", "/tmp/legacy-fallback", "main", "/tmp",
+                null, null, null, null, null, null, null, null,
+                0, 0, 0, null, NOW, null, null,
+                null, null, null);
+    }
+
+    private static void assertStrictReviewSubmissionContract(JsonNode launch)
+    {
+        String prompt = launch.path("prompt").asText()
+                .replaceAll("\\s+", " ").strip();
+        assertThat(prompt)
+                .contains("exactly one accepted self-review")
+                .contains("APPROVED requires concerns=[]")
+                .contains("non-blocking caveats in follow_ups or stewardship")
+                .contains("A rejected call that recorded nothing may be corrected")
+                .contains("Final prose is never a verdict");
+    }
+
     private static V2PlanControlService controls(
             Runtime runtime, TaskReplanMaintainer.CancellationPort cancellations)
     {
@@ -1422,7 +1786,7 @@ class TestPlanRuntimeCoordinator
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("265").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;
@@ -1607,6 +1971,49 @@ class TestPlanRuntimeCoordinator
 
     private static void finalizePendingTickets(JdbcTemplate jdbc)
     {
+        jdbc.update("""
+                UPDATE agent_execution
+                SET status = (
+                        SELECT CASE ticket.pending_result_outcome
+                            WHEN 'SUCCEEDED' THEN 'SUCCEEDED'
+                            WHEN 'FAILED' THEN 'FAILED'
+                            WHEN 'CANCELED' THEN 'CANCELED'
+                            ELSE 'UNKNOWN'
+                        END
+                        FROM dispatch_ticket ticket
+                        WHERE ticket.id = agent_execution.ticket_id),
+                    heartbeat_at_ms = COALESCE(heartbeat_at_ms, ?),
+                    finished_at_ms = COALESCE(finished_at_ms, ?),
+                    raw_result = (
+                        SELECT json_object(
+                            'fence', json_object(
+                                'taskEpoch', ticket.pending_result_task_epoch,
+                                'stageId', ticket.pending_result_stage_id,
+                                'stageGeneration',
+                                    ticket.pending_result_stage_generation,
+                                'operationId', ticket.pending_result_operation_id,
+                                'attempt', ticket.pending_result_attempt,
+                                'expectedCodeFingerprint',
+                                    ticket.pending_result_expected_code_fingerprint,
+                                'expectedHeadSha',
+                                    ticket.pending_result_expected_head_sha,
+                                'expectedBaseSha',
+                                    ticket.pending_result_expected_base_sha),
+                            'outcome', ticket.pending_result_outcome,
+                            'payloadJson', ticket.pending_result_payload,
+                            'evidenceJson', ticket.pending_result_evidence,
+                            'error', ticket.pending_result_error)
+                        FROM dispatch_ticket ticket
+                        WHERE ticket.id = agent_execution.ticket_id)
+                WHERE EXISTS (
+                    SELECT 1 FROM dispatch_ticket ticket
+                    WHERE ticket.id = agent_execution.ticket_id
+                      AND ticket.status = 'RESULT_PENDING'
+                      AND ticket.async_family = 'AGENT_TURN'
+                      AND agent_execution.infrastructure_attempt =
+                          ticket.infrastructure_attempts)
+                """, NOW.plusSeconds(5).toEpochMilli(),
+                NOW.plusSeconds(5).toEpochMilli());
         jdbc.update("""
                 UPDATE dispatch_ticket
                 SET version = version + 1, status = 'SUCCEEDED',

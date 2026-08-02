@@ -56,6 +56,13 @@ public class BudgetStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
+        // V2 grants and PermissionRequests belong to the exact typed Turn.
+        // Calling ThreadService here crosses back into the retired nullable
+        // legacy permission session and fails before the typed dispatcher can
+        // consume or create its durable permission record.
+        if (ctx.isTypedV2Owner()) {
+            return ApprovalStepResult.cont();
+        }
         OptionalInt remaining = threads.tryConsumeToolBudget(
                 ctx.threadId(), ctx.agentKey(), ctx.toolName());
         if (remaining.isEmpty()) {

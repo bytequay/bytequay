@@ -24,8 +24,8 @@ import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.service.review.ReviewBuildSelectionStore;
 import com.bytequay.app.service.review.ReviewBuildSpawnService;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataAccessException;
@@ -306,14 +306,12 @@ class TestSqliteReviewBuildCommentStore
     void migrationBackfillsAnAlreadyFrozenSuggestedChangeSelection()
     {
         String url = databaseUrl("backfill.db");
-        Flyway.configure().dataSource(url, "", "").target("286")
-                .load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource source = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
         seedFrozenSuggestedSelection(jdbc);
 
-        Flyway.configure().dataSource(url, "", "").target("287")
-                .load().migrate();
+        MigratedSqliteDatabase.migrate(url);
 
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
@@ -394,7 +392,7 @@ class TestSqliteReviewBuildCommentStore
     private Fixture fixture(String name)
     {
         String url = databaseUrl(name);
-        Flyway.configure().dataSource(url, "", "").target("287").load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource source = dataSource(url);
         JdbcTemplate jdbc = new JdbcTemplate(source);
         seedFrozenSuggestedSelection(jdbc);

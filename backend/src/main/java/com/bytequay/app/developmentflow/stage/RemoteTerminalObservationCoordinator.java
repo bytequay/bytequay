@@ -17,6 +17,8 @@ import com.bytequay.app.developmentflow.execution.merge.SqliteMergeOperationStor
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore.TerminalContext;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -34,26 +36,30 @@ public final class RemoteTerminalObservationCoordinator
     private final SqliteRemoteMergeRuntimeStore store;
     private final SqliteMergeOperationStore merges;
     private final RemoteTerminalToCleanupHandoff handoff;
+    private final PRService prs;
     private final Clock clock;
 
     @Autowired
     public RemoteTerminalObservationCoordinator(
             SqliteRemoteMergeRuntimeStore store,
             SqliteMergeOperationStore merges,
-            RemoteTerminalToCleanupHandoff handoff)
+            RemoteTerminalToCleanupHandoff handoff,
+            PRService prs)
     {
-        this(store, merges, handoff, Clock.systemUTC());
+        this(store, merges, handoff, prs, Clock.systemUTC());
     }
 
     RemoteTerminalObservationCoordinator(
             SqliteRemoteMergeRuntimeStore store,
             SqliteMergeOperationStore merges,
             RemoteTerminalToCleanupHandoff handoff,
+            PRService prs,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.merges = requireNonNull(merges, "merges is null");
         this.handoff = requireNonNull(handoff, "handoff is null");
+        this.prs = requireNonNull(prs, "prs is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -78,6 +84,7 @@ public final class RemoteTerminalObservationCoordinator
         }
         if (context.accepted()) {
             reconcileMerge(context);
+            projectTerminalPr(context);
             return new Result(true, context.terminalObservationId(), null);
         }
         String commandId = SqliteMergeOperationStore.id(
@@ -105,7 +112,28 @@ public final class RemoteTerminalObservationCoordinator
                 .orElseThrow(() -> new IllegalStateException(
                         "terminal handoff committed without immutable remote fact"));
         reconcileMerge(persisted);
+        projectTerminalPr(persisted);
         return new Result(false, persisted.terminalObservationId(), accepted);
+    }
+
+    private void projectTerminalPr(TerminalContext context)
+    {
+        PR pr = prs.findByTask(context.taskId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Accepted terminal observation has no stable Task PR"));
+        String status = context.outcome()
+                == RemoteDevelopmentStageManager.TerminalOutcome.MERGED
+                ? PR.STATUS_MERGED : PR.STATUS_CLOSED;
+        if (status.equals(pr.status())) {
+            return;
+        }
+        if (!PR.STATUS_REMOTE_DRAFTED.equals(pr.status())
+                && !PR.STATUS_REMOTE_OPEN.equals(pr.status())) {
+            throw new IllegalStateException(
+                    "Accepted terminal observation cannot project PR status "
+                            + pr.status());
+        }
+        prs.transition(pr.id(), status, ACTOR);
     }
 
     private void reconcileMerge(TerminalContext context)

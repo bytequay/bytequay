@@ -14,7 +14,10 @@
 package com.bytequay.app.service.threads;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -26,7 +29,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.parallel.Resources.SYSTEM_PROPERTIES;
 
+@ResourceLock(SYSTEM_PROPERTIES)
 class TestChatAttachmentStore
 {
     // A 1x1 transparent PNG — small enough to inline, real enough to decode.
@@ -36,23 +41,26 @@ class TestChatAttachmentStore
     private final String threadId = "test-thread-" + UUID.randomUUID();
     private final ChatAttachmentStore store = new ChatAttachmentStore();
 
-    @AfterEach
-    void cleanup()
-            throws IOException
+    @TempDir
+    private Path home;
+
+    private String originalUserHome;
+
+    @BeforeEach
+    void isolateAttachments()
     {
-        Path dir = Path.of(System.getProperty("user.home"),
-                "Library", "Application Support", "ByteQuay", "attachments", threadId);
-        if (Files.exists(dir)) {
-            try (var files = Files.walk(dir)) {
-                files.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
-                    try {
-                        Files.deleteIfExists(p);
-                    }
-                    catch (IOException ignored) {
-                        // best-effort cleanup
-                    }
-                });
-            }
+        originalUserHome = System.getProperty("user.home");
+        System.setProperty("user.home", home.toString());
+    }
+
+    @AfterEach
+    void restoreUserHome()
+    {
+        if (originalUserHome == null) {
+            System.clearProperty("user.home");
+        }
+        else {
+            System.setProperty("user.home", originalUserHome);
         }
     }
 
@@ -131,28 +139,8 @@ class TestChatAttachmentStore
         // thread-scoped, so this must still work.
         String otherThreadId = "other-thread-" + UUID.randomUUID();
         List<String> paths = store.save(otherThreadId, List.of("data:image/png;base64," + PNG_BASE64));
-        try {
-            ChatAttachmentStore.Attachment attachment = store.read(paths.get(0));
-            assertThat(attachment.mimeType()).isEqualTo("image/png");
-        }
-        finally {
-            Path dir = Path.of(System.getProperty("user.home"),
-                    "Library", "Application Support", "ByteQuay", "attachments", otherThreadId);
-            paths.forEach(p -> {
-                try {
-                    Files.deleteIfExists(Path.of(p));
-                }
-                catch (IOException ignored) {
-                    // best-effort cleanup
-                }
-            });
-            try {
-                Files.deleteIfExists(dir);
-            }
-            catch (IOException ignored) {
-                // best-effort cleanup
-            }
-        }
+        ChatAttachmentStore.Attachment attachment = store.read(paths.get(0));
+        assertThat(attachment.mimeType()).isEqualTo("image/png");
     }
 
     @Test

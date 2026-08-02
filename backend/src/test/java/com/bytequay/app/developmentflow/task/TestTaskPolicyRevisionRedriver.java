@@ -59,6 +59,7 @@ class TestTaskPolicyRevisionRedriver
                 .contains("MAX(latest.revision)")
                 .contains("readiness.id IS NULL")
                 .contains("readiness.ready = 0")
+                .contains("snapshot.merge_queue_capability <> 'UNKNOWN'")
                 .contains("policy.auto_merge = 1")
                 .contains("remote_merge_authorization");
     }

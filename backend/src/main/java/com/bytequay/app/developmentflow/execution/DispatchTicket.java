@@ -38,6 +38,9 @@ public record DispatchTicket(
         Instant completedAt,
         String lastError)
 {
+    public static final String RESULT_PROTOCOL_FAILURE_PREFIX =
+            "OWNER_RESULT_PROTOCOL:";
+
     public DispatchTicket
     {
         requireNonNull(id, "id is null");
@@ -288,6 +291,24 @@ public record DispatchTicket(
             throw new IllegalStateException("delivery retry requires a durable result");
         }
         return unclaimed(State.RESULT_PENDING, nextAttempt, error, pendingResult);
+    }
+
+    public static String resultProtocolFailure(String error)
+    {
+        requireNonNull(error, "error is null");
+        if (error.isBlank()) {
+            throw new IllegalArgumentException("error must not be blank");
+        }
+        return RESULT_PROTOCOL_FAILURE_PREFIX + error;
+    }
+
+    public static String resultProtocolFailureDetail(String error)
+    {
+        if (error == null || !error.startsWith(RESULT_PROTOCOL_FAILURE_PREFIX)) {
+            throw new IllegalArgumentException(
+                    "error is not a result protocol failure");
+        }
+        return error.substring(RESULT_PROTOCOL_FAILURE_PREFIX.length());
     }
 
     public DispatchTicket submissionRetry(String error, Instant nextAttempt)

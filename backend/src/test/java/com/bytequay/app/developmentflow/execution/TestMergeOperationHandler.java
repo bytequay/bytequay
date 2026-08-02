@@ -25,6 +25,7 @@ import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.Me
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.MergeRequest;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.OperationSnapshot;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.OperationStatus;
+import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.PreparedEffect;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.QueueEntry;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.QueueEntryStatus;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.RemoteTruthPendingException;
@@ -166,7 +167,7 @@ class TestMergeOperationHandler
     }
 
     @Test
-    void liveHeadMovementWaitsForAcceptedObserverTruthInsteadOfBlocking()
+    void liveHeadMovementWaitsForAcceptedObserverTruthWithoutClaimingAnAttempt()
     {
         InMemoryExecutionSupport.MutableClock clock =
                 new InMemoryExecutionSupport.MutableClock(NOW);
@@ -175,18 +176,20 @@ class TestMergeOperationHandler
                 new MergeOperationHandler.MergeEffects()
                 {
                     @Override
-                    public EffectEvidence execute(
-                            MergeRequest request, EffectClaim claim)
+                    public PreparedEffect prepare(
+                            MergeRequest request, ClaimSpec claim)
                     {
                         throw new RemoteTruthPendingException(
                                 "remote head moved; awaiting RemoteObserver");
                     }
 
                     @Override
-                    public EffectEvidence probe(
-                            MergeRequest request, EffectClaim claim)
+                    public EffectEvidence perform(
+                            MergeRequest request,
+                            EffectClaim claim,
+                            PreparedEffect prepared)
                     {
-                        throw new AssertionError("probe was not expected");
+                        throw new AssertionError("perform was not expected");
                     }
                 };
 
@@ -194,8 +197,104 @@ class TestMergeOperationHandler
                 .execute(context(store.request, clock)))
                 .isInstanceOf(ExecutionPorts.OperationDeferredException.class)
                 .hasMessageContaining("RemoteObserver");
-        assertThat(store.request.status()).isEqualTo(OperationStatus.CLAIMED);
+        assertThat(store.request.status()).isEqualTo(OperationStatus.REQUESTED);
+        assertThat(store.claims).isZero();
         assertThat(store.blockedReason).isNull();
+    }
+
+    @Test
+    void transientPreflightFailureIsRetryableWithoutClaimingAnAttempt()
+    {
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(NOW);
+        MutableStore store = new MutableStore(request(OperationStatus.REQUESTED));
+        MergeOperationHandler.MergeEffects failing = effectsThatFail(
+                new IllegalStateException("temporary GitHub read failure"));
+
+        assertThatThrownBy(() -> handler(store, failing, clock)
+                .execute(context(store.request, clock)))
+                .isInstanceOf(ExecutionPorts.RetryableExecutionException.class)
+                .hasMessageContaining("before any remote mutation");
+        assertThat(store.request.status()).isEqualTo(OperationStatus.REQUESTED);
+        assertThat(store.request.attemptCount()).isZero();
+        assertThat(store.claims).isZero();
+    }
+
+    @Test
+    void cancellationAfterPreflightStopsBeforeClaimAndMutation()
+            throws Exception
+    {
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(NOW);
+        MutableStore store = new MutableStore(request(OperationStatus.REQUESTED));
+        ExecutionContext.Cancellation cancellation =
+                new ExecutionContext.Cancellation();
+        AtomicInteger mutations = new AtomicInteger();
+        MergeOperationHandler.MergeEffects effects =
+                new MergeOperationHandler.MergeEffects()
+                {
+                    @Override
+                    public PreparedEffect prepare(
+                            MergeRequest request, ClaimSpec claim)
+                    {
+                        cancellation.cancel();
+                        return new Prepared(claim);
+                    }
+
+                    @Override
+                    public EffectEvidence perform(
+                            MergeRequest request,
+                            EffectClaim claim,
+                            PreparedEffect prepared)
+                    {
+                        mutations.incrementAndGet();
+                        return new EffectEvidence(
+                                "remote-effect", "unexpected mutation", false);
+                    }
+                };
+
+        DispatchTicket.DispatchResult result = handler(store, effects, clock)
+                .execute(context(
+                        store.request, clock, store.request.headSha(), cancellation));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.CANCELED);
+        assertThat(store.claims).isZero();
+        assertThat(mutations).hasValue(0);
+    }
+
+    @Test
+    void mutationCallFailureRemainsIndeterminateAfterClaim()
+    {
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(NOW);
+        MutableStore store = new MutableStore(request(OperationStatus.REQUESTED));
+        MergeOperationHandler.MergeEffects failing =
+                new MergeOperationHandler.MergeEffects()
+                {
+                    @Override
+                    public PreparedEffect prepare(
+                            MergeRequest request, ClaimSpec claim)
+                    {
+                        return new Prepared(claim);
+                    }
+
+                    @Override
+                    public EffectEvidence perform(
+                            MergeRequest request,
+                            EffectClaim claim,
+                            PreparedEffect prepared)
+                    {
+                        throw new IllegalStateException("mutation response lost");
+                    }
+                };
+
+        assertThatThrownBy(() -> handler(store, failing, clock)
+                .execute(context(store.request, clock)))
+                .isInstanceOf(ExecutionPorts.IndeterminateExecutionException.class)
+                .hasMessageContaining("outcome is unknown");
+        assertThat(store.claims).isOne();
+        assertThat(store.latestAttempt.orElseThrow().status())
+                .isEqualTo(AttemptStatus.INDETERMINATE);
     }
 
     private static MergeOperationHandler handler(
@@ -205,6 +304,28 @@ class TestMergeOperationHandler
     {
         return new MergeOperationHandler(
                 store, effects, new ObjectMapper(), clock, Duration.ofSeconds(30));
+    }
+
+    private static MergeOperationHandler.MergeEffects effectsThatFail(
+            RuntimeException failure)
+    {
+        return new MergeOperationHandler.MergeEffects()
+        {
+            @Override
+            public PreparedEffect prepare(MergeRequest request, ClaimSpec claim)
+            {
+                throw failure;
+            }
+
+            @Override
+            public EffectEvidence perform(
+                    MergeRequest request,
+                    EffectClaim claim,
+                    PreparedEffect prepared)
+            {
+                throw new AssertionError("perform was not expected");
+            }
+        };
     }
 
     private static ExecutionContext context(
@@ -217,6 +338,16 @@ class TestMergeOperationHandler
             MergeRequest operation,
             InMemoryExecutionSupport.MutableClock clock,
             String expectedHead)
+    {
+        return context(
+                operation, clock, expectedHead, new ExecutionContext.Cancellation());
+    }
+
+    private static ExecutionContext context(
+            MergeRequest operation,
+            InMemoryExecutionSupport.MutableClock clock,
+            String expectedHead,
+            ExecutionContext.Cancellation cancellation)
     {
         DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
                 operation.taskEpoch(), operation.stageId(),
@@ -243,7 +374,7 @@ class TestMergeOperationHandler
                 "worker", null, NOW, clock.instant(), NOW.plusSeconds(90),
                 null, null);
         return new ExecutionContext(
-                envelope, lease, new ExecutionContext.Cancellation(),
+                envelope, lease, cancellation,
                 new NoOpEvidence(), "execution", clock, () -> lease);
     }
 
@@ -384,19 +515,30 @@ class TestMergeOperationHandler
         private final List<String> probedKeys = new ArrayList<>();
 
         @Override
-        public EffectEvidence execute(MergeRequest request, EffectClaim claim)
+        public PreparedEffect prepare(MergeRequest request, ClaimSpec claim)
         {
-            executedKeys.add(claim.spec().idempotencyKey());
-            return new EffectEvidence("remote-effect", "execute accepted", false);
+            return new Prepared(claim);
         }
 
         @Override
-        public EffectEvidence probe(MergeRequest request, EffectClaim claim)
+        public EffectEvidence perform(
+                MergeRequest request,
+                EffectClaim claim,
+                PreparedEffect prepared)
         {
+            assertThat(prepared).isEqualTo(new Prepared(claim.spec()));
+            if (claim.spec().mode() == ClaimMode.EXECUTE) {
+                executedKeys.add(claim.spec().idempotencyKey());
+                return new EffectEvidence(
+                        "remote-effect", "execute accepted", false);
+            }
             probedKeys.add(claim.spec().idempotencyKey());
             return new EffectEvidence("remote-effect", "probe accepted", true);
         }
     }
+
+    private record Prepared(ClaimSpec claim)
+            implements PreparedEffect {}
 
     private static final class NoOpEvidence
             implements ExecutionPorts.ExecutionEvidencePort

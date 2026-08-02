@@ -1586,13 +1586,16 @@ function registerIpc(): void {
     text: string,
     images?: string[],
     mode: 'APPEND' | 'CANCEL_AND_REPLACE' = 'APPEND',
+    expectedPredecessorStageTurnId?: string,
   ) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/steer`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, images, mode }),
+        body: JSON.stringify({
+          text, images, mode, expectedPredecessorStageTurnId,
+        }),
       },
     );
     if (!res.ok) {
@@ -5551,6 +5554,244 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend V2 CI recovery returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle(
+    'development-flow:branch-sync:recover',
+    async (_event, args: unknown) => {
+      const params = args as {
+        taskId?: unknown;
+        episodeId?: unknown;
+        command?: unknown;
+      };
+      if (typeof params?.taskId !== 'string'
+          || params.taskId.trim().length === 0
+          || typeof params?.episodeId !== 'string'
+          || params.episodeId.trim().length === 0
+          || params.command === null || typeof params.command !== 'object') {
+        throw new Error('taskId, episodeId, and command are required');
+      }
+      const res = await fetch(
+        `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+          + `/branch-sync/${encodeURIComponent(params.episodeId)}/recover`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params.command),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(
+          `backend BranchSync recovery returned ${res.status}: ${body}`);
+      }
+      return res.json();
+    },
+  );
+
+  ipcMain.handle(
+    'development-flow:worktree:recover',
+    async (_event, args: unknown) => {
+      const params = args as {
+        taskId?: unknown;
+        quarantineId?: unknown;
+        command?: unknown;
+      };
+      if (typeof params?.taskId !== 'string'
+          || params.taskId.trim().length === 0
+          || typeof params?.quarantineId !== 'string'
+          || params.quarantineId.trim().length === 0
+          || params.command === null || typeof params.command !== 'object') {
+        throw new Error('taskId, quarantineId, and command are required');
+      }
+      const res = await fetch(
+        `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+          + '/worktree-quarantines/'
+          + `${encodeURIComponent(params.quarantineId)}/recover`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params.command),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(
+          `backend worktree recovery returned ${res.status}: ${body}`);
+      }
+      return res.json();
+    },
+  );
+
+  ipcMain.handle(
+    'development-flow:local-publish-base-sync:approve',
+    async (_event, args: unknown) => {
+      const params = args as { taskId?: unknown; blockerId?: unknown };
+      if (typeof params?.taskId !== 'string' || params.taskId.trim().length === 0
+          || typeof params?.blockerId !== 'string'
+          || params.blockerId.trim().length === 0) {
+        throw new Error('taskId and blockerId are required');
+      }
+      const res = await fetch(
+        `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+          + '/local-publish/base-sync/blockers/'
+          + `${encodeURIComponent(params.blockerId)}/approve`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(extractMessage(body)
+          || `Local publish base-sync approval failed (${res.status})`);
+      }
+      return res.json();
+    },
+  );
+
+  ipcMain.handle(
+    'development-flow:local-publish-base-sync:extend',
+    async (_event, args: unknown) => {
+      const params = args as {
+        taskId?: unknown;
+        episodeId?: unknown;
+        blockerId?: unknown;
+        command?: unknown;
+      };
+      if (typeof params?.taskId !== 'string'
+          || params.taskId.trim().length === 0
+          || typeof params?.episodeId !== 'string'
+          || params.episodeId.trim().length === 0
+          || typeof params?.blockerId !== 'string'
+          || params.blockerId.trim().length === 0
+          || params.command === null || typeof params.command !== 'object') {
+        throw new Error(
+          'taskId, episodeId, blockerId, and command are required');
+      }
+      const res = await fetch(
+        `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+          + '/local-publish/base-sync/episodes/'
+          + `${encodeURIComponent(params.episodeId)}/blockers/`
+          + `${encodeURIComponent(params.blockerId)}/extend`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params.command),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(extractMessage(body)
+          || `Local publish base-sync extension failed (${res.status})`);
+      }
+      return res.json();
+    },
+  );
+
+  ipcMain.handle('development-flow:plan:recover', async (_event, args: unknown) => {
+    const params = args as {
+      taskId?: unknown;
+      failedTurnId?: unknown;
+      command?: unknown;
+    };
+    if (typeof params?.taskId !== 'string' || params.taskId.trim().length === 0
+        || typeof params?.failedTurnId !== 'string' || params.failedTurnId.trim().length === 0
+        || params.command === null || typeof params.command !== 'object') {
+      throw new Error('taskId, failedTurnId, and command are required');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+        + `/plan/turns/${encodeURIComponent(params.failedTurnId)}/recover`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.command),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `Plan recovery failed (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('development-flow:development-brain:recover', async (_event, args: unknown) => {
+    const params = args as {
+      taskId?: unknown;
+      failedTurnId?: unknown;
+      command?: unknown;
+    };
+    if (typeof params?.taskId !== 'string' || params.taskId.trim().length === 0
+        || typeof params?.failedTurnId !== 'string' || params.failedTurnId.trim().length === 0
+        || params.command === null || typeof params.command !== 'object') {
+      throw new Error('taskId, failedTurnId, and command are required');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+        + `/local-development/brain-turns/${encodeURIComponent(params.failedTurnId)}/recover`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.command),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `Development Brain recovery failed (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('development-flow:remote-repair-brain:recover', async (_event, args: unknown) => {
+    const params = args as {
+      taskId?: unknown;
+      failedTurnId?: unknown;
+      command?: unknown;
+    };
+    if (typeof params?.taskId !== 'string' || params.taskId.trim().length === 0
+        || typeof params?.failedTurnId !== 'string' || params.failedTurnId.trim().length === 0
+        || params.command === null || typeof params.command !== 'object') {
+      throw new Error('taskId, failedTurnId, and command are required');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+        + `/remote-repair/brain-turns/${encodeURIComponent(params.failedTurnId)}/recover`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.command),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `Remote repair Brain recovery failed (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('development-flow:local-stage:recover', async (_event, args: unknown) => {
+    const params = args as {
+      taskId?: unknown;
+      failedTurnId?: unknown;
+      command?: unknown;
+    };
+    if (typeof params?.taskId !== 'string' || params.taskId.trim().length === 0
+        || typeof params?.failedTurnId !== 'string' || params.failedTurnId.trim().length === 0
+        || params.command === null || typeof params.command !== 'object') {
+      throw new Error('taskId, failedTurnId, and command are required');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
+        + `/local-development/turns/${encodeURIComponent(params.failedTurnId)}/recover`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.command),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `Local Stage recovery failed (${res.status})`);
     }
     return res.json();
   });

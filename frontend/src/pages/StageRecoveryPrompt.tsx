@@ -22,10 +22,15 @@ type CiAction = Recovery['ci'] extends infer T
 type CleanupAction = Recovery['cleanup'] extends infer T
   ? T extends { actions: Array<infer A> } ? A : never
   : never;
+type BranchAction = NonNullable<Recovery['branchSync']>['actions'][number];
+type WorktreeAction = NonNullable<Recovery['worktreeQuarantine']>['actions'][number];
 
 const CI_LABEL: Record<CiAction, string> = {
   EXTEND_BUDGET: 'Extend budget',
   CONTINUE_WITH_PER_PUSH_APPROVAL: 'Approve each push',
+  START_BASE_REPAIR: 'Approve base repair',
+  START_BRANCH_SYNC: 'Sync branch and continue',
+  RETRY_ONCE: 'Retry once',
   MANUAL_TAKEOVER: 'Take over manually',
   STOP_AUTOMATION: 'Stop automation',
 };
@@ -33,6 +38,15 @@ const CI_LABEL: Record<CiAction, string> = {
 const CLEANUP_LABEL: Record<CleanupAction, string> = {
   RETRY: 'Retry cleanup step',
   WAIVE_OPTIONAL: 'Waive optional step',
+};
+
+const BRANCH_LABEL: Record<BranchAction, string> = {
+  MANUAL_TAKEOVER: 'Take over manually',
+  STOP_AUTOMATION: 'Stop automation',
+};
+
+const WORKTREE_LABEL: Record<WorktreeAction, string> = {
+  REPAIR_WORKTREE: 'Repair worktree',
 };
 
 /** Exact V2 recovery controls; every button carries the projected owner id. */
@@ -53,6 +67,7 @@ export function StageRecoveryPrompt({ taskId, recovery, onComplete, onError }: {
       const extend = action === 'EXTEND_BUDGET';
       await window.bridge.recoverV2Ci(taskId, ci.episodeId, {
         commandId: crypto.randomUUID(),
+        blockerId: ci.blockerId ?? null,
         action,
         rerunDelta: extend ? 1 : 0,
         fixDelta: extend ? 1 : 0,
@@ -90,12 +105,112 @@ export function StageRecoveryPrompt({ taskId, recovery, onComplete, onError }: {
     }
   };
 
-  if (recovery.ci === null && recovery.cleanup === null) return null;
+  const approveLocalPublishBaseSync = async () => {
+    const baseSync = recovery.localPublishBaseSync ?? null;
+    if (baseSync === null) return;
+    setBusy('LOCAL_PUBLISH_BASE_SYNC');
+    onError('');
+    try {
+      if (baseSync.blockerType === 'LOCAL_PUBLISH_BASE_SYNC_EXHAUSTED') {
+        if (baseSync.episodeId === null) {
+          throw new Error('Exhausted base sync lacks its exact episode');
+        }
+        await window.bridge.extendV2LocalPublishBaseSync(
+          taskId, baseSync.episodeId, baseSync.blockerId, {
+            commandId: crypto.randomUUID(),
+            reason: 'Explicit one-attempt local base-sync extension',
+          });
+      }
+      else {
+        await window.bridge.approveV2LocalPublishBaseSync(
+          taskId, baseSync.blockerId);
+      }
+      onComplete();
+    }
+    catch (reason: unknown) {
+      onError(reason instanceof Error
+        ? reason.message : 'Could not approve local publish base sync');
+    }
+    finally {
+      setBusy(null);
+    }
+  };
 
-  const title = recovery.ci !== null ? 'CI automation needs a decision' : 'Cleanup needs a decision';
-  const detail = recovery.ci !== null
-    ? `Reruns ${recovery.ci.rerunCount}/${recovery.ci.rerunLimit} · fixes ${recovery.ci.fixAttemptCount}/${recovery.ci.fixAttemptLimit} · pushes ${recovery.ci.pushCount}/${recovery.ci.pushLimit}`
-    : `${recovery.cleanup!.kind.replaceAll('_', ' ').toLowerCase()} · attempts ${recovery.cleanup!.attemptCount}/${recovery.cleanup!.attemptLimit}`;
+  const runBranchSync = async (action: BranchAction) => {
+    const branchSync = recovery.branchSync ?? null;
+    if (branchSync === null) return;
+    setBusy(`BRANCH_SYNC:${action}`);
+    onError('');
+    try {
+      await window.bridge.recoverV2BranchSync(
+        taskId, branchSync.episodeId, {
+          blockerId: branchSync.blockerId,
+          commandId: crypto.randomUUID(),
+          action,
+          reason: `Explicit ${BRANCH_LABEL[action]} action from the Stage recovery card`,
+        });
+      onComplete();
+    }
+    catch (reason: unknown) {
+      onError(reason instanceof Error
+        ? reason.message : 'Could not recover BranchSync');
+    }
+    finally {
+      setBusy(null);
+    }
+  };
+
+  const runWorktreeRepair = async (action: WorktreeAction) => {
+    const quarantine = recovery.worktreeQuarantine ?? null;
+    if (quarantine === null) return;
+    setBusy(action);
+    onError('');
+    try {
+      await window.bridge.recoverV2Worktree(
+        taskId, quarantine.quarantineId, {
+          blockerId: quarantine.blockerId,
+          taskEpoch: quarantine.taskEpoch,
+          stageId: quarantine.stageId,
+          stageGeneration: quarantine.stageGeneration,
+          worktreePath: quarantine.worktreePath,
+          expectedBranchName: quarantine.expectedBranchName,
+          expectedCodeFingerprint: quarantine.expectedCodeFingerprint,
+          expectedHeadSha: quarantine.expectedHeadSha,
+          expectedBaseSha: quarantine.expectedBaseSha,
+          commandId: crypto.randomUUID(),
+          action,
+          reason: 'Explicit exact worktree restoration from the Stage recovery card',
+        });
+      onComplete();
+    }
+    catch (reason: unknown) {
+      onError(reason instanceof Error
+        ? reason.message : 'Could not repair the Task worktree');
+    }
+    finally {
+      setBusy(null);
+    }
+  };
+
+  const baseSync = recovery.localPublishBaseSync ?? null;
+  const branchSync = recovery.branchSync ?? null;
+  const quarantine = recovery.worktreeQuarantine ?? null;
+  if (recovery.ci === null && recovery.cleanup === null && baseSync === null
+      && branchSync === null && quarantine === null) {
+    return null;
+  }
+
+  const title = quarantine !== null ? 'Task worktree is quarantined'
+    : branchSync !== null ? 'Branch sync needs a decision'
+    : baseSync !== null ? 'Local publish needs a decision'
+    : recovery.ci !== null ? 'CI automation needs a decision' : 'Cleanup needs a decision';
+  const detail = quarantine !== null ? quarantine.message
+    : branchSync !== null
+      ? `${branchSync.message} · attempts ${branchSync.attemptCount}/${branchSync.attemptLimit}`
+    : baseSync !== null ? baseSync.message
+    : recovery.ci !== null
+      ? recovery.ci.message ?? `Reruns ${recovery.ci.rerunCount}/${recovery.ci.rerunLimit} · fixes ${recovery.ci.fixAttemptCount}/${recovery.ci.fixAttemptLimit} · pushes ${recovery.ci.pushCount}/${recovery.ci.pushLimit}`
+      : `${recovery.cleanup!.kind.replaceAll('_', ' ').toLowerCase()} · attempts ${recovery.cleanup!.attemptCount}/${recovery.cleanup!.attemptLimit}`;
 
   return (
     <div className="review-callout" data-testid="stage-recovery-card">
@@ -103,30 +218,81 @@ export function StageRecoveryPrompt({ taskId, recovery, onComplete, onError }: {
       <div className="review-callout__body">
         <div className="review-callout__title">{title}</div>
         <div className="review-callout__tx">{detail}</div>
-        {recovery.cleanup?.error != null && (
+        {quarantine === null && recovery.cleanup?.error != null && (
           <div className="review-callout__note">{recovery.cleanup.error}</div>
         )}
+        {quarantine === null && branchSync !== null && (
+          <div className="review-callout__note">
+            This stops only the exhausted BranchSync episode; it does not reset its budget or start CI work.
+          </div>
+        )}
+        {quarantine !== null && (
+          <div className="review-callout__note">
+            Normal writers remain blocked until the durable repair proves the frozen HEAD, clean state, and code fingerprint.
+          </div>
+        )}
         <div className="review-callout__actions">
-          {recovery.ci?.actions.map(action => (
+          {quarantine === null && <>
+            {baseSync !== null && (
+              <button
+                type="button"
+                className="review-callout__btn"
+                disabled={busy !== null}
+                onClick={() => { void approveLocalPublishBaseSync(); }}
+              >
+                {busy === 'LOCAL_PUBLISH_BASE_SYNC'
+                  ? 'Working…'
+                  : baseSync.blockerType === 'LOCAL_PUBLISH_BASE_SYNC_EXHAUSTED'
+                    ? 'Extend by one attempt'
+                    : baseSync.blockerType === 'LOCAL_PUBLISH_BASE_SYNC_RETRY_REQUIRED'
+                      ? 'Approve one retry'
+                      : 'Approve base sync'}
+              </button>
+            )}
+            {recovery.ci?.actions.map(action => (
+              <button
+                key={action}
+                type="button"
+                className="review-callout__btn"
+                disabled={busy !== null}
+                onClick={() => { void runCi(action); }}
+              >
+                {busy === action ? 'Working…' : CI_LABEL[action]}
+              </button>
+            ))}
+            {recovery.cleanup?.actions.map(action => (
+              <button
+                key={action}
+                type="button"
+                className="review-callout__btn"
+                disabled={busy !== null}
+                onClick={() => { void runCleanup(action); }}
+              >
+                {busy === action ? 'Working…' : CLEANUP_LABEL[action]}
+              </button>
+            ))}
+            {branchSync?.actions.map(action => (
+              <button
+                key={action}
+                type="button"
+                className="review-callout__btn"
+                disabled={busy !== null}
+                onClick={() => { void runBranchSync(action); }}
+              >
+                {busy === `BRANCH_SYNC:${action}`
+                  ? 'Working…' : BRANCH_LABEL[action]}
+              </button>
+            ))}
+          </>}
+          {quarantine?.actions.map(action => (
             <button
               key={action}
               type="button"
               className="review-callout__btn"
               disabled={busy !== null}
-              onClick={() => { void runCi(action); }}
+              onClick={() => { void runWorktreeRepair(action); }}
             >
-              {busy === action ? 'Working…' : CI_LABEL[action]}
-            </button>
-          ))}
-          {recovery.cleanup?.actions.map(action => (
-            <button
-              key={action}
-              type="button"
-              className="review-callout__btn"
-              disabled={busy !== null}
-              onClick={() => { void runCleanup(action); }}
-            >
-              {busy === action ? 'Working…' : CLEANUP_LABEL[action]}
+              {busy === action ? 'Working…' : WORKTREE_LABEL[action]}
             </button>
           ))}
         </div>

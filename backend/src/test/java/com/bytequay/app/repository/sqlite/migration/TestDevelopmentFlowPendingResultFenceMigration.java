@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import org.flywaydb.core.Flyway;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.V2TaskSeed;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -31,64 +34,11 @@ class TestDevelopmentFlowPendingResultFenceMigration
     private Path tempDir;
 
     @Test
-    void upgradesPendingRowsWithACompleteImmutableFence()
-            throws Exception
-    {
-        String url = url("pending-upgrade.db");
-        migrate(url, "225");
-        try (Connection connection = connect(url)) {
-            seedTask(connection);
-            insertPendingTicketBeforeFenceMigration(connection);
-            execute(connection, """
-                    INSERT INTO dispatch_delivery_claim(
-                        ticket_id, ticket_version, claim_owner, claimed_at_ms,
-                        heartbeat_at_ms, expires_at_ms)
-                    VALUES ('ticket-1', 0, 'delivery-worker', 11, 11, 40)
-                    """);
-        }
-
-        migrate(url, "226");
-        try (Connection connection = connect(url)) {
-            assertThat(text(connection, """
-                    SELECT pending_result_operation_id FROM dispatch_ticket
-                    WHERE id = 'ticket-1'
-                    """)).isEqualTo("operation-1");
-            assertThat(number(connection, """
-                    SELECT pending_result_task_epoch FROM dispatch_ticket
-                    WHERE id = 'ticket-1'
-                    """)).isOne();
-            assertThat(number(connection, """
-                    SELECT COUNT(*) FROM dispatch_delivery_claim
-                    WHERE ticket_id = 'ticket-1' AND ticket_version = 0
-                    """)).isOne();
-            execute(connection, """
-                    DELETE FROM dispatch_delivery_claim
-                    WHERE ticket_id = 'ticket-1' AND claim_owner = 'delivery-worker'
-                    """);
-            assertFails(connection, """
-                    UPDATE dispatch_ticket
-                    SET version = 1, pending_result_operation_id = 'substituted-operation'
-                    WHERE id = 'ticket-1'
-                    """);
-            completeTicket(connection, "ticket-1", 1);
-            assertThat(text(connection,
-                    "SELECT status FROM dispatch_ticket WHERE id = 'ticket-1'"))
-                    .isEqualTo("SUCCEEDED");
-            assertThat(number(connection,
-                    "SELECT COUNT(*) FROM pragma_foreign_key_check"))
-                    .isZero();
-        }
-
-        migrate(url, "226");
-        migrate(url, "226");
-    }
-
-    @Test
     void storesAStaleRawFenceVerbatimAndRequiresAtomicClear()
             throws Exception
     {
         String url = url("pending-shape.db");
-        migrate(url, "226");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedTask(connection);
             insertRequestedTicket(connection, "ticket-1", "operation-1");
@@ -96,6 +46,7 @@ class TestDevelopmentFlowPendingResultFenceMigration
             assertFails(connection, """
                     UPDATE dispatch_ticket
                     SET version = 1, status = 'RESULT_PENDING',
+                        infrastructure_attempts = 1,
                         pending_result_outcome = 'SUCCEEDED',
                         pending_result_payload = '{}', pending_result_evidence = '{}'
                     WHERE id = 'ticket-1'
@@ -103,6 +54,7 @@ class TestDevelopmentFlowPendingResultFenceMigration
             assertFails(connection, """
                     UPDATE dispatch_ticket
                     SET version = 1, status = 'RESULT_PENDING',
+                        infrastructure_attempts = 1,
                         pending_result_outcome = 'SUCCEEDED',
                         pending_result_payload = '{}', pending_result_evidence = '{}',
                         pending_result_operation_id = 'other-operation',
@@ -200,7 +152,7 @@ class TestDevelopmentFlowPendingResultFenceMigration
             throws Exception
     {
         String url = url("pending-outcomes.db");
-        migrate(url, "226");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedTask(connection);
             insertRequestedTicket(connection, "ticket-failed", "operation-failed");
@@ -231,7 +183,7 @@ class TestDevelopmentFlowPendingResultFenceMigration
             throws Exception
     {
         String url = url("pending-unscoped.db");
-        migrate(url, "226");
+        migrate(url);
         try (Connection connection = connect(url)) {
             seedTask(connection);
             execute(connection, """
@@ -246,11 +198,26 @@ class TestDevelopmentFlowPendingResultFenceMigration
             execute(connection, """
                     UPDATE dispatch_ticket
                     SET version = 1, status = 'RESULT_PENDING',
+                        infrastructure_attempts = 1,
                         pending_result_outcome = 'SUCCEEDED',
                         pending_result_payload = '{}', pending_result_evidence = '{}',
                         pending_result_operation_id = 'operation-trunk',
                         pending_result_attempt = 1
                     WHERE id = 'ticket-trunk'
+                    """);
+            execute(connection, """
+                    INSERT INTO agent_execution(
+                        id, ticket_id, infrastructure_attempt, provider,
+                        status, started_at_ms, finished_at_ms, raw_result)
+                    VALUES ('execution-trunk', 'ticket-trunk', 1, 'claude',
+                        'SUCCEEDED', 11, 12,
+                        '{"fence":{"taskEpoch":null,"stageId":null,'
+                        || '"stageGeneration":null,'
+                        || '"operationId":"operation-trunk","attempt":1,'
+                        || '"expectedCodeFingerprint":null,'
+                        || '"expectedHeadSha":null,"expectedBaseSha":null},'
+                        || '"outcome":"SUCCEEDED","payloadJson":"{}",'
+                        || '"evidenceJson":"{}","error":null}')
                     """);
         }
 
@@ -275,9 +242,9 @@ class TestDevelopmentFlowPendingResultFenceMigration
         return "jdbc:sqlite:" + tempDir.resolve(file) + "?foreign_keys=ON";
     }
 
-    private static void migrate(String url, String target)
+    private static void migrate(String url)
     {
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 
     private static Connection connect(String url)
@@ -305,44 +272,33 @@ class TestDevelopmentFlowPendingResultFenceMigration
                     'claude-sonnet-4.6', 0, 0, 0, 1, 1, 'workspace-1', 'build', 2,
                     'V2', 'ACTIVE')
                 """);
-        execute(connection, """
-                INSERT INTO task_assignment(
-                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
-                    created_by, created_at_ms)
-                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
-                    'base-1', 'seed', 'build', 'user', 2)
-                """);
+        V2TaskSeed.prepareWorkspaces(connection);
         execute(connection, """
                 INSERT INTO task_policy_revision(
                     id, trunk_id, revision, source, created_by, created_at_ms)
                 VALUES ('policy-1', 'trunk-1', 1, 'TRUNK', 'user', 2)
                 """);
-        execute(connection, """
+        JdbcTemplate jdbc = new JdbcTemplate(
+                new SingleConnectionDataSource(connection, true));
+        V2TaskSeed.insertAuthorized(jdbc, "assignment-1", seed -> seed.update("""
+                INSERT INTO task_assignment(
+                    id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
+                    created_by, created_at_ms, creation_authorization_id)
+                VALUES ('assignment-1', 'trunk-1', 'NEW_FROM_TRUNK',
+                    'base-1', 'seed', 'build', 'user', 2,
+                    'authorization-assignment-1')
+                """));
+        V2TaskSeed.insertCreated(jdbc, "task-1", seed -> seed.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version, lifecycle_state, assignment_id, policy_revision_id)
+                    workflow_version, lifecycle_state, assignment_id,
+                    policy_revision_id, creation_receipt_id, name, task_type,
+                    opening_prompt, origin)
                 VALUES ('task-1', 'trunk-1', 1, 'IDLE', 'PLANNING', 2,
-                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1')
-                """);
-    }
-
-    private static void insertPendingTicketBeforeFenceMigration(Connection connection)
-            throws SQLException
-    {
-        execute(connection, """
-                INSERT INTO dispatch_ticket(
-                    id, operation_id, operation_kind, async_family,
-                    owner_kind, owner_id, callback_route, lane_mask,
-                    workspace_id, trunk_id, task_id, task_epoch, attempt,
-                    expected_code_fingerprint, expected_head_sha, expected_base_sha,
-                    status, pending_result_outcome, pending_result_payload,
-                    pending_result_evidence, created_at_ms)
-                VALUES ('ticket-1', 'operation-1', 'VALIDATE', 'VALIDATION',
-                    'TASK', 'task-1', 'task.validation', 4,
-                    'workspace-1', 'trunk-1', 'task-1', 1, 1,
-                    'fingerprint-1', 'head-1', 'base-1',
-                    'RESULT_PENDING', 'SUCCEEDED', '{}', '{}', 10)
-                """);
+                    'V2', 'PROVISIONING', 'assignment-1', 'policy-1',
+                    'creation-receipt-task-1', 'Test task assignment-1',
+                    'DEVELOP', 'build', 'user')
+                """));
     }
 
     private static void insertRequestedTicket(

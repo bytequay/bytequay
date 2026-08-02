@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.beans.mcp.ApprovalPromptArgs;
 import com.bytequay.app.beans.mcp.Capabilities;
 import com.bytequay.app.beans.mcp.InitializeResult;
 import com.bytequay.app.beans.mcp.JsonRpcRequest;
@@ -35,7 +36,7 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-/** Minimal operation-scoped MCP server for the read-only V2 Task Brain. */
+/** Minimal operation-scoped MCP server for the code-read-only V2 Task Brain. */
 @Component
 public final class PlanMcpService
 {
@@ -43,6 +44,7 @@ public final class PlanMcpService
     private static final String RECORD_PLAN = "record_plan";
     private static final String RECORD_REVIEW = "record_plan_self_review";
     private static final String APPROVAL_PROMPT = "approval_prompt";
+    private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
 
     private static final String PLAN_SCHEMA = """
             {"type":"object","additionalProperties":false,"required":["task_id","content"],
@@ -53,10 +55,14 @@ public final class PlanMcpService
             {"type":"object","additionalProperties":false,
              "required":["task_id","verdict","concerns","follow_ups","stewardship"],
              "properties":{"task_id":{"type":"string","minLength":1},
-             "verdict":{"type":"string","enum":["APPROVED","CHANGES_REQUESTED","BLOCKED"]},
-             "concerns":{"type":"array","items":{"type":"string","minLength":1}},
-             "follow_ups":{"type":"array","items":{"type":"string","minLength":1}},
-             "stewardship":{"type":"array","items":{"type":"string","minLength":1}}}}
+             "verdict":{"type":"string","enum":["APPROVED","CHANGES_REQUESTED","BLOCKED"],
+             "description":"Typed verdict. APPROVED requires concerns=[]."},
+             "concerns":{"type":"array","items":{"type":"string","minLength":1},
+             "description":"Plan defects that prevent approval. Must be [] for APPROVED."},
+             "follow_ups":{"type":"array","items":{"type":"string","minLength":1},
+             "description":"Non-blocking caveats and follow-up work."},
+             "stewardship":{"type":"array","items":{"type":"string","minLength":1},
+             "description":"Non-blocking Project Stewardship notes."}}}
             """;
     private static final String APPROVAL_SCHEMA = """
             {"type":"object","additionalProperties":true}
@@ -131,7 +137,10 @@ public final class PlanMcpService
                     PLAN_SCHEMA);
             case "PLAN_SELF_REVIEW" -> descriptor(
                     RECORD_REVIEW,
-                    "Record the single typed self-review verdict for the current Plan revision.",
+                    "Record exactly one accepted typed self-review for the current Plan revision. "
+                            + "APPROVED requires concerns=[]; non-blocking caveats belong in "
+                            + "follow_ups or stewardship. A rejected call that recorded nothing "
+                            + "may be corrected and retried. Prose is never a verdict.",
                     REVIEW_SCHEMA);
             default -> throw new IllegalArgumentException(
                     "TaskTurn purpose is not a Plan protocol purpose");
@@ -140,7 +149,7 @@ public final class PlanMcpService
                 primary,
                 descriptor(
                         APPROVAL_PROMPT,
-                        "Permission prompt for this read-only Task Brain; mutating requests are denied.",
+                        "Permission prompt for this code-read-only Task Brain; only its exact Plan result is allowed.",
                         APPROVAL_SCHEMA))));
     }
 
@@ -170,9 +179,24 @@ public final class PlanMcpService
                                 + " for " + saved.reviewedDigest() + ".");
             }
             case APPROVAL_PROMPT -> {
-                coordinator.authorizeMcp(turnId, operationId);
+                ApprovalPromptArgs args = responses.bindArgs(
+                        arguments, ApprovalPromptArgs.class);
+                PlanRuntimeCoordinator.McpAuthorization authorization =
+                        coordinator.authorizeMcp(turnId, operationId);
+                String expected = switch (authorization.purpose()) {
+                    case "PLAN_DRAFT" -> RECORD_PLAN;
+                    case "PLAN_SELF_REVIEW" -> RECORD_REVIEW;
+                    default -> null;
+                };
+                if (expected != null
+                        && expected.equals(shortToolName(args.toolName()))
+                        && args.toolUseId() != null
+                        && !args.toolUseId().isBlank()) {
+                    yield responses.toolResponse(
+                            id, responses.allow(args.input()));
+                }
                 yield responses.toolResponse(id, responses.deny(
-                        "The V2 Task Brain is read-only; this permission is denied."));
+                        "The V2 Task Brain may submit only its exact Plan result; this permission is denied."));
             }
             default -> responses.error(id, -32601, "unknown tool: " + params.name());
         };
@@ -184,6 +208,13 @@ public final class PlanMcpService
     {
         return new ToolDescriptor(
                 name, description, responses.mapper().readTree(schema));
+    }
+
+    private static String shortToolName(String toolName)
+    {
+        return toolName != null && toolName.startsWith(MCP_TOOL_PREFIX)
+                ? toolName.substring(MCP_TOOL_PREFIX.length())
+                : toolName;
     }
 
     public record RecordPlanArgs(

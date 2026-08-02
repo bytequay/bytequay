@@ -174,7 +174,8 @@ public final class ReviewAssignmentTurnOperationHandler
                 || !endpoint.ownerId().equals(turn.turnId())
                 || !endpoint.operationId().equals(turn.operationId())
                 || endpoint.profile()
-                != AgentTurnProviderSession.ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY) {
+                != AgentTurnProviderSession.ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY
+                || endpoint.approvalPromptTool() == null) {
             return "tool endpoint is not scoped to the exact ReviewAssignmentTurn";
         }
         CapacityManager.CapacityLane runnerLane = switch (input.transport()) {

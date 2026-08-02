@@ -59,9 +59,29 @@ class TestSqliteAgentTurnOperationStore
         assertThat(turn.operationId()).isEqualTo("task-operation-1");
         assertThat(turn.launchInput()).isEqualTo("task-launch");
         assertThat(turn.worktreePath()).isEqualTo("/tmp/task-1");
+        assertThat(turn.branchName()).isEqualTo("task/task-1");
         assertThat(turn.currentCodeFingerprint()).isEqualTo("fingerprint-1");
         assertThat(turn.brainProvider()).isEqualTo("openai");
         assertThat(turn.brainModel()).isEqualTo("gpt-5.6");
+    }
+
+    @Test
+    void historicalCiBrainTurnCannotLaunchOrAuthorizeMcp()
+    {
+        jdbc.update("""
+                UPDATE task_turn SET purpose = 'REMOTE_CI_BRAIN_REVIEW'
+                WHERE id = 'task-turn-1'
+                """);
+
+        assertThat(store.find(
+                DispatchTicket.OwnerKind.TASK_TURN, "task-turn-1")).isEmpty();
+        assertThat(store.authorizeMcp(
+                DispatchTicket.OwnerKind.TASK_TURN,
+                "task-turn-1", "task-operation-1",
+                Instant.parse("2026-07-28T00:00:00Z"))).isEmpty();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM task_turn WHERE id = 'task-turn-1'",
+                String.class)).isEqualTo("QUEUED");
     }
 
     @Test
@@ -157,6 +177,7 @@ class TestSqliteAgentTurnOperationStore
         jdbc.execute("""
                 CREATE TABLE task_code_identity(
                     task_id TEXT PRIMARY KEY,
+                    branch_name TEXT NOT NULL,
                     worktree_path TEXT NOT NULL)
                 """);
         jdbc.execute("""
@@ -262,8 +283,9 @@ class TestSqliteAgentTurnOperationStore
                 VALUES ('task-1', 'openai', 'gpt-5.6')
                 """);
         jdbc.update("""
-                INSERT INTO task_code_identity(task_id, worktree_path)
-                VALUES ('task-1', '/tmp/task-1')
+                INSERT INTO task_code_identity(
+                    task_id, branch_name, worktree_path)
+                VALUES ('task-1', 'task/task-1', '/tmp/task-1')
                 """);
         jdbc.update("""
                 INSERT INTO stage(id, task_id, generation, kind, completed_at_ms)

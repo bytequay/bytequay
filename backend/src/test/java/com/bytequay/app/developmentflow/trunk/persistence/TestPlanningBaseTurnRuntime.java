@@ -35,9 +35,9 @@ import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -283,11 +283,8 @@ class TestPlanningBaseTurnRuntime
                 new DispatchTicket.DispatchResult(
                         priorFence, DispatchTicket.Outcome.SUCCEEDED,
                         json.writeValueAsString(priorPayload), "{}", null);
-        jdbc.update("""
-                UPDATE agent_execution SET raw_result = ?
-                WHERE id = 'prior-execution'
-                """, json.writeValueAsString(priorResult));
-        markResultPending(jdbc, priorTicketId, priorResult);
+        markAgentResultPending(
+                jdbc, json, priorTicketId, "prior-execution", priorResult);
         DispatchTicket.DeliveryReceipt priorDelivery =
                 new ThreadTurnResultDeliveryPort(
                         manager, new AgentTurnOwnerResultCodec(json), json,
@@ -346,7 +343,7 @@ class TestPlanningBaseTurnRuntime
             throws Exception
     {
         SQLiteDataSource dataSource = database(
-                tempDir.resolve("cli-user-wait-resume.db"), "265");
+                tempDir.resolve("cli-user-wait-resume.db"));
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         Path repository = Files.createDirectory(
@@ -410,10 +407,12 @@ class TestPlanningBaseTurnRuntime
                         AgentTurnOperationHandler.Disposition.USER_WAIT, null,
                         new AgentTurnOperationHandler.UserWaitRef(
                                 "QUESTION", "question-1"));
-        markResultPending(
-                jdbc, sourceTicketId, new DispatchTicket.DispatchResult(
+        DispatchTicket.DispatchResult waitResult =
+                new DispatchTicket.DispatchResult(
                         waitFence, DispatchTicket.Outcome.SUCCEEDED,
-                        json.writeValueAsString(waitPayload), "{}", null));
+                        json.writeValueAsString(waitPayload), "{}", null);
+        markAgentResultPending(
+                jdbc, json, sourceTicketId, "user-wait-execution", waitResult);
         new V2UserWaitStore(jdbc).recordUserWait(
                 new ActiveAgentContextRegistry.TypedOwner(
                         DispatchTicket.OwnerKind.THREAD_TURN,
@@ -1037,6 +1036,38 @@ class TestPlanningBaseTurnRuntime
                 fence.expectedHeadSha(), fence.expectedBaseSha(), ticketId);
     }
 
+    private static void markAgentResultPending(
+            JdbcTemplate jdbc,
+            ObjectMapper json,
+            String ticketId,
+            String executionId,
+            DispatchTicket.DispatchResult result)
+            throws Exception
+    {
+        markResultPending(jdbc, ticketId, result);
+        String executionStatus = switch (result.outcome()) {
+            case SUCCEEDED -> "SUCCEEDED";
+            case FAILED -> "FAILED";
+            case CANCELED -> "CANCELED";
+            case INDETERMINATE -> "UNKNOWN";
+        };
+        assertThat(jdbc.update("""
+                UPDATE agent_execution
+                   SET raw_result = ?
+                 WHERE id = ? AND ticket_id = ?
+                   AND infrastructure_attempt = 1
+                   AND finished_at_ms IS NOT NULL
+                   AND status = ?
+                """, json.writeValueAsString(result), executionId, ticketId,
+                executionStatus)).isOne();
+        assertThat(jdbc.update("""
+                UPDATE dispatch_ticket
+                   SET version = version + 1, infrastructure_attempts = 1
+                 WHERE id = ? AND status = 'RESULT_PENDING'
+                   AND infrastructure_attempts = 0
+                """, ticketId)).isOne();
+    }
+
     private static void deliverSuccessfulRefresh(
             PlanningBaseTurnRuntime runtime,
             JdbcTemplate jdbc,
@@ -1166,10 +1197,8 @@ class TestPlanningBaseTurnRuntime
         DispatchTicket.DispatchResult result = new DispatchTicket.DispatchResult(
                 fence, DispatchTicket.Outcome.SUCCEEDED,
                 json.writeValueAsString(payload), "{}", null);
-        jdbc.update("""
-                UPDATE agent_execution SET raw_result = ? WHERE id = ?
-                """, json.writeValueAsString(result), executionId);
-        markResultPending(jdbc, ticketId, result);
+        markAgentResultPending(
+                jdbc, json, ticketId, executionId, result);
         DispatchTicket.DeliveryReceipt delivered =
                 new ThreadTurnResultDeliveryPort(
                         manager, new AgentTurnOwnerResultCodec(json), json,
@@ -1221,14 +1250,9 @@ class TestPlanningBaseTurnRuntime
 
     private static SQLiteDataSource database(Path file)
     {
-        return database(file, "260");
-    }
-
-    private static SQLiteDataSource database(Path file, String target)
-    {
         String url = "jdbc:sqlite:" + file
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
+        MigratedSqliteDatabase.migrate(url);
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

@@ -25,17 +25,12 @@ import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,8 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Schema-level checks for the stages migrations: the new tables and
  * indexes exist, the {@code tasks} merge-notification column landed, the
- * {@code review_comment} source/remote-link check constraint bites, and
- * the backfill synthesizes the right stage rows for pre-existing tasks.
+ * {@code review_comment} source/remote-link check constraint bites.
  */
 @SpringBootTest
 @TestExecutionListeners(
@@ -105,58 +99,6 @@ class TestTaskStageSchema
         assertThat(count).isEqualTo(2);
     }
 
-    @Test
-    void backfillSynthesizesStageRowsForExistingTasks()
-    {
-        String implementing = seedTask(TaskPhase.IMPLEMENTING, false);
-        String internalReview = seedTask(TaskPhase.INTERNAL_REVIEW, false);
-        String completed = seedTask(TaskPhase.COMPLETED, true);
-        List<String> mine = List.of(implementing, internalReview, completed);
-
-        runBackfillMigration();
-
-        // Every task gets exactly one DevelopmentStage.
-        for (String taskId : mine) {
-            assertThat(stageTypes(taskId, "DEVELOPMENT_STAGE")).hasSize(1);
-        }
-        assertThat(stageState(implementing, "DEVELOPMENT_STAGE")).isEqualTo("OPEN");
-        assertThat(stageState(internalReview, "DEVELOPMENT_STAGE")).isEqualTo("OPEN");
-        assertThat(stageState(completed, "DEVELOPMENT_STAGE")).isEqualTo("CLOSED");
-
-        // Only the COMPLETED task gets a (closed) CleanupStage.
-        assertThat(stageTypes(implementing, "CLEANUP_STAGE")).isEmpty();
-        assertThat(stageTypes(internalReview, "CLEANUP_STAGE")).isEmpty();
-        assertThat(stageTypes(completed, "CLEANUP_STAGE")).hasSize(1);
-        assertThat(stageState(completed, "CLEANUP_STAGE")).isEqualTo("CLOSED");
-
-        // Backfill emits no stage events.
-        Integer events = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM task_stage_event WHERE task_id IN (?,?,?)",
-                Integer.class, implementing, internalReview, completed);
-        assertThat(events).isZero();
-
-        // Idempotent: a second run adds nothing.
-        runBackfillMigration();
-        Integer stageCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM task_stage WHERE task_id IN (?,?,?)",
-                Integer.class, implementing, internalReview, completed);
-        assertThat(stageCount).isEqualTo(4);
-    }
-
-    private List<String> stageTypes(String taskId, String stageType)
-    {
-        return jdbc.queryForList(
-                "SELECT id FROM task_stage WHERE task_id = ? AND stage_type = ?",
-                String.class, taskId, stageType);
-    }
-
-    private String stageState(String taskId, String stageType)
-    {
-        return jdbc.queryForObject(
-                "SELECT state FROM task_stage WHERE task_id = ? AND stage_type = ?",
-                String.class, taskId, stageType);
-    }
-
     private void insertComment(String taskId, String source, String remoteLink)
     {
         jdbc.update(
@@ -164,37 +106,6 @@ class TestTaskStageSchema
                         + "VALUES (?,?,?,?,?,?,?,?,0)",
                 UUID.randomUUID().toString(), taskId, "src/Foo.java", 1, "body",
                 Instant.parse("2026-06-20T10:00:00Z").toEpochMilli(), source, remoteLink);
-    }
-
-    /** Re-run the shipped backfill SQL so it picks up tasks inserted after
-     *  the context (and its startup Flyway run) came up. */
-    private void runBackfillMigration()
-    {
-        String sql;
-        try {
-            sql = new String(
-                    new ClassPathResource("db/migration/V117__backfill_task_stages.sql")
-                            .getInputStream().readAllBytes(),
-                    StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        Arrays.stream(stripComments(sql).split(";"))
-                .map(String::trim)
-                .filter(statement -> !statement.isEmpty())
-                .forEach(jdbc::execute);
-    }
-
-    private static String stripComments(String sql)
-    {
-        StringBuilder out = new StringBuilder();
-        for (String line : sql.split("\n")) {
-            if (!line.trim().startsWith("--")) {
-                out.append(line).append('\n');
-            }
-        }
-        return out.toString();
     }
 
     private String seedTask(TaskPhase phase, boolean completed)

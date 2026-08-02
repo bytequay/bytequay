@@ -17,6 +17,7 @@ import com.bytequay.app.domain.StreamEvent;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Converts one line of a CLI agent's streaming-JSON stdout into zero or
@@ -50,5 +51,15 @@ public interface CliStreamParser
     default boolean reportsCumulativeUsage()
     {
         return false;
+    }
+
+    /**
+     * Authoritative provider result observed while parsing the current turn.
+     * Claude includes this separately from the assistant envelopes used for
+     * streaming; other providers derive their result from those envelopes.
+     */
+    default Optional<String> terminalResult()
+    {
+        return Optional.empty();
     }
 }

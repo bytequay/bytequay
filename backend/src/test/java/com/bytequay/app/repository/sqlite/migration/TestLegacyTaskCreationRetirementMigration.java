@@ -13,9 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
-import org.flywaydb.core.api.configuration.FluentConfiguration;
+import com.bytequay.app.testing.MigratedSqliteDatabase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,11 +30,11 @@ class TestLegacyTaskCreationRetirementMigration
     private Path tempDir;
 
     @Test
-    void keepsHistoricalLegacyTasksReadableAndRejectsNewOnes()
+    void currentBaselineKeepsLegacyRowsOutsideV2Execution()
     {
-        String url = "jdbc:sqlite:" + tempDir.resolve("retirement.db")
+        String url = "jdbc:sqlite:" + tempDir.resolve("full-retirement.db")
                 + "?foreign_keys=ON&busy_timeout=30000";
-        migrate(url, "276");
+        migrate(url);
         JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(url));
         jdbc.update("""
                 INSERT INTO workspaces(
@@ -51,80 +49,34 @@ class TestLegacyTaskCreationRetirementMigration
                 VALUES ('trunk-1', 'CLI_AGENT', 'codex', 'Trunk', 'IDLE',
                     'model', 0, 0, 0, 1, 1, 'workspace-1', 'build', 1)
                 """);
+
         jdbc.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version)
                 VALUES ('historical-task', 'trunk-1', 1, 'COMPLETED',
-                    'COMPLETED', 1, 'LEGACY')
+                    'COMPLETED', 2, 'LEGACY')
                 """);
-
-        migrate(url, "277");
-
         assertThat(jdbc.queryForObject(
                 "SELECT workflow_version FROM tasks WHERE id = 'historical-task'",
                 String.class)).isEqualTo("LEGACY");
+
         assertThatThrownBy(() -> jdbc.update("""
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version)
-                VALUES ('new-legacy-task', 'trunk-1', 2, 'PENDING',
-                    'IMPLEMENTING', 2, 'LEGACY')
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, workspace_id, trunk_id, task_id,
+                    task_epoch, attempt, status, created_at_ms)
+                VALUES ('legacy-ticket', 'legacy-operation', 'LEGACY_TEST',
+                    'VALIDATION', 'TASK', 'historical-task', 'LEGACY_RESULT', 4,
+                    1, 'workspace-1', 'trunk-1', 'historical-task',
+                    1, 1, 'REQUESTED', 3)
                 """))
-                .hasMessageContaining("LEGACY Task creation is retired");
+                .hasMessageContaining("DispatchTicket Task scope is invalid");
     }
 
-    @Test
-    void laterProductionMigrationsKeepTheRetirementFence()
+    private static void migrate(String url)
     {
-        String url = "jdbc:sqlite:" + tempDir.resolve("full-retirement.db")
-                + "?foreign_keys=ON&busy_timeout=30000";
-        migrate(url, "290");
-        JdbcTemplate jdbc = new JdbcTemplate(new DriverManagerDataSource(url));
-        jdbc.update("""
-                INSERT INTO workspaces(
-                    id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
-                VALUES ('workspace-1', 'Workspace', '', 0, 1, 1)
-                """);
-        jdbc.update("""
-                INSERT INTO threads(
-                    id, kind, provider, title, status, model, cost_usd_milli,
-                    tokens_in, tokens_out, created_at_ms, updated_at_ms,
-                    workspace_id, flow, parallel_slots)
-                VALUES ('trunk-1', 'CLI_AGENT', 'codex', 'Trunk', 'IDLE',
-                    'model', 0, 0, 0, 1, 1, 'workspace-1', 'build', 1)
-                """);
-
-        assertThat(jdbc.queryForObject("""
-                SELECT COUNT(*) FROM sqlite_master
-                WHERE type = 'trigger' AND name = 'legacy_task_creation_retired'
-                """, Integer.class)).isOne();
-        assertThat(jdbc.queryForObject("""
-                SELECT COUNT(*) FROM sqlite_master
-                WHERE type = 'table' AND name = 'manual_pr_validation_operation'
-                """, Integer.class)).isOne();
-        assertThatThrownBy(() -> jdbc.update("""
-                INSERT INTO tasks(
-                    id, thread_id, seq, status, phase, created_at_ms,
-                    workflow_version)
-                VALUES ('new-legacy-task', 'trunk-1', 1, 'PENDING',
-                    'IMPLEMENTING', 2, 'LEGACY')
-                """))
-                .hasMessageContaining("LEGACY Task creation is retired");
-    }
-
-    private static void migrate(String url, String target)
-    {
-        FluentConfiguration configuration = Flyway.configure()
-                .dataSource(url, "", "")
-                .locations("classpath:db/migration")
-                .javaMigrations(
-                        new BackfillTurnLiveness(),
-                        new BackfillLocalReviewSubmissions(new ObjectMapper()),
-                        new NormalizeDeadLifecycleStates());
-        if (target != null) {
-            configuration.target(target);
-        }
-        configuration.load().migrate();
+        MigratedSqliteDatabase.migrate(url);
     }
 }

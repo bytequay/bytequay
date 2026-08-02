@@ -138,6 +138,13 @@ public final class PublishOperationHandler
                                 context.envelope().fence().operationId()),
                         claim.step(), "publish effect was not observed and its execution budget is exhausted");
             }
+            catch (BaseMovedException moved) {
+                finish(claim, StepStatus.FAILED, null, moved.getMessage());
+                return baseMoved(context.envelope(),
+                        operations.requireByOperationId(
+                                context.envelope().fence().operationId()),
+                        claim.step(), moved);
+            }
             catch (SubjectRejectedException rejected) {
                 finish(claim, StepStatus.FAILED, null, rejected.getMessage());
                 return failed(context.envelope(),
@@ -289,6 +296,7 @@ public final class PublishOperationHandler
                 snapshot.request().stageId(),
                 Disposition.PUBLISHED,
                 remote,
+                null,
                 null);
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), SUCCEEDED, json(payload),
@@ -309,11 +317,34 @@ public final class PublishOperationHandler
                 snapshot.request().stageId(),
                 Disposition.FAILED,
                 null,
-                error);
+                error,
+                null);
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), FAILED, json(payload),
                 json(resultEvidence(snapshot, Disposition.FAILED,
                         step == null ? null : step.kind())), error);
+    }
+
+    private DispatchTicket.DispatchResult baseMoved(
+            DispatchTicket.DispatchEnvelope envelope,
+            OperationSnapshot snapshot,
+            EffectStep step,
+            BaseMovedException moved)
+    {
+        PublishRawResult payload = new PublishRawResult(
+                PAYLOAD_VERSION,
+                snapshot.request().publishOperationId(),
+                snapshot.request().operationId(),
+                snapshot.request().taskId(),
+                snapshot.request().stageId(),
+                Disposition.BASE_MOVED,
+                null,
+                moved.getMessage(),
+                moved.observedBaseSha());
+        return new DispatchTicket.DispatchResult(
+                envelope.fence(), FAILED, json(payload),
+                json(resultEvidence(snapshot, Disposition.BASE_MOVED,
+                        step.kind())), moved.getMessage());
     }
 
     private DispatchTicket.DispatchResult canceled(
@@ -329,7 +360,8 @@ public final class PublishOperationHandler
                 snapshot.request().stageId(),
                 Disposition.CANCELED,
                 null,
-                error);
+                error,
+                null);
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), CANCELED, json(payload),
                 json(resultEvidence(snapshot, Disposition.CANCELED, null)), error);
@@ -515,6 +547,7 @@ public final class PublishOperationHandler
     public enum Disposition
     {
         PUBLISHED,
+        BASE_MOVED,
         FAILED,
         CANCELED
     }
@@ -747,7 +780,23 @@ public final class PublishOperationHandler
             String stageId,
             Disposition disposition,
             RemoteReference remote,
-            String error) {}
+            String error,
+            String observedBaseSha)
+    {
+        public PublishRawResult(
+                int version,
+                String publishOperationId,
+                String operationId,
+                String taskId,
+                String stageId,
+                Disposition disposition,
+                RemoteReference remote,
+                String error)
+        {
+            this(version, publishOperationId, operationId, taskId, stageId,
+                    disposition, remote, error, null);
+        }
+    }
 
     public record StepProof(
             EffectKind kind,
@@ -772,6 +821,24 @@ public final class PublishOperationHandler
         public MissingEffectException(String message)
         {
             super(requireNonNull(message, "message is null"));
+        }
+    }
+
+    public static final class BaseMovedException
+            extends RuntimeException
+    {
+        private final String observedBaseSha;
+
+        public BaseMovedException(String observedBaseSha)
+        {
+            super("remote base moved after publish authorization");
+            requireText(observedBaseSha, "observedBaseSha");
+            this.observedBaseSha = observedBaseSha;
+        }
+
+        public String observedBaseSha()
+        {
+            return observedBaseSha;
         }
     }
 

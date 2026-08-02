@@ -229,7 +229,8 @@ public final class ThreadTurnOperationHandler
                 || !endpoint.ownerId().equals(turn.turnId())
                 || !endpoint.operationId().equals(turn.operationId())
                 || endpoint.profile()
-                != AgentTurnProviderSession.ToolProfile.TRUNK_CONTROL_READ_ONLY) {
+                != AgentTurnProviderSession.ToolProfile.TRUNK_CONTROL_READ_ONLY
+                || endpoint.approvalPromptTool() == null) {
             return "tool endpoint is not scoped to the exact ThreadTurn";
         }
         CapacityManager.CapacityLane requiredLane = switch (input.transport()) {

@@ -241,6 +241,18 @@ public final class LocalDevelopmentStageManager
                 StageCheckpoint.LOCAL_REVIEW, StageCheckpoint.PUBLISHING);
     }
 
+    /**
+     * Hands an accepted first-publish base move to one exact BASE_SYNC
+     * StageTurn while the typed runtime owns the surrounding Task command.
+     */
+    public CommandResult<State> startPublishBaseSyncInCommand(
+            Command command, ResultFence result, String episodeId)
+    {
+        return moveWithProofAndPendingResultInCommand(
+                command, result, episodeId, "START_LOCAL_BASE_SYNC",
+                StageCheckpoint.LOCAL_REVIEW, StageCheckpoint.IMPLEMENTING);
+    }
+
     private AcceptedPublishAuthorization requirePublishAuthorization(PublishCommand command)
     {
         PublishAuthorizationEvidence persisted = evidence.findPublishAuthorization(

@@ -16,22 +16,30 @@ package com.bytequay.app.developmentflow.compatibility;
 import com.bytequay.app.beans.stage.ContextWindowDto;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailData;
+import com.bytequay.app.beans.stage.StageDetailData.BranchSyncRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.CiRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.CleanupRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.ConversationRow;
 import com.bytequay.app.beans.stage.StageDetailData.DetailTask;
+import com.bytequay.app.beans.stage.StageDetailData.FailedStageTurnRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.IterationDetail;
+import com.bytequay.app.beans.stage.StageDetailData.LocalPublishBaseSyncRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.RecoveryOptions;
 import com.bytequay.app.beans.stage.StageDetailData.Scrubber;
 import com.bytequay.app.beans.stage.StageDetailData.StageConfig;
 import com.bytequay.app.beans.stage.StageDetailData.StageInfo;
 import com.bytequay.app.beans.stage.StageDetailData.StageMetricsSubset;
+import com.bytequay.app.beans.stage.StageDetailData.StageTurnRecovery;
+import com.bytequay.app.beans.stage.StageDetailData.WorktreeQuarantineRecovery;
 import com.bytequay.app.beans.stage.StageDto;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.service.threads.CliStreamParser;
 import com.bytequay.app.service.threads.CodexJsonParser;
 import com.bytequay.app.service.threads.StreamJsonParser;
+import com.bytequay.app.service.threads.StreamLine;
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatusCode;
@@ -124,7 +132,16 @@ public final class V2StageApiService
                         stage.taskId(), stage.taskNumber(), stage.title(),
                         text(stage.branch()), text(stage.repositoryId()),
                         stage.prNumber(), stage.prDraft(),
-                        legacyPhase(stage.kind(), stage.checkpoint()),
+                        // The shell's Stage rail is Task-level: it must report
+                        // where the Task is now, not the Stage being read. A
+                        // closed Local Development page otherwise re-derived
+                        // the whole ladder from its own COMPLETED checkpoint.
+                        legacyPhase(
+                                stage.currentKind() != null
+                                        ? stage.currentKind() : stage.kind(),
+                                stage.currentCheckpoint() != null
+                                        ? stage.currentCheckpoint()
+                                        : stage.checkpoint()),
                         runtime(stage.runtime()), text(stage.model())),
                 new StageInfo(
                         stage.id(), legacyStageType(stage.kind()),
@@ -166,16 +183,79 @@ public final class V2StageApiService
     private RecoveryOptions recovery(StageFacts stage)
     {
         CiRecovery ci = jdbc.query("""
-                SELECT episode.id, episode.rerun_count, episode.rerun_limit,
+                SELECT episode.id, blocker.id AS blocker_id,
+                       blocker.blocker_type,
+                       episode.rerun_count, episode.rerun_limit,
                        episode.fix_attempt_count, episode.fix_attempt_limit,
                        episode.push_count, episode.push_limit
                   FROM ci_repair_episode episode
                   JOIN tasks task ON task.id = episode.task_id
                   JOIN task_current_stage current ON current.task_id = task.id
                   JOIN stage owner ON owner.id = current.stage_id
+                  JOIN task_current_code_subject_v230 code
+                    ON code.task_id = task.id
+                  JOIN remote_development_stage remote
+                    ON remote.stage_id = episode.remote_development_stage_id
+                  JOIN task_blocker blocker
+                    ON blocker.task_id = episode.task_id
+                   AND blocker.stage_id = episode.remote_development_stage_id
+                   AND blocker.status = 'OPEN'
+                   AND ((blocker.owner_kind = 'EPISODE'
+                         AND blocker.owner_id = episode.id)
+                     OR (blocker.blocker_type = 'CI_BRANCH_SYNC_REQUIRED'
+                         AND blocker.owner_kind = 'STAGE'
+                         AND blocker.owner_id =
+                             episode.remote_development_stage_id
+                         AND blocker.subject_revision =
+                             remote.accepted_snapshot_id)
+                     OR (blocker.blocker_type =
+                            'WORKTREE_RESTORE_QUARANTINED'
+                         AND blocker.owner_kind = 'OPERATION'
+                         AND EXISTS (
+                           SELECT 1
+                             FROM agent_turn_worktree_quarantine_v318 quarantine
+                            WHERE quarantine.id = blocker.subject_revision
+                              AND quarantine.status = 'OPEN'
+                              AND quarantine.task_id = episode.task_id
+                              AND quarantine.stage_id =
+                                  episode.remote_development_stage_id
+                              AND quarantine.source_operation_id =
+                                  blocker.owner_id
+                              AND (EXISTS (
+                                    SELECT 1
+                                      FROM ci_repair_operation source
+                                     WHERE source.ci_repair_episode_id =
+                                           episode.id
+                                       AND source.operation_id =
+                                           quarantine.source_operation_id)
+                                OR EXISTS (
+                                    SELECT 1
+                                      FROM ci_repair_fix_continuation_operation_v318
+                                           source
+                                     WHERE source.ci_repair_episode_id =
+                                           episode.id
+                                       AND source.operation_id =
+                                           quarantine.source_operation_id)))))
                  WHERE episode.task_id = ?
                    AND episode.remote_development_stage_id = ?
-                   AND episode.status = 'EXHAUSTED'
+                   AND ((episode.status = 'EXHAUSTED'
+                         AND blocker.blocker_type = 'CI_BUDGET_EXHAUSTED')
+                     OR (episode.status = 'OPEN'
+                         AND episode.classification = 'BASE_DETERMINISTIC'
+                         AND blocker.blocker_type =
+                             'CI_BASE_REPAIR_REQUIRED')
+                     OR (episode.status NOT IN (
+                             'SUCCEEDED', 'EXHAUSTED', 'STOPPED')
+                         AND blocker.blocker_type IN (
+                             'CI_REPAIR_NO_CHANGE',
+                             'CI_REPAIR_NO_CHANGE_RETRY_EXHAUSTED',
+                             'CI_REPAIR_OUTPUT_PROOF_MISSING',
+                             'CI_REPAIR_OUTPUT_MALFORMED',
+                             'CI_REPAIR_TURN_FAILED',
+                             'CI_BRANCH_SYNC_REQUIRED'))
+                     OR (episode.status = 'STOPPED'
+                         AND blocker.blocker_type =
+                             'WORKTREE_RESTORE_QUARANTINED'))
                    AND task.workflow_version = 'V2'
                    AND task.lifecycle_state = 'ACTIVE'
                    AND task.epoch = episode.task_epoch
@@ -185,16 +265,82 @@ public final class V2StageApiService
                    AND owner.kind = 'REMOTE_DEVELOPMENT'
                    AND owner.generation = episode.stage_generation
                    AND owner.completed_at_ms IS NULL
-                 ORDER BY episode.completed_at_ms DESC, episode.id
-                """, (rs, row) -> new CiRecovery(
-                        rs.getString("id"),
+                 ORDER BY CASE WHEN blocker.blocker_type =
+                                      'WORKTREE_RESTORE_QUARANTINED'
+                               THEN 0 ELSE 1 END,
+                          COALESCE(episode.completed_at_ms,
+                                   episode.opened_at_ms) DESC,
+                          episode.id
+                """, (rs, row) -> {
+                    String blockerType = rs.getString("blocker_type");
+                    boolean baseRepair = "CI_BASE_REPAIR_REQUIRED".equals(
+                            blockerType);
+                    boolean noChange = "CI_REPAIR_NO_CHANGE".equals(
+                            blockerType);
+                    boolean branchSync = "CI_BRANCH_SYNC_REQUIRED".equals(
+                            blockerType);
+                    boolean missingProof =
+                            "CI_REPAIR_OUTPUT_PROOF_MISSING".equals(
+                                    blockerType);
+                    boolean malformedOutput =
+                            "CI_REPAIR_OUTPUT_MALFORMED".equals(blockerType);
+                    boolean failedTurn =
+                            "CI_REPAIR_TURN_FAILED".equals(blockerType);
+                    boolean noChangeRetryExhausted =
+                            "CI_REPAIR_NO_CHANGE_RETRY_EXHAUSTED".equals(
+                                    blockerType);
+                    boolean quarantined =
+                            "WORKTREE_RESTORE_QUARANTINED".equals(
+                                    blockerType);
+                    return new CiRecovery(
+                        rs.getString("id"), rs.getString("blocker_id"),
+                        blockerType,
+                        baseRepair
+                                ? "A proven base-owned CI failure needs approval"
+                                : noChange
+                                    ? "Two CI repair turns made no committed tree change"
+                                : branchSync
+                                    ? "CI repair needs the Task branch synchronized first"
+                                : missingProof
+                                    ? "CI repair output lacks exact writer proof"
+                                : malformedOutput
+                                    ? "CI repair returned malformed strict output"
+                                : failedTurn
+                                    ? "CI repair execution failed on this exact subject"
+                                : quarantined
+                                    ? "CI repair could not restore the exact Task worktree"
+                                : noChangeRetryExhausted
+                                    ? "The final authorized CI repair still made no committed tree change"
+                                : "The CI fixing budget is exhausted",
                         rs.getInt("rerun_count"), rs.getInt("rerun_limit"),
                         rs.getInt("fix_attempt_count"),
                         rs.getInt("fix_attempt_limit"),
                         rs.getInt("push_count"), rs.getInt("push_limit"),
-                        List.of("EXTEND_BUDGET",
-                                "CONTINUE_WITH_PER_PUSH_APPROVAL",
-                                "MANUAL_TAKEOVER", "STOP_AUTOMATION")),
+                        baseRepair
+                                ? List.of("START_BASE_REPAIR",
+                                        "MANUAL_TAKEOVER", "STOP_AUTOMATION")
+                                : noChange
+                                    ? List.of("RETRY_ONCE", "MANUAL_TAKEOVER",
+                                            "STOP_AUTOMATION")
+                                : branchSync
+                                    ? List.of("START_BRANCH_SYNC",
+                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
+                                : missingProof
+                                    ? List.of(
+                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
+                                : malformedOutput || failedTurn
+                                    ? List.of(
+                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
+                                : quarantined
+                                    ? List.of(
+                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
+                                : noChangeRetryExhausted
+                                    ? List.of(
+                                            "MANUAL_TAKEOVER", "STOP_AUTOMATION")
+                                : List.of("EXTEND_BUDGET",
+                                        "CONTINUE_WITH_PER_PUSH_APPROVAL",
+                                        "MANUAL_TAKEOVER", "STOP_AUTOMATION"));
+                },
                 stage.taskId(), stage.id()).stream().findFirst().orElse(null);
 
         CleanupRecovery cleanup = jdbc.query("""
@@ -270,7 +416,347 @@ public final class V2StageApiService
                 }, stage.taskId(), stage.id()).stream()
                 .filter(value -> !value.actions().isEmpty())
                 .findFirst().orElse(null);
-        return new RecoveryOptions(ci, cleanup);
+        List<StageTurnRecovery> replacements = jdbc.query("""
+                SELECT turn.id AS stage_turn_id, ticket.last_error
+                  FROM dispatch_ticket ticket
+                  JOIN stage_turn turn
+                    ON turn.id = ticket.owner_id
+                   AND turn.operation_id = ticket.operation_id
+                  JOIN tasks task ON task.id = ticket.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                 WHERE task.id = ? AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND task.epoch = ticket.task_epoch
+                   AND owner.id = ? AND owner.task_id = task.id
+                   AND owner.generation = current.stage_generation
+                   AND owner.generation = ticket.stage_generation
+                   AND owner.completed_at_ms IS NULL AND owner.end_reason IS NULL
+                   AND owner.kind IN ('LOCAL_DEVELOPMENT', 'REMOTE_DEVELOPMENT')
+                   AND turn.stage_id = owner.id
+                   AND turn.stage_generation = owner.generation
+                   AND turn.task_epoch = task.epoch
+                   AND turn.status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                   AND ticket.owner_kind = 'STAGE_TURN'
+                   AND ticket.stage_id = owner.id
+                   AND ticket.status = 'RESULT_PENDING'
+                   AND ticket.pending_result_outcome = 'SUCCEEDED'
+                   AND ticket.delivery_acceptance IS NULL
+                   AND ticket.last_error LIKE ?
+                   AND EXISTS (SELECT 1 FROM agent_execution execution
+                        WHERE execution.ticket_id = ticket.id
+                          AND execution.infrastructure_attempt =
+                              ticket.infrastructure_attempts
+                          AND execution.status = 'SUCCEEDED'
+                          AND execution.finished_at_ms IS NOT NULL
+                          AND execution.raw_result IS NOT NULL)
+                   AND ((owner.kind = 'LOCAL_DEVELOPMENT'
+                         AND owner.checkpoint IN ('IMPLEMENTING',
+                             'ADDRESSING_BRAIN_FINDINGS',
+                             'ADDRESSING_LOCAL_FEEDBACK', 'LOCAL_REVIEW')
+                         AND ticket.callback_route = 'STAGE_TURN_RESULT'
+                         AND EXISTS (
+                             SELECT 1 FROM local_stage_turn_request request
+                              WHERE request.stage_turn_id = turn.id
+                                AND request.task_id = task.id
+                                AND request.local_development_stage_id = owner.id
+                                AND request.task_epoch = task.epoch
+                                AND request.stage_generation = owner.generation))
+                     OR (owner.kind = 'REMOTE_DEVELOPMENT'
+                         AND turn.purpose IN ('REMOTE_CI_REPAIR',
+                             'BRANCH_CONFLICT_REPAIR',
+                             'ADDRESS_REMOTE_FEEDBACK')
+                         AND ((turn.purpose = 'REMOTE_CI_REPAIR' AND EXISTS (
+                                  SELECT 1 FROM ci_repair_operation operation
+                                   WHERE operation.stage_turn_id = turn.id
+                                     AND operation.operation_id = turn.operation_id
+                                     AND operation.status = 'DISPATCHED'))
+                           OR (turn.purpose = 'BRANCH_CONFLICT_REPAIR' AND EXISTS (
+                                  SELECT 1 FROM branch_sync_dispatch_operation operation
+                                   WHERE operation.stage_turn_id = turn.id
+                                     AND operation.operation_id = turn.operation_id
+                                     AND operation.status = 'DISPATCHED'))
+                           OR (turn.purpose = 'ADDRESS_REMOTE_FEEDBACK' AND EXISTS (
+                                  SELECT 1 FROM remote_feedback_stage_turn_request request
+                                  JOIN remote_feedback_batch batch
+                                    ON batch.id = request.remote_feedback_batch_id
+                                   WHERE request.stage_turn_id = turn.id
+                                     AND batch.status = 'ADDRESSING')))))
+                   AND NOT EXISTS (
+                       SELECT 1 FROM stage_turn later
+                        WHERE later.stage_id = turn.stage_id
+                          AND later.stage_generation = turn.stage_generation
+                          AND later.rowid > turn.rowid)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM stage_steering_request_v257 request
+                        WHERE request.predecessor_operation_id = turn.operation_id
+                          AND request.mode = 'CANCEL_AND_REPLACE'
+                          AND request.status IN ('PENDING', 'ADMITTED'))
+                   AND NOT EXISTS (
+                       SELECT 1 FROM local_stage_turn_delivery_receipt receipt
+                        WHERE receipt.operation_id = turn.operation_id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM remote_runtime_delivery_receipt receipt
+                        WHERE receipt.operation_id = turn.operation_id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM ci_repair_delivery_receipt receipt
+                        WHERE receipt.operation_id = turn.operation_id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM branch_sync_delivery_receipt receipt
+                        WHERE receipt.operation_id = turn.operation_id)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM remote_repair_steering_delivery_v257 receipt
+                        WHERE receipt.operation_id = turn.operation_id)
+                """, (rs, row) -> new StageTurnRecovery(
+                        rs.getString("stage_turn_id"),
+                        DispatchTicket.resultProtocolFailureDetail(
+                                rs.getString("last_error"))),
+                stage.taskId(), stage.id(),
+                DispatchTicket.RESULT_PROTOCOL_FAILURE_PREFIX + "%");
+        StageTurnRecovery replacement = replacements.size() == 1
+                ? replacements.getFirst() : null;
+        FailedStageTurnRecovery failure = null;
+        if (tableAvailable("local_stage_turn_failure_v298")) {
+            List<FailedStageTurnRecovery> failures = jdbc.query("""
+                    SELECT failed.stage_turn_id, failed.blocker_id,
+                           failed.error_message
+                      FROM local_stage_turn_failure_v298 failed
+                      JOIN stage_turn turn ON turn.id = failed.stage_turn_id
+                      JOIN local_stage_turn_delivery_receipt delivery
+                        ON delivery.stage_turn_id = turn.id
+                       AND delivery.operation_id = turn.operation_id
+                      JOIN dispatch_ticket ticket
+                        ON ticket.operation_id = turn.operation_id
+                       AND ticket.owner_kind = 'STAGE_TURN'
+                       AND ticket.owner_id = turn.id
+                       AND ticket.callback_route = 'STAGE_TURN_RESULT'
+                      JOIN task_blocker blocker ON blocker.id = failed.blocker_id
+                      JOIN stage owner ON owner.id = failed.stage_id
+                      JOIN tasks task ON task.id = failed.task_id
+                      JOIN task_current_stage current ON current.task_id = task.id
+                     WHERE failed.task_id = ? AND failed.stage_id = ?
+                       AND turn.status = 'FAILED'
+                       AND delivery.acceptance = 'ACCEPTED'
+                       AND delivery.raw_outcome IN ('FAILED', 'INDETERMINATE')
+                       AND ticket.status = 'FAILED'
+                       AND ticket.delivery_acceptance = 'ACCEPTED'
+                       AND blocker.task_id = task.id
+                       AND blocker.stage_id = owner.id
+                       AND blocker.owner_kind = 'STAGE'
+                       AND blocker.owner_id = owner.id
+                       AND blocker.subject_revision = turn.id
+                       AND blocker.blocker_type = 'OPERATION_FAILED'
+                       AND blocker.status = 'OPEN'
+                       AND owner.kind = 'LOCAL_DEVELOPMENT'
+                       AND owner.generation = failed.stage_generation
+                       AND owner.version = failed.cleared_stage_version
+                       AND owner.completed_at_ms IS NULL
+                       AND owner.end_reason IS NULL
+                       AND task.workflow_version = 'V2'
+                       AND task.lifecycle_state = 'ACTIVE'
+                       AND task.epoch = turn.task_epoch
+                       AND current.stage_id = owner.id
+                       AND current.stage_generation = owner.generation
+                       AND NOT EXISTS (
+                           SELECT 1 FROM local_stage_turn_retry_v298 retry
+                            WHERE retry.failure_id = failed.id
+                               OR retry.blocker_id = failed.blocker_id
+                               OR retry.predecessor_turn_id = turn.id)
+                    """, (rs, row) -> new FailedStageTurnRecovery(
+                            rs.getString("stage_turn_id"),
+                            rs.getString("blocker_id"),
+                            rs.getString("error_message")),
+                    stage.taskId(), stage.id());
+            failure = failures.size() == 1 ? failures.getFirst() : null;
+        }
+        List<LocalPublishBaseSyncRecovery> localPublishBaseSyncs = jdbc.query("""
+                SELECT blocker.id, blocker.blocker_type,
+                       CASE WHEN blocker.blocker_type =
+                            'LOCAL_PUBLISH_BASE_SYNC_REQUIRED'
+                            THEN NULL ELSE blocker.subject_revision END
+                            AS episode_id,
+                       json_extract(blocker.payload_json,
+                           '$.sourceBaseSha') AS source_base_sha,
+                       json_extract(blocker.payload_json,
+                           '$.targetBaseSha') AS target_base_sha,
+                       json_extract(blocker.payload_json,
+                           '$.attemptNo') AS attempt_no,
+                       json_extract(blocker.payload_json,
+                           '$.attemptLimit') AS attempt_limit
+                  FROM task_blocker blocker
+                  JOIN tasks task ON task.id = blocker.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                 WHERE blocker.task_id = ? AND blocker.stage_id = ?
+                   AND blocker.owner_kind = 'STAGE'
+                   AND blocker.owner_id = owner.id
+                   AND blocker.blocker_type IN (
+                       'LOCAL_PUBLISH_BASE_SYNC_REQUIRED',
+                       'LOCAL_PUBLISH_BASE_SYNC_RETRY_REQUIRED',
+                       'LOCAL_PUBLISH_BASE_SYNC_EXHAUSTED')
+                   AND blocker.status = 'OPEN'
+                   AND json_valid(blocker.payload_json)
+                   AND typeof(json_extract(blocker.payload_json,
+                       '$.sourcePublishOperationId')) = 'text'
+                   AND (blocker.blocker_type <>
+                            'LOCAL_PUBLISH_BASE_SYNC_REQUIRED'
+                     OR blocker.subject_revision = json_extract(
+                            blocker.payload_json, '$.sourcePublishOperationId'))
+                   AND typeof(json_extract(blocker.payload_json,
+                       '$.sourceBaseSha')) = 'text'
+                   AND length(trim(json_extract(blocker.payload_json,
+                       '$.sourceBaseSha'))) > 0
+                   AND typeof(json_extract(blocker.payload_json,
+                       '$.targetBaseSha')) = 'text'
+                   AND length(trim(json_extract(blocker.payload_json,
+                       '$.targetBaseSha'))) > 0
+                   AND json_extract(blocker.payload_json, '$.sourceBaseSha') <>
+                       json_extract(blocker.payload_json, '$.targetBaseSha')
+                   AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND current.stage_id = blocker.stage_id
+                   AND owner.task_id = task.id
+                   AND owner.kind = 'LOCAL_DEVELOPMENT'
+                   AND owner.generation = current.stage_generation
+                   AND owner.checkpoint = 'LOCAL_REVIEW'
+                   AND owner.completed_at_ms IS NULL
+                   AND owner.end_reason IS NULL
+                 ORDER BY blocker.opened_at_ms, blocker.id
+                """, (rs, row) -> new LocalPublishBaseSyncRecovery(
+                        rs.getString("id"), rs.getString("blocker_type"),
+                        rs.getString("episode_id"),
+                        rs.getString("source_base_sha"),
+                        rs.getString("target_base_sha"),
+                        nullableInt(rs, "attempt_no"),
+                        nullableInt(rs, "attempt_limit"),
+                        localBaseSyncMessage(rs.getString("blocker_type"))),
+                stage.taskId(), stage.id());
+        LocalPublishBaseSyncRecovery localPublishBaseSync =
+                localPublishBaseSyncs.size() == 1
+                        ? localPublishBaseSyncs.getFirst() : null;
+        BranchSyncRecovery branchSync = jdbc.query("""
+                SELECT episode.id, exhaustion.blocker_id,
+                       exhaustion.reason, episode.attempt_count,
+                       episode.attempt_limit
+                  FROM branch_sync_exhaustion_v319 exhaustion
+                  JOIN branch_sync_episode episode
+                    ON episode.id = exhaustion.branch_sync_episode_id
+                  JOIN task_blocker blocker
+                    ON blocker.id = exhaustion.blocker_id
+                  JOIN tasks task ON task.id = exhaustion.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                  JOIN remote_development_stage remote
+                    ON remote.stage_id = exhaustion.stage_id
+                  JOIN task_current_code_subject_v230 code
+                    ON code.task_id = task.id
+                 WHERE exhaustion.task_id = ? AND exhaustion.stage_id = ?
+                   AND episode.status = 'FAILED'
+                   AND episode.task_id = task.id
+                   AND episode.remote_development_stage_id = owner.id
+                   AND episode.task_epoch = task.epoch
+                   AND episode.stage_generation = owner.generation
+                   AND blocker.task_id = task.id
+                   AND blocker.stage_id = owner.id
+                   AND blocker.owner_kind = 'EPISODE'
+                   AND blocker.owner_id = episode.id
+                   AND blocker.subject_revision = episode.id
+                   AND blocker.blocker_type = 'BRANCH_SYNC_EXHAUSTED'
+                   AND blocker.status = 'OPEN'
+                   AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND current.stage_id = owner.id
+                   AND current.stage_generation = owner.generation
+                   AND owner.kind = 'REMOTE_DEVELOPMENT'
+                   AND owner.completed_at_ms IS NULL
+                   AND remote.current_head_sha = exhaustion.remote_head_sha
+                   AND remote.current_base_sha = exhaustion.remote_base_sha
+                   AND code.code_fingerprint = exhaustion.code_fingerprint
+                   AND code.head_sha = exhaustion.code_head_sha
+                   AND code.base_sha = exhaustion.code_base_sha
+                 ORDER BY exhaustion.exhausted_at_ms DESC, episode.id
+                """, (rs, row) -> new BranchSyncRecovery(
+                        rs.getString("id"), rs.getString("blocker_id"),
+                        rs.getString("reason"), rs.getInt("attempt_count"),
+                        rs.getInt("attempt_limit"),
+                        List.of("MANUAL_TAKEOVER", "STOP_AUTOMATION")),
+                stage.taskId(), stage.id()).stream().findFirst().orElse(null);
+        WorktreeQuarantineRecovery worktreeQuarantine = jdbc.query("""
+                SELECT quarantine.id, blocker.id AS blocker_id,
+                       quarantine.source_operation_id, quarantine.reason,
+                       task.epoch AS task_epoch, owner.id AS stage_id,
+                       owner.generation AS stage_generation,
+                       quarantine.worktree_path,
+                       quarantine.expected_branch_name,
+                       quarantine.expected_code_fingerprint,
+                       quarantine.expected_head_sha,
+                       code.base_sha AS expected_base_sha,
+                       repair.id AS repair_operation_id,
+                       repair.status AS repair_status
+                  FROM agent_turn_worktree_quarantine_v318 quarantine
+                  JOIN stage_turn turn
+                    ON turn.operation_id = quarantine.source_operation_id
+                  JOIN task_blocker blocker
+                    ON blocker.subject_revision = quarantine.id
+                   AND blocker.owner_kind = 'OPERATION'
+                   AND blocker.owner_id = quarantine.source_operation_id
+                  JOIN tasks task ON task.id = quarantine.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                  JOIN task_current_code_subject_v230 code
+                    ON code.task_id = task.id
+                  JOIN task_code_identity identity ON identity.task_id = task.id
+                  LEFT JOIN worktree_quarantine_repair_operation_v318 repair
+                    ON repair.id = (
+                        SELECT candidate.id
+                          FROM worktree_quarantine_repair_operation_v318 candidate
+                         WHERE candidate.quarantine_id = quarantine.id
+                         ORDER BY candidate.requested_at_ms DESC,
+                                  candidate.attempt DESC
+                         LIMIT 1)
+                 WHERE quarantine.task_id = ? AND owner.id = ?
+                   AND quarantine.status = 'OPEN'
+                   AND blocker.task_id = task.id
+                   AND blocker.stage_id = quarantine.stage_id
+                   AND blocker.blocker_type =
+                       'WORKTREE_RESTORE_QUARANTINED'
+                   AND blocker.status = 'OPEN'
+                   AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND current.stage_id = owner.id
+                   AND current.stage_generation = owner.generation
+                   AND turn.stage_id = quarantine.stage_id
+                   AND code.code_fingerprint =
+                       quarantine.expected_code_fingerprint
+                   AND code.head_sha = quarantine.expected_head_sha
+                   AND identity.worktree_path = quarantine.worktree_path
+                   AND identity.branch_name = quarantine.expected_branch_name
+                   AND owner.completed_at_ms IS NULL
+                 ORDER BY quarantine.opened_at_ms DESC, quarantine.id
+                """, (rs, row) -> {
+                    String repairStatus = rs.getString("repair_status");
+                    boolean live = "REQUESTED".equals(repairStatus)
+                            || "DISPATCHED".equals(repairStatus);
+                    return new WorktreeQuarantineRecovery(
+                            rs.getString("id"), rs.getString("blocker_id"),
+                            rs.getString("source_operation_id"),
+                            rs.getLong("task_epoch"),
+                            rs.getString("stage_id"),
+                            rs.getLong("stage_generation"),
+                            rs.getString("worktree_path"),
+                            rs.getString("expected_branch_name"),
+                            rs.getString("expected_code_fingerprint"),
+                            rs.getString("expected_head_sha"),
+                            rs.getString("expected_base_sha"),
+                            rs.getString("repair_operation_id"), repairStatus,
+                            live ? "Worktree repair is queued or running"
+                                    : rs.getString("reason"),
+                            live ? List.of() : List.of("REPAIR_WORKTREE"));
+                },
+                stage.taskId(), stage.id()).stream().findFirst().orElse(null);
+        return new RecoveryOptions(
+                ci, cleanup, replacement, failure, localPublishBaseSync,
+                branchSync, worktreeQuarantine);
     }
 
     /** Cancels only live AgentTurn tickets for the exact current Stage fence. */
@@ -517,9 +1003,13 @@ public final class V2StageApiService
                             THEN json_extract(context.work_model_snapshot, '$.kind')
                             ELSE NULL END AS runtime,
                        brain.model, binding.remote_pr_number,
-                       COALESCE(snapshot.pr_state, remote_pr.status) AS pr_state
+                       COALESCE(snapshot.pr_state, remote_pr.status) AS pr_state,
+                       current_owner.kind AS current_kind,
+                       current_owner.checkpoint AS current_checkpoint
                 FROM stage owner
                 JOIN tasks task ON task.id = owner.task_id
+                LEFT JOIN task_current_stage pointer ON pointer.task_id = task.id
+                LEFT JOIN stage current_owner ON current_owner.id = pointer.stage_id
                 LEFT JOIN task_code_identity identity ON identity.task_id = task.id
                 LEFT JOIN task_creation_context context ON context.task_id = task.id
                 LEFT JOIN task_brain brain ON brain.task_id = task.id
@@ -610,9 +1100,89 @@ public final class V2StageApiService
                             "execution-assistant-" + rs.getString("id"),
                             "agent", body, rs.getLong("finished_at_ms"));
                 }, stageId).stream().filter(row -> row != null).toList());
+        rows.addAll(toolCalls(stageId));
         rows.sort(Comparator.comparing(ConversationRow::ts)
                 .thenComparing(ConversationRow::id));
         return List.copyOf(rows);
+    }
+
+    /**
+     * Replays the durable provider frames of this Stage's executions as tool
+     * rows. The live stream clears its own compact activity list on TurnDone,
+     * so without this replay a finished Stage lost every tool call it had just
+     * shown and kept only its prompt and final result.
+     */
+    private List<ConversationRow> toolCalls(String stageId)
+    {
+        return jdbc.query("""
+                SELECT log.execution_id, log.seq, log.created_at_ms,
+                       CASE WHEN json_valid(log.payload)
+                            THEN json_extract(log.payload, '$.line')
+                            END AS line
+                FROM agent_execution_log log
+                JOIN agent_execution execution
+                  ON execution.id = log.execution_id
+                JOIN dispatch_ticket ticket ON ticket.id = execution.ticket_id
+                WHERE ticket.stage_id = ?
+                ORDER BY log.created_at_ms, log.execution_id, log.seq
+                """, (rs, row) -> toolRows(
+                        rs.getString("execution_id"), rs.getLong("seq"),
+                        rs.getString("line"), rs.getLong("created_at_ms")),
+                stageId).stream().flatMap(List::stream).toList();
+    }
+
+    /** One row per {@code tool_use} block in an assistant frame; other frame
+     *  kinds (deltas, system, results) carry no tool evidence. */
+    private List<ConversationRow> toolRows(
+            String executionId, long seq, String line, long at)
+    {
+        if (line == null) {
+            // Not every log row is a JSON provider frame; older raw traces are
+            // plain strings and carry no tool evidence.
+            return List.of();
+        }
+        StreamLine parsed;
+        try {
+            parsed = json.readValue(line, StreamLine.class);
+        }
+        catch (JacksonException ignored) {
+            // A frame we cannot type is dropped, exactly as the live parser
+            // drops it; it must never break the transcript read.
+            return List.of();
+        }
+        if (!(parsed instanceof StreamLine.Assistant assistant)
+                || assistant.message() == null) {
+            return List.of();
+        }
+        List<ConversationRow> rows = new ArrayList<>();
+        for (StreamLine.ContentBlock block : assistant.message().content()) {
+            if (block instanceof StreamLine.ContentBlock.ToolUse use) {
+                rows.add(new ConversationRow(
+                        "tool-" + executionId + "-" + seq + "-" + use.id(),
+                        null, "tool_call", null, use.name(), use.name(),
+                        toolDetail(use.input()), null, null, null, null,
+                        instant(at).toString(), null,
+                        List.of(), List.of(), null));
+            }
+        }
+        return rows;
+    }
+
+    /** The one argument worth showing beside a tool name — the command or the
+     *  path it acted on, matching the live activity row's own choice. */
+    private static String toolDetail(JsonNode input)
+    {
+        if (input == null) {
+            return null;
+        }
+        for (String field : List.of(
+                "command", "path", "file_path", "query", "pattern", "text")) {
+            JsonNode value = input.get(field);
+            if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                return value.asText();
+            }
+        }
+        return null;
     }
 
     private List<ConversationRow> conversation(RunFacts run)
@@ -769,7 +1339,8 @@ public final class V2StageApiService
                 rs.getLong("seq"), name == null || name.isBlank() ? text(branch) : name,
                 branch, rs.getString("repository_id"), rs.getString("runtime"),
                 rs.getString("model"), nullableInt(rs, "remote_pr_number"),
-                prState != null && prState.toUpperCase(Locale.ROOT).contains("DRAFT"));
+                prState != null && prState.toUpperCase(Locale.ROOT).contains("DRAFT"),
+                rs.getString("current_kind"), rs.getString("current_checkpoint"));
     }
 
     private static Integer currentIteration(List<TurnFacts> turns)
@@ -795,6 +1366,13 @@ public final class V2StageApiService
 
     private static String legacyPhase(String kind, String checkpoint)
     {
+        // Mirrors V2DevelopmentFlowProjection#phase: a COMPLETED checkpoint is
+        // not a live phase, so it must never fall through to the IMPLEMENTING
+        // default below.
+        if (kind == null || checkpoint == null || "COMPLETED".equals(checkpoint)) {
+            return "CLEANUP".equals(kind) && "COMPLETED".equals(checkpoint)
+                    ? "COMPLETED" : null;
+        }
         if ("PLAN".equals(kind)) {
             return "PLANNING";
         }
@@ -860,6 +1438,15 @@ public final class V2StageApiService
         return value == null ? "" : value;
     }
 
+    private boolean tableAvailable(String table)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = ?
+                """, Integer.class, table);
+        return count != null && count == 1;
+    }
+
     private static Long nullableLong(ResultSet rs, String column)
             throws SQLException
     {
@@ -874,12 +1461,27 @@ public final class V2StageApiService
         return rs.wasNull() ? null : value;
     }
 
+    private static String localBaseSyncMessage(String blockerType)
+    {
+        return switch (blockerType) {
+            case "LOCAL_PUBLISH_BASE_SYNC_REQUIRED" ->
+                    "The remote base moved before the first push";
+            case "LOCAL_PUBLISH_BASE_SYNC_RETRY_REQUIRED" ->
+                    "The approved base sync failed; approve one more attempt";
+            case "LOCAL_PUBLISH_BASE_SYNC_EXHAUSTED" ->
+                    "Local base-sync attempts are exhausted; extend by one attempt";
+            default -> throw new IllegalArgumentException(
+                    "Unsupported local base-sync blocker: " + blockerType);
+        };
+    }
+
     private record StageFacts(
             String id, String taskId, String kind, long generation,
             String checkpoint, long openedAtMs, Long completedAtMs,
             String endReason, long taskNumber, String title, String branch,
             String repositoryId, String runtime, String model,
-            Integer prNumber, boolean prDraft) {}
+            Integer prNumber, boolean prDraft,
+            String currentKind, String currentCheckpoint) {}
 
     private record TurnFacts(
             String id, String purpose, String status, String launchInput,

@@ -43,10 +43,12 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -56,7 +58,8 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.sqlite.SQLiteDataSource;
+
+import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -77,6 +80,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(SqliteTestPools.class)
 class TestV2LocalStageStore
 {
     @TempDir
@@ -86,7 +90,7 @@ class TestV2LocalStageStore
     void exactCommittedStageResultMaterializesTheStableTaskPr()
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc, "legacy-wrong");
         freezeContextBaseForMigratedFixture(jdbc, "master");
@@ -154,7 +158,7 @@ class TestV2LocalStageStore
     void developmentReportOwnershipRollsBackWithItsAcceptedCommand()
             throws Exception
     {
-        SQLiteDataSource dataSource = database("development-report-rollback.db");
+        DataSource dataSource = database("development-report-rollback.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedImplementationRequest(jdbc);
@@ -209,7 +213,7 @@ class TestV2LocalStageStore
     @Test
     void strictCreationAuthorityFreezesTheTaskBaseBeforeDevelopmentStarts()
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc, null);
 
@@ -255,7 +259,7 @@ class TestV2LocalStageStore
     @Test
     void changedCodeSubjectCanAdvanceImplementationToValidation()
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         ResultFence source = new ResultFence(
@@ -321,7 +325,7 @@ class TestV2LocalStageStore
     void brainBudgetExhaustionTerminalizesAndClearsExactTaskFence()
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedBrainReview(jdbc);
@@ -408,7 +412,7 @@ class TestV2LocalStageStore
     void approvedBrainVerdictOpensLocalReviewExactlyOnce()
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedBrainReview(jdbc);
@@ -457,7 +461,7 @@ class TestV2LocalStageStore
     void localReviewPrFailureRollsBackTheAcceptedBrainBoundary()
             throws Exception
     {
-        SQLiteDataSource dataSource = database("brain-pr-rollback.db");
+        DataSource dataSource = database("brain-pr-rollback.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedBrainReview(jdbc);
@@ -513,7 +517,7 @@ class TestV2LocalStageStore
     void brainChangesVerdictCreatesOneExactStageOwnedFixTurn()
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedBrainReview(jdbc);
@@ -594,7 +598,7 @@ class TestV2LocalStageStore
     void taskCancellationSupersedesItsLateBrainResult()
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedBrainReview(jdbc);
@@ -659,7 +663,7 @@ class TestV2LocalStageStore
     void successfulV299BrainResultCanFailProtocolAndRetryAfterV300Restart()
             throws Exception
     {
-        SQLiteDataSource dataSource = database("brain-v300-upgrade.db");
+        DataSource dataSource = database("brain-v300-upgrade.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         ObjectMapper mapper = new ObjectMapper();
@@ -1132,7 +1136,7 @@ class TestV2LocalStageStore
             String name, String finalText)
             throws Exception
     {
-        SQLiteDataSource dataSource = database("brain-invalid-" + name + ".db");
+        DataSource dataSource = database("brain-invalid-" + name + ".db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedBrainReview(jdbc);
@@ -1177,7 +1181,7 @@ class TestV2LocalStageStore
     void brainProtocolFailureReceiptRejectsWrongTrunkAndPartialLastBrainIdentity()
             throws Exception
     {
-        SQLiteDataSource dataSource = database("brain-receipt-invariants.db");
+        DataSource dataSource = database("brain-receipt-invariants.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedBrainReview(jdbc);
@@ -1249,7 +1253,7 @@ class TestV2LocalStageStore
     void malformedUserWaitSuccessorClearsLogicalFenceAndRetriesExactDelivery()
             throws Exception
     {
-        SQLiteDataSource dataSource = database("brain-continuation-v300.db");
+        DataSource dataSource = database("brain-continuation-v300.db");
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         ObjectMapper mapper = new ObjectMapper();
@@ -1391,7 +1395,7 @@ class TestV2LocalStageStore
     void malformedPendingResultCanBeProjectedReplacedAndReplayedExactlyOnce()
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         ObjectMapper mapper = new ObjectMapper();
@@ -1519,11 +1523,19 @@ class TestV2LocalStageStore
                 (String) admission.get("successor_operation_id");
         JsonNode replacementLaunch = mapper.readTree(
                 (String) admission.get("launch_input"));
+        // Design 3.35: the replacement carries a bounded rejection brief —
+        // reason, rejected Turn id, where the work already is, and how to read
+        // the transcript — never the inlined provider trace, which a second
+        // replacement would otherwise embed twice.
         assertThat(replacementLaunch.path("prompt").asText())
                 .contains("Implement the approved frozen plan exactly.")
-                .contains("malformed provider trace")
+                .contains("rejected before it could be accepted")
                 .contains("Local result is not strict JSON")
-                .contains("Retry this exact Local Development operation");
+                .contains("Rejected Turn: ")
+                .contains("already in this worktree")
+                .contains("read_dev_conversation")
+                .contains("Retry this exact Local Development operation")
+                .doesNotContain("malformed provider trace");
         assertThat(replacementLaunch.has("resumeSessionId")).isFalse();
         assertThat(replacementLaunch.has("fallbackPrompt")).isFalse();
         assertThat(replacementLaunch.has("priorCumulativeInputTokens")).isFalse();
@@ -1584,7 +1596,7 @@ class TestV2LocalStageStore
     void acceptedFailedStageTurnRetriesOnceFromCompleteDurableContext()
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         freezeContextBaseForMigratedFixture(jdbc, "master");
@@ -1862,7 +1874,7 @@ class TestV2LocalStageStore
             boolean continueOrdinaryRetry)
             throws Exception
     {
-        SQLiteDataSource dataSource = database(databaseName);
+        DataSource dataSource = database(databaseName);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         ObjectMapper mapper = new ObjectMapper();
@@ -2064,7 +2076,7 @@ class TestV2LocalStageStore
     }
 
     private record BrainRepairHarness(
-            SQLiteDataSource dataSource,
+            DataSource dataSource,
             JdbcTemplate jdbc,
             ObjectMapper mapper,
             LocalDevelopmentRuntimeCoordinator owner,
@@ -2092,7 +2104,7 @@ class TestV2LocalStageStore
             String expectedMessage)
             throws Exception
     {
-        SQLiteDataSource dataSource = database();
+        DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedImplementationRequest(jdbc);
@@ -2474,18 +2486,17 @@ class TestV2LocalStageStore
                 """, ticketId);
     }
 
-    private SQLiteDataSource database()
+    private DataSource database()
     {
         return database("local-store.db");
     }
 
-    private SQLiteDataSource database(String name)
+    private DataSource database(String name)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
         MigratedSqliteDatabase.migrate(url);
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url);
+        DataSource dataSource = SqliteTestPools.open(url);
         return dataSource;
     }
 
@@ -2632,7 +2643,7 @@ class TestV2LocalStageStore
     }
 
     private static void completeTicket(
-            SQLiteDataSource dataSource,
+            DataSource dataSource,
             String ticketId,
             DispatchTicket.DeliveryReceipt receipt)
     {

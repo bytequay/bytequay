@@ -952,6 +952,8 @@ export function StageDetailRoute({
         workspaceName,
         metaLine: sidebarPhase.replace(/_/g, ' ').toLowerCase(),
         finished: taskCompleted || (data === null && brain.task.terminal),
+        closed: brain.task.statusLabel === 'CANCELLED'
+          || brain.task.statusLabel === 'CLOSED',
       }}
       threadLabel={trunkLabel}
       threadId={threadId}

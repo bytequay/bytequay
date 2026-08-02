@@ -43,7 +43,6 @@ import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -172,8 +171,6 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Bootstrapped bootstrap = bootstrap("plan-user-wait.db");
-        Flyway.configure().dataSource(bootstrap.dataSource())
-                .load().migrate();
         Runtime first = runtime(bootstrap.dataSource());
         RunningTurn predecessor = startCurrentTurn(
                 bootstrap.jdbc(), bootstrap.taskId());
@@ -278,8 +275,6 @@ class TestPlanRuntimeCoordinator
                 new Case("provider-mismatch", "claude-code", "foreign-session"),
                 new Case("missing-session", "codex", null))) {
             Bootstrapped bootstrap = bootstrap("plan-wait-" + test.name() + ".db");
-            Flyway.configure().dataSource(bootstrap.dataSource())
-                    .load().migrate();
             Runtime runtime = runtime(bootstrap.dataSource());
             RunningTurn predecessor = startCurrentTurn(
                     bootstrap.jdbc(), bootstrap.taskId());
@@ -340,8 +335,6 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Bootstrapped bootstrap = bootstrap("plan-wait-live-consumer.db");
-        Flyway.configure().dataSource(bootstrap.dataSource())
-                .load().migrate();
         Runtime runtime = runtime(bootstrap.dataSource());
         RunningTurn predecessor = startCurrentTurn(
                 bootstrap.jdbc(), bootstrap.taskId());
@@ -422,8 +415,6 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Bootstrapped bootstrap = bootstrap("plan-resume-review.db");
-        Flyway.configure().dataSource(bootstrap.dataSource())
-                .load().migrate();
         Runtime first = runtime(bootstrap.dataSource());
         JdbcTemplate jdbc = bootstrap.jdbc();
 
@@ -603,8 +594,6 @@ class TestPlanRuntimeCoordinator
             throws Exception
     {
         Bootstrapped bootstrap = bootstrap("plan-draft-recovery.db");
-        Flyway.configure().dataSource(bootstrap.dataSource())
-                .load().migrate();
         JdbcTemplate jdbc = bootstrap.jdbc();
         PlanRuntimeCoordinator plan = runtime(bootstrap.dataSource()).plan();
         RunningTurn failed = startCurrentTurn(jdbc, bootstrap.taskId());

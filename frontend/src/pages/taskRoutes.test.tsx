@@ -99,7 +99,7 @@ describe('TaskBrainRoute', () => {
     render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
 
     expect(await screen.findByText('Task needs attention')).toBeTruthy();
-    expect(screen.getByText('operation failed — blocker-1')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('operation failed — blocker-1')).toBeTruthy());
     expect(document.querySelector('.sp-appr__actions')).toBeNull();
     expect(screen.queryByRole('button', { name: /Resume/ })).toBeNull();
   });
@@ -256,7 +256,7 @@ describe('TaskBrainRoute', () => {
     fireEvent.click(await screen.findByRole('button', {
       name: 'Retry Brain review · NEEDS ATTENTION',
     }));
-    expect(screen.getByText('Retry Remote repair Brain review?')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Retry Remote repair Brain review?')).toBeTruthy());
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {
       name: 'Retry Brain review',
     }));
@@ -388,7 +388,7 @@ describe('TaskBrainRoute', () => {
     const changesTab = (await screen.findAllByRole('button', { name: /Changes/ }))
       .find(button => button.closest('.workspace-task-v2__pr') !== null) as HTMLButtonElement;
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
-    expect(screen.getByRole('button', { name: 'Toggle PR panel' }).getAttribute('aria-pressed')).toBe('true');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Toggle PR panel' }).getAttribute('aria-pressed')).toBe('true'));
     expect(fetchPrDiffFiles).not.toHaveBeenCalled();
 
     const fetchesBeforeReview = getLocalPrBundle.mock.calls.length;
@@ -417,14 +417,14 @@ describe('TaskBrainRoute', () => {
     const hash = window.location.hash;
     fireEvent.click(screen.getByRole('button', { name: 'Maximize pull request details' }));
     const dialog = screen.getByRole('dialog', { name: 'Pull request details' });
-    expect(document.querySelector('.workspace-task-v2')).toBe(taskPage);
-    expect(within(dialog).getByRole('button', { name: /Changes/ })).toBe(changesTab);
+    await waitFor(() => expect(document.querySelector('.workspace-task-v2')).toBe(taskPage));
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: /Changes/ })).toBe(changesTab));
     expect(changesTab.style.fontWeight).toBe('600');
     expect(window.location.hash).toBe(hash);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close pull request details' }));
     expect(screen.queryByRole('dialog', { name: 'Pull request details' })).toBeNull();
-    expect(document.querySelector('.workspace-task-v2')).toBe(taskPage);
+    await waitFor(() => expect(document.querySelector('.workspace-task-v2')).toBe(taskPage));
   });
 
   it('owns Local Review approval in the conversation, not the right Overview panel', async () => {
@@ -476,7 +476,7 @@ describe('TaskBrainRoute', () => {
     const approve = await screen.findByRole('button', { name: 'Approve & ship' });
     expect(approve.closest('.workspace-task-v2__conversation')).toBeTruthy();
     const prPane = document.querySelector('.workspace-task-v2__pr') as HTMLElement;
-    expect(within(prPane).getByText('All checks have passed')).toBeTruthy();
+    await waitFor(() => expect(within(prPane).getByText('All checks have passed')).toBeTruthy());
     expect(prPane.querySelector('.merge-box')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Submit review • 0' }));
     const reviewDialog = screen.getByRole('dialog', { name: 'Submit review' });
@@ -486,7 +486,7 @@ describe('TaskBrainRoute', () => {
     ));
     fireEvent.click(approve);
     expect(await screen.findByRole('dialog')).toBeTruthy();
-    expect(screen.getByText('Push to GitHub')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Push to GitHub')).toBeTruthy());
     expect(approveNotification).not.toHaveBeenCalled();
   });
 
@@ -599,8 +599,11 @@ describe('TaskBrainRoute', () => {
     />);
 
     await screen.findByText('Build the meter');
-    expect(document.querySelector('.plan-feed-event__copy strong')?.textContent)
-      .toBe('Brain reviewing plan');
+    // The label also depends on the Task runs load, which lands after the
+    // plan steps render.
+    await waitFor(() => expect(
+      document.querySelector('.plan-feed-event__copy strong')?.textContent)
+      .toBe('Brain reviewing plan'));
     const approveButton = screen.getByRole('button', { name: /Approve & start dev/ }) as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'View review log' }));
@@ -660,8 +663,8 @@ describe('TaskBrainRoute', () => {
 
     await screen.findByText('Build the meter');
     // Auto-approve lives in the plan card's policy toolbar, not the top bar.
-    expect(document.querySelector('.plan-pipeline-card')).toBeTruthy();
-    expect(screen.getByText('Auto-approve')).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('.plan-pipeline-card')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Auto-approve')).toBeTruthy());
     // The old top-bar button (with its dynamic "Auto-approve on/off" label) is gone.
     expect(screen.queryByText(/^Auto-approve (on|off)$/)).toBeNull();
   });
@@ -796,7 +799,7 @@ describe('StageDetailRoute', () => {
       threadId="t1" taskId="task-quarantined" stageId="stage-current" />);
 
     expect(await screen.findByText('Task worktree is quarantined')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Repair worktree' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Repair worktree' })).toBeTruthy());
     const composer = screen.getByRole('textbox', { name: 'Message' });
     expect((composer as HTMLTextAreaElement).disabled).toBe(true);
     fireEvent.change(composer, { target: { value: 'ordinary stage turn' } });
@@ -1122,7 +1125,9 @@ describe('StageDetailRoute', () => {
     render(<StageDetailRoute threadId="t1" taskId="task-retry-stage" stageId="stage-retry" />);
 
     const composer = await screen.findByRole('textbox', { name: 'Message' });
-    expect((composer as HTMLTextAreaElement).disabled).toBe(true);
+    // The composer renders before the recovery projection lands, so it is
+    // briefly enabled.
+    await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(true));
     fireEvent.change(composer, { target: { value: 'start another turn' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
     expect(steerStage).not.toHaveBeenCalled();
@@ -1224,7 +1229,7 @@ describe('StageDetailRoute', () => {
     currentDetail = failedDetail;
     onStageEvent?.({ name: 'TurnDone', data: {} });
     await waitFor(() => expect((composer as HTMLTextAreaElement).disabled).toBe(true));
-    expect(screen.getByText('queued before the failure')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('queued before the failure')).toBeTruthy());
     expect(steerStage).not.toHaveBeenCalled();
 
     fireEvent.click(await screen.findByRole('button', { name: /Retry stage/ }));
@@ -1349,7 +1354,7 @@ describe('StageDetailRoute', () => {
     render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-remote" />);
 
     const card = (await screen.findByText('Changed 1 file')).closest('.workspace-task-files-card');
-    const marker = screen.getByText('Steered by you');
+    const marker = await screen.findByText('Steered by you');
     const steeringMessage = screen.getByText('Why is the stage still working?');
     expect(card?.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(card?.compareDocumentPosition(steeringMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -1428,8 +1433,8 @@ describe('StageDetailRoute', () => {
     fireEvent.change(box, { target: { value: 'fix the import' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-1', 'fix the import', []));
-    expect(screen.getByText('fix the import')).toBeTruthy();
-    expect(screen.getByText('You · sending')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('fix the import')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('You · sending')).toBeTruthy());
 
     acceptSteer({ turnId: 'x' });
     await waitFor(() => expect(screen.getByText('You · queued')).toBeTruthy());

@@ -70,10 +70,10 @@ describe('AiReviewPage', () => {
     render(<AiReviewPage initialTab="usage" />);
 
     await waitFor(() => expect(screen.getByText('$6.00')).toBeTruthy());
-    expect(screen.getByText('24')).toBeTruthy();
-    expect(screen.getByText('anthropic')).toBeTruthy();
-    expect(screen.getByText('By work type')).toBeTruthy();
-    expect(screen.getByText('review')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('24')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('anthropic')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('By work type')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('review')).toBeTruthy());
     // It asked the backend for the most recent month.
     expect(getAiLedger).toHaveBeenCalled();
   });
@@ -100,8 +100,8 @@ describe('AiReviewPage', () => {
     render(<AiReviewPage />);
 
     expect(await screen.findByText('Global PR review')).toBeTruthy();
-    expect(screen.getByText('Issue triage')).toBeTruthy();
-    expect(screen.getByText('Performance investigator')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Issue triage')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Performance investigator')).toBeTruthy());
 
     fireEvent.change(screen.getByLabelText('Global PR review engine'), {
       target: { value: 'cli:claude-code' },

@@ -14,7 +14,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 import { CloseIcon, PlusIcon, SendUpIcon } from '../TaskBrainDesignIcons';
-import { Kbd } from '../primitives';
+import { Kbd, PreviewImg } from '../primitives';
 import { pasteClipboardImages } from './pasteClipboardImages';
 
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
@@ -150,7 +150,7 @@ export function Composer({
           <div className="composer-images">
             {images.map(src => (
               <div className="composer-image-chip" key={src}>
-                <img src={src} alt="Pasted attachment" />
+                <PreviewImg src={src} alt="Pasted attachment" />
                 <button
                   type="button"
                   className="rm"

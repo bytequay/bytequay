@@ -23,6 +23,7 @@ export type { TagColor } from './Tag';
 export { Avatar } from './Avatar';
 export type { AvatarHue } from './Avatar';
 export { Kbd } from './Kbd';
+export { PreviewImg } from './PreviewImg';
 export { Chev } from './Chev';
 export { IconBtn } from './IconBtn';
 export { Logo } from './Logo';

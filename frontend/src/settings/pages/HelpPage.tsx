@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react';
 import type { IssueDto } from '../../types';
 import { pasteClipboardImages } from '../../ui/shell/pasteClipboardImages';
+import { PreviewImg } from '../../ui/primitives';
 import SettingsPage from '../shared/SettingsPage';
 import { CheckIcon, ClipboardIcon, IssueIcon } from '../shared/icons';
 
@@ -124,7 +125,7 @@ function HelpPage() {
             <div className="product-issue-form__images" aria-label="Attached screenshots">
               {images.map((src, index) => (
                 <div className="product-issue-form__image" key={`${src.slice(-24)}-${index}`}>
-                  <img src={src} alt="Pasted screenshot" />
+                  <PreviewImg src={src} alt="Pasted screenshot" />
                   <button
                     type="button"
                     aria-label={`Remove screenshot ${index + 1}`}

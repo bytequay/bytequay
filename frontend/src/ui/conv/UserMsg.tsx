@@ -15,6 +15,7 @@ import type { ReactNode } from 'react';
 import { EventRow } from './EventRow';
 import { RuntimeSkillsDisclosure } from './RuntimeSkillsDisclosure';
 import { useAttachmentImages } from '../../threads/useAttachmentImages';
+import { PreviewImg } from '../primitives';
 
 /**
  * The user's own message — an {@link EventRow} in the teal `user` colour
@@ -47,7 +48,7 @@ export function UserMsg({ text, timestamp, who = 'You', children, threadId, imag
     >
       {resolvedImages.length > 0 && (
         <div className="sp-ublock__images">
-          {resolvedImages.map(src => <img key={src} src={src} alt="Attached" className="sp-ublock__img" />)}
+          {resolvedImages.map(src => <PreviewImg key={src} src={src} alt="Attached" className="sp-ublock__img" />)}
         </div>
       )}
       {text !== undefined ? <div className="tx">{text}</div> : children}

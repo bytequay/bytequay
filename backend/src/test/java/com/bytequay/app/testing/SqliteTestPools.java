@@ -16,12 +16,12 @@ package com.bytequay.app.testing;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.extension.AfterEachCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.extension.ExtensionContext.Namespace;
+import org.junit.jupiter.api.extension.ExtensionContext.Store;
 
 import javax.sql.DataSource;
-
-import java.util.ArrayList;
-import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -40,19 +40,33 @@ import static java.util.Objects.requireNonNull;
  * <p>A pool holds threads, so it has to be closed; a suite this size would
  * otherwise accumulate them for the life of the fork. Register the extension
  * with {@code @ExtendWith(SqliteTestPools.class)} and every pool
- * {@link #open} handed out is closed after the test method.
+ * {@link #open} handed out is closed with the test method that asked for it.
  */
 public final class SqliteTestPools
-        implements AfterEachCallback
+        implements BeforeEachCallback, AfterEachCallback
 {
-    // Surefire gives each fork its own JVM and runs its classes one at a time,
-    // so a single static list tracks exactly the pools of the running test.
-    private static final List<HikariDataSource> OPEN_POOLS = new ArrayList<>();
+    private static final Namespace NAMESPACE = Namespace.create(SqliteTestPools.class);
 
-    /** Opens a pooled DataSource over an already-migrated SQLite database. */
+    // open() is called from test code, which has no handle on the running
+    // ExtensionContext. Passing it through the thread keeps each pool filed
+    // against the test that asked for it, so tests never close one another's
+    // pools even if the suite is ever run with parallel execution enabled.
+    private static final ThreadLocal<ExtensionContext> CURRENT = new ThreadLocal<>();
+
+    /**
+     * Opens a pooled DataSource over an already-migrated SQLite database. The pool
+     * closes when the test method that asked for it finishes.
+     */
     public static DataSource open(String url)
     {
         requireNonNull(url, "url is null");
+        ExtensionContext context = CURRENT.get();
+        if (context == null) {
+            throw new IllegalStateException(
+                    "SqliteTestPools.open() needs @ExtendWith(SqliteTestPools.class) on the "
+                            + "test class, and only works from a running test method");
+        }
+
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(url);
         // Enough for the few threads a test starts, small enough that the pools
@@ -60,27 +74,23 @@ public final class SqliteTestPools
         config.setMaximumPoolSize(4);
         config.setPoolName("sqlite-test-" + Integer.toHexString(url.hashCode()));
         HikariDataSource pool = new HikariDataSource(config);
-        synchronized (OPEN_POOLS) {
-            OPEN_POOLS.add(pool);
-        }
+
+        // JUnit closes CloseableResource entries when the test's store goes out
+        // of scope, so the pools of a test are released with it and nothing else.
+        Store store = context.getStore(NAMESPACE);
+        store.put(new Object(), (Store.CloseableResource) pool::close);
         return pool;
+    }
+
+    @Override
+    public void beforeEach(ExtensionContext context)
+    {
+        CURRENT.set(context);
     }
 
     @Override
     public void afterEach(ExtensionContext context)
     {
-        closeAll();
-    }
-
-    private static void closeAll()
-    {
-        List<HikariDataSource> pools;
-        synchronized (OPEN_POOLS) {
-            pools = List.copyOf(OPEN_POOLS);
-            OPEN_POOLS.clear();
-        }
-        for (HikariDataSource pool : pools) {
-            pool.close();
-        }
+        CURRENT.remove();
     }
 }

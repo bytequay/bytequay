@@ -27,9 +27,11 @@ import com.bytequay.app.developmentflow.persistence.SqliteWorktreeQuarantineRepa
 import com.bytequay.app.developmentflow.persistence.SqliteWorktreeQuarantineRepairStore.Admission;
 import com.bytequay.app.developmentflow.persistence.SqliteWorktreeWriterLeaseStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -47,6 +49,7 @@ import static com.bytequay.app.developmentflow.execution.CapacityManager.Workflo
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@ExtendWith(SqliteTestPools.class)
 class TestSqliteWorktreeQuarantineRepairStore
 {
     private static final Instant NOW = Instant.parse("2026-08-01T00:00:00Z");

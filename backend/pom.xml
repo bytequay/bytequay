@@ -118,15 +118,17 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-javaagent:${project.build.directory}/test-agents/byte-buddy-agent.jar</argLine>
-                    <!-- One JVM per core. The suite is CPU-bound on Flyway and
-                         SQLite, and every test owns an isolated database file, so
-                         forks scale it down without any shared-state coupling.
-                         1C adapts to whatever CI runs on; at 0.5C a four-core CI
-                         runner left half its cores idle. Do not add an -Xmx here
-                         without measuring: capping the forks at 1500m made Spring
-                         contexts fail to build, which surfaces as unrelated
-                         NoSuchBeanDefinitionException errors. -->
-                    <forkCount>1C</forkCount>
+                    <!-- One JVM per core, capped at four. Every test owns an
+                         isolated database file, so forks divide the suite without
+                         any shared-state coupling, but each one pays JVM startup
+                         plus a Flyway baseline — past four that setup costs more
+                         than the extra parallelism returns (on a sixteen-core
+                         machine sixteen forks measured slower than four). Four is
+                         also what a CI runner gets from 1C. Do not add an -Xmx
+                         here without measuring: capping the forks at 1500m made
+                         Spring contexts fail to build, which surfaces as
+                         unrelated NoSuchBeanDefinitionException errors. -->
+                    <forkCount>4</forkCount>
                     <reuseForks>true</reuseForks>
                 </configuration>
             </plugin>

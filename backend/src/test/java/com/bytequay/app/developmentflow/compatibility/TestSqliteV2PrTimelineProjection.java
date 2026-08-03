@@ -317,6 +317,63 @@ class TestSqliteV2PrTimelineProjection
                 .isEmpty();
     }
 
+    @Test
+    void developmentEvidenceIsDerivedFromItsReportAndSurvivesReplay()
+    {
+        // Design 3.37: derived from the same immutable dev_report row, never
+        // written, so a repeated read yields the same single event.
+        JdbcTemplate jdbc = database();
+        createTables(jdbc);
+        jdbc.update("""
+                INSERT INTO dev_report(
+                    id, task_id, workflow_version, revision, head_sha,
+                    commit_summary, created_at_ms, implemented_intent,
+                    file_summary, validation_summary, known_risks,
+                    unresolved_concerns)
+                VALUES ('report-1', 'task-1', 'V2', 1, 'dev-head',
+                    'Raise the label', 100, 'Grew the label to 14px',
+                    'two CSS files', 'mvn verify passed', 'purely visual',
+                    'none')
+                """);
+        PR pr = PR.create("pr-1", "task-1", "feature/x", "main", "T", "",
+                Instant.ofEpochMilli(1));
+        SqliteV2PrTimelineProjection projection =
+                new SqliteV2PrTimelineProjection(jdbc, new ObjectMapper());
+
+        List<PRTimelineEntry> first = projection.project(pr, List.of());
+        List<PRTimelineEntry> replay = projection.project(pr, first);
+
+        assertThat(first).extracting(PRTimelineEntry::id)
+                .containsExactly("v2:dev-commit:report-1", "v2:dev-evidence:report-1");
+        assertThat(replay).extracting(PRTimelineEntry::id)
+                .isEqualTo(first.stream().map(PRTimelineEntry::id).toList());
+        assertThat(first.get(1).payloadJson())
+                .contains("Grew the label to 14px")
+                .contains("mvn verify passed")
+                .contains("purely visual");
+    }
+
+    @Test
+    void developmentEvidenceIsOmittedWhenTheReportCarriesNone()
+    {
+        JdbcTemplate jdbc = database();
+        createTables(jdbc);
+        jdbc.update("""
+                INSERT INTO dev_report(
+                    id, task_id, workflow_version, revision, head_sha,
+                    commit_summary, created_at_ms)
+                VALUES ('report-1', 'task-1', 'V2', 1, 'dev-head',
+                    'Raise the label', 100)
+                """);
+        PR pr = PR.create("pr-1", "task-1", "feature/x", "main", "T", "",
+                Instant.ofEpochMilli(1));
+
+        assertThat(new SqliteV2PrTimelineProjection(jdbc, new ObjectMapper())
+                .project(pr, List.of()))
+                .extracting(PRTimelineEntry::id)
+                .containsExactly("v2:dev-commit:report-1");
+    }
+
     private JdbcTemplate database()
     {
         SQLiteDataSource source = new SQLiteDataSource();
@@ -329,7 +386,10 @@ class TestSqliteV2PrTimelineProjection
         jdbc.execute("""
                 CREATE TABLE dev_report(
                     id TEXT, task_id TEXT, workflow_version TEXT, revision INTEGER,
-                    head_sha TEXT, commit_summary TEXT, created_at_ms INTEGER)
+                    head_sha TEXT, commit_summary TEXT, created_at_ms INTEGER,
+                    implemented_intent TEXT, file_summary TEXT,
+                    validation_summary TEXT, known_risks TEXT,
+                    unresolved_concerns TEXT)
                 """);
         jdbc.execute("""
                 CREATE TABLE brain_review_episode(

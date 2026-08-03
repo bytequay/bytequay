@@ -13,10 +13,20 @@
  */
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Composer } from './Composer';
 
 afterEach(cleanup);
+
+// jsdom 29 still ships <dialog> with no behaviour — the smallest stand-in
+// for the two methods the image preview uses.
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function showModal() { this.open = true; };
+  HTMLDialogElement.prototype.close = function close() {
+    this.open = false;
+    this.dispatchEvent(new Event('close'));
+  };
+});
 
 function imageClipboardData(file: File) {
   return {
@@ -124,6 +134,23 @@ describe('Composer', () => {
     expect(chips).toHaveLength(2);
     fireEvent.click(screen.getAllByLabelText('Remove image')[0]);
     expect(onImagesChange).toHaveBeenCalledWith(['data:image/png;base64,bbb']);
+  });
+
+  it('opens a full-size preview when a thumbnail is clicked, and closes again', () => {
+    render(
+      <Composer
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+        images={['data:image/png;base64,aaa']}
+        onImagesChange={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByAltText('Pasted attachment'));
+    // The enlarged copy joins the thumbnail in the DOM.
+    expect(screen.getAllByAltText('Pasted attachment')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('dialog'));
+    expect(screen.getAllByAltText('Pasted attachment')).toHaveLength(1);
   });
 
   it('allows sending an image with no text', () => {

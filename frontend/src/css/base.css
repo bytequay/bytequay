@@ -1032,3 +1032,28 @@ samp {
   max-height: 60vh;
   overflow-y: auto;
 }
+
+/* ── Attachment preview ───────────────────────────────────────
+   Thumbnails (composer chips, sent conversation images, the feedback
+   form) open full-size in a native <dialog>: top layer, so it escapes
+   the composer's overflow clipping, with a free backdrop and Esc-close.
+   The wrapping button is display:contents so each call site's own
+   thumbnail sizing still applies. */
+.img-preview-btn { display: contents; }
+.img-preview-btn img { cursor: zoom-in; }
+.img-preview {
+  border: none;
+  padding: 0;
+  background: transparent;
+  max-width: 92vw;
+  max-height: 92vh;
+  overflow: hidden;
+}
+.img-preview img {
+  display: block;
+  max-width: 92vw;
+  max-height: 92vh;
+  border-radius: 8px;
+  cursor: zoom-out;
+}
+.img-preview::backdrop { background: rgba(0, 0, 0, 0.72); }

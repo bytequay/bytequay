@@ -57,6 +57,7 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.skills.SimplifyPrompt;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.fasterxml.jackson.core.JsonParser;
@@ -111,6 +112,29 @@ public final class LocalDevelopmentRuntimeCoordinator
     private static final String BRAIN_RESULT_SHAPE =
             "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
                     + "\"summary\":\"string\",\"findings\":[]}";
+    /** Request kind of the cleanup Turn a large Development Turn triggers. */
+    private static final String SIMPLIFY_KIND = "SIMPLIFY";
+    /** {@code stage_turn.purpose} for implementation-family Turns; a cleanup
+     *  Turn edits code at IMPLEMENTING, so it carries the same purpose. */
+    private static final String IMPLEMENT_PURPOSE = "IMPLEMENT_LOCAL_PLAN";
+    /**
+     * Added-line floor for triggering a cleanup Turn. Measured per Turn and on
+     * additions only, which is what makes this self-limiting: a Turn under the
+     * floor never fires, and a cleanup Turn's own output is net-deletion so it
+     * scores near zero and cannot re-trigger itself.
+     */
+    // ponytail: flat threshold — a 400-line Turn that is mostly a generated
+    //   migration has nothing to simplify, a 40-line hand-rolled Optional
+    //   does. Upgrade path: weight by file type, or drop the floor entirely
+    //   if the Turn turns out cheap.
+    static final int MIN_ADDED_LINES = 200;
+    private static final String SIMPLIFY_INSTRUCTION =
+            "Return only strict JSON with schemaVersion=1 and these string "
+                    + "fields: implementedIntent, commitSummary, fileSummary, "
+                    + "validationSummary, knownRisks, unresolvedConcerns, "
+                    + "contextRefs. If you changed nothing, say so in "
+                    + "implementedIntent and leave commitSummary blank. "
+                    + RAW_JSON_OBJECT_BOUNDARY;
     private final TaskCommandExecutor commands;
     private final LocalDevelopmentStageManager local;
     private final TaskManager tasks;
@@ -809,9 +833,10 @@ public final class LocalDevelopmentRuntimeCoordinator
         CodeSubject output = new CodeSubject(
                 exactOutput.codeFingerprint(), exactOutput.headSha(),
                 exactOutput.baseSha());
+        // Design 3.36: the agent's template-aware body, not an empty string.
         prs.createForTaskInCommand(
                 context.taskId(), context.branchName(), context.baseBranch(),
-                context.taskName(), "");
+                context.taskName(), development.prDescription());
         store.finishStageTurn(context, "SUCCEEDED", null, now);
         if (localReview != null && context.localFeedbackBatchId() != null) {
             localReview.acceptFeedbackResultInCommand(
@@ -826,6 +851,33 @@ public final class LocalDevelopmentRuntimeCoordinator
         if (accepted.disposition() == CommandResult.Disposition.SUPERSEDED) {
             throw new IllegalStateException(
                     "Current Local code result became superseded inside its command");
+        }
+        // A big Turn gets one cleanup pass before validation rather than after:
+        // the Stage stays at IMPLEMENTING (as BASE_SYNC does), so there is no
+        // checkpoint to race, and validation then runs once over the simplified
+        // code instead of once per Turn.
+        if (shouldSimplify(context, exactOutput)
+                && accepted.state().checkpoint() == StageCheckpoint.IMPLEMENTING) {
+            StageTurnRetry simplify = createSimplifyTurn(context, exactOutput, now);
+            store.insertStageTurnRetry(simplify);
+            CommandResult<StageManager.State> requestedSimplify =
+                    local.requestImplementationInCommand(
+                            new StageManager.Command(
+                                    id("request-local-simplify", simplify.turnId()),
+                                    ACTOR, context.taskId(), context.taskEpoch(),
+                                    context.stageId(), context.stageGeneration(),
+                                    accepted.state().version()),
+                            simplify.fence(), simplify.requestId());
+            if (requestedSimplify.disposition()
+                    == CommandResult.Disposition.SUPERSEDED) {
+                throw new IllegalStateException(
+                        "Local simplify request was superseded");
+            }
+            StageTurnDeliveryReceipt simplified = new StageTurnDeliveryReceipt(
+                    turnId, context.operationId(), result.outcome().name(),
+                    rawDigest, ACCEPTED.name(), report.id(), null, now);
+            store.insertStageTurnReceipt(simplified);
+            return receipt(ACCEPTED, deliveryResult(simplified));
         }
         CommandResult<StageManager.State> validating = accepted;
         if (accepted.state().checkpoint() == StageCheckpoint.IMPLEMENTING) {
@@ -1383,6 +1435,93 @@ public final class LocalDevelopmentRuntimeCoordinator
                         context.worktreePath()));
     }
 
+    /**
+     * True when this Turn wrote enough new code to be worth one cleanup pass.
+     *
+     * <p>A cleanup Turn is excluded so the pass cannot chain: its own output is
+     * net-deletion and would score near zero anyway, but the explicit guard
+     * means a restructuring cleanup that happens to add a lot still stops here.
+     * Turns older than the added-line count report null and never trigger.
+     */
+    private static boolean shouldSimplify(
+            StageTurnContext context, OutputCodeSubject output)
+    {
+        if (SIMPLIFY_KIND.equals(context.requestKind())) {
+            return false;
+        }
+        Integer added = output.addedLines();
+        return added != null && added >= MIN_ADDED_LINES;
+    }
+
+    /**
+     * Cleanup Turn over the code the delivered Turn just committed. Reuses the
+     * delivered Turn's stored launch — same provider, model, work model, and
+     * worktree — and swaps in the simplify prompt, so no launch plumbing is
+     * duplicated. Fenced on the Turn's <em>output</em> subject because the code
+     * has already moved.
+     */
+    private StageTurnRetry createSimplifyTurn(
+            StageTurnContext context, OutputCodeSubject output, Instant now)
+    {
+        String source = context.taskId() + ":" + context.turnId();
+        String requestId = id("local-simplify-request", source);
+        String turnId = id("local-simplify-turn", source);
+        String operationId = id("local-simplify-operation", source);
+        String ticketId = id("local-simplify-ticket", source);
+        try {
+            JsonNode stored = json.readTree(context.launchInput());
+            if (!(stored instanceof ObjectNode launch)) {
+                throw new IllegalStateException(
+                        "Stored Local StageTurn launch is not an object");
+            }
+            String prompt = simplifyPrompt(output);
+            launch.put("prompt", prompt);
+            // A fresh session: the cleanup pass must re-read the committed diff
+            // rather than inherit the writer's belief about what it wrote.
+            launch.remove(List.of(
+                    "resumeSessionId", "fallbackPrompt",
+                    "priorCumulativeInputTokens",
+                    "priorCumulativeOutputTokens"));
+            JsonNode endpointNode = launch.get("toolEndpoint");
+            if (!(endpointNode instanceof ObjectNode endpoint)) {
+                throw new IllegalStateException(
+                        "Stored Local StageTurn has no tool endpoint");
+            }
+            endpoint.put("url", "http://127.0.0.1:" + serverPort
+                    + "/api/v2/stage-turns/" + turnId
+                    + "/operations/" + operationId + "/mcp");
+            endpoint.put("ownerKind", "STAGE_TURN");
+            endpoint.put("ownerId", turnId);
+            endpoint.put("operationId", operationId);
+            return new StageTurnRetry(
+                    requestId, id("persist-local-simplify", source),
+                    turnId, operationId, ticketId, context.taskId(),
+                    context.trunkId(), context.workspaceId(), context.taskEpoch(),
+                    context.stageId(), context.stageGeneration(),
+                    1, IMPLEMENT_PURPOSE,
+                    SIMPLIFY_KIND, null, null, null, null,
+                    output.codeFingerprint(), output.headSha(), output.baseSha(),
+                    context.deliveryLane(), context.laneMask(), write(launch),
+                    digest(prompt), ACTOR, now);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "Stored Local StageTurn launch is invalid", e);
+        }
+    }
+
+    private static String simplifyPrompt(OutputCodeSubject output)
+    {
+        return SimplifyPrompt.body()
+                + "\n\nThe Turn you are cleaning up committed "
+                + output.addedLines() + " added lines. Review exactly that "
+                + "range — `git diff " + output.baseSha() + ".."
+                + output.headSha() + "` — and nothing outside it.\n\n"
+                + "Commit any cleanup on the current Task branch as one small "
+                + "commit. Committing is local and required. Do not push or "
+                + "create remote effects. " + SIMPLIFY_INSTRUCTION;
+    }
+
     private StageTurnRetry createStageTurnRetry(
             StageTurnRetryContext context,
             String commandId,
@@ -1666,6 +1805,11 @@ public final class LocalDevelopmentRuntimeCoordinator
                         command, retry.fence(), retry.requestId());
             }
             case "BASE_SYNC" -> {
+                requireCheckpoint(context, StageCheckpoint.IMPLEMENTING);
+                yield local.requestImplementationInCommand(
+                        command, retry.fence(), retry.requestId());
+            }
+            case SIMPLIFY_KIND -> {
                 requireCheckpoint(context, StageCheckpoint.IMPLEMENTING);
                 yield local.requestImplementationInCommand(
                         command, retry.fence(), retry.requestId());
@@ -1994,10 +2138,22 @@ public final class LocalDevelopmentRuntimeCoordinator
                 + "\n\nCommit your work on the current Task branch as one small "
                 + "commit. Committing is local and required; the prohibition "
                 + "below is only about the remote. "
-                + "Do not push or create remote effects. When finished, return only "
+                + "Do not push or create remote effects.\n\n"
+                // Design 3.36: the agent that reads the repository's template
+                // writes the body, so the description matches that template by
+                // construction rather than through a mapping we would have to
+                // keep in sync.
+                + "Write prDescription as the pull-request body. First look for "
+                + "the repository's template (.github/PULL_REQUEST_TEMPLATE.md, "
+                + "a root or docs PULL_REQUEST_TEMPLATE, or a file under "
+                + ".github/PULL_REQUEST_TEMPLATE/). If one exists, fill in that "
+                + "template's own sections and keep its headings. If none "
+                + "exists, write a short body with a Summary section and a "
+                + "Validation section.\n\n"
+                + "When finished, return only "
                 + "strict JSON with schemaVersion=1 and these string fields: "
                 + "implementedIntent, commitSummary, fileSummary, validationSummary, "
-                + "knownRisks, unresolvedConcerns, contextRefs. "
+                + "knownRisks, unresolvedConcerns, contextRefs, prDescription. "
                 + RAW_JSON_OBJECT_BOUNDARY;
     }
 
@@ -2059,7 +2215,8 @@ public final class LocalDevelopmentRuntimeCoordinator
                     required(decoded.validationSummary(), "validationSummary"),
                     required(decoded.knownRisks(), "knownRisks"),
                     required(decoded.unresolvedConcerns(), "unresolvedConcerns"),
-                    required(decoded.contextRefs(), "contextRefs"));
+                    required(decoded.contextRefs(), "contextRefs"),
+                    required(decoded.prDescription(), "prDescription"));
         }
         catch (JsonProcessingException e) {
             throw new IllegalArgumentException(
@@ -2100,7 +2257,7 @@ public final class LocalDevelopmentRuntimeCoordinator
         StageManager.ResultCommand command = resultCommand(
                 context, id("accept-local-code", context.operationId()));
         return switch (context.requestKind()) {
-            case "IMPLEMENTATION", "BASE_SYNC" ->
+            case "IMPLEMENTATION", "BASE_SYNC", SIMPLIFY_KIND ->
                     local.acceptImplementationResultInCommand(command, reportId);
             case "STEERING" -> switch (context.checkpoint()) {
                 case IMPLEMENTING ->
@@ -2126,7 +2283,7 @@ public final class LocalDevelopmentRuntimeCoordinator
         StageManager.ResultCommand command = resultCommand(
                 context, id("clear-local-code", context.operationId()));
         return switch (context.requestKind()) {
-            case "IMPLEMENTATION", "BASE_SYNC" ->
+            case "IMPLEMENTATION", "BASE_SYNC", SIMPLIFY_KIND ->
                     local.clearImplementationTurnInCommand(command, context.requestId());
             case "STEERING" -> switch (context.checkpoint()) {
                 case IMPLEMENTING ->
@@ -2254,7 +2411,8 @@ public final class LocalDevelopmentRuntimeCoordinator
             String validationSummary,
             String knownRisks,
             String unresolvedConcerns,
-            String contextRefs) {}
+            String contextRefs,
+            String prDescription) {}
 
     private record BrainResult(
             int schemaVersion,

@@ -79,33 +79,22 @@ describe('Working', () => {
     expect(container.querySelector('.working')?.getAttribute('role')).toBe('status');
   });
 
-  it('splits the path into its own tail element (head-truncated in CSS)', () => {
-    const { container } = render(<Working label="Running Write:" tail="/repo/.worktrees/x/Foo.java" />);
-    // Verb stays in the label; the path is a separate .working__tail so it can
-    // truncate from the head while the label does not.
-    expect(container.querySelector('.working__label')?.textContent).toBe('Running Write:');
-    expect(container.querySelector('.working__tail')?.textContent).toBe('/repo/.worktrees/x/Foo.java');
-  });
-
-  it('omits the tail element when no path is given', () => {
-    const { container } = render(<Working label="Running command: git status" />);
-    expect(container.querySelector('.working__tail')).toBeNull();
-  });
-
   it('shows live tool activity below the current status', () => {
     render(<Working activities={[{
       callId: 'call-1', label: 'Running command', detail: 'git status',
-      pathArg: false, startedAt: 0, done: false, failed: false,
+      startedAt: 0, done: false, failed: false,
     }]} />);
     expect(screen.getByLabelText('Live agent activity').textContent).toContain('Running command · git status');
   });
 
-  it('head-truncates a file argument so the filename survives an overflow', () => {
+  it('shortens an absolute path argument and keeps the full text on hover', () => {
     const { container } = render(<Working activities={[{
-      callId: 'call-2', label: 'Reading', detail: 'backend/src/main/java/Foo.java',
-      pathArg: true, startedAt: 0, done: false, failed: false,
+      callId: 'call-2', label: 'Reading', detail: '/repo/.worktree/x/backend/src/Foo.java',
+      startedAt: 0, done: false, failed: false,
     }]} />);
-    expect(container.querySelector('.working__log-arg--tail')).not.toBeNull();
+    expect(container.querySelector('.working__log-arg')?.textContent).toBe('…/src/Foo.java');
+    expect(container.querySelector('.working__log-row')?.getAttribute('title'))
+      .toBe('/repo/.worktree/x/backend/src/Foo.java');
   });
 });
 

@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from 'react';
 import type { LiveActivity } from '../../threads/liveActivity';
+import { shortPaths } from '../../threads/brain/format';
 
 /**
  * A live "agent is working" row — a pulsing dot + label shown at the foot
@@ -23,12 +24,8 @@ import type { LiveActivity } from '../../threads/liveActivity';
  * that a long, quiet turn (e.g. extended thinking) is still alive, not
  * dead.
  */
-export function Working({ label = 'Working…', tail, detail, since, onStop, activities = [] }: {
+export function Working({ label = 'Working…', detail, since, onStop, activities = [] }: {
   label?: string;
-  /** A file path shown after the label, head-truncated so the filename tail
-   *  survives instead of the interchangeable worktree prefix. Omit for
-   *  command/MCP args, which read head-first and stay inside `label`. */
-  tail?: string;
   /** Full text shown on hover — e.g. the complete shell command when the
    *  label is truncated to one line. */
   detail?: string;
@@ -53,7 +50,6 @@ export function Working({ label = 'Working…', tail, detail, since, onStop, act
       <div className="working__summary">
         <span className="working__dot" aria-hidden />
         <span className="working__label" title={detail ?? label}>{label}</span>
-        {tail !== undefined && <span className="working__tail" title={tail}>{tail}</span>}
         {since !== undefined && <span className="working__elapsed">{formatElapsed(elapsed)}</span>}
         {onStop !== undefined && (
           <button type="button" className="working__stop" onClick={onStop} title="Stop the agent">
@@ -70,9 +66,7 @@ export function Working({ label = 'Working…', tail, detail, since, onStop, act
                 {activity.label}{activity.detail === null ? '' : ' · '}
               </span>
               {activity.detail !== null && (
-                <span className={activity.pathArg ? 'working__log-arg working__log-arg--tail' : 'working__log-arg'}>
-                  {activity.detail}
-                </span>
+                <span className="working__log-arg">{shortPaths(activity.detail)}</span>
               )}
             </div>
           ))}

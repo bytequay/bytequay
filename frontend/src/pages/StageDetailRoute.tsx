@@ -47,7 +47,7 @@ import { pullRowFromLocal } from '../pulls/localRow';
 import type { PullRow } from '../pulls/model';
 import { derivePRCapabilities } from '../pr/prCapabilities';
 import type { AgentReviewNavTarget } from '../pulls/agentColumnModel';
-import { formatDuration } from '../threads/brain/format';
+import { formatDuration, shortPaths } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 import type { WsNavKey } from '../ui/workspace';
 import PublishGatePane from '../PublishGatePane';
@@ -574,16 +574,11 @@ export function StageDetailRoute({
   const liveVerb = currentLiveActivity?.label
     ?? (toolName === null ? null : `Running ${toolName}`);
   const liveArg = currentLiveActivity?.detail ?? toolArg;
-  // Read/Write args are file paths — split them off as a head-truncated tail
-  // so the filename survives the worktree prefix. Bash/MCP args are commands:
-  // leave them in the label so the head (the command itself) stays visible.
-  const isPathArg = liveArg !== null && (currentLiveActivity !== undefined
-    ? /read|writ|edit/i.test(currentLiveActivity.label)
-    : toolName === 'Read' || toolName === 'Write');
-  const workingTail = isPathArg ? liveArg : undefined;
+  // Absolute paths shorten to their last two segments — the worktree prefix is
+  // the same on every row and would otherwise fill the line. Full text on hover.
+  const shortArg = liveArg === null ? null : shortPaths(liveArg);
   const workingLabel = liveVerb === null ? 'Agent is working…'
-    : workingTail !== undefined ? `${liveVerb}:`
-    : liveArg !== null ? `${liveVerb}: ${liveArg}`
+    : shortArg !== null ? `${liveVerb}: ${shortArg}`
     : `${liveVerb}…`;
   const workingDetail = currentLiveActivity?.detail ?? toolArg ?? undefined;
 
@@ -762,7 +757,6 @@ export function StageDetailRoute({
         {working && liveText.length === 0 && (
           <Working
             label={workingLabel}
-            tail={workingTail}
             detail={workingDetail}
             since={workingSince ?? undefined}
             activities={liveActivities}

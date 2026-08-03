@@ -46,6 +46,26 @@ const MIN = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
+/** A quoted or bare absolute path inside a tool argument. Bare paths stop at
+ *  whitespace; quoted ones may contain spaces (`Application Support`). The
+ *  lookbehind skips URLs so `http://host/api/x` is left alone. */
+const ABS_PATH = /(["'])(\/[^"']+)\1|(?<![\w:/])(\/[^\s"']+)/g;
+
+/** Absolute paths in a tool argument, collapsed to their last two segments:
+ *  `cd "/Users/me/Library/Application Support/ByteQuay/repos/o/r/.worktree/t9"`
+ *  → `cd "…/.worktree/t9"`. Every worktree command carries the same long
+ *  prefix, which pushed the part that actually differs off the end of the row.
+ *  Display only — callers keep the raw text for the hover title and the
+ *  unfolded body. */
+export function shortPaths(text: string): string {
+  return text.replace(ABS_PATH, (whole, quote: string | undefined, quoted: string | undefined, bare: string | undefined) => {
+    const segments = (quoted ?? bare ?? '').split('/').filter(part => part !== '');
+    if (segments.length <= 2) return whole;
+    const short = `…/${segments.slice(-2).join('/')}`;
+    return quote === undefined ? short : `${quote}${short}${quote}`;
+  });
+}
+
 /** Short relative time for inline `.ts` chips: `now`, `14m ago`,
  *  `21h ago`, `3d ago`. `nowMs` is injectable so callers (and tests)
  *  control the reference clock. */

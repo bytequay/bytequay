@@ -92,7 +92,9 @@ public final class SqliteV2PrTimelineProjection
             PR pr, Map<String, PRTimelineEntry> events)
     {
         for (DevelopmentCommit commit : jdbc.query("""
-                SELECT id, revision, head_sha, commit_summary, created_at_ms
+                SELECT id, revision, head_sha, commit_summary, created_at_ms,
+                       implemented_intent, file_summary, validation_summary,
+                       known_risks, unresolved_concerns
                 FROM dev_report
                 WHERE task_id = ? AND workflow_version = 'V2'
                   AND head_sha IS NOT NULL
@@ -100,7 +102,10 @@ public final class SqliteV2PrTimelineProjection
                 """, (rs, row) -> new DevelopmentCommit(
                 rs.getString("id"), rs.getInt("revision"),
                 rs.getString("head_sha"), rs.getString("commit_summary"),
-                rs.getLong("created_at_ms")), pr.taskId())) {
+                rs.getLong("created_at_ms"),
+                rs.getString("implemented_intent"), rs.getString("file_summary"),
+                rs.getString("validation_summary"), rs.getString("known_risks"),
+                rs.getString("unresolved_concerns")), pr.taskId())) {
             if (hasCommit(events, commit.headSha())) {
                 continue;
             }
@@ -113,7 +118,46 @@ public final class SqliteV2PrTimelineProjection
                     PRTimelineEntry.TYPE_COMMIT, ACTOR_LOCAL, false,
                     commit.at(), payload(
                             "sha", commit.headSha(), "message", message)));
+            projectDevelopmentEvidence(pr, events, commit);
         }
+    }
+
+    /**
+     * Design 3.37: the Development turn's own account of what it did, replayed
+     * from the same immutable dev_report row. Derived rather than written, so
+     * its id is stable and a repeated read cannot duplicate it. This is reader
+     * and Brain-review evidence; the pull-request body is prDescription's job.
+     */
+    private void projectDevelopmentEvidence(
+            PR pr, Map<String, PRTimelineEntry> events, DevelopmentCommit commit)
+    {
+        if (isBlank(commit.implementedIntent()) && isBlank(commit.fileSummary())
+                && isBlank(commit.validationSummary())
+                && isBlank(commit.knownRisks())
+                && isBlank(commit.unresolvedConcerns())) {
+            return;
+        }
+        put(events, entry(
+                "v2:dev-evidence:" + commit.id(), pr,
+                PRTimelineEntry.TYPE_STATUS, ACTOR_LOCAL, false,
+                commit.at(), payload(
+                        "phase", "development-evidence",
+                        "revision", Integer.toString(commit.revision()),
+                        "implementedIntent", text(commit.implementedIntent()),
+                        "fileSummary", text(commit.fileSummary()),
+                        "validationSummary", text(commit.validationSummary()),
+                        "knownRisks", text(commit.knownRisks()),
+                        "unresolvedConcerns", text(commit.unresolvedConcerns()))));
+    }
+
+    private static boolean isBlank(String value)
+    {
+        return value == null || value.isBlank();
+    }
+
+    private static String text(String value)
+    {
+        return value == null ? "" : value;
     }
 
     private void projectBrainReviews(PR pr, Map<String, PRTimelineEntry> events)
@@ -575,7 +619,10 @@ public final class SqliteV2PrTimelineProjection
     }
 
     private record DevelopmentCommit(
-            String id, int revision, String headSha, String summary, long at) {}
+            String id, int revision, String headSha, String summary, long at,
+            String implementedIntent, String fileSummary,
+            String validationSummary, String knownRisks,
+            String unresolvedConcerns) {}
 
     private record BrainReview(
             String id, int attempt, String status, String verdict,

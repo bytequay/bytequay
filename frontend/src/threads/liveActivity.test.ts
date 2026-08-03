@@ -34,4 +34,32 @@ describe('updateLiveActivities', () => {
     expect(completed[0]).toEqual(expect.objectContaining({ done: true, failed: false }));
     expect(updateLiveActivities(completed, { name: 'TurnDone', data: {} })).toEqual([]);
   });
+
+  it('shows a search by its pattern, not the directory it was scoped to', () => {
+    const rows = updateLiveActivities([], {
+      name: 'ToolCallStarted',
+      data: {
+        callId: 'call-2', toolName: 'Grep',
+        inputJson: '{"pattern":"CodeGraphService","path":"backend/src"}',
+        timestamp: '2026-07-15T12:00:00Z',
+      },
+    });
+    expect(rows).toEqual([expect.objectContaining({
+      label: 'Searching', detail: 'CodeGraphService', pathArg: false,
+    })]);
+  });
+
+  it('marks a file argument so the row keeps the filename when it overflows', () => {
+    const rows = updateLiveActivities([], {
+      name: 'ToolCallStarted',
+      data: {
+        callId: 'call-3', toolName: 'Read',
+        inputJson: '{"file_path":"backend/src/main/java/Foo.java"}',
+        timestamp: '2026-07-15T12:00:00Z',
+      },
+    });
+    expect(rows).toEqual([expect.objectContaining({
+      label: 'Reading', detail: 'backend/src/main/java/Foo.java', pathArg: true,
+    })]);
+  });
 });

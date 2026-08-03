@@ -19,6 +19,9 @@ export type LiveActivity = {
   callId: string;
   label: string;
   detail: string | null;
+  /** True when `detail` is a file path, so the row head-truncates and keeps
+   *  the filename instead of the interchangeable worktree prefix. */
+  pathArg: boolean;
   startedAt: number;
   done: boolean;
   failed: boolean;
@@ -38,11 +41,13 @@ export function updateLiveActivities(
   if (event.name === 'ToolCallStarted') {
     const callId = stringField(event.data.callId);
     if (callId === '') return activities;
-    const { label, detail } = describeTool(stringField(event.data.toolName), stringField(event.data.inputJson));
+    const { label, detail, pathArg } = describeTool(
+      stringField(event.data.toolName), stringField(event.data.inputJson));
     return [...activities, {
       callId,
       label,
       detail,
+      pathArg,
       startedAt: eventTime(event.data.timestamp),
       done: false,
       failed: false,
@@ -56,17 +61,32 @@ export function updateLiveActivities(
   return activities;
 }
 
-function describeTool(toolName: string, inputJson: string): { label: string; detail: string | null } {
+/** The one arg worth showing, in priority order. The search pattern beats the
+ *  path it was scoped to: a run of Greps under one directory otherwise renders
+ *  as a column of identical rows. */
+const DETAIL_FIELDS = ['pattern', 'query', 'command', 'file_path', 'path', 'text'] as const;
+const PATH_FIELDS: ReadonlySet<string> = new Set(['file_path', 'path']);
+
+function describeTool(
+  toolName: string, inputJson: string,
+): { label: string; detail: string | null; pathArg: boolean } {
   const input = parseInput(inputJson);
-  const detail = firstString(input.command, input.path, input.file_path, input.query, input.pattern, input.text);
+  const field = DETAIL_FIELDS.find(key => {
+    const value = input[key];
+    return typeof value === 'string' && value.trim() !== '';
+  });
+  const detail = field === undefined ? null : input[field] as string;
+  const pathArg = field !== undefined && PATH_FIELDS.has(field);
   const name = toolName.toLowerCase();
-  if (name.includes('grep') || name.includes('search')) return { label: 'Searching', detail };
-  if (name.includes('glob')) return { label: 'Finding files', detail };
-  if (name.includes('read')) return { label: 'Reading', detail };
+  const described = (label: string) => ({ label, detail, pathArg });
+  if (name.includes('grep') || name.includes('search')) return described('Searching');
+  if (name.includes('glob')) return described('Finding files');
+  if (name.includes('read')) return described('Reading');
+  if (name.includes('write') || name.includes('edit')) return described('Writing');
   if (name.includes('command') || name.includes('shell') || name === 'bash') {
-    return { label: 'Running command', detail };
+    return described('Running command');
   }
-  return { label: toolName === '' ? 'Using tool' : `Using ${toolName}`, detail };
+  return described(toolName === '' ? 'Using tool' : `Using ${toolName}`);
 }
 
 function parseInput(inputJson: string): Record<string, unknown> {
@@ -79,13 +99,6 @@ function parseInput(inputJson: string): Record<string, unknown> {
   catch {
     return {};
   }
-}
-
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim() !== '') return value;
-  }
-  return null;
 }
 
 function stringField(value: unknown): string {

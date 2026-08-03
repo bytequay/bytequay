@@ -850,8 +850,12 @@ public class StageDetailServiceImpl
                 // claude-code stream-json shape); fall back to the top level.
                 JsonNode args = node.get("input");
                 JsonNode argSource = args != null && args.isObject() ? args : node;
+                // Search args first: a Grep/Glob carries both a pattern and the
+                // path it scoped to, and the pattern is what distinguishes one
+                // call from the next — scoping every search in a run to the same
+                // directory otherwise renders them as identical rows.
                 detail = firstText(argSource,
-                        "file_path", "path", "file", "filePath", "command", "cmd", "pattern", "query");
+                        "pattern", "query", "file_path", "path", "file", "filePath", "command", "cmd");
             }
             catch (JsonProcessingException ignore) {
                 name = null;

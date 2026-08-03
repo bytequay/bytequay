@@ -585,6 +585,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The verb keeps its width so the argument absorbs the truncation — a row
+   never collapses to "Sear… · …". */
+.shell .working__log-row .working__log-label { flex: none; }
+/* A Read/Write path truncates from the HEAD so the leaf filename survives —
+   `…/publish/GitHubPublishEffect.java`, not `backend/src/main/java/com/byteq…`.
+   Same BiDi trick as the header tail: the Latin glyphs and slashes stay one
+   LTR run inside the RTL box. */
+.shell .working__log-row .working__log-arg--tail {
+  direction: rtl;
+  text-align: left;
+}
 
 /* ── "Thought for Xs" indicator ──────────────────────────────── */
 .shell .thought {

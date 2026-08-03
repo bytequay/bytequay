@@ -18,6 +18,9 @@ import com.bytequay.app.repository.github.GitHubClient.GitHubNotification.Notifi
 import com.bytequay.app.repository.github.GitHubClient.GitHubNotification.Subject;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+
+import static com.bytequay.app.domain.PullRequest.Origin.AUTHORED;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestGitHubClientAggregation
@@ -127,5 +130,33 @@ class TestGitHubClientAggregation
     {
         assertThat(GitHubApiSupport.extractGitHubErrorMessage("not-json"))
                 .isNull();
+    }
+
+    // ── search items → PullRequest: merged vs plainly closed ───────────────────
+
+    private static GitHubSearchResponse.Item searchItem(Instant mergedAt)
+    {
+        return new GitHubSearchResponse.Item(
+                1L, 57, "title", "https://github.com/owner/repo/pull/57",
+                Instant.parse("2026-08-03T00:00:00Z"), Instant.parse("2026-08-03T03:37:02Z"),
+                Instant.parse("2026-08-03T03:37:02Z"), "closed",
+                "https://api.github.com/repos/owner/repo", null, null, false,
+                mergedAt == null ? null : new GitHubSearchResponse.PullRequestLink(mergedAt));
+    }
+
+    @Test
+    void testSearchItemCarriesMergedAt()
+    {
+        // Search reports a merged PR as state=closed. Dropping merged_at made
+        // every downstream renderer call it "Closed" instead of "Merged".
+        assertThat(GitHubClient.toPullRequest(
+                searchItem(Instant.parse("2026-08-03T03:37:02Z")), AUTHORED).mergedAt())
+                .isEqualTo(Instant.parse("2026-08-03T03:37:02Z"));
+    }
+
+    @Test
+    void testSearchItemWithoutMergeLeavesMergedAtNull()
+    {
+        assertThat(GitHubClient.toPullRequest(searchItem(null), AUTHORED).mergedAt()).isNull();
     }
 }

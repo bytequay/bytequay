@@ -383,6 +383,20 @@ export function PullDetailBody({
   const watchable = durablePublicationPrId === null
     ? null
     : splitRepo(bundle?.pr.repo ?? null);
+  // Every PR pane offers the close action, not only the task-owned ones that
+  // pass it explicitly (those hosts override this to also poll their own
+  // state). GitHub rejects the call when the viewer may not close the PR.
+  const closableRemotePr = bundle !== null && bundle !== undefined
+      && bundle.pr.repo !== null && bundle.pr.remotePrNumber !== null
+      && bundle.pr.status !== 'merged' && bundle.pr.status !== 'closed'
+    ? { repo: bundle.pr.repo, number: bundle.pr.remotePrNumber }
+    : null;
+  const closePullRequest = actions.onClosePullRequest
+    ?? (closableRemotePr === null ? undefined : async () => {
+      await window.bridge.commentPr(
+        Number(row.dto.id) || 0, closableRemotePr.repo, closableRemotePr.number, '', true);
+      refresh();
+    });
   useEffect(() => {
     const getPublication = typeof window === 'undefined'
       ? undefined
@@ -611,7 +625,7 @@ export function PullDetailBody({
               isMerged={det.isMerged}
               refresh={refresh}
               onComment={onComment}
-              onClosePullRequest={actions.onClosePullRequest}
+              onClosePullRequest={closePullRequest}
               onDescriptionSaved={refresh}
               onLocalReply={replyLocalComment}
               onLocalResolve={resolveLocalComment}

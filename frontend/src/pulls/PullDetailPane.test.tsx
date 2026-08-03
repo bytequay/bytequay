@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LocalPrReviewPublicationDto } from '../types';
 import type { AgentReviewData } from '../review/agentReviewTypes';
@@ -458,6 +458,49 @@ describe('PullDetailPane', () => {
     fireEvent.click(retryButton);
     expect(retry).toHaveBeenCalledOnce();
     expect(openAgent).not.toHaveBeenCalled();
+  });
+
+  it('closes an open remote PR without the host supplying a close action', async () => {
+    const commentPr = vi.fn().mockResolvedValue(undefined);
+    const refresh = vi.fn();
+    window.bridge = {
+      fetchPrDiffFiles: vi.fn().mockResolvedValue([]),
+      commentPr,
+    } as unknown as typeof window.bridge;
+
+    render(
+      <PullDetailBody
+        row={toRow(externalReviewRow())}
+        bundle={externalReviewBundle()}
+        refresh={refresh}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close pull request' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Close pull request' }),
+    );
+
+    await waitFor(() => expect(commentPr).toHaveBeenCalledWith(0, 'trinodb/trino', 84, '', true));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+
+  it('hides the close action once the PR is merged', () => {
+    window.bridge = {
+      fetchPrDiffFiles: vi.fn().mockResolvedValue([]),
+      commentPr: vi.fn(),
+    } as unknown as typeof window.bridge;
+    const bundle = externalReviewBundle();
+
+    render(
+      <PullDetailBody
+        row={toRow({ ...externalReviewRow(), state: 'merged' })}
+        bundle={{ ...bundle, pr: { ...bundle.pr, status: 'merged' } }}
+        refresh={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Close pull request' })).toBeNull();
   });
 
   it('starts an idle full review and opens the agent window for running or completed reviews', () => {

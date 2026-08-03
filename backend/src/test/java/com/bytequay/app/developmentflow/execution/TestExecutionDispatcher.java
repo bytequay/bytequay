@@ -282,12 +282,42 @@ class TestExecutionDispatcher
             dispatcher.runMaintenance();
         }
 
-        DispatchTicket retry = state.tickets.get("protocol-failure");
-        assertThat(retry.state()).isEqualTo(RESULT_PENDING);
-        assertThat(DispatchTicket.resultProtocolFailureDetail(retry.lastError()))
+        DispatchTicket parked = state.tickets.get("protocol-failure");
+        assertThat(parked.state()).isEqualTo(RESULT_PENDING);
+        assertThat(DispatchTicket.resultProtocolFailureDetail(parked.lastError()))
                 .isEqualTo("owner result is not strict JSON");
-        assertThat(retry.nextAttemptAt()).isEqualTo(NOW.plusSeconds(5));
-        assertThat(state.tickets.getDeliveryClaim(retry.id())).isEmpty();
+        // Parked, not re-armed. The result is frozen on the ticket, so another
+        // attempt reproduces this one — it used to re-deliver every 5s forever.
+        assertThat(parked.nextAttemptAt()).isNull();
+        assertThat(parked.isEligibleAt(NOW.plusSeconds(3600))).isFalse();
+        assertThat(state.tickets.getDeliveryClaim(parked.id())).isEmpty();
+        // The durable result survives the park: the human replacement path
+        // reads it, and the recovery query keys on this exact state.
+        assertThat(parked.pendingResult()).isNotNull();
+    }
+
+    @Test
+    void aParkedProtocolFailureIsNotRedeliveredOnLaterSweeps()
+    {
+        SharedState state = sharedState(4);
+        state.delivery.failure = new ExecutionPorts.ResultProtocolException(
+                "owner result is not strict JSON",
+                new IllegalArgumentException("invalid JSON"));
+        state.tickets.put(requested(
+                "protocol-failure", "unused", VALIDATION, false)
+                .resultPending(success("protocol-failure"), NOW));
+
+        try (ExecutionDispatcher dispatcher = dispatcher(
+                state, "dispatcher",
+                new InMemoryExecutionSupport.DirectExecutorService())) {
+            dispatcher.runMaintenance();
+            dispatcher.runMaintenance();
+            dispatcher.runMaintenance();
+        }
+
+        // One delivery attempt across three sweeps. Before the park this was
+        // one attempt per sweep, indefinitely.
+        assertThat(state.delivery.calls).isEqualTo(1);
     }
 
     @Test

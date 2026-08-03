@@ -101,10 +101,10 @@ public class SqliteDispatchTicketStore
                     FROM dispatch_ticket d
                     WHERE (
                         d.status = 'REQUESTED'
-                        OR (d.status IN ('RETRY_WAIT', 'RESULT_PENDING')
+                        OR (d.status = 'RETRY_WAIT'
                             AND (d.next_attempt_at_ms IS NULL
                                 OR d.next_attempt_at_ms <= ?))
-                        OR (d.status = 'RECONCILE_WAIT'
+                        OR (d.status IN ('RECONCILE_WAIT', 'RESULT_PENDING')
                             AND d.next_attempt_at_ms IS NOT NULL
                             AND d.next_attempt_at_ms <= ?))
                       AND (d.status <> 'RESULT_PENDING' OR NOT EXISTS (

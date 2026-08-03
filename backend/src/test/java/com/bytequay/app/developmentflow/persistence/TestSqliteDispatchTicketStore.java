@@ -371,6 +371,34 @@ class TestSqliteDispatchTicketStore
                 pending.lastError());
     }
 
+    @Test
+    void aParkedResultPendingTicketIsInvisibleToTheEligibleScan()
+    {
+        // The production scan gate is this SQL, not DispatchTicket.isEligibleAt
+        // — the in-memory double filters on the Java predicate, so a park
+        // verified only there would be a no-op in the real dispatcher.
+        SqliteExecutionTestSupport.Database database = database("ticket-parked.db");
+        SqliteExecutionTestSupport.seedTrunk(database, "w1", "trunk-a");
+        SqliteExecutionTestSupport.seedTask(database, "trunk-a", "task-a", 1);
+        DispatchTicket armed = ticket(
+                "armed", "op-armed", "w1", "trunk-a", "task-a", 1)
+                .requestCancel(NOW);
+        DispatchTicket parked = ticket(
+                "parked", "op-parked", "w1", "trunk-a", "task-a", 2)
+                .requestCancel(NOW)
+                .deliveryRetry("OWNER_RESULT_PROTOCOL:cannot decode", null);
+        SqliteExecutionTestSupport.insertTicket(database, armed);
+        SqliteExecutionTestSupport.insertTicket(database, parked);
+        SqliteDispatchTicketStore tickets = new SqliteDispatchTicketStore(
+                database.dataSource());
+
+        assertThat(tickets.findEligiblePage(NOW.plusSeconds(3600), null, 20)
+                .tickets())
+                .extracting(DispatchTicket::id)
+                .contains("armed")
+                .doesNotContain("parked");
+    }
+
     private static DispatchTicket ticket(
             String id,
             String operation,

@@ -988,32 +988,6 @@ public final class PlanRuntimeCoordinator
     }
 
     /** Accepts an exact reviewed Plan on behalf of an attributed local automation. */
-    public AcceptedApproval approvePlanByAutomation(
-            AutomationPlanApprovalCommand automation)
-    {
-        requireNonNull(automation, "automation is null");
-        PlanApprovalCommand command = automation.approval();
-        requireLocalHandoff();
-        return commands.execute(command.taskId(), () -> {
-            TaskCommandExecutor.requireCurrent(command.taskId());
-            String approvalId = id(
-                    "plan-automation-approval",
-                    automation.automationKind() + ":" + command.requestId());
-            AcceptedApproval duplicate = store.findAcceptedApproval(approvalId)
-                    .orElse(null);
-            if (duplicate != null) {
-                requireSameApproval(command, approvalId, "AUTOMATION", duplicate);
-                return duplicate;
-            }
-            ApprovalContext context = store.requireApprovalContext(
-                    command.taskId(), command.stageId(), command.stageGeneration(),
-                    command.revisionId(), command.selfReviewId());
-            requireApprovalFence(command, context);
-            return acceptApprovalInCommand(
-                    approvalId, "AUTOMATION", command.actor(), context);
-        });
-    }
-
     /** Re-evaluates a Plan already parked at approval after a policy change. */
     public boolean redrivePolicyApproval(String taskId)
     {
@@ -1876,18 +1850,4 @@ public final class PlanRuntimeCoordinator
         }
     }
 
-    public record AutomationPlanApprovalCommand(
-            String automationKind,
-            PlanApprovalCommand approval)
-    {
-        public AutomationPlanApprovalCommand
-        {
-            required(automationKind, "automationKind");
-            requireNonNull(approval, "approval is null");
-            if (!approval.actor().equals("automation/" + automationKind)) {
-                throw new IllegalArgumentException(
-                        "Automation Plan approval actor does not match its kind");
-            }
-        }
-    }
 }

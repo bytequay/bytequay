@@ -43,6 +43,11 @@ import static java.util.Objects.requireNonNull;
  * before each CLI subprocess starts. Files under the process-private temp
  * directory make the state visible both to the backend MCP handler and to
  * sandboxed child commands without opening a localhost network path.
+ *
+ * <p>Only CLI turns need that reset. The redirect itself is an approval step,
+ * and the approval chain runs solely from the MCP dispatcher, so an in-JVM
+ * agent — which resolves its tools through the local registry instead — never
+ * reaches the policy and has no per-turn state to clear.
  */
 public final class CodeGraphFirstRuntime
 {
@@ -64,21 +69,6 @@ public final class CodeGraphFirstRuntime
     private static volatile boolean shimsReady;
 
     private CodeGraphFirstRuntime() {}
-
-    /** Reset one scheduler turn, including API-lane turns with no CLI process. */
-    public static void beginTurn(String threadId, String agentKey)
-    {
-        if (!validScope(threadId, agentKey)) {
-            return;
-        }
-        try {
-            resetState(stateDirectory(threadId, agentKey));
-        }
-        catch (IOException | RuntimeException e) {
-            log.warn("Could not reset CodeGraph-first state for {}/{}: {}",
-                    threadId, agentKey, e.getMessage());
-        }
-    }
 
     /** Reset one agent's turn state and install the managed search shims. */
     public static void prepare(ProcessBuilder process, String threadId, String agentKey)

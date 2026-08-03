@@ -15,12 +15,16 @@ package com.bytequay.app.service.codegraph;
 
 import com.bytequay.app.service.codegraph.CodeGraphService.Fingerprint;
 import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,11 +34,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Stream;
 
 /** Per-checkout serialization and coalescing for CodeGraph updates. */
 @Component
 public class CodeGraphUpdateCoordinator
 {
+    private static final Logger log = LoggerFactory.getLogger(CodeGraphUpdateCoordinator.class);
+
     /** Cap on self-inflicted re-index passes when a checkout keeps changing under us. */
     private static final int MAX_CHURN_REPASSES = 3;
 
@@ -84,9 +91,39 @@ public class CodeGraphUpdateCoordinator
         request(checkout, reason, false, false, 0);
     }
 
+    /**
+     * Drop a removed checkout's update lane and its on-disk index.
+     *
+     * <p>Every caller is a worktree teardown, and the index is a full copy of
+     * the repository graph — roughly the size of the checkout it describes.
+     * {@code git worktree remove} leaves it behind because it is untracked, so
+     * without this the indexes of reaped worktrees accumulate indefinitely.
+     */
     public void forget(Path checkout)
     {
-        lanes.remove(normalize(checkout));
+        Path root = normalize(checkout);
+        lanes.remove(root);
+        try {
+            deleteRecursively(root.resolve(".codegraph"));
+        }
+        catch (IOException | RuntimeException e) {
+            // Best-effort, symmetric with the worktree removal it follows: a
+            // leftover index costs disk, never correctness.
+            log.warn("Could not delete the CodeGraph index under {}: {}", root, e.getMessage());
+        }
+    }
+
+    private static void deleteRecursively(Path directory)
+            throws IOException
+    {
+        if (!Files.isDirectory(directory)) {
+            return;
+        }
+        try (Stream<Path> entries = Files.walk(directory)) {
+            for (Path path : entries.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
     }
 
     public String explore(Path checkout, String query)

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.AgentBrainResult;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
@@ -60,7 +61,6 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.skills.SimplifyPrompt;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -71,7 +71,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -151,6 +150,8 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final ObjectMapper json;
     private final ObjectReader workModelReader;
     private final ObjectReader validationResultReader;
+    /** Names this Turn in every brain-protocol failure message. */
+    private static final String BRAIN_LABEL = "Development Brain";
     private final ObjectReader brainResultReader;
     private final Clock clock;
     private final int serverPort;
@@ -179,9 +180,7 @@ public final class LocalDevelopmentRuntimeCoordinator
         this.validationResultReader = json.readerFor(
                         LocalValidationOperationHandler.ValidationResult.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        this.brainResultReader = json.readerFor(JsonNode.class)
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        this.brainResultReader = AgentBrainResult.reader(json);
         this.clock = requireNonNull(clock, "clock is null");
         if (serverPort < 1 || serverPort > 65535) {
             throw new IllegalArgumentException("serverPort is invalid");
@@ -1178,26 +1177,14 @@ public final class LocalDevelopmentRuntimeCoordinator
                     "Development Brain failed without typed budget evidence");
         }
 
-        BrainResult verdict;
+        AgentBrainResult verdict;
         TaskManager.BrainVerdict domainVerdict;
         int unresolved;
         try {
-            verdict = decodeBrainResult(result.payload().finalText());
-            domainVerdict = switch (verdict.verdict()) {
-                case "APPROVED" -> TaskManager.BrainVerdict.APPROVED;
-                case "CHANGES_REQUESTED" ->
-                        TaskManager.BrainVerdict.CHANGES_REQUESTED;
-                default -> throw new IllegalArgumentException(
-                        "Unknown Development Brain verdict: " + verdict.verdict());
-            };
+            verdict = AgentBrainResult.decode(
+                    brainResultReader, result.payload().finalText(), BRAIN_LABEL);
+            domainVerdict = verdict.requireVerdict(BRAIN_LABEL);
             unresolved = verdict.findings().size();
-            if (domainVerdict == TaskManager.BrainVerdict.APPROVED
-                    && unresolved != 0
-                    || domainVerdict == TaskManager.BrainVerdict.CHANGES_REQUESTED
-                        && unresolved == 0) {
-                throw new IllegalArgumentException(
-                        "Development Brain verdict and findings disagree");
-            }
         }
         catch (IllegalArgumentException protocolFailure) {
             if (context.resultRepair()) {
@@ -1395,7 +1382,7 @@ public final class LocalDevelopmentRuntimeCoordinator
 
     private BrainFixTurn createBrainFixTurn(
             BrainTurnContext context,
-            BrainResult verdict,
+            AgentBrainResult verdict,
             Instant now)
     {
         String requestId = id("brain-fix-request", context.episodeId());
@@ -1960,65 +1947,6 @@ public final class LocalDevelopmentRuntimeCoordinator
         return "Local StageTurn ended " + result.outcome();
     }
 
-    private BrainResult decodeBrainResult(String value)
-    {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("Development Brain result is missing");
-        }
-        try {
-            JsonNode root = brainResultReader.readTree(value);
-            if (root == null || !root.isObject()) {
-                throw new IllegalArgumentException(
-                        "Development Brain result must be one JSON object");
-            }
-            var fields = root.fieldNames();
-            while (fields.hasNext()) {
-                switch (fields.next()) {
-                    case "schemaVersion", "verdict", "summary", "findings" -> {}
-                    default -> throw new IllegalArgumentException(
-                            "Development Brain result has an unknown field");
-                }
-            }
-            JsonNode schema = root.get("schemaVersion");
-            if (schema == null || !schema.isIntegralNumber()
-                    || schema.intValue() != 1) {
-                throw new IllegalArgumentException(
-                        "Unsupported Development Brain result version");
-            }
-            JsonNode verdictNode = root.get("verdict");
-            if (verdictNode == null || !verdictNode.isTextual()
-                    || verdictNode.textValue().isBlank()) {
-                throw new IllegalArgumentException(
-                        "Development Brain verdict is missing");
-            }
-            JsonNode summaryNode = root.get("summary");
-            if (summaryNode == null || !summaryNode.isTextual()
-                    || summaryNode.textValue().isBlank()) {
-                throw new IllegalArgumentException(
-                        "Development Brain summary is missing");
-            }
-            JsonNode findingNodes = root.get("findings");
-            if (findingNodes == null || !findingNodes.isArray()) {
-                throw new IllegalArgumentException(
-                        "Development Brain findings must be an array");
-            }
-            List<String> findings = new ArrayList<>();
-            for (JsonNode finding : findingNodes) {
-                if (!finding.isTextual() || finding.textValue().isBlank()) {
-                    throw new IllegalArgumentException(
-                            "Development Brain findings must be non-blank strings");
-                }
-                findings.add(finding.textValue());
-            }
-            return new BrainResult(
-                    1, verdictNode.textValue(), summaryNode.textValue(), findings);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException(
-                    "Development Brain result is not strict JSON", e);
-        }
-    }
-
     private static boolean isBudgetExhaustion(
             AgentTurnOwnerResultCodec.OwnerResult result)
     {
@@ -2420,19 +2348,6 @@ public final class LocalDevelopmentRuntimeCoordinator
         requireNonNull(value, name + " is null");
         if (value.isBlank()) {
             throw new IllegalArgumentException(name + " is blank");
-        }
-    }
-
-    private record BrainResult(
-            int schemaVersion,
-            String verdict,
-            String summary,
-            List<String> findings)
-    {
-        private BrainResult
-        {
-            requireNonNull(findings, "findings is null");
-            findings = List.copyOf(findings);
         }
     }
 }

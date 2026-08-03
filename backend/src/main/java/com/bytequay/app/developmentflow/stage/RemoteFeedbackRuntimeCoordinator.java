@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.AgentBrainResult;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
@@ -78,6 +79,8 @@ public final class RemoteFeedbackRuntimeCoordinator
     private final ObjectMapper json;
     private final ObjectReader repairReader;
     private final ObjectReader validationReader;
+    /** Names this Turn in every brain-protocol failure message. */
+    private static final String BRAIN_LABEL = "Remote Brain";
     private final ObjectReader brainReader;
     private final ObjectReader workModelReader;
     private final Clock clock;
@@ -104,7 +107,7 @@ public final class RemoteFeedbackRuntimeCoordinator
         this.repairReader = strictReader(RepairResult.class);
         this.validationReader = strictReader(
                 RemoteFeedbackValidationOperationHandler.ValidationResult.class);
-        this.brainReader = strictReader(BrainResult.class);
+        this.brainReader = AgentBrainResult.reader(json);
         this.workModelReader = strictReader(WorkModel.class);
         this.clock = requireNonNull(clock, "clock is null");
         if (serverPort < 1 || serverPort > 65535) {
@@ -418,20 +421,10 @@ public final class RemoteFeedbackRuntimeCoordinator
             throw new IllegalStateException(
                     "Remote Brain failed without a typed terminal decision");
         }
-        BrainResult result = decodeBrain(raw.payload().finalText());
-        TaskManager.BrainVerdict verdict = switch (result.verdict()) {
-            case "APPROVED" -> TaskManager.BrainVerdict.APPROVED;
-            case "CHANGES_REQUESTED" -> TaskManager.BrainVerdict.CHANGES_REQUESTED;
-            default -> throw new IllegalArgumentException(
-                    "Unknown Remote Brain verdict: " + result.verdict());
-        };
+        AgentBrainResult result = AgentBrainResult.decode(
+                brainReader, raw.payload().finalText(), BRAIN_LABEL);
+        TaskManager.BrainVerdict verdict = result.requireVerdict(BRAIN_LABEL);
         int findings = result.findings().size();
-        if (verdict == TaskManager.BrainVerdict.APPROVED && findings != 0
-                || verdict == TaskManager.BrainVerdict.CHANGES_REQUESTED
-                    && findings == 0) {
-            throw new IllegalArgumentException(
-                    "Remote Brain verdict and findings disagree");
-        }
         store.completeBrain(
                 context, verdict.name(), findings,
                 required(result.summary(), "summary"), now);
@@ -702,22 +695,6 @@ public final class RemoteFeedbackRuntimeCoordinator
         }
     }
 
-    private BrainResult decodeBrain(String value)
-    {
-        try {
-            BrainResult result = brainReader.readValue(required(value, "Brain result"));
-            if (result.schemaVersion() != 1
-                    || result.findings().stream().anyMatch(
-                            finding -> finding == null || finding.isBlank())) {
-                throw new IllegalArgumentException("Remote Brain result is invalid");
-            }
-            return result;
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Remote Brain result is not strict JSON", e);
-        }
-    }
-
     private WorkModel decodeWorkModel(String value)
     {
         try {
@@ -923,16 +900,6 @@ public final class RemoteFeedbackRuntimeCoordinator
             String kind,
             String body,
             String externalTarget) {}
-
-    public record BrainResult(
-            int schemaVersion, String verdict, String summary,
-            List<String> findings)
-    {
-        public BrainResult
-        {
-            findings = List.copyOf(requireNonNull(findings, "findings is null"));
-        }
-    }
 
     private record CodeSubject(String fingerprint, String headSha, String baseSha) {}
 }

@@ -374,12 +374,16 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
         {hasValue && valueOpen && <div style={foldPanelStyle}>{plan.value}</div>}
       </div>
 
-      {/* policy toolbar */}
+      {/* policy toolbar — dimmed and labelled LOCKED when the owning task no
+          longer accepts policy changes, so a read-only switch never looks live */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', padding: '12px 20px',
         borderTop: '1px solid #eef0f2', background: '#fafbfc', marginTop: 10,
+        opacity: policyEditable ? 1 : 0.5,
       }}>
-        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.07em', color: '#a5abb2' }}>POLICY</span>
+        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.07em', color: '#a5abb2' }}>
+          {policyEditable ? 'POLICY' : 'POLICY · LOCKED'}
+        </span>
         <Segmented<0 | 1 | 2>
           label="Min approvals" minCellWidth={32} fontSize={12} disabled={!policyEditable} value={plan.policy.minApprovals}
           options={[{ value: 0, label: '0' }, { value: 1, label: '1' }, { value: 2, label: '2' }]}

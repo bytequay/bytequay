@@ -283,7 +283,9 @@ export function TaskBrainRoute({
     bridge?.getTaskAutoApprove?.(threadId, taskId)
       .then(r => {
         if (read !== autoApproveRead.current) return;
-        const eff = r.enabled || threadDefault;
+        // A terminal task's policy is frozen — inheriting the thread default
+        // would show an "On" the backend will never accept.
+        const eff = r.enabled || (threadDefault && !task.terminal);
         setAutoApprove(eff);
         // A new task whose backend value is still off inherits the thread
         // default — persist it so the backend matches what the UI shows.
@@ -303,7 +305,10 @@ export function TaskBrainRoute({
     if (write === undefined) return;
     trackPolicyWrite(write)
       .then(r => setAutoApprove(r.enabled))
-      .catch(() => setAutoApprove(!next));
+      .catch((reason: unknown) => {
+        setAutoApprove(!next);
+        setActionError(reason instanceof Error ? reason.message : 'Could not change auto-approve');
+      });
   };
   // Auto-merge mode: on top of auto-approve, the final merge gate also
   // approves automatically. Only settable while the plan reads low-risk /
@@ -331,7 +336,10 @@ export function TaskBrainRoute({
     if (write === undefined) return;
     trackPolicyWrite(write)
       .then(r => { setAutoMerge(r.enabled); if (r.enabled) setAutoApprove(true); })
-      .catch(() => setAutoMerge(!next));
+      .catch((reason: unknown) => {
+        setAutoMerge(!next);
+        setActionError(reason instanceof Error ? reason.message : 'Could not change auto-merge');
+      });
   };
   // Minimum write-permission approvals a shipped PR needs before it counts as
   // merge-ready (0/1/2). Per-task, persisted; chosen on the plan card.
@@ -516,14 +524,14 @@ export function TaskBrainRoute({
       autoMerge={autoMerge}
       autoConfidenceHigh={planConfidenceHigh}
       approvedAt={approvedAt}
-      onApprove={plan.state === 'awaiting' && !approvingPlan ? approvePlan : undefined}
+      onApprove={plan.state === 'awaiting' && !approvingPlan && !task.terminal ? approvePlan : undefined}
       onRequestRevision={requestRevision}
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
       onHoldAuto={toggleAutoApprove}
-      onToggleAutoApprove={toggleAutoApprove}
-      onToggleAutoMerge={toggleAutoMerge}
+      onToggleAutoApprove={task.terminal ? undefined : toggleAutoApprove}
+      onToggleAutoMerge={task.terminal ? undefined : toggleAutoMerge}
       minApprovals={minApprovals}
-      onSetMinApprovals={setMinApprovals}
+      onSetMinApprovals={task.terminal ? undefined : setMinApprovals}
       stepComments={planStepComments(brainFeed)}
     />
   ) : null;

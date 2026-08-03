@@ -3966,6 +3966,48 @@ reconciliation; they are never reassigned using latest/active inference.
 
 ## Change log
 
+### 3.38 — 2026-08-03 (open question, not a decision)
+
+Whether the fallback checkpoint commit may carry the turn's own summary, and
+what it would cost.
+
+**Today.** A Turn that returns uncommitted worktree changes is checkpointed by
+the execution layer, which then observes the output code subject:
+
+~~~text
+checkpointProviderChanges(turn);   // commits whatever the turn left behind
+output = observeOutput(turn);      // head SHA + code fingerprint captured here
+~~~
+
+That subject is the result fence. Every later acceptance, supersession, replay
+and recovery check compares against it. The checkpoint subject is therefore
+written before any result is decoded, and can only name the Turn purpose.
+
+**Why the obvious fixes do not work.** Reading `commit_summary` inside
+`checkpointProviderChanges` would make execution interpret result-payload
+meaning, which C09 forbids. Amending the message after the owner decodes would
+change the commit SHA and invalidate the fence the result is already bound to.
+
+**What a real restructure must settle.** Moving the checkpoint into the owner,
+after decode, requires the output subject to be observed there too — otherwise
+the fence describes a tree that predates the commit the owner accepts. That
+makes the following design questions, not implementation details:
+
+1. Which layer observes the output code subject. Execution owns it today, and
+   the dispatcher's delivery fence is built from it.
+2. Whether the checkpoint becomes an owner-side command with its own idempotent
+   fence, since it would then mutate the worktree inside the accept path.
+3. What a crash between decode and commit means. That window does not exist
+   today; a Turn is either checkpointed and observed, or neither.
+4. Whether the benefit justifies changing a core invariant at all. Turns are
+   now instructed to commit their own work, so the checkpoint is a fallback
+   that should be rare, and its subject already states that a Turn returned
+   changes it did not commit.
+
+**Status.** No decision. Recorded so the constraint is not rediscovered, and so
+a future attempt starts from the fence question rather than from the commit
+message. Question 4 should be answered before questions 1 to 3 are explored.
+
 ### 3.37 — 2026-08-03
 
 PR timeline events are owned by ByteQuay, never written by an agent.

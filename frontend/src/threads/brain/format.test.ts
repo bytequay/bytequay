@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  formatCost, formatDuration, formatTokensK, relativeLong, relativeShort,
+  formatCost, formatDuration, formatTokensK, relativeLong, relativeShort, shortPaths,
 } from './format';
 
 describe('formatDuration', () => {
@@ -48,6 +48,34 @@ describe('formatTokensK', () => {
   it('renders thousands with one decimal', () => {
     expect(formatTokensK(86_000)).toBe('86.0k');
     expect(formatTokensK(200_000)).toBe('200.0k');
+  });
+});
+
+describe('shortPaths', () => {
+  it('keeps the last two segments of a quoted path with spaces', () => {
+    expect(shortPaths(
+      'cd "/Users/me/Library/Application Support/ByteQuay/repos/o/r/.worktree/t9" && mvn verify'))
+      .toBe('cd "…/.worktree/t9" && mvn verify');
+  });
+
+  it('shortens a bare path argument', () => {
+    expect(shortPaths('/repo/.worktree/x/backend/src/main/java/Foo.java'))
+      .toBe('…/java/Foo.java');
+  });
+
+  it('shortens every path in a command, not just the first', () => {
+    expect(shortPaths('cp /a/b/c/one.txt /d/e/f/two.txt')).toBe('cp …/c/one.txt …/f/two.txt');
+  });
+
+  it('leaves short paths, relative paths and URLs alone', () => {
+    expect(shortPaths('/etc/hosts')).toBe('/etc/hosts');
+    expect(shortPaths('backend/src/main/java/Foo.java')).toBe('backend/src/main/java/Foo.java');
+    expect(shortPaths('curl http://localhost:8080/api/stages/s1'))
+      .toBe('curl http://localhost:8080/api/stages/s1');
+  });
+
+  it('leaves a plain command untouched', () => {
+    expect(shortPaths('git status')).toBe('git status');
   });
 });
 

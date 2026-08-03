@@ -664,7 +664,8 @@ public final class V2DevelopmentFlowProjection
                 content.goal(), content.understanding(), content.action(),
                 content.steps(), content.validation(), "await_approval",
                 new TaskBrainViewData.PlanSignals(
-                        "low", "small", content.steps().size(), "", "high"),
+                        content.risk(), content.effort(),
+                        content.steps().size(), "", content.confidence()),
                 row.revisionCount(), planFollowups(row.revisionId()),
                 content.guardrails(), null);
     }
@@ -755,10 +756,14 @@ public final class V2DevelopmentFlowProjection
                         risk.isBlank() ? null : risk));
             }
         }
+        JsonNode signals = plan.path("signals");
         return new MarkdownPlan(
                 goal, understanding, action, List.copyOf(steps),
                 text(plan.path("intent").path("validationStrategy")),
-                textList(plan.path("outOfScope")));
+                textList(plan.path("outOfScope")),
+                signals.path("riskLevel").asText(""),
+                signals.path("estimatedComplexity").asText(""),
+                signals.path("confidence").asText(""));
     }
 
     /**
@@ -793,10 +798,13 @@ public final class V2DevelopmentFlowProjection
                         1, step, files, markdown.isBlank() ? null : markdown, null));
             }
         }
+        // A pre-contract Markdown revision never reported signals; say so
+        // rather than inventing them.
         return new MarkdownPlan(
                 goal, goal, action, List.copyOf(steps),
                 String.join("\n", contentLines(section(markdown, "validation"))),
-                listItems(section(markdown, "scope guardrails")));
+                listItems(section(markdown, "scope guardrails")),
+                "", "", "");
     }
 
     private static String text(JsonNode node)
@@ -934,7 +942,12 @@ public final class V2DevelopmentFlowProjection
     record MarkdownPlan(
             String goal, String understanding, String action,
             List<TaskBrainViewData.PlanStep> steps,
-            String validation, List<String> guardrails) {}
+            String validation, List<String> guardrails,
+            /** The planner's own risk / effort / confidence, or blank when the
+             *  revision predates the structured contract. Blank renders as
+             *  unknown; it must never be filled with a plausible default,
+             *  because these are pills a human reads to decide go / no-go. */
+            String risk, String effort, String confidence) {}
 
     /**
      * Projects only the exact recoverable Plan-draft failure. The terminal

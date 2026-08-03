@@ -35,6 +35,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 
 import static java.util.Objects.requireNonNull;
 
@@ -55,7 +56,8 @@ public final class PlanMcpService
      */
     private static final String PLAN_SCHEMA = """
             {"type":"object","additionalProperties":false,
-             "required":["task_id","goal","understanding","intent","steps"],
+             "required":["task_id","goal","understanding","intent","steps",
+             "risk","effort","confidence"],
              "properties":{"task_id":{"type":"string","minLength":1},
              "goal":{"type":"string","minLength":1,
              "description":"ONE sentence naming the objective. No preamble."},
@@ -75,6 +77,12 @@ public final class PlanMcpService
              "risk":{"type":"string","enum":["low","med","high","opt"]}}}},
              "validation":{"type":"string",
              "description":"How the change will be checked."},
+             "risk":{"type":"string","enum":["low","medium","high"],
+             "description":"Overall risk of the change as planned."},
+             "effort":{"type":"string","enum":["small","medium","large"],
+             "description":"Overall size of the work."},
+             "confidence":{"type":"string","enum":["low","medium","high"],
+             "description":"How confident you are the plan succeeds as written."},
              "out_of_scope":{"type":"array","items":{"type":"string","minLength":1},
              "description":"What this task deliberately does NOT do."}}}
             """;
@@ -268,9 +276,32 @@ public final class PlanMcpService
      * flat one the model was asked for. Field order is fixed by construction, so
      * an identical re-submission digests identically and stays idempotent.
      */
+    private static final List<String> RISK = List.of("low", "medium", "high");
+    private static final List<String> EFFORT = List.of("small", "medium", "large");
+
+    /**
+     * Publishing a schema does not enforce it: Jackson binds what arrives and
+     * checks Java types, so an omitted required field arrives as null and an
+     * enum outside the list arrives verbatim. The check has to be here. It
+     * returns a tool error, so the brain reads the reason and re-submits.
+     */
+    private static String requireOneOf(String value, List<String> allowed, String field)
+    {
+        String normalized = value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
+        if (!allowed.contains(normalized)) {
+            throw new IllegalArgumentException(
+                    field + " must be one of " + allowed + ", got: "
+                            + (value == null ? "nothing" : value));
+        }
+        return normalized;
+    }
+
     private String planContent(RecordPlanArgs args)
             throws JsonProcessingException
     {
+        String risk = requireOneOf(args.risk(), RISK, "risk");
+        String effort = requireOneOf(args.effort(), EFFORT, "effort");
+        String confidence = requireOneOf(args.confidence(), RISK, "confidence");
         ObjectNode plan = responses.mapper().createObjectNode();
         plan.put("status", "finalized");
         plan.put("goal", args.goal());
@@ -296,6 +327,12 @@ public final class PlanMcpService
         }
         intent.put("validationStrategy",
                 args.validation() == null ? "" : args.validation());
+        // The card shows these as pills on the approval decision. They are the
+        // planner's own assessment and nothing automated reads them.
+        ObjectNode signals = plan.putObject("signals");
+        signals.put("riskLevel", risk);
+        signals.put("estimatedComplexity", effort);
+        signals.put("confidence", confidence);
         ArrayNode outOfScope = plan.putArray("outOfScope");
         if (args.outOfScope() != null) {
             args.outOfScope().forEach(outOfScope::add);
@@ -325,6 +362,9 @@ public final class PlanMcpService
             String intent,
             List<PlanStep> steps,
             String validation,
+            String risk,
+            String effort,
+            String confidence,
             @JsonProperty("out_of_scope") List<String> outOfScope) {}
 
     public record PlanStep(

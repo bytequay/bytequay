@@ -441,6 +441,9 @@ class TestAgentDevelopmentE2E
                         step.putArray("files").add(MARKER);
                         arguments.put("validation",
                                 "no build tooling in the fixture repository");
+                        arguments.put("risk", "low");
+                        arguments.put("effort", "small");
+                        arguments.put("confidence", "high");
                     }));
                 }
                 else if (RECORD_REVIEW.equals(name)) {

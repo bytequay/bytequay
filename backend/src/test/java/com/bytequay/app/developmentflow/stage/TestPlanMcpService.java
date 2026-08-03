@@ -157,6 +157,9 @@ class TestPlanMcpService
         step.put("action", "Bump the token to 14px");
         step.putArray("files").add("frontend/src/css/v3-nav.css");
         arguments.put("validation", "npm run lint");
+        arguments.put("risk", "low");
+        arguments.put("effort", "small");
+        arguments.put("confidence", "high");
         arguments.putArray("out_of_scope").add("sibling nav stylesheets");
 
         call("record_plan", arguments);
@@ -172,11 +175,35 @@ class TestPlanMcpService
                 .isEqualTo("npm run lint");
         assertThat(stored.path("outOfScope").path(0).asText())
                 .isEqualTo("sibling nav stylesheets");
+        assertThat(stored.path("signals").path("riskLevel").asText()).isEqualTo("low");
+        assertThat(stored.path("signals").path("estimatedComplexity").asText())
+                .isEqualTo("small");
+        assertThat(stored.path("signals").path("confidence").asText()).isEqualTo("high");
         JsonNode first = stored.path("intent").path("steps").path(0);
         assertThat(first.path("ordinal").asInt()).isEqualTo(1);
         assertThat(first.path("action").asText()).isEqualTo("Bump the token to 14px");
         assertThat(first.path("files").path(0).asText())
                 .isEqualTo("frontend/src/css/v3-nav.css");
+    }
+
+    @Test
+    void aPlanThatOmitsItsRiskSignalsIsRejected()
+    {
+        // The published schema marks these required, but nothing validates
+        // incoming args against a published schema — so this is the check that
+        // actually holds. Without it the card silently shows blank pills.
+        ObjectNode arguments = mapper.createObjectNode()
+                .put("task_id", "task-1")
+                .put("goal", "Raise the nav font size")
+                .put("understanding", "The token is 12px today.")
+                .put("intent", "Bump the token.");
+        arguments.putArray("steps").addObject().put("action", "Bump the token");
+
+        JsonNode response = call("record_plan", arguments);
+
+        assertThat(response.path("result").path("isError").asBoolean()).isTrue();
+        assertThat(response.path("result").path("content").path(0).path("text").asText())
+                .contains("risk must be one of");
     }
 
     @Test

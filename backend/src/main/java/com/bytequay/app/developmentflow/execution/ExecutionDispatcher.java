@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -41,6 +44,8 @@ import static java.util.Objects.requireNonNull;
 public final class ExecutionDispatcher
         implements AutoCloseable
 {
+    private static final Logger log = LoggerFactory.getLogger(ExecutionDispatcher.class);
+
     private static final ExecutionPorts.DispatchWakeStore NO_WAKES =
             new ExecutionPorts.DispatchWakeStore()
             {
@@ -950,15 +955,36 @@ public final class ExecutionDispatcher
             }
         }
         catch (Exception e) {
-            String error = e instanceof ExecutionPorts.ResultProtocolException
+            boolean protocolFailure =
+                    e instanceof ExecutionPorts.ResultProtocolException;
+            String error = protocolFailure
                     ? DispatchTicket.resultProtocolFailure(message(e))
                     : message(e);
+            // Park a protocol failure on its first occurrence rather than
+            // re-arming it. The decode is a pure function of the ticket's own
+            // frozen owner, fence and result, so a second attempt reproduces
+            // the first exactly — and the recovery UI already offers Retry
+            // after one failure, with no attempt threshold of its own.
+            Instant nextAttempt = protocolFailure
+                    ? null : clock.instant().plus(config.retryDelay());
             tickets.findById(claim.ticketId())
                     .filter(claim::owns)
-                    .map(ticket -> ticket.deliveryRetry(
-                            error, clock.instant().plus(config.retryDelay())))
-                    .ifPresent(replacement -> tickets.replaceTicketAndReleaseDeliveryClaim(
-                            claim, replacement));
+                    .map(ticket -> ticket.deliveryRetry(error, nextAttempt))
+                    .ifPresent(replacement -> {
+                        tickets.replaceTicketAndReleaseDeliveryClaim(
+                                claim, replacement);
+                        if (protocolFailure) {
+                            // Nothing else says this happened: the loop it
+                            // replaces spun thousands of times without a line.
+                            log.warn("Parked ticket {} ({} {}) — its result "
+                                            + "cannot be delivered and needs a "
+                                            + "replacement Turn: {}",
+                                    claim.ticketId(),
+                                    replacement.envelope().owner().kind(),
+                                    replacement.envelope().owner().callbackRoute(),
+                                    error);
+                        }
+                    });
         }
         finally {
             activeDeliveries.remove(claim.ticketId(), delivery);

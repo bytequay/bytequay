@@ -112,9 +112,13 @@ public record DispatchTicket(
         requireNonNull(now, "now is null");
         return switch (state) {
             case REQUESTED -> true;
-            case RETRY_WAIT, RESULT_PENDING ->
+            case RETRY_WAIT ->
                     nextAttemptAt == null || !nextAttemptAt.isAfter(now);
-            case RECONCILE_WAIT ->
+            // A null next attempt is a park, matching RECONCILE_WAIT. A result
+            // that cannot decode is a pure function of the frozen ticket, so
+            // re-delivering it only reproduces the same failure — the ticket
+            // waits for the human replacement path instead of spinning.
+            case RECONCILE_WAIT, RESULT_PENDING ->
                     nextAttemptAt != null && !nextAttemptAt.isAfter(now);
             default -> false;
         };

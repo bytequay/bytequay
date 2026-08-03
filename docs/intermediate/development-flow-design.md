@@ -3966,6 +3966,45 @@ reconciliation; they are never reassigned using latest/active inference.
 
 ## Change log
 
+### 3.37 — 2026-08-03
+
+PR timeline events are owned by ByteQuay, never written by an agent.
+
+**Ownership rule.** An agent never creates a timeline event and is never given
+a tool that does. It supplies content into its strict typed result; that result
+lands on a durable owner row; ByteQuay decides whether and how the fact
+surfaces. This preserves the properties the existing projection already has:
+an event is idempotent on replay because its id derives from the owner row, it
+is truthful because it restates a durable fact rather than a claim, and it is
+ordered by the owner's own timestamps rather than by when an agent chose to
+call a tool. A self-reported event would lose all three — a Development turn
+that reported work it had not committed would have been able to report a commit
+event just as easily.
+
+**Derived by default.** When a durable owner row already holds the fact, the
+event is a rule in the PR timeline projection and nothing is written. Its id is
+`v2:<kind>:<owner row id>`, which makes repeated reads and restarts produce the
+same list. Adding such an event needs no table and no migration, and it applies
+retroactively to Tasks that already completed — an intended consequence, but one
+that visibly changes existing history when the rule ships.
+
+**Written only when nothing owns the fact.** If no owner row records it, the
+event may be persisted in a small append-only table, written by ByteQuay inside
+the owning command's transaction and keyed so a replayed command cannot insert
+twice. This is the exception; prefer giving the fact a durable owner instead.
+
+**Structure is unchanged.** Events keep the existing `PRTimelineEntry` shape —
+id, PR id, type, actor, privacy, timestamp, and a typed JSON payload. New events
+add `type` values and projection rules; they do not introduce a second timeline
+model. Actors name the runtime that owns the fact, not the provider.
+
+**First instance.** The Development evidence event surfaces
+`implemented_intent`, `file_summary`, `validation_summary`, `known_risks` and
+`unresolved_concerns` from the existing `dev_report` row, which the projection
+already reads for the development-commit event. Before 3.36 those five fields
+were persisted and read by no production path. They are reader and Brain-review
+evidence; they are not pull-request body material, which `prDescription` owns.
+
 ### 3.36 — 2026-08-03
 
 Development result gains a PR description, and its evidence fields get a

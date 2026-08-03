@@ -347,6 +347,26 @@ class TestStageDetailService
     }
 
     @Test
+    void searchToolCallDetailPrefersThePatternOverTheScopedPath()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant open = stage.openedAt();
+        // A Grep carries both; showing the path renders every search in a run
+        // as the same row, so the pattern has to win.
+        appendStageMessage(threadId, taskId, 1, "tool", "tool_call",
+                "{\"callId\":\"c1\",\"toolName\":\"Grep\","
+                        + "\"input\":{\"pattern\":\"CodeGraphService\",\"path\":\"backend/src\"}}",
+                open, stage.id().toString());
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.conversation()).anyMatch(
+                r -> r.kind().equals("tool_call") && "CodeGraphService".equals(r.toolDetail()));
+    }
+
+    @Test
     void editToolCallSurfacesAnOldNewDiff()
     {
         String threadId = seedThread();

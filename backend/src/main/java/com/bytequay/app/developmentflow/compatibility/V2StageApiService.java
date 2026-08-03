@@ -1176,7 +1176,7 @@ public final class V2StageApiService
             return null;
         }
         for (String field : List.of(
-                "command", "path", "file_path", "query", "pattern", "text")) {
+                "pattern", "query", "command", "path", "file_path", "text")) {
             JsonNode value = input.get(field);
             if (value != null && value.isTextual() && !value.asText().isBlank()) {
                 return value.asText();

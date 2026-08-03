@@ -66,7 +66,14 @@ export function Working({ label = 'Working…', tail, detail, since, onStop, act
           {activities.map(activity => (
             <div key={activity.callId} className="working__log-row" title={activity.detail ?? activity.label}>
               <span aria-hidden>{activity.failed ? '×' : activity.done ? '✓' : '›'}</span>
-              <span>{activity.label}{activity.detail === null ? '' : ` · ${activity.detail}`}</span>
+              <span className="working__log-label">
+                {activity.label}{activity.detail === null ? '' : ' · '}
+              </span>
+              {activity.detail !== null && (
+                <span className={activity.pathArg ? 'working__log-arg working__log-arg--tail' : 'working__log-arg'}>
+                  {activity.detail}
+                </span>
+              )}
             </div>
           ))}
         </div>

@@ -95,9 +95,17 @@ describe('Working', () => {
   it('shows live tool activity below the current status', () => {
     render(<Working activities={[{
       callId: 'call-1', label: 'Running command', detail: 'git status',
-      startedAt: 0, done: false, failed: false,
+      pathArg: false, startedAt: 0, done: false, failed: false,
     }]} />);
     expect(screen.getByLabelText('Live agent activity').textContent).toContain('Running command · git status');
+  });
+
+  it('head-truncates a file argument so the filename survives an overflow', () => {
+    const { container } = render(<Working activities={[{
+      callId: 'call-2', label: 'Reading', detail: 'backend/src/main/java/Foo.java',
+      pathArg: true, startedAt: 0, done: false, failed: false,
+    }]} />);
+    expect(container.querySelector('.working__log-arg--tail')).not.toBeNull();
   });
 });
 

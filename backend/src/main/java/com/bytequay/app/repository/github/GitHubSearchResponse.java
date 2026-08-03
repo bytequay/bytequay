@@ -37,7 +37,13 @@ public record GitHubSearchResponse(
             @JsonProperty("repository_url") String repositoryUrl,
             User user,
             List<Label> labels,
-            boolean draft) {}
+            boolean draft,
+            @JsonProperty("pull_request") PullRequestLink pullRequest) {}
+
+    /** Search reports a merged PR as {@code state=closed}; {@code merged_at}
+     *  lives only in this nested object, and is null for a plain close. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PullRequestLink(@JsonProperty("merged_at") Instant mergedAt) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login) {}

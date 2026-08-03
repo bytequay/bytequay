@@ -19,6 +19,8 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurnEvent;
+import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
@@ -27,8 +29,10 @@ import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
@@ -53,6 +57,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -135,6 +140,8 @@ public class ThreadRegistry
      *  brain agent. */
     private final AgentContextDigest contextDigest;
     private final CodeGraphUpdateCoordinator codeGraph;
+    /** Optional — the short test constructors leave it null. */
+    private final ThreadTurnEventStore turnEvents;
     private final WorktreeLeaseService leaseService;
     /** Resolves the cwd a trunk session should be spawned in. Takes
      *  the Thread because the trunk's working dir is workspace-
@@ -180,7 +187,8 @@ public class ThreadRegistry
             Ds4LifecycleService ds4,
             Ds4Instrumentation ds4Instrumentation,
             AgentContextDigest contextDigest,
-            CodeGraphUpdateCoordinator codeGraph)
+            CodeGraphUpdateCoordinator codeGraph,
+            ThreadTurnEventStore turnEvents)
     {
         this(store, taskStore, stageStore, new StreamJsonParser(mapper), mapper, gate,
                 new RetiredAgentExecutor(), checkpointTrigger,
@@ -200,7 +208,8 @@ public class ThreadRegistry
                 ds4,
                 ds4Instrumentation,
                 contextDigest,
-                codeGraph);
+                codeGraph,
+                turnEvents);
         this.sessionKnowledge = requireNonNull(
                 sessionKnowledge, "sessionKnowledge is null");
     }
@@ -314,7 +323,8 @@ public class ThreadRegistry
                 null,
                 null,
                 null,
-                CodeGraphUpdateCoordinator.disabled());
+                CodeGraphUpdateCoordinator.disabled(),
+                null);
     }
 
     ThreadRegistry(
@@ -338,7 +348,8 @@ public class ThreadRegistry
             Ds4LifecycleService ds4,
             Ds4Instrumentation ds4Instrumentation,
             AgentContextDigest contextDigest,
-            CodeGraphUpdateCoordinator codeGraph)
+            CodeGraphUpdateCoordinator codeGraph,
+            ThreadTurnEventStore turnEvents)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -362,6 +373,7 @@ public class ThreadRegistry
         this.ds4Instrumentation = ds4Instrumentation;
         this.contextDigest = contextDigest;
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+        this.turnEvents = turnEvents;
     }
 
     ThreadRegistry(
@@ -391,7 +403,7 @@ public class ThreadRegistry
                 trunkCwdResolver, skillMaterializer, roleRegistry,
                 ponytailBundleService, workModelResolver, credentialService,
                 toolRegistry, ds4, ds4Instrumentation, contextDigest,
-                CodeGraphUpdateCoordinator.disabled());
+                CodeGraphUpdateCoordinator.disabled(), null);
     }
 
     /**
@@ -795,13 +807,58 @@ public class ThreadRegistry
             Optional<Path> checkout = taskCheckout(boundTask);
             checkout.ifPresent(path -> {
                 cli.setPreTurnHook(() -> {
-                    codeGraph.ensureFreshWithin(path, "before-agent-turn", 15_000);
+                    // Short by design: the post-turn hook below already
+                    // re-indexes asynchronously, so this only has to absorb a
+                    // pass that is nearly done. A longer budget bought little
+                    // freshness and stalled the visible start of every turn.
+                    codeGraph.ensureFreshWithin(path, "before-agent-turn", 2_000);
                     return null;
                 });
-                cli.setPostTurnHook(() -> codeGraph.requestRefreshAsync(path, "after-agent-turn"));
+                cli.setPostTurnHook(() -> {
+                    codeGraph.requestRefreshAsync(path, "after-agent-turn");
+                    recordCodeGraphPolicy(runtimeThread.id(), boundTask, cli.mcpAgentKey());
+                });
             });
         }
         return withManagedSkillBundle(agent);
+    }
+
+    /**
+     * Persist one durable row summarising how the finished turn used the
+     * CodeGraph-first search policy — redirects issued, graph calls attempted,
+     * and how many redirects the agent ignored before the policy failed open.
+     *
+     * <p>Without this the per-turn counters live only in a temp file that the
+     * next turn's reset deletes, so nothing can say whether the policy is doing
+     * anything. Best-effort: diagnostics must never fail a turn.
+     */
+    private void recordCodeGraphPolicy(String threadId, Task task, String agentKey)
+    {
+        if (turnEvents == null) {
+            return;
+        }
+        try {
+            CodeGraphFirstRuntime.Metrics metrics =
+                    CodeGraphFirstRuntime.finishTurn(threadId, agentKey);
+            if (metrics.isEmpty()) {
+                return;
+            }
+            turnEvents.appendEvent(new ThreadTurnEvent(
+                    UUID.randomUUID().toString(),
+                    // The legacy thread_turns table this column once pointed at
+                    // is retired, and readers key on threadId — carry the thread
+                    // rather than invent an id that joins to nothing.
+                    threadId,
+                    threadId,
+                    task == null ? null : task.id(),
+                    ThreadTurnEventType.CODEGRAPH_POLICY,
+                    Instant.now(),
+                    metrics.toJson()));
+        }
+        catch (RuntimeException e) {
+            log.warn("Could not record CodeGraph policy metrics for thread {}: {}",
+                    threadId, e.getMessage());
+        }
     }
 
     private static Thread runnableTaskThread(Thread thread)

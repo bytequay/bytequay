@@ -65,6 +65,23 @@ class TestCodeGraphFirstRuntime
     }
 
     @Test
+    void metricsSerialiseToTheShapeThePolicyEventCarries()
+    {
+        String threadId = unique("thread");
+        String agentKey = unique("agent");
+        CodeGraphFirstRuntime.prepare(new ProcessBuilder("/usr/bin/true"), threadId, agentKey);
+        CodeGraphFirstRuntime.shouldRedirect(threadId, agentKey);
+        CodeGraphFirstRuntime.markAttempted(threadId, agentKey);
+        CodeGraphFirstRuntime.markSucceeded(threadId, agentKey);
+
+        // The one durable turn event carries this JSON verbatim; the reader
+        // sums these six keys, so renaming one silently zeroes the surface.
+        assertThat(CodeGraphFirstRuntime.finishTurn(threadId, agentKey).toJson())
+                .isEqualTo("{\"redirected\":1,\"attempted\":1,\"succeeded\":1,"
+                        + "\"failed\":0,\"fallback\":0,\"ignored\":0}");
+    }
+
+    @Test
     void installsManagedCommandShimsAheadOfTheExistingPath()
     {
         String threadId = unique("thread");

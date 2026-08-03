@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.AgentBrainResult;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
@@ -101,6 +102,8 @@ public final class RemoteRepairTurnRuntime
     private final SqliteRemoteRepairTurnStore turns;
     private final ObjectMapper json;
     private final ObjectReader stageReader;
+    /** Names this Turn in every brain-protocol failure message. */
+    private static final String BRAIN_LABEL = "Remote repair Brain";
     private final ObjectReader brainReader;
     private final ObjectReader adoptionReader;
     private final ObjectReader workModelReader;
@@ -125,7 +128,7 @@ public final class RemoteRepairTurnRuntime
         this.turns = requireNonNull(turns, "turns is null");
         this.json = requireNonNull(json, "json is null");
         this.stageReader = strictReader(StageResult.class);
-        this.brainReader = strictReader(BrainResult.class);
+        this.brainReader = AgentBrainResult.reader(json);
         this.adoptionReader = strictReader(AdoptionResult.class);
         this.workModelReader = strictReader(WorkModel.class);
         this.clock = requireNonNull(clock, "clock is null");
@@ -888,8 +891,9 @@ public final class RemoteRepairTurnRuntime
                     accepted.state().version(), now);
             return receipt(ACCEPTED, "Remote repair Brain failed");
         }
-        BrainResult result = decodeBrain(raw.payload().finalText());
-        TaskManager.BrainVerdict verdict = verdict(result);
+        AgentBrainResult result = AgentBrainResult.decode(
+                brainReader, raw.payload().finalText(), BRAIN_LABEL);
+        TaskManager.BrainVerdict verdict = result.requireVerdict(BRAIN_LABEL);
         turns.finishBrain(
                 context, raw.outcome().name(), rawDigest, ACCEPTED.name(),
                 "SUCCEEDED", verdict.name(), result.findings().size(),
@@ -1842,44 +1846,7 @@ public final class RemoteRepairTurnRuntime
         }
     }
 
-    private BrainResult decodeBrain(String value)
-    {
-        try {
-            BrainResult result = brainReader.readValue(required(
-                    value, "Brain result"));
-            if (result.schemaVersion() != 1
-                    || result.findings().stream().anyMatch(
-                            finding -> finding == null || finding.isBlank())) {
-                throw new IllegalArgumentException(
-                        "Remote repair Brain result is invalid");
-            }
-            required(result.summary(), "Brain summary");
-            return result;
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException(
-                    "Remote repair Brain result is not strict JSON", e);
-        }
-    }
 
-    private static TaskManager.BrainVerdict verdict(BrainResult result)
-    {
-        TaskManager.BrainVerdict verdict = switch (result.verdict()) {
-            case "APPROVED" -> TaskManager.BrainVerdict.APPROVED;
-            case "CHANGES_REQUESTED" ->
-                    TaskManager.BrainVerdict.CHANGES_REQUESTED;
-            default -> throw new IllegalArgumentException(
-                    "Unknown Remote repair Brain verdict: " + result.verdict());
-        };
-        if (verdict == TaskManager.BrainVerdict.APPROVED
-                && !result.findings().isEmpty()
-                || verdict == TaskManager.BrainVerdict.CHANGES_REQUESTED
-                    && result.findings().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Remote repair Brain verdict and findings disagree");
-        }
-        return verdict;
-    }
 
     private static void requireSubject(
             RepairContext context,
@@ -2032,16 +1999,4 @@ public final class RemoteRepairTurnRuntime
 
     public record StageResult(int schemaVersion, String summary) {}
 
-    public record BrainResult(
-            int schemaVersion,
-            String verdict,
-            String summary,
-            List<String> findings)
-    {
-        public BrainResult
-        {
-            findings = List.copyOf(requireNonNull(
-                    findings, "findings is null"));
-        }
-    }
 }

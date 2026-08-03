@@ -97,8 +97,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     private static final String RETRY_INSTRUCTION =
             "Retry this exact Local Development operation from its complete "
                     + "durable context. Finish the assigned work, run required "
-                    + "validation, and return the strict Stage result. "
-                    + RAW_JSON_OBJECT_BOUNDARY;
+                    + "validation, and report it with record_development_result.";
     private static final String BRAIN_RETRY_INSTRUCTION =
             "Retry the exact Development Brain review from this durable context. "
                     + "Any earlier instruction to submit through an owner-scoped "
@@ -128,13 +127,22 @@ public final class LocalDevelopmentRuntimeCoordinator
     //   does. Upgrade path: weight by file type, or drop the floor entirely
     //   if the Turn turns out cheap.
     static final int MIN_ADDED_LINES = 200;
+    /**
+     * How a Local Development Turn reports its result. The tool's schema is the
+     * contract, so this only names the tool and says when to call it — every
+     * request kind gets the same sentence instead of its own hand-maintained
+     * field list that could drift from what the decoder required.
+     */
+    static final String DEVELOPMENT_RESULT_INSTRUCTION =
+            "Report your result by calling the record_development_result tool as "
+                    + "your last act. That call is how the work is accepted: a "
+                    + "Turn that ends without it is discarded. If the call comes "
+                    + "back rejected, read the reason and call it again with the "
+                    + "correction — the Turn is still yours. Your final message "
+                    + "is not read; put the result in the tool call, not in prose.";
     private static final String SIMPLIFY_INSTRUCTION =
-            "Return only strict JSON with schemaVersion=1 and these string "
-                    + "fields: implementedIntent, commitSummary, fileSummary, "
-                    + "validationSummary, knownRisks, unresolvedConcerns, "
-                    + "contextRefs. If you changed nothing, say so in "
-                    + "implementedIntent and leave commitSummary blank. "
-                    + RAW_JSON_OBJECT_BOUNDARY;
+            "If you changed nothing, say so in implementedIntent and leave "
+                    + "commitSummary blank. " + DEVELOPMENT_RESULT_INSTRUCTION;
     private final TaskCommandExecutor commands;
     private final LocalDevelopmentStageManager local;
     private final TaskManager tasks;
@@ -142,7 +150,6 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final PRService prs;
     private final ObjectMapper json;
     private final ObjectReader workModelReader;
-    private final ObjectReader developmentResultReader;
     private final ObjectReader validationResultReader;
     private final ObjectReader brainResultReader;
     private final Clock clock;
@@ -168,8 +175,6 @@ public final class LocalDevelopmentRuntimeCoordinator
         this.prs = requireNonNull(prs, "prs is null");
         this.json = requireNonNull(json, "json is null");
         this.workModelReader = json.readerFor(WorkModel.class)
-                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        this.developmentResultReader = json.readerFor(DevelopmentResult.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.validationResultReader = json.readerFor(
                         LocalValidationOperationHandler.ValidationResult.class)
@@ -546,6 +551,49 @@ public final class LocalDevelopmentRuntimeCoordinator
         return receipt;
     }
 
+    /**
+     * Persist the result a Local Development Turn reports through
+     * {@code record_development_result}. Called from the tool handler while the
+     * subprocess is still alive, so a rejection here reaches the agent as an MCP
+     * tool error it can correct in the same session — unlike the old contract,
+     * where the result was parsed out of the final message after the process had
+     * already exited and only a human could unstick it.
+     *
+     * <p>Idempotent: an identical re-submission is accepted, a differing one is
+     * rejected. The Turn's liveness is proved by the caller — the tool is only
+     * reachable from the operation-scoped MCP endpoint of a running Turn, and
+     * the active-agent registry denies by default between Turns. A submission
+     * from a Turn that goes stale is harmless: delivery reads only its own
+     * {@code turnId}, and a stale Turn is rejected as SUPERSEDED regardless.
+     * ponytail: no re-authorize-under-transaction like the Plan side, which
+     * needs it to order numbered user-visible revisions; add one here only if a
+     * second writer of this row ever appears.
+     */
+    public void recordDevelopmentResult(
+            String turnId, String operationId, DevelopmentReport report)
+    {
+        requireNonNull(report, "report is null");
+        String taskId = store.requireStageTurnTaskId(
+                requireNonNull(turnId, "turnId is null"),
+                requireNonNull(operationId, "operationId is null"));
+        commands.execute(taskId, () -> {
+            TaskCommandExecutor.requireCurrent(taskId);
+            DevelopmentReport existing =
+                    store.findDevelopmentSubmission(turnId).orElse(null);
+            if (existing != null) {
+                if (!existing.equals(report)) {
+                    throw new IllegalArgumentException(
+                            "record_development_result was already called with "
+                                    + "different content for this Turn");
+                }
+                return existing;
+            }
+            store.insertDevelopmentSubmission(
+                    turnId, operationId, taskId, report, clock.instant());
+            return report;
+        });
+    }
+
     public DispatchTicket.DeliveryReceipt deliverStageTurn(
             AgentTurnOwnerResultCodec.OwnerResult result)
     {
@@ -798,8 +846,13 @@ public final class LocalDevelopmentRuntimeCoordinator
             return receipt(acceptance, deliveryResult(recorded));
         }
 
-        DevelopmentReport development = decodeDevelopmentResult(
-                result.payload().finalText());
+        // The Turn's final text is prose and nobody parses it. The result is
+        // the row record_development_result wrote while the Turn was running.
+        DevelopmentReport development = store
+                .findDevelopmentSubmission(context.turnId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Local Development StageTurn succeeded without "
+                                + "record_development_result"));
         if (!context.isCurrent()) {
             store.finishStageTurn(context, "SUPERSEDED", "stale Local subject", now);
             if (localReview != null && context.localFeedbackBatchId() != null) {
@@ -1350,9 +1403,11 @@ public final class LocalDevelopmentRuntimeCoordinator
         String turnId = id("brain-fix-turn", context.episodeId());
         String operationId = id("brain-fix-operation", context.episodeId());
         String ticketId = id("brain-fix-ticket", context.episodeId());
+        // Name the fields rather than pointing at "the same" JSON: this Turn is
+        // a fresh agent that never saw the prompt being referred to.
         String prompt = "Address every finding from the Task Brain against this "
                 + "exact code subject:\n\n" + String.join("\n", verdict.findings())
-                + "\n\nReturn the same strict Local development result JSON.";
+                + "\n\n" + DEVELOPMENT_RESULT_INSTRUCTION;
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
         model = stageEffort(context.trunkId(), context.taskId(),
                 context.stageId(), model);
@@ -2143,18 +2198,15 @@ public final class LocalDevelopmentRuntimeCoordinator
                 // writes the body, so the description matches that template by
                 // construction rather than through a mapping we would have to
                 // keep in sync.
-                + "Write prDescription as the pull-request body. First look for "
+                + "Write the pull-request body into the tool's pr_description "
+                + "argument. First look for "
                 + "the repository's template (.github/PULL_REQUEST_TEMPLATE.md, "
                 + "a root or docs PULL_REQUEST_TEMPLATE, or a file under "
                 + ".github/PULL_REQUEST_TEMPLATE/). If one exists, fill in that "
                 + "template's own sections and keep its headings. If none "
                 + "exists, write a short body with a Summary section and a "
                 + "Validation section.\n\n"
-                + "When finished, return only "
-                + "strict JSON with schemaVersion=1 and these string fields: "
-                + "implementedIntent, commitSummary, fileSummary, validationSummary, "
-                + "knownRisks, unresolvedConcerns, contextRefs, prDescription. "
-                + RAW_JSON_OBJECT_BOUNDARY;
+                + DEVELOPMENT_RESULT_INSTRUCTION;
     }
 
     private static String publishBaseSyncPrompt(Result rebase)
@@ -2179,11 +2231,8 @@ public final class LocalDevelopmentRuntimeCoordinator
                     + "change requires one; otherwise keep the rebased commits as-is.";
         }
         return action + "\n\nRun the appropriate local validation. Do not push, "
-                + "publish, merge, or modify another Task. When finished, return "
-                + "only strict JSON with schemaVersion=1 and these string fields: "
-                + "implementedIntent, commitSummary, fileSummary, "
-                + "validationSummary, knownRisks, unresolvedConcerns, contextRefs. "
-                + RAW_JSON_OBJECT_BOUNDARY;
+                + "publish, merge, or modify another Task. "
+                + DEVELOPMENT_RESULT_INSTRUCTION;
     }
 
     private static String implementationSystemPrompt(String roleSkill)
@@ -2191,37 +2240,10 @@ public final class LocalDevelopmentRuntimeCoordinator
         String base = "You are the code-writing Stage owner for V2 Local Development. "
                 + "Work only in the supplied Task worktree and implement the approved "
                 + "plan. Do not push, publish, merge, or mutate another Task. "
-                + RAW_JSON_OBJECT_BOUNDARY;
+                + DEVELOPMENT_RESULT_INSTRUCTION;
         return roleSkill == null || roleSkill.isBlank()
                 ? base
                 : base + "\n\nRole skill:\n" + roleSkill;
-    }
-
-    private DevelopmentReport decodeDevelopmentResult(String value)
-    {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("Local development result is missing");
-        }
-        try {
-            DevelopmentResult decoded = developmentResultReader.readValue(value);
-            if (decoded.schemaVersion() != 1) {
-                throw new IllegalArgumentException(
-                        "Unsupported Local development result version");
-            }
-            return new DevelopmentReport(
-                    required(decoded.implementedIntent(), "implementedIntent"),
-                    required(decoded.commitSummary(), "commitSummary"),
-                    required(decoded.fileSummary(), "fileSummary"),
-                    required(decoded.validationSummary(), "validationSummary"),
-                    required(decoded.knownRisks(), "knownRisks"),
-                    required(decoded.unresolvedConcerns(), "unresolvedConcerns"),
-                    required(decoded.contextRefs(), "contextRefs"),
-                    required(decoded.prDescription(), "prDescription"));
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException(
-                    "Local development result is not strict JSON", e);
-        }
     }
 
     private WorkModel decodeWorkModel(String value)
@@ -2334,10 +2356,8 @@ public final class LocalDevelopmentRuntimeCoordinator
                     .append("- ").append(attachment.contentRef()).append('\n'));
         }
         return prompt.append(
-                "\nDo not push or create remote effects. Return only strict JSON "
-                        + "with schemaVersion=1 and string fields implementedIntent, "
-                        + "commitSummary, fileSummary, validationSummary, knownRisks, "
-                        + "unresolvedConcerns, contextRefs.").toString();
+                "\nDo not push or create remote effects. "
+                        + DEVELOPMENT_RESULT_INSTRUCTION).toString();
     }
 
     private DispatchTicket.DeliveryReceipt receipt(
@@ -2402,17 +2422,6 @@ public final class LocalDevelopmentRuntimeCoordinator
             throw new IllegalArgumentException(name + " is blank");
         }
     }
-
-    private record DevelopmentResult(
-            int schemaVersion,
-            String implementedIntent,
-            String commitSummary,
-            String fileSummary,
-            String validationSummary,
-            String knownRisks,
-            String unresolvedConcerns,
-            String contextRefs,
-            String prDescription) {}
 
     private record BrainResult(
             int schemaVersion,

@@ -1841,10 +1841,8 @@ public final class V2LocalReviewControl
         return "Address every item in this immutable Local Review batch against "
                 + "the supplied exact code subject:\n\n"
                 + String.join("\n\n", items)
-                + "\n\nDo not push, publish, or modify another Task. Return only "
-                + "strict JSON with schemaVersion=1 and string fields "
-                + "implementedIntent, commitSummary, fileSummary, "
-                + "validationSummary, knownRisks, unresolvedConcerns, contextRefs.";
+                + "\n\nDo not push, publish, or modify another Task. "
+                + LocalDevelopmentRuntimeCoordinator.DEVELOPMENT_RESULT_INSTRUCTION;
     }
 
     private String frozenThread(String threadId)

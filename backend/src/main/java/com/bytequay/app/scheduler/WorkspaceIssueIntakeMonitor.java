@@ -46,7 +46,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -65,12 +64,6 @@ public class WorkspaceIssueIntakeMonitor
     private static final int ISSUE_EXCERPT_LIMIT = 12_000;
     private static final long INITIAL_DELAY_MS = 60_000;
     private static final long POLL_DELAY_MS = 300_000;
-
-    enum Route
-    {
-        AUTO_IMPLEMENT,
-        BACKLOG_PERMISSION
-    }
 
     enum RunOutcome
     {
@@ -239,7 +232,7 @@ public class WorkspaceIssueIntakeMonitor
                         workspace.id(), eligibility.reason());
             }
             else {
-                reconcilePlans(eligibility.context(), counters);
+                reconcilePlans(eligibility.context());
                 poll(eligibility.context(), counters);
             }
         }
@@ -353,15 +346,15 @@ public class WorkspaceIssueIntakeMonitor
         return true;
     }
 
-    private void reconcilePlans(Context context, RunCounters counters)
+    private void reconcilePlans(Context context)
     {
         plans.listCurrent(
                         context.workspace().id(), Task.ORIGIN_ISSUE_MONITOR,
                         TRIAGE_TASK_TYPE)
-                .forEach(plan -> reconcilePlan(context, plan, counters));
+                .forEach(plan -> reconcilePlan(context, plan));
     }
 
-    private void reconcilePlan(Context context, Snapshot snapshot, RunCounters counters)
+    private void reconcilePlan(Context context, Snapshot snapshot)
     {
         if (snapshot.state() == State.FAILED) {
             taskControls.cancelByAutomation(snapshot.taskId(), AUTOMATION_KIND);
@@ -378,22 +371,16 @@ public class WorkspaceIssueIntakeMonitor
             return;
         }
 
-        switch (classify(plan)) {
-            case AUTO_IMPLEMENT -> {
-                plans.approveIssueIntake(snapshot);
-                counters.implementationsStarted++;
-                log.info("Started local implementation for {}#{} in workspace {}",
-                        context.repo().fullName(), snapshot.linkedIssueNumber(),
-                        context.workspace().id());
-            }
-            case BACKLOG_PERMISSION -> {
-                taskControls.cancelByAutomation(snapshot.taskId(), AUTOMATION_KIND);
-                requestBacklogPermission(context, snapshot, plan);
-                log.info("Asked whether to backlog {}#{} in workspace {}",
-                        context.repo().fullName(), snapshot.linkedIssueNumber(),
-                        context.workspace().id());
-            }
-        }
+        // Every triaged issue asks the user. It used to be able to start a
+        // writer agent unattended when the plan reported itself high-confidence,
+        // low-risk and small — but those signals are written by an agent whose
+        // only input is issue text that any GitHub account can author, so the
+        // decision to run code was effectively delegated to the reporter.
+        taskControls.cancelByAutomation(snapshot.taskId(), AUTOMATION_KIND);
+        requestBacklogPermission(context, snapshot, plan);
+        log.info("Asked whether to backlog {}#{} in workspace {}",
+                context.repo().fullName(), snapshot.linkedIssueNumber(),
+                context.workspace().id());
     }
 
     private Optional<JsonNode> parse(String json)
@@ -411,18 +398,6 @@ public class WorkspaceIssueIntakeMonitor
         return "finalized".equals(plan.path("status").asText())
                 && !summary(plan).isBlank()
                 && steps(plan).isArray() && !steps(plan).isEmpty();
-    }
-
-    static Route classify(JsonNode plan)
-    {
-        JsonNode signals = plan.path("signals");
-        String confidence = normalized(signals.path("confidence").asText());
-        String risk = normalized(signals.path("riskLevel").asText());
-        String complexity = normalized(signals.path("estimatedComplexity").asText());
-        if ("high".equals(confidence) && "low".equals(risk) && "small".equals(complexity)) {
-            return Route.AUTO_IMPLEMENT;
-        }
-        return Route.BACKLOG_PERMISSION;
     }
 
     private void requestBacklogPermission(Context context, Snapshot task, JsonNode plan)
@@ -515,11 +490,6 @@ public class WorkspaceIssueIntakeMonitor
     {
         JsonNode steps = plan.path("intent").path("steps");
         return steps.isArray() ? steps : plan.path("steps");
-    }
-
-    private static String normalized(String value)
-    {
-        return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
     }
 
     private static String excerpt(String value)

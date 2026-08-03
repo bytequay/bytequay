@@ -87,18 +87,22 @@ class TestMcpReadTools
     }
 
     @Test
-    void readTaskWithoutAnIdDenies()
+    void readTaskWithoutAnIdReturnsACorrectableToolError()
             throws Exception
     {
+        // A handler rejection is a tool-execution error (isError on a
+        // successful response), not the permission deny envelope that ends
+        // the turn — the model has to be able to read this and retry with
+        // the missing argument.
         String threadId = newThread("ws-default");
         activateReadTools(threadId);
 
         JsonNode response = await(controller.handle(threadId, "trunk",
                 jsonRpc("read_task", mapper.createObjectNode())));
 
-        JsonNode envelope = denyEnvelope(response);
-        assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
-        assertThat(envelope.path("message").asText()).contains("task_id is required");
+        assertThat(response.path("result").path("isError").asBoolean()).isTrue();
+        assertThat(toolErrorText(response)).contains("task_id is required");
+        assertThat(toolErrorText(response)).doesNotContain("behavior");
     }
 
     @Test
@@ -116,9 +120,8 @@ class TestMcpReadTools
                 jsonRpc("read_task", mapper.createObjectNode()
                         .put("task_id", "task-does-not-exist"))));
 
-        JsonNode envelope = denyEnvelope(response);
-        assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
-        assertThat(envelope.path("message").asText())
+        assertThat(response.path("result").path("isError").asBoolean()).isTrue();
+        assertThat(toolErrorText(response))
                 .contains("task not found")
                 .contains("task-does-not-exist");
     }
@@ -144,11 +147,11 @@ class TestMcpReadTools
                 Set.of("read_task", "read_workspace_memory")));
     }
 
-    private JsonNode denyEnvelope(JsonNode response)
-            throws Exception
+    /** The message an errored tool call hands back to the model. Plain text,
+     *  not a JSON envelope — the reason has to be readable as-is. */
+    private String toolErrorText(JsonNode response)
     {
-        String text = response.path("result").path("content").get(0).path("text").asText();
-        return mapper.readTree(text);
+        return response.path("result").path("content").get(0).path("text").asText();
     }
 
     private static JsonNode await(DeferredResult<JsonNode> deferred)

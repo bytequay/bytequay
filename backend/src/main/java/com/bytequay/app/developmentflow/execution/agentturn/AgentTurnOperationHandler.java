@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.execution.agentturn;
 
+import com.bytequay.app.developmentflow.AgentBrainResult;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
@@ -109,10 +110,7 @@ public final class AgentTurnOperationHandler
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                 .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
-        this.remoteBrainResultReader = mapper.readerFor(RemoteBrainResult.class)
-                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        this.remoteBrainResultReader = AgentBrainResult.reader(mapper);
     }
 
     @Override
@@ -841,24 +839,13 @@ public final class AgentTurnOperationHandler
             else if (turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
                     && ("REMOTE_CI_BRAIN_REVIEW".equals(turn.purpose())
                         || "BRANCH_SYNC_BRAIN_REVIEW".equals(turn.purpose()))) {
-                RemoteBrainResult result = remoteBrainResultReader.readValue(
-                        requireText(finalText, "Remote repair Brain result"));
-                requireText(result.summary(), "Remote repair Brain summary");
-                if (result.schemaVersion() != 1
-                        || result.findings().stream().anyMatch(
-                                finding -> finding == null
-                                        || finding.isBlank())) {
-                    throw new IllegalArgumentException(
-                            "invalid Remote repair Brain result");
-                }
-                boolean approved = "APPROVED".equals(result.verdict());
-                boolean changes = "CHANGES_REQUESTED".equals(result.verdict());
-                if (!approved && !changes
-                        || approved && !result.findings().isEmpty()
-                        || changes && result.findings().isEmpty()) {
-                    throw new IllegalArgumentException(
-                            "Remote repair Brain verdict and findings disagree");
-                }
+                // Validate without consuming: the gate only reports whether
+                // the text is admissible, and the runtime decodes it again to
+                // use the values.
+                AgentBrainResult.decode(
+                                remoteBrainResultReader, finalText,
+                                "Remote repair Brain")
+                        .requireVerdict("Remote repair Brain");
             }
             return null;
         }
@@ -1780,19 +1767,6 @@ public final class AgentTurnOperationHandler
     }
 
     private record RemoteStageResult(int schemaVersion, String summary) {}
-
-    private record RemoteBrainResult(
-            int schemaVersion,
-            String verdict,
-            String summary,
-            List<String> findings)
-    {
-        private RemoteBrainResult
-        {
-            findings = List.copyOf(requireNonNull(
-                    findings, "findings is null"));
-        }
-    }
 
     private static final class ProviderRunException
             extends RuntimeException

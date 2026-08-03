@@ -20,7 +20,7 @@ import {
 import {
   ClockIcon, McpCubeIcon, PenIcon, SearchIcon, TerminalRunIcon,
 } from '../ui/TaskBrainDesignIcons';
-import { formatDuration } from '../threads/brain/format';
+import { formatDuration, shortPaths } from '../threads/brain/format';
 import { PermissionCard, type PermissionDecideHandler } from '../threads/PermissionCard';
 
 /** A blank-safe trim: empty/whitespace strings count as absent. */
@@ -42,16 +42,27 @@ function verbIcon(tag: string): ReactNode {
 /** The tool-block description: the tool name plus its command / target
  *  (the Bash command, the edited file, the search pattern…) so the row
  *  shows what actually ran, not just "Bash" — and never renders blank
- *  (which read as an empty line). When the tool name merely repeats the
- *  coarse tag pill it's dropped so a Read reads "Read /path", not the
- *  doubled "Read Read /path"; "Run Bash …" keeps both since they differ. */
+ *  (which read as an empty line). Absolute paths shorten to their last two
+ *  segments; the unfolded body keeps the full text. When the tool name
+ *  merely repeats the coarse tag pill it's dropped so a Read reads
+ *  "Read …/Foo.java", not the doubled "Read Read …"; "Run Bash …" keeps
+ *  both since they differ. */
 function toolDesc(label: string | null, detail: string | null, tag?: string): ReactNode {
   const name = nonBlank(label);
-  const arg = nonBlank(detail);
+  const raw = nonBlank(detail);
+  const arg = raw === null ? null : shortPaths(raw);
   if (name === null && arg === null) return 'Tool call';
   if (arg === null) return name;
   if (name === null || name === tag) return <span className="tool-arg">{arg}</span>;
   return <>{name} <span className="tool-arg">{arg}</span></>;
+}
+
+/** The unfolded body: the full, unshortened command or path first, then the
+ *  tool's own output — so a row whose head was truncated is still readable
+ *  in full on click. */
+function toolBody(detail: string | null, result: string | null): string | undefined {
+  const parts = [nonBlank(detail), nonBlank(result)].filter(part => part !== null);
+  return parts.length === 0 ? undefined : parts.join('\n\n');
 }
 
 /**
@@ -125,18 +136,14 @@ export function stageRow(
       // falls back to "Tool" so the block never collapses to a blank line.
       {
         const tag = nonBlank(r.toolTag) ?? 'Tool';
-        // Read/Write args are file paths — head-truncate so the filename tail
-        // stays visible when the worktree prefix overflows the row.
-        const pathArg = tag === 'Read' || tag === 'Write';
         return (
           <ToolBlock
             key={r.id}
             tag={tag}
             icon={verbIcon(tag)}
             desc={toolDesc(r.toolLabel, r.toolDetail, tag)}
-            descTail={pathArg}
           >
-            {r.toolResult ?? r.toolDiff ?? undefined}
+            {toolBody(r.toolDetail, r.toolResult ?? r.toolDiff)}
           </ToolBlock>
         );
       }

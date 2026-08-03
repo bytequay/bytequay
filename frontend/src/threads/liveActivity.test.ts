@@ -45,11 +45,11 @@ describe('updateLiveActivities', () => {
       },
     });
     expect(rows).toEqual([expect.objectContaining({
-      label: 'Searching', detail: 'CodeGraphService', pathArg: false,
+      label: 'Searching', detail: 'CodeGraphService',
     })]);
   });
 
-  it('marks a file argument so the row keeps the filename when it overflows', () => {
+  it('reports a read by its file argument', () => {
     const rows = updateLiveActivities([], {
       name: 'ToolCallStarted',
       data: {
@@ -59,7 +59,7 @@ describe('updateLiveActivities', () => {
       },
     });
     expect(rows).toEqual([expect.objectContaining({
-      label: 'Reading', detail: 'backend/src/main/java/Foo.java', pathArg: true,
+      label: 'Reading', detail: 'backend/src/main/java/Foo.java',
     })]);
   });
 });

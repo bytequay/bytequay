@@ -19,9 +19,6 @@ export type LiveActivity = {
   callId: string;
   label: string;
   detail: string | null;
-  /** True when `detail` is a file path, so the row head-truncates and keeps
-   *  the filename instead of the interchangeable worktree prefix. */
-  pathArg: boolean;
   startedAt: number;
   done: boolean;
   failed: boolean;
@@ -41,13 +38,12 @@ export function updateLiveActivities(
   if (event.name === 'ToolCallStarted') {
     const callId = stringField(event.data.callId);
     if (callId === '') return activities;
-    const { label, detail, pathArg } = describeTool(
+    const { label, detail } = describeTool(
       stringField(event.data.toolName), stringField(event.data.inputJson));
     return [...activities, {
       callId,
       label,
       detail,
-      pathArg,
       startedAt: eventTime(event.data.timestamp),
       done: false,
       failed: false,
@@ -65,20 +61,18 @@ export function updateLiveActivities(
  *  path it was scoped to: a run of Greps under one directory otherwise renders
  *  as a column of identical rows. */
 const DETAIL_FIELDS = ['pattern', 'query', 'command', 'file_path', 'path', 'text'] as const;
-const PATH_FIELDS: ReadonlySet<string> = new Set(['file_path', 'path']);
 
 function describeTool(
   toolName: string, inputJson: string,
-): { label: string; detail: string | null; pathArg: boolean } {
+): { label: string; detail: string | null } {
   const input = parseInput(inputJson);
   const field = DETAIL_FIELDS.find(key => {
     const value = input[key];
     return typeof value === 'string' && value.trim() !== '';
   });
   const detail = field === undefined ? null : input[field] as string;
-  const pathArg = field !== undefined && PATH_FIELDS.has(field);
   const name = toolName.toLowerCase();
-  const described = (label: string) => ({ label, detail, pathArg });
+  const described = (label: string) => ({ label, detail });
   if (name.includes('grep') || name.includes('search')) return described('Searching');
   if (name.includes('glob')) return described('Finding files');
   if (name.includes('read')) return described('Reading');

@@ -181,20 +181,27 @@ For EACH open comment below:
 
   it('drops the tool name when it just repeats the tag pill (no "Read Read")', () => {
     const { container } = render(
-      <>{stageRow(row({ toolTag: 'Read', toolLabel: 'Read', toolDetail: '/repo/.worktree/x/Foo.java' }))}</>,
+      <>{stageRow(row({ toolTag: 'Read', toolLabel: 'Read', toolDetail: '/repo/.worktree/x/a/Foo.java' }))}</>,
     );
     // Pill shows "Read" once; the desc is only the path, not "Read /repo…".
     expect(container.querySelector('.tag')?.textContent).toBe('Read');
-    expect(container.querySelector('.desc')?.textContent).toBe('/repo/.worktree/x/Foo.java');
-    // Path tags head-truncate so the filename tail survives.
-    expect(container.querySelector('.desc--tail')).toBeTruthy();
+    expect(container.querySelector('.desc')?.textContent).toBe('…/a/Foo.java');
+  });
+
+  it('shortens the worktree prefix and unfolds the full command on click', () => {
+    const command = 'cd "/Users/me/Library/Application Support/BQ/repos/o/r/.worktree/t9" && mvn verify';
+    const { container } = render(<>{stageRow(row({ toolDetail: command }))}</>);
+    expect(container.querySelector('.desc')?.textContent)
+      .toBe('Bash cd "…/.worktree/t9" && mvn verify');
+
+    fireEvent.click(container.querySelector('.tool-block .head') as Element);
+    expect(container.querySelector('.body-code')?.textContent).toBe(command);
   });
 
   it('keeps both name and command when they differ (Run Bash …)', () => {
     const { container } = render(<>{stageRow(row({ toolDetail: 'git status' }))}</>);
     expect(container.querySelector('.tag')?.textContent).toBe('Run');
     expect(container.querySelector('.desc')?.textContent).toBe('Bash git status');
-    expect(container.querySelector('.desc--tail')).toBeNull();
   });
 
   it('falls back to the tool name when there is no command', () => {

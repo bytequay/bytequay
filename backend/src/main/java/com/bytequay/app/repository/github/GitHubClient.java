@@ -4553,7 +4553,7 @@ public class GitHubClient
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static PullRequest toPullRequest(GitHubSearchResponse.Item item, PullRequest.Origin origin)
+    static PullRequest toPullRequest(GitHubSearchResponse.Item item, PullRequest.Origin origin)
     {
         List<GitHubSearchResponse.Label> rawLabels = Optional.ofNullable(item.labels())
                 .orElse(ImmutableList.of());
@@ -4586,11 +4586,14 @@ public class GitHubClient
                 0,
                 0,
                 null,
-                // V26 kanban fields. Search results don't expose merged_at,
-                // so it stays null here and is filled by the detail sync.
+                // V26 kanban fields. Search reports a merged PR as
+                // state=closed, so merged_at has to come along or every
+                // renderer downstream reads it as plainly closed.
                 item.state(),
                 item.closedAt(),
-                null,
+                Optional.ofNullable(item.pullRequest())
+                        .map(GitHubSearchResponse.PullRequestLink::mergedAt)
+                        .orElse(null),
                 null,
                 null,
                 null,

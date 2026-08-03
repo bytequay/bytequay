@@ -185,7 +185,9 @@ export function StageDetailRoute({
     bridge?.getTaskAutoApprove?.(threadId, taskId)
       .then(result => {
         if (read !== autoApproveRead.current) return;
-        const enabled = result.enabled || threadDefault;
+        // A terminal task's policy is frozen — inheriting the thread default
+        // would show an "On" the backend will never accept.
+        const enabled = result.enabled || (threadDefault && !brain.task.terminal);
         setAutoApprove(enabled);
         if (enabled && !result.enabled) {
           bridge?.setTaskAutoApprove?.(threadId, taskId, true).catch(() => { /* poll reconciles */ });
@@ -219,7 +221,10 @@ export function StageDetailRoute({
     if (write === undefined) return;
     trackPolicyWrite(write)
       .then(result => setAutoApprove(result.enabled))
-      .catch(() => setAutoApprove(!next));
+      .catch((reason: unknown) => {
+        setAutoApprove(!next);
+        setActionError(reason instanceof Error ? reason.message : 'Could not change auto-approve');
+      });
   };
   const toggleAutoMerge = () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -232,7 +237,10 @@ export function StageDetailRoute({
     if (write === undefined) return;
     trackPolicyWrite(write)
       .then(result => { setAutoMerge(result.enabled); if (result.enabled) setAutoApprove(true); })
-      .catch(() => setAutoMerge(!next));
+      .catch((reason: unknown) => {
+        setAutoMerge(!next);
+        setActionError(reason instanceof Error ? reason.message : 'Could not change auto-merge');
+      });
   };
   const setMinApprovals = (value: number) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -472,10 +480,10 @@ export function StageDetailRoute({
       autoMerge={autoMerge}
       minApprovals={minApprovals}
       approvedAt={approvedAt}
-      onApprove={plan.state === 'awaiting' && !approvingPlan ? approvePlan : undefined}
-      onToggleAutoApprove={toggleAutoApprove}
-      onToggleAutoMerge={toggleAutoMerge}
-      onSetMinApprovals={setMinApprovals}
+      onApprove={plan.state === 'awaiting' && !approvingPlan && !brain.task.terminal ? approvePlan : undefined}
+      onToggleAutoApprove={brain.task.terminal ? undefined : toggleAutoApprove}
+      onToggleAutoMerge={brain.task.terminal ? undefined : toggleAutoMerge}
+      onSetMinApprovals={brain.task.terminal ? undefined : setMinApprovals}
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
       stepComments={planStepComments(brain.brainFeed)}
     />

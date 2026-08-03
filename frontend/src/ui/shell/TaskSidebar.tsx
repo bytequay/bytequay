@@ -33,11 +33,15 @@ export function isTaskActive(t: WorkUnitTaskDto): boolean {
   // its phase still names the Stage it was cancelled in until Cleanup
   // finishes. Testing the phase alone left a closed task listed as in-flight
   // for that whole window.
-  if (t.status === 'CANCELED' || t.status === 'REMOTE_CLOSED'
-      || t.status === 'ARCHIVED') {
+  if (isTaskClosed(t)) {
     return false;
   }
   return t.phase !== 'COMPLETED' && t.status !== 'COMPLETED' && t.status !== 'ERRORED';
+}
+
+/** Terminal without shipping — the row reads as closed, not as live work. */
+export function isTaskClosed(t: WorkUnitTaskDto): boolean {
+  return t.status === 'CANCELED' || t.status === 'REMOTE_CLOSED' || t.status === 'ARCHIVED';
 }
 
 /** The active tasks to list under the trunk, capped at `cap` while collapsed.
@@ -240,17 +244,24 @@ function TaskList({ tasks, currentTaskId, onOpenTask }: {
       {visible.map(t => {
         const label = taskLabel(t);
         const current = t.id === currentTaskId;
+        // A closed task only lists here while it's the one being viewed, and it
+        // used to wear the same brain mark as its live siblings.
+        const closed = isTaskClosed(t);
+        const finished = t.status === 'COMPLETED' || t.phase === 'COMPLETED';
         return (
           <button
             key={t.id}
             type="button"
             className={`workspace-task-row${current ? '' : ' is-sibling'}`}
-            title={label}
+            title={closed ? `${label} (closed)` : label}
             aria-current={current ? 'true' : undefined}
-            aria-label={`Task ${t.seq}: ${label}`}
+            aria-label={`Task ${t.seq}: ${label}${closed ? ' (closed)' : ''}`}
             onClick={() => onOpenTask(t.id)}
+            style={closed ? { opacity: 0.6 } : undefined}
           >
-            <span aria-hidden><BrainIcon /></span>
+            <span aria-hidden>
+              {closed ? <ClosedIcon /> : finished ? <CheckCircleIcon /> : <BrainIcon />}
+            </span>
             <span>{label}</span>
           </button>
         );

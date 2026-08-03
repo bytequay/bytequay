@@ -502,9 +502,17 @@ public final class AgentTurnOperationHandler
         }
     }
 
+    /**
+     * A fallback subject only. Turns are instructed to commit their own work,
+     * so reaching here means one returned changes it never committed. The
+     * agent's own commit_summary cannot be used: it is decoded by the owner
+     * after this point, execution must not read result-payload meaning, and
+     * amending afterwards would change the head SHA the result is fenced on.
+     */
     private static String checkpointMessage(ExactTurn turn)
     {
-        return "ByteQuay checkpoint: " + turn.purpose();
+        return "ByteQuay checkpoint: uncommitted " + turn.purpose()
+                + " work (the turn returned changes it did not commit)";
     }
 
     private OutputCodeSubject observeOutput(ExactTurn turn)
@@ -579,13 +587,19 @@ public final class AgentTurnOperationHandler
                     sourceHeadMergeBaseSha = turn.expectedHeadSha();
                 }
             }
+            // Measured against the Turn's input head, not the Stage base, so
+            // this is what THIS Turn wrote rather than the cumulative Stage
+            // diff. Additions only: a Turn that only deletes has nothing to
+            // simplify.
+            int addedLines = git.addedLines(
+                    worktree, turn.expectedHeadSha(), headSha);
             return new OutputCodeSubject(
                     fingerprints.fingerprint(worktree), headSha,
                     turn.expectedBaseSha(), clean, mergeBaseSha,
                     sourceTreeSha, resultTreeSha,
                     discardedNoChangeHeadSha, restoredHeadSha,
                     sourceHeadMergeBaseSha, candidateParentSha,
-                    git.currentBranch(worktree));
+                    git.currentBranch(worktree), addedLines);
         }
         catch (IOException e) {
             throw new IllegalStateException("could not capture Agent Turn output", e);
@@ -1583,7 +1597,10 @@ public final class AgentTurnOperationHandler
             String sourceHeadMergeBaseSha,
             @JsonInclude(JsonInclude.Include.NON_NULL)
             String candidateParentSha,
-            String branchName)
+            String branchName,
+            /** Lines added between the Turn's input head and this output, or
+             *  null when the Turn ran before the count was captured. */
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer addedLines)
     {
         public OutputCodeSubject(
                 String codeFingerprint,
@@ -1593,7 +1610,7 @@ public final class AgentTurnOperationHandler
                 String mergeBaseSha)
         {
             this(codeFingerprint, headSha, baseSha, clean, mergeBaseSha,
-                    null, null, null, null, null, null, "dev/task-1");
+                    null, null, null, null, null, null, "dev/task-1", null);
         }
 
         public OutputCodeSubject(
@@ -1607,7 +1624,7 @@ public final class AgentTurnOperationHandler
         {
             this(codeFingerprint, headSha, baseSha, clean, mergeBaseSha,
                     sourceTreeSha, resultTreeSha, null, null, null, null,
-                    "dev/task-1");
+                    "dev/task-1", null);
         }
 
         public OutputCodeSubject(
@@ -1623,7 +1640,7 @@ public final class AgentTurnOperationHandler
         {
             this(codeFingerprint, headSha, baseSha, clean, mergeBaseSha,
                     sourceTreeSha, resultTreeSha, discardedNoChangeHeadSha,
-                    restoredHeadSha, null, null, "dev/task-1");
+                    restoredHeadSha, null, null, "dev/task-1", null);
         }
 
         public OutputCodeSubject(
@@ -1641,7 +1658,8 @@ public final class AgentTurnOperationHandler
         {
             this(codeFingerprint, headSha, baseSha, clean, mergeBaseSha,
                     sourceTreeSha, resultTreeSha, discardedNoChangeHeadSha,
-                    restoredHeadSha, sourceHeadMergeBaseSha, null, branchName);
+                    restoredHeadSha, sourceHeadMergeBaseSha, null, branchName,
+                    null);
         }
 
         public OutputCodeSubject
@@ -1693,6 +1711,9 @@ public final class AgentTurnOperationHandler
                     throw new IllegalArgumentException(
                             "candidate parent proof is inconsistent");
                 }
+            }
+            if (addedLines != null && addedLines < 0) {
+                throw new IllegalArgumentException("addedLines is negative");
             }
         }
     }

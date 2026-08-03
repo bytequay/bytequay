@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.domain.NotFoundException;
 import com.bytequay.app.web.GlobalExceptionHandler.ErrorResponse;
 import org.junit.jupiter.api.Test;
@@ -71,5 +72,39 @@ class TestGlobalExceptionHandler
         assertThat(response.getBody().status()).isEqualTo(HttpStatus.NOT_FOUND.value());
         assertThat(response.getBody().message()).isEqualTo("no credential for AI/openai/nope");
         assertThat(response.getBody().path()).isEqualTo("/api/credentials/AI/openai/nope/default");
+    }
+
+    /**
+     * Flipping a policy switch on a closed task used to answer 500 "Internal
+     * server error", so the UI could only revert the switch without saying
+     * why. The rejection is the caller's answer: 409 plus the reason text.
+     */
+    @Test
+    void rejectedCommandBecomesA409CarryingTheReason()
+    {
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "PUT", "/api/threads/t-1/tasks/t-1.k1/auto-merge");
+        CommandRejectedException exception = new CommandRejectedException(
+                CommandRejectedException.Reason.INVALID_STATE,
+                "Terminal Task policy cannot be revised");
+
+        ResponseEntity<ErrorResponse> response = handler.handleCommandRejected(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().message()).isEqualTo("Terminal Task policy cannot be revised");
+    }
+
+    @Test
+    void rejectedCommandForAMissingSubjectBecomesA404()
+    {
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "PUT", "/api/threads/t-1/tasks/t-1.k9/auto-merge");
+        CommandRejectedException exception = new CommandRejectedException(
+                CommandRejectedException.Reason.NOT_FOUND, "No current Task policy: t-1.k9");
+
+        ResponseEntity<ErrorResponse> response = handler.handleCommandRejected(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 }

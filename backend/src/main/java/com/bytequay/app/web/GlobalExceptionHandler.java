@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.domain.NotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -61,6 +62,24 @@ public class GlobalExceptionHandler
     public ResponseEntity<ErrorResponse> handleNotFoundException(NotFoundException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    /**
+     * A command did not match the current state of its aggregate — the task is
+     * terminal, the stage moved on, the version is stale. That is the caller's
+     * answer, not a server fault, so it gets a 409 (404 when the subject is
+     * simply gone) carrying the rejection reason instead of the catch-all's
+     * opaque 500. The UI shows this text, so keep the message user-readable.
+     */
+    @ExceptionHandler(CommandRejectedException.class)
+    public ResponseEntity<ErrorResponse> handleCommandRejected(
+            CommandRejectedException exception, HttpServletRequest request)
+    {
+        HttpStatus status = exception.reason() == CommandRejectedException.Reason.NOT_FOUND
+                ? HttpStatus.NOT_FOUND : HttpStatus.CONFLICT;
+        log.warn("Command rejected ({}): {} — {}",
+                exception.reason(), request.getRequestURI(), exception.getMessage());
+        return errorResponse(status.value(), exception.getMessage(), request.getRequestURI());
     }
 
     @ExceptionHandler(MissingServletRequestParameterException.class)

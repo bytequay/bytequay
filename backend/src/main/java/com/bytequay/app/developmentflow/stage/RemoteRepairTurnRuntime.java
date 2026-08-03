@@ -1734,15 +1734,6 @@ public final class RemoteRepairTurnRuntime
     }
 
     private static void requireSameRawResult(
-            EffectDeliveryReceipt receipt, String rawDigest)
-    {
-        if (!rawDigest.equals(receipt.rawDigest())) {
-            throw new IllegalStateException(
-                    "Remote repair operation was redelivered with different evidence");
-        }
-    }
-
-    private static void requireSameRawResult(
             ReplayReceipt receipt, String rawDigest)
     {
         if (!rawDigest.equals(receipt.rawDigest())) {

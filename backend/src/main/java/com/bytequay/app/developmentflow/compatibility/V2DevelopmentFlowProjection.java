@@ -761,29 +761,42 @@ public final class V2DevelopmentFlowProjection
                 textList(plan.path("outOfScope")));
     }
 
-    /** Exact headings emitted by the V2 Plan prompt; not a general Markdown parser. */
-    private static MarkdownPlan markdownPlan(String markdown)
+    /**
+     * The headings the V2 Plan prompt asks for; not a general Markdown parser.
+     * Work written under any other heading is invisible on the plan card, which
+     * is why the draft prompt states the heading contract to the brain.
+     */
+    static MarkdownPlan markdownPlan(String markdown)
     {
         String action = firstLine(section(markdown, "change"));
-        String goal = firstLine(section(markdown, "goal"));
-        if (goal.isBlank()) {
-            goal = firstLine(section(markdown, "plan"));
+        String goal = firstNonBlank(
+                firstItem(section(markdown, "goal")),
+                firstItem(section(markdown, "plan")),
+                firstItem(section(markdown, "objective")),
+                action);
+        List<String> authored = listItems(section(markdown, "steps"));
+        List<TaskBrainViewData.PlanStep> steps = new ArrayList<>();
+        for (String item : authored) {
+            steps.add(new TaskBrainViewData.PlanStep(
+                    steps.size() + 1, item, List.of(), null, null));
         }
-        if (goal.isBlank()) {
-            goal = action;
-        }
-        List<String> files = action.contains("/") && !action.contains(" ")
-                ? List.of(action.replaceFirst(":\\d+$", "")) : List.of();
-        String step = action.isBlank() ? goal
-                : files.isEmpty() ? action : "Update " + action;
-        List<TaskBrainViewData.PlanStep> steps = step.isBlank()
-                ? List.of()
-                : List.of(new TaskBrainViewData.PlanStep(
+        if (steps.isEmpty()) {
+            // No steps section — keep the single synthetic step revisions
+            // recorded before the contract rendered, so they still read as a
+            // plan rather than an empty, unapprovable card.
+            List<String> files = action.contains("/") && !action.contains(" ")
+                    ? List.of(action.replaceFirst(":\\d+$", "")) : List.of();
+            String step = action.isBlank() ? goal
+                    : files.isEmpty() ? action : "Update " + action;
+            if (!step.isBlank()) {
+                steps.add(new TaskBrainViewData.PlanStep(
                         1, step, files, markdown.isBlank() ? null : markdown, null));
+            }
+        }
         return new MarkdownPlan(
-                goal, goal, action, steps,
+                goal, goal, action, List.copyOf(steps),
                 String.join("\n", contentLines(section(markdown, "validation"))),
-                contentLines(section(markdown, "scope guardrails")));
+                listItems(section(markdown, "scope guardrails")));
     }
 
     private static String text(JsonNode node)
@@ -827,15 +840,18 @@ public final class V2DevelopmentFlowProjection
                 if (selected) {
                     break;
                 }
-                selected = text.substring(3).toLowerCase(Locale.ROOT)
-                        .startsWith(heading);
+                // endsWith as well as startsWith: the brain qualifies its
+                // headings ("## Execution steps", "## What will change") at
+                // least as often as it writes them bare.
+                String title = text.substring(3).toLowerCase(Locale.ROOT);
+                selected = title.startsWith(heading) || title.endsWith(heading);
             }
             else if (selected) {
                 found.append(line).append('\n');
             }
-            else if ("plan".equals(heading)
-                    && text.toLowerCase(Locale.ROOT).startsWith("# plan:")) {
-                found.append(text.substring(7)).append('\n');
+            else if ("plan".equals(heading) && text.matches("(?i)^#\\s+plan\\b.*")) {
+                found.append(text.replaceFirst("(?i)^#\\s+plan\\b[\\s:\\p{Pd}]*", ""))
+                        .append('\n');
             }
         }
         return found.toString();
@@ -845,6 +861,41 @@ public final class V2DevelopmentFlowProjection
     {
         List<String> lines = contentLines(section);
         return lines.isEmpty() ? "" : lines.getFirst();
+    }
+
+    private static String firstItem(String section)
+    {
+        List<String> items = listItems(section);
+        return items.isEmpty() ? "" : items.getFirst();
+    }
+
+    /**
+     * The list items of a section, one entry per authored item. Unlike
+     * {@link #contentLines} this re-joins continuation lines: the brain hard-wraps
+     * its Markdown, and a wrapped step or guardrail is one item, not two.
+     */
+    private static List<String> listItems(String section)
+    {
+        List<String> items = new ArrayList<>();
+        boolean fenced = false;
+        for (String line : section.split("\\R")) {
+            String text = line.strip();
+            if (text.startsWith("```")) {
+                fenced = !fenced;
+            }
+            else if (!fenced && !text.isBlank()) {
+                boolean marked = text.matches("^(\\d+[.)]|[-*])\\s+\\S.*");
+                String item = text.replaceFirst("^(\\d+[.)]|[-*])\\s+", "")
+                        .replace("**", "");
+                if (marked || items.isEmpty()) {
+                    items.add(item);
+                }
+                else {
+                    items.set(items.size() - 1, items.getLast() + " " + item);
+                }
+            }
+        }
+        return List.copyOf(items);
     }
 
     private static List<String> contentLines(String section)
@@ -880,7 +931,7 @@ public final class V2DevelopmentFlowProjection
             String content, String source, int revisionCount,
             String reviewStatus, String reviewVerdict, String approvalId) {}
 
-    private record MarkdownPlan(
+    record MarkdownPlan(
             String goal, String understanding, String action,
             List<TaskBrainViewData.PlanStep> steps,
             String validation, List<String> guardrails) {}

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -35,6 +36,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestCodeGraphUpdateCoordinator
 {
+    @Test
+    void testForgetDeletesTheCheckoutsIndexFromDisk(@TempDir Path tempDir)
+            throws Exception
+    {
+        Path checkout = tempDir.toAbsolutePath().normalize();
+        Path index = checkout.resolve(".codegraph");
+        Files.createDirectories(index.resolve("versions"));
+        Files.writeString(index.resolve("codegraph.db"), "graph");
+        Files.writeString(checkout.resolve("keep.txt"), "source file");
+
+        CodeGraphUpdateCoordinator coordinator =
+                new CodeGraphUpdateCoordinator(new FakeCodeGraphService(new Fingerprint("one")), null);
+        coordinator.forget(checkout);
+
+        // The index goes; nothing else in the worktree is touched.
+        assertThat(Files.exists(index)).isFalse();
+        assertThat(Files.exists(checkout.resolve("keep.txt"))).isTrue();
+    }
+
+    @Test
+    void testForgetIsQuietWhenTheCheckoutWasNeverIndexed(@TempDir Path tempDir)
+    {
+        CodeGraphUpdateCoordinator coordinator =
+                new CodeGraphUpdateCoordinator(new FakeCodeGraphService(new Fingerprint("one")), null);
+
+        coordinator.forget(tempDir.resolve("gone"));
+    }
+
     @Test
     void testSkipsSameFingerprintAfterSuccessfulSync(@TempDir Path tempDir)
             throws Exception

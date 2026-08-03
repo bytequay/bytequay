@@ -18,7 +18,6 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
@@ -29,7 +28,6 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Set;
 
-@ExtendWith(SqliteTestPools.class)
 public final class SqliteExecutionTestSupport
 {
     private SqliteExecutionTestSupport() {}

@@ -16,6 +16,7 @@ import type { ReactNode } from 'react';
 import { MarkdownProse } from '../../../threads/MarkdownProse';
 import { useAttachmentImages } from '../../../threads/useAttachmentImages';
 import { RuntimeSkillsDisclosure } from '../RuntimeSkillsDisclosure';
+import { PreviewImg } from '../../primitives';
 
 /**
  * Layer-2 conversation unit: a round — one user turn (or an autonomous
@@ -84,7 +85,7 @@ export function UserTurn({ text, timestamp, glyph = 'Y', threadId, images, manag
         )}
         {resolvedImages.length > 0 && (
           <div className="sp-ublock__images">
-            {resolvedImages.map(src => <img key={src} src={src} alt="Attached" className="sp-ublock__img" />)}
+            {resolvedImages.map(src => <PreviewImg key={src} src={src} alt="Attached" className="sp-ublock__img" />)}
           </div>
         )}
         <div className="sp-ublock__tx"><MarkdownProse text={shown} /></div>

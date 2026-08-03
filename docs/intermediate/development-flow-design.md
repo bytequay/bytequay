@@ -3966,6 +3966,36 @@ reconciliation; they are never reassigned using latest/active inference.
 
 ## Change log
 
+### 3.36 — 2026-08-03
+
+Development result gains a PR description, and its evidence fields get a
+consumer.
+
+- The Local Development strict result adds one required string field,
+  `prDescription`. It is the body used when the Task's pull request is
+  created. Publishing must use it verbatim rather than the empty string it
+  currently hardcodes.
+- The turn resolves a template before writing that field. If the repository
+  provides one (`.github/PULL_REQUEST_TEMPLATE.md`, a root or `docs`
+  `PULL_REQUEST_TEMPLATE`, or a file under `.github/PULL_REQUEST_TEMPLATE/`),
+  the agent fills that template's own sections. Only when the repository
+  provides none does it fill ByteQuay's default template. Consistency with a
+  repository's template is therefore guaranteed by construction: the agent
+  that read the template writes the body. ByteQuay never assembles a body from
+  separate fields, which cannot match an arbitrary template.
+- `implemented_intent`, `file_summary`, `validation_summary`, `known_risks`
+  and `unresolved_concerns` become one immutable PR timeline event recording
+  what the Development turn did. They are evidence for the reader and for
+  Brain review, not PR body material. Before this change they were persisted
+  and never read by any production path.
+- `commit_summary` keeps its existing role and additionally supplies the
+  checkpoint commit subject, replacing the generic
+  `"ByteQuay checkpoint: <purpose>"` placeholder. A commit subject is one
+  line and honours no template, so it needs no template resolution.
+- Nothing about admission, fencing, or recovery changes. The strict decoder
+  gains one required field; a result missing it fails as a protocol failure
+  exactly like any other malformed result.
+
 ### 3.35 — 2026-08-03
 
 - Replaced the inlined provider trace in a malformed-result replacement with a

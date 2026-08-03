@@ -2233,7 +2233,10 @@ public class SqliteLocalDevelopmentRuntimeStore
     public record DevelopmentReport(
             String implementedIntent, String commitSummary, String fileSummary,
             String validationSummary, String knownRisks,
-            String unresolvedConcerns, String contextRefs) {}
+            String unresolvedConcerns, String contextRefs,
+            /** Design 3.36: the PR body, written by the agent against the
+             *  repository's own template when it has one. */
+            String prDescription) {}
 
     public record CodeSubject(String codeFingerprint, String headSha, String baseSha) {}
 

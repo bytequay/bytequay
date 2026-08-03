@@ -127,9 +127,11 @@ class TestV2LocalStageStore
 
         assertThat(receipt.acceptance())
                 .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+        // Design 3.36: the PR is created with the agent's template-aware body,
+        // not the empty string that produced "No description provided".
         verify(prs).createForTaskInCommand(
-                "task-1", "dev/task-1", "master",
-                "Test task assignment-1", "");
+                "task-1", "dev/task-1", "master", "Test task assignment-1",
+                "## Summary\nRaised the label.\n\n## Validation\nmvn verify");
         assertThat(jdbc.queryForMap("""
                 SELECT revision.subject_kind, revision.subject_id,
                        revision.code_fingerprint, revision.head_sha,
@@ -2352,7 +2354,8 @@ class TestV2LocalStageStore
                  "validationSummary":"pending",
                  "knownRisks":"none",
                  "unresolvedConcerns":"none",
-                 "contextRefs":"none"}
+                 "contextRefs":"none",
+                 "prDescription":"## Summary\\nRaised the label.\\n\\n## Validation\\nmvn verify"}
                 """;
     }
 

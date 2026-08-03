@@ -200,8 +200,8 @@ public class PRRecordToolHandlers
 
     @AgentTool(
             name = "record_local_review",
-            description = "Declare Development done. ByteQuay checkpoints any remaining worktree "
-                    + "changes outside the provider sandbox, then the idle lifecycle runs validation "
+            description = "Declare Development done. Commit your work on the Task branch "
+                    + "first, then the idle lifecycle runs validation "
                     + "and starts Brain adversarial review. Failed validation enters the bounded local "
                     + "fix loop; only Brain approval or bounded escalation hands the private local PR "
                     + "to the user. No GitHub interaction.",

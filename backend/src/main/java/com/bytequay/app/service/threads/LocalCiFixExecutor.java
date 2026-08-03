@@ -199,9 +199,9 @@ public class LocalCiFixExecutor
                 out.append("  - ").append(failure.source()).append(": ").append(failure.detail()).append('\n');
             }
         }
-        out.append("\nRe-run focused checks for the fix, then leave the verified changes in the ")
-                .append("worktree. Do not commit, push, or open a review — ByteQuay checkpoints the ")
-                .append("changes and re-runs the canonical checks outside the provider sandbox after this turn.");
+        out.append("\nRe-run focused checks for the fix, then commit the verified changes on the ")
+                .append("Task branch. Do not push or open a review — ByteQuay re-runs the canonical ")
+                .append("checks outside the provider sandbox after this turn.");
         return out.toString();
     }
 

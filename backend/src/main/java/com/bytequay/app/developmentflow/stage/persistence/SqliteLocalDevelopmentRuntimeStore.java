@@ -177,6 +177,52 @@ public class SqliteLocalDevelopmentRuntimeStore
         return rows.getFirst();
     }
 
+    /** The result a Turn reported through {@code record_development_result},
+     *  if it got that far. A pure read — delivery calls it inside its command,
+     *  the tool's duplicate guard calls it before opening one. */
+    public Optional<DevelopmentReport> findDevelopmentSubmission(String turnId)
+    {
+        return jdbc.query("""
+                SELECT implemented_intent, commit_summary, file_summary,
+                       validation_summary, known_risks, unresolved_concerns,
+                       context_refs, pr_description
+                FROM stage_turn_development_submission
+                WHERE stage_turn_id = ?
+                """, (rs, row) -> new DevelopmentReport(
+                        rs.getString("implemented_intent"),
+                        rs.getString("commit_summary"),
+                        rs.getString("file_summary"),
+                        rs.getString("validation_summary"),
+                        rs.getString("known_risks"),
+                        rs.getString("unresolved_concerns"),
+                        rs.getString("context_refs"),
+                        rs.getString("pr_description")), turnId)
+                .stream().findFirst();
+    }
+
+    public void insertDevelopmentSubmission(
+            String turnId,
+            String operationId,
+            String taskId,
+            DevelopmentReport report,
+            Instant submittedAt)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO stage_turn_development_submission(
+                    stage_turn_id, operation_id, task_id, implemented_intent,
+                    commit_summary, file_summary, validation_summary,
+                    known_risks, unresolved_concerns, context_refs,
+                    pr_description, submitted_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                turnId, operationId, taskId, report.implementedIntent(),
+                report.commitSummary(), report.fileSummary(),
+                report.validationSummary(), report.knownRisks(),
+                report.unresolvedConcerns(), report.contextRefs(),
+                report.prDescription(), submittedAt.toEpochMilli());
+    }
+
     public Optional<StageTurnDeliveryReceipt> findStageTurnReceipt(String turnId)
     {
         return jdbc.query("""

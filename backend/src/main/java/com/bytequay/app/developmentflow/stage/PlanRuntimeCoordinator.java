@@ -76,22 +76,6 @@ public final class PlanRuntimeCoordinator
 
     private static final String PLAN_DRAFT = "PLAN_DRAFT";
     private static final String PLAN_SELF_REVIEW = "PLAN_SELF_REVIEW";
-    /**
-     * record_plan takes free-form content, but the plan card the human
-     * approves is rendered from these exact headings — anything written under
-     * other headings never reaches the reviewer.
-     */
-    private static final String PLAN_CONTENT_INSTRUCTIONS = """
-            Write the plan as Markdown under exactly these headings: '## Goal'
-            (one sentence naming the objective), '## Change' (what changes),
-            '## Steps' (a numbered list, one line per step — this is the unit
-            the human approves), '## Validation' (how the work is checked), and
-            '## Scope guardrails' (a bulleted list of what must not be touched).
-            The approval card is rendered from those five headings alone, so
-            work described anywhere else is invisible to the reviewer. Keep each
-            step and guardrail to a single list item; supporting detail belongs
-            under its own heading, not between the numbered steps.
-            """;
     private static final String REVIEW_SUBMISSION_INSTRUCTIONS = """
             Submit exactly one accepted self-review through record_plan_self_review
             with the matching task_id, a typed verdict, and explicit concerns,
@@ -1482,8 +1466,7 @@ public final class PlanRuntimeCoordinator
         return assignment + "\n\nInspect the repository without changing files. "
                 + "Then call record_plan exactly once with task_id='"
                 + context.taskId() + "' and a finalized structured plan. "
-                + "Do not edit code, commit, push, or create remote effects."
-                + "\n\n" + PLAN_CONTENT_INSTRUCTIONS;
+                + "Do not edit code, commit, push, or create remote effects.";
     }
 
     private static String replanPrompt(String taskId, String reason)
@@ -1494,8 +1477,7 @@ public final class PlanRuntimeCoordinator
                 + "Call record_plan exactly once with task_id='" + taskId
                 + "' and a finalized structured Plan. Preserve useful completed "
                 + "work and address the replan reason. Do not edit code, commit, "
-                + "push, or create remote effects."
-                + "\n\n" + PLAN_CONTENT_INSTRUCTIONS;
+                + "push, or create remote effects.";
     }
 
     private static String reviewPrompt(String taskId, PlanSubmission submission)

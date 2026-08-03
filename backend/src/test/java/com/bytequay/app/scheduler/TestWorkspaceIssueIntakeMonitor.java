@@ -49,8 +49,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.scheduler.WorkspaceIssueIntakeMonitor.AUTOMATION_KIND;
-import static com.bytequay.app.scheduler.WorkspaceIssueIntakeMonitor.Route.AUTO_IMPLEMENT;
-import static com.bytequay.app.scheduler.WorkspaceIssueIntakeMonitor.Route.BACKLOG_PERMISSION;
 import static com.bytequay.app.scheduler.WorkspaceIssueIntakeMonitor.TRIAGE_TASK_TYPE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -59,7 +57,6 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestWorkspaceIssueIntakeMonitor
@@ -73,20 +70,6 @@ class TestWorkspaceIssueIntakeMonitor
                 .doesNotContain(
                         "StageStore", "PlanStageService", "TaskService",
                         "RetiredThreadTurnScheduler");
-    }
-
-    @Test
-    void onlyHighConfidenceLowRiskSmallPlansStartImplementation()
-            throws Exception
-    {
-        assertThat(WorkspaceIssueIntakeMonitor.classify(plan("high", "low", "small")))
-                .isEqualTo(AUTO_IMPLEMENT);
-        assertThat(WorkspaceIssueIntakeMonitor.classify(plan("medium", "low", "small")))
-                .isEqualTo(BACKLOG_PERMISSION);
-        assertThat(WorkspaceIssueIntakeMonitor.classify(plan("high", "medium", "small")))
-                .isEqualTo(BACKLOG_PERMISSION);
-        assertThat(WorkspaceIssueIntakeMonitor.classify(plan("high", "low", "large")))
-                .isEqualTo(BACKLOG_PERMISSION);
     }
 
     @Test
@@ -154,7 +137,7 @@ class TestWorkspaceIssueIntakeMonitor
     }
 
     @Test
-    void startsOnlyLocalImplementationForSafePlans(@TempDir Path clone)
+    void asksEvenForAPlanThatCallsItselfSafe(@TempDir Path clone)
             throws Exception
     {
         Fixture fixture = new Fixture();
@@ -162,6 +145,9 @@ class TestWorkspaceIssueIntakeMonitor
         fixture.configure(workspace, clone);
         fixture.states.save(new WorkspaceAutomationState(
                 workspace.id(), AUTOMATION_KIND, 10, null, Instant.now()));
+        // high / low / small is exactly what used to start a writer agent
+        // unattended. Those signals are authored from issue text any GitHub
+        // account can write, so the plan calling itself safe now buys nothing.
         JsonNode safePlan = plan("high", "low", "small");
         Snapshot snapshot = snapshot(safePlan);
         when(fixture.plans.listCurrent(
@@ -171,10 +157,9 @@ class TestWorkspaceIssueIntakeMonitor
         WorkspaceIssueIntakeMonitor monitor = fixture.monitor();
         monitor.tick();
 
-        verify(fixture.plans).approveIssueIntake(snapshot);
-        verifyNoInteractions(fixture.taskControls);
+        verify(fixture.taskControls).cancelByAutomation(snapshot.taskId(), AUTOMATION_KIND);
         WorkspaceIssueIntakeMonitor.MonitorStatus status = monitor.status("workspace");
-        assertThat(status.implementationsStarted()).isEqualTo(1);
+        assertThat(status.implementationsStarted()).isZero();
         assertThat(status.lastOutcome()).isEqualTo("SUCCESS");
         assertThat(status.lastRunAt()).isNotNull();
     }
@@ -207,7 +192,6 @@ class TestWorkspaceIssueIntakeMonitor
                 "task", AUTOMATION_KIND);
         ordered.verify(fixture.threads).sendTrunkUnattended(
                 eq("thread"), any(), eq("remote-issue-backlog-permission"));
-        verify(fixture.plans, never()).approveIssueIntake(any());
     }
 
     private static Snapshot snapshot(JsonNode plan)

@@ -29,6 +29,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -46,10 +48,35 @@ public final class PlanMcpService
     private static final String APPROVAL_PROMPT = "approval_prompt";
     private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
 
+    /**
+     * Flat on purpose. The stored revision is nested to match the plan-card
+     * reader, but the model is asked for one level — a schema it can satisfy
+     * beats one that mirrors our storage. The server does the nesting.
+     */
     private static final String PLAN_SCHEMA = """
-            {"type":"object","additionalProperties":false,"required":["task_id","content"],
+            {"type":"object","additionalProperties":false,
+             "required":["task_id","goal","understanding","intent","steps"],
              "properties":{"task_id":{"type":"string","minLength":1},
-             "content":{"type":"string","minLength":1}}}
+             "goal":{"type":"string","minLength":1,
+             "description":"ONE sentence naming the objective. No preamble."},
+             "understanding":{"type":"string","minLength":1,
+             "description":"What you established about the change before planning it."},
+             "intent":{"type":"string","minLength":1,
+             "description":"What you intend to do, in one or two sentences."},
+             "steps":{"type":"array","minItems":1,
+             "description":"The minimal ordered set of moves that get the work done.",
+             "items":{"type":"object","additionalProperties":false,
+             "required":["action"],
+             "properties":{
+             "action":{"type":"string","minLength":1,
+             "description":"A SHORT imperative naming ONE move. Not a code body."},
+             "files":{"type":"array","items":{"type":"string","minLength":1}},
+             "rationale":{"type":"string","description":"One line of why."},
+             "risk":{"type":"string","enum":["low","med","high","opt"]}}}},
+             "validation":{"type":"string",
+             "description":"How the change will be checked."},
+             "out_of_scope":{"type":"array","items":{"type":"string","minLength":1},
+             "description":"What this task deliberately does NOT do."}}}
             """;
     private static final String REVIEW_SCHEMA = """
             {"type":"object","additionalProperties":false,
@@ -161,23 +188,21 @@ public final class PlanMcpService
         JsonNode arguments = params.arguments() == null
                 ? responses.mapper().createObjectNode() : params.arguments();
         return switch (params.name() == null ? "" : params.name()) {
-            case RECORD_PLAN -> {
+            case RECORD_PLAN -> submitted(id, () -> {
                 RecordPlanArgs args = planReader.readValue(arguments);
                 PlanSubmission saved = coordinator.recordPlan(
-                        turnId, operationId, args.taskId(), args.content());
-                yield responses.plainText(id,
-                        "Recorded Plan revision " + saved.revision()
-                                + " (" + saved.contentDigest() + ").");
-            }
-            case RECORD_REVIEW -> {
+                        turnId, operationId, args.taskId(), planContent(args));
+                return "Recorded Plan revision " + saved.revision()
+                        + " (" + saved.contentDigest() + ").";
+            });
+            case RECORD_REVIEW -> submitted(id, () -> {
                 RecordReviewArgs args = reviewReader.readValue(arguments);
                 ReviewSubmission saved = coordinator.recordSelfReview(
                         turnId, operationId, args.taskId(), args.verdict(),
                         args.concerns(), args.followUps(), args.stewardship());
-                yield responses.plainText(id,
-                        "Recorded Plan self-review " + saved.verdict()
-                                + " for " + saved.reviewedDigest() + ".");
-            }
+                return "Recorded Plan self-review " + saved.verdict()
+                        + " for " + saved.reviewedDigest() + ".";
+            });
             case APPROVAL_PROMPT -> {
                 ApprovalPromptArgs args = responses.bindArgs(
                         arguments, ApprovalPromptArgs.class);
@@ -202,6 +227,82 @@ public final class PlanMcpService
         };
     }
 
+    /** The body of a record tool: persists the submission and returns the
+     *  receipt text, or throws to reject it. */
+    @FunctionalInterface
+    private interface Submission
+    {
+        String submit()
+                throws IOException;
+    }
+
+    /**
+     * Frame a record tool's outcome. A rejection — arguments that miss the
+     * schema, or a submission the coordinator refuses — comes back as an MCP
+     * tool-execution error rather than a JSON-RPC protocol error, so the brain
+     * reads the reason and can correct its call inside the same turn. The spec
+     * draws exactly this line: clients SHOULD hand tool-execution errors to the
+     * model for self-correction, and only MAY forward protocol errors, which
+     * are "less likely to result in successful recovery".
+     *
+     * <p>Safe to retry after: both coordinator entry points validate before
+     * they open a command or touch the store, so a rejected call has recorded
+     * nothing.
+     */
+    private JsonNode submitted(JsonNode id, Submission submission)
+    {
+        try {
+            return responses.plainText(id, submission.submit());
+        }
+        catch (IOException e) {
+            return responses.toolError(
+                    id, "Arguments do not match the tool schema: " + e.getMessage());
+        }
+        catch (IllegalArgumentException | IllegalStateException e) {
+            return responses.toolError(id, "Submission rejected: " + e.getMessage());
+        }
+    }
+
+    /**
+     * The stored revision: the nested shape the plan card reads, built from the
+     * flat one the model was asked for. Field order is fixed by construction, so
+     * an identical re-submission digests identically and stays idempotent.
+     */
+    private String planContent(RecordPlanArgs args)
+            throws JsonProcessingException
+    {
+        ObjectNode plan = responses.mapper().createObjectNode();
+        plan.put("status", "finalized");
+        plan.put("goal", args.goal());
+        plan.putObject("understanding").put("summary", args.understanding());
+        ObjectNode intent = plan.putObject("intent");
+        intent.put("summary", args.intent());
+        ArrayNode steps = intent.putArray("steps");
+        int ordinal = 0;
+        for (PlanStep step : args.steps() == null ? List.<PlanStep>of() : args.steps()) {
+            ObjectNode node = steps.addObject();
+            node.put("ordinal", ++ordinal);
+            node.put("action", step.action());
+            ArrayNode files = node.putArray("files");
+            if (step.files() != null) {
+                step.files().forEach(files::add);
+            }
+            if (step.rationale() != null && !step.rationale().isBlank()) {
+                node.put("rationale", step.rationale());
+            }
+            if (step.risk() != null && !step.risk().isBlank()) {
+                node.put("risk", step.risk());
+            }
+        }
+        intent.put("validationStrategy",
+                args.validation() == null ? "" : args.validation());
+        ArrayNode outOfScope = plan.putArray("outOfScope");
+        if (args.outOfScope() != null) {
+            args.outOfScope().forEach(outOfScope::add);
+        }
+        return responses.mapper().writeValueAsString(plan);
+    }
+
     private ToolDescriptor descriptor(
             String name, String description, String schema)
             throws JsonProcessingException
@@ -219,7 +320,18 @@ public final class PlanMcpService
 
     public record RecordPlanArgs(
             @JsonProperty("task_id") String taskId,
-            String content) {}
+            String goal,
+            String understanding,
+            String intent,
+            List<PlanStep> steps,
+            String validation,
+            @JsonProperty("out_of_scope") List<String> outOfScope) {}
+
+    public record PlanStep(
+            String action,
+            List<String> files,
+            String rationale,
+            String risk) {}
 
     public record RecordReviewArgs(
             @JsonProperty("task_id") String taskId,

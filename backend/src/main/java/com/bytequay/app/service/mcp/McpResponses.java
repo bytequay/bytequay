@@ -75,6 +75,19 @@ public class McpResponses
     }
 
     /**
+     * A tool-<em>execution</em> failure: a successful JSON-RPC response
+     * carrying {@code isError: true}. The model reads {@code message} and
+     * may correct its call within the same session. Use this for bad
+     * arguments and rejected submissions; keep {@link #error} for protocol
+     * faults (unknown tool, malformed request) and {@link #deny} for the
+     * permission-prompt protocol, which ends the turn.
+     */
+    public JsonNode toolError(JsonNode id, String message)
+    {
+        return ok(id, ToolCallResult.error(message));
+    }
+
+    /**
      * Wrap an allow / deny envelope (or any Jackson-serialisable
      * value) as a {@code tools/call} result. MCP returns tool
      * results as a content array whose entries are typed text;

@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.developmentflow;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.developmentflow.stage.PlanMcpService;
 import com.bytequay.app.developmentflow.stage.V2PlanControlService;
@@ -24,6 +26,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.mcp.McpService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,6 +39,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.context.request.async.DeferredResult;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -58,8 +62,9 @@ import static org.mockito.Mockito.when;
  * context, the real SQLite schema, the real {@link ExecutionDispatcher}
  * and a real Git repository on disk. Only the provider wire is scripted:
  * {@link AgentTurnProviderSession} is replaced by an agent that drives the
- * same owner MCP tools and returns the same strict-JSON turn results a
- * live CLI agent would.
+ * same owner MCP tools a live CLI agent would — including
+ * {@code record_development_result}, which is what makes the Turn's result
+ * real rather than a string this test hands to itself.
  */
 @SpringBootTest
 class TestAgentDevelopmentE2E
@@ -86,6 +91,10 @@ class TestAgentDevelopmentE2E
     @Autowired
     private PlanMcpService planMcp;
     @Autowired
+    private McpService mcp;
+    @Autowired
+    private AgentTurnOperationHandler.Store turns;
+    @Autowired
     private V2PlanControlService planControl;
 
     @MockitoBean
@@ -105,7 +114,7 @@ class TestAgentDevelopmentE2E
             throws Exception
     {
         repositoryRoot = gitRepository();
-        agent = new ScriptedAgent(planMcp, jdbc, JSON);
+        agent = new ScriptedAgent(planMcp, mcp, turns, jdbc, JSON);
         when(provider.open(any(), any()))
                 .thenAnswer(call -> agent.open(call.getArgument(0), call.getArgument(1)));
     }
@@ -137,6 +146,30 @@ class TestAgentDevelopmentE2E
                         AgentTurnProviderSession.ToolProfile.TASK_BRAIN_READ_ONLY,
                         AgentTurnProviderSession.ToolProfile.TASK_BRAIN_READ_ONLY,
                         AgentTurnProviderSession.ToolProfile.STAGE_DEVELOPMENT);
+
+        // The Development Turn reported through record_development_result over
+        // real MCP, and delivery read that row rather than its final message.
+        // Without this the test passes on a git commit alone and says nothing
+        // about the result contract — which is how it kept passing while the
+        // contract it claimed to cover was replaced underneath it.
+        assertThat(jdbc.queryForObject("""
+                SELECT implemented_intent FROM stage_turn_development_submission
+                """, String.class))
+                .isEqualTo("Added the marker file");
+
+        // The commit lands mid-Turn, so keep pumping until delivery has
+        // consumed the submission — that is the half this change moved.
+        pumpUntil(() -> reportedIntent() != null);
+        assertThat(reportedIntent()).isEqualTo("Added the marker file");
+    }
+
+    /** The intent delivery persisted, once it has consumed the submission. */
+    private String reportedIntent()
+    {
+        return jdbc.query(
+                "SELECT implemented_intent FROM dev_report WHERE workflow_version = 'V2'",
+                (rs, row) -> rs.getString(1))
+                .stream().findFirst().orElse(null);
     }
 
     /** True once MARKER.md is committed on the Task's own branch. */
@@ -320,19 +353,29 @@ class TestAgentDevelopmentE2E
     {
         private static final String RECORD_PLAN = "record_plan";
         private static final String RECORD_REVIEW = "record_plan_self_review";
+        private static final String RECORD_RESULT = "record_development_result";
         private static final String MARKER = "MARKER.md";
         private static final String PLAN_CONTENT =
                 "Add MARKER.md at the repository root with a single line of text.";
 
         private final PlanMcpService planMcp;
+        private final McpService mcp;
+        private final AgentTurnOperationHandler.Store turns;
         private final JdbcTemplate jdbc;
         private final ObjectMapper json;
         private final List<ToolProfile> profiles = new ArrayList<>();
         private int requestIds;
 
-        private ScriptedAgent(PlanMcpService planMcp, JdbcTemplate jdbc, ObjectMapper json)
+        private ScriptedAgent(
+                PlanMcpService planMcp,
+                McpService mcp,
+                AgentTurnOperationHandler.Store turns,
+                JdbcTemplate jdbc,
+                ObjectMapper json)
         {
             this.planMcp = planMcp;
+            this.mcp = mcp;
+            this.turns = turns;
             this.jdbc = jdbc;
             this.json = json;
         }
@@ -389,7 +432,15 @@ class TestAgentDevelopmentE2E
                 if (RECORD_PLAN.equals(name)) {
                     call(endpoint, "tools/call", toolCall(name, arguments -> {
                         arguments.put("task_id", taskId);
-                        arguments.put("content", PLAN_CONTENT);
+                        arguments.put("goal", PLAN_CONTENT);
+                        arguments.put("understanding",
+                                "The repository root has no marker file.");
+                        arguments.put("intent", "Add the file and commit it.");
+                        ObjectNode step = arguments.putArray("steps").addObject();
+                        step.put("action", "Add " + MARKER + " at the repository root");
+                        step.putArray("files").add(MARKER);
+                        arguments.put("validation",
+                                "no build tooling in the fixture repository");
                     }));
                 }
                 else if (RECORD_REVIEW.equals(name)) {
@@ -414,16 +465,24 @@ class TestAgentDevelopmentE2E
             git(worktree, "add", MARKER);
             git(worktree, "commit", "--quiet", "-m", "Add the marker file");
 
-            ObjectNode result = json.createObjectNode();
-            result.put("schemaVersion", 1);
-            result.put("implementedIntent", "Added the marker file");
-            result.put("commitSummary", "Add the marker file");
-            result.put("fileSummary", MARKER);
-            result.put("validationSummary", "no build tooling in the fixture repository");
-            result.put("knownRisks", "none");
-            result.put("unresolvedConcerns", "none");
-            result.put("contextRefs", MARKER);
-            return succeeded(json.writeValueAsString(result));
+            OwnerToolEndpoint endpoint = request.toolEndpoint();
+            call(endpoint, "initialize", json.createObjectNode());
+            call(endpoint, "tools/call", toolCall(RECORD_RESULT, arguments -> {
+                arguments.put("implemented_intent", "Added the marker file");
+                arguments.put("commit_summary", "Add the marker file");
+                arguments.put("file_summary", MARKER);
+                arguments.put(
+                        "validation_summary",
+                        "no build tooling in the fixture repository");
+                arguments.put("known_risks", "none");
+                arguments.put("unresolved_concerns", "none");
+                arguments.put("context_refs", MARKER);
+                arguments.put("pr_description", "## Summary" + System.lineSeparator()
+                        + "Adds the marker file.");
+            }));
+            // Prose on purpose: the result is the tool call, and this proves
+            // the final message is no longer parsed.
+            return succeeded("Added the marker file and recorded the result.");
         }
 
         private JsonNode call(OwnerToolEndpoint endpoint, String method, JsonNode params)
@@ -433,13 +492,45 @@ class TestAgentDevelopmentE2E
             request.put("id", ++requestIds);
             request.put("method", method);
             request.set("params", params);
-            JsonNode response = planMcp.handle(
-                    endpoint.ownerId(), endpoint.operationId(), request);
+            JsonNode response = endpoint.ownerKind()
+                    == DispatchTicket.OwnerKind.STAGE_TURN
+                    ? awaitDeferred(mcp.handle(
+                            turns.authorizeMcp(
+                                            DispatchTicket.OwnerKind.STAGE_TURN,
+                                            endpoint.ownerId(),
+                                            endpoint.operationId(), Instant.now())
+                                    .orElseThrow(() -> new IllegalStateException(
+                                            "StageTurn MCP endpoint is not active"))
+                                    .trunkId(),
+                            AgentTurnOperationHandler.mcpAgentKey(
+                                    DispatchTicket.OwnerKind.STAGE_TURN,
+                                    endpoint.ownerId(), endpoint.operationId()),
+                            request))
+                    : planMcp.handle(
+                            endpoint.ownerId(), endpoint.operationId(), request);
             if (response != null && response.has("error")) {
                 throw new IllegalStateException(
                         method + " failed: " + response.path("error"));
             }
             return response == null ? json.createObjectNode() : response;
+        }
+
+        private JsonNode awaitDeferred(DeferredResult<JsonNode> deferred)
+        {
+            long deadline = System.currentTimeMillis() + 10_000L;
+            while (!deferred.hasResult() && System.currentTimeMillis() < deadline) {
+                try {
+                    java.lang.Thread.sleep(10);
+                }
+                catch (InterruptedException interrupted) {
+                    java.lang.Thread.currentThread().interrupt();
+                    throw new IllegalStateException("owner MCP call interrupted", interrupted);
+                }
+            }
+            if (!deferred.hasResult()) {
+                throw new IllegalStateException("owner MCP call did not answer");
+            }
+            return (JsonNode) deferred.getResult();
         }
 
         private JsonNode toolCall(String name, Consumer<ObjectNode> arguments)

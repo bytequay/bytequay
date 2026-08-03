@@ -563,7 +563,14 @@ public final class TurnRunner
             ObjectNode toolMsg = mapper.createObjectNode();
             toolMsg.put("role", "tool");
             toolMsg.put("tool_call_id", call.id());
-            toolMsg.put("content", result.text() == null ? "" : result.text());
+            String text = result.text() == null ? "" : result.text();
+            // The OpenAI tool message carries exactly role / tool_call_id /
+            // content — there is no is_error counterpart, and an extra key is a
+            // 400 rather than an ignored field. So the failure has to be legible
+            // in the text: without it, "provider session canceled" reads to the
+            // model as a successful result that happens to say that, while the
+            // UI already shows the row as failed from the same flag.
+            toolMsg.put("content", result.isError() ? "Tool call failed: " + text : text);
             toolMessages.add(toolMsg);
         }
         return toolMessages;

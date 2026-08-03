@@ -30,9 +30,10 @@ public sealed interface ToolOutcome
     /**
      * An AUTO tool's immediate result. For a success the lane echoes
      * {@code text} back to the model verbatim (it is already a JSON
-     * string); for {@code isError} the lane wraps {@code text} as the
-     * deny message so the model reads it as a recoverable tool failure
-     * rather than a hard protocol error.
+     * string); for {@code isError} the lane returns {@code text} as a
+     * tool-execution error, so the model reads it as a recoverable
+     * failure it can correct in the same turn rather than as a hard
+     * protocol error that ends the run.
      */
     record Completed(String text, boolean isError)
             implements ToolOutcome

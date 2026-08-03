@@ -105,6 +105,20 @@ class TestAgentToolRegistry
     }
 
     @Test
+    void schemaForAListFieldPublishesItsElementType()
+    {
+        // This used to publish {"type":"object"} for a List, so the model was
+        // told to send an object and then rejected by Jackson for sending one.
+        // check_test_coverage ships that shape and is live in four catalogs.
+        String schema = AgentToolRegistry.generateSchema(
+                BrainToolHandlers.CheckCoverageArgs.class, NO_CONCEPTS);
+
+        assertThat(schema)
+                .contains("\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}")
+                .doesNotContain("\"files\":{\"type\":\"object\"");
+    }
+
+    @Test
     void schemaFailsLoudlyForNonRecordArgs()
     {
         assertThat(catchThrowable(() -> AgentToolRegistry.generateSchema(String.class, NO_CONCEPTS)))

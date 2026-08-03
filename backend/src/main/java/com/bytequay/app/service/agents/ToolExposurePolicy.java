@@ -118,7 +118,10 @@ public class ToolExposurePolicy
 
     private static final Set<String> V2_LOCAL_DEVELOPMENT = union(V2_COMMON, Set.of(
             "run_checks", "read_dev_report", "read_dev_conversation",
-            "list_unresolved_comments", "list_pr_review_threads"));
+            "list_unresolved_comments", "list_pr_review_threads",
+            // The Turn's result. Without it in the catalog the tool never
+            // reaches tools/list and every Development Turn fails unreported.
+            "record_development_result"));
 
     private static final Set<String> V2_REMOTE_DEVELOPMENT = union(V2_COMMON, Set.of(
             "run_checks", "read_remote_pr_status", "read_ci_log",

@@ -42,7 +42,7 @@ import static org.mockito.Mockito.when;
 class TestLocalDevelopmentResultPrompt
 {
     @Test
-    void initialImplementationRequiresOneRawUnfencedJsonObject()
+    void initialImplementationReportsThroughTheResultTool()
             throws Exception
     {
         ObjectMapper json = new ObjectMapper();
@@ -85,17 +85,23 @@ class TestLocalDevelopmentResultPrompt
                 ArgumentCaptor.forClass(InitialTurn.class);
         verify(store).insertInitialTurn(turn.capture());
         JsonNode launch = json.readTree(turn.getValue().launchInput());
-        assertRawJsonBoundary(launch.path("prompt").asText());
-        assertRawJsonBoundary(launch.path("systemPrompt").asText());
+        assertResultTool(launch.path("prompt").asText());
+        assertResultTool(launch.path("systemPrompt").asText());
     }
 
-    private static void assertRawJsonBoundary(String prompt)
+    /**
+     * The Turn reports through record_development_result, so neither prompt
+     * may still demand a raw-JSON final message — an agent told to do both
+     * satisfies the wrong one, and the shape it was asked for is no longer
+     * read at all.
+     */
+    private static void assertResultTool(String prompt)
     {
         assertThat(prompt)
-                .contains("exactly one raw JSON object")
-                .contains("first non-whitespace character must be '{'")
-                .contains("last non-whitespace character must be '}'")
-                .contains("Do not wrap it in Markdown fences or add prose");
+                .contains("record_development_result")
+                .contains("Your final message is not read")
+                .doesNotContain("exactly one raw JSON object")
+                .doesNotContain("schemaVersion");
     }
 
     private static final class NoopTransactions

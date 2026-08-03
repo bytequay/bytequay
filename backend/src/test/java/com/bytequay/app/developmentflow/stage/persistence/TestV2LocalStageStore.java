@@ -95,6 +95,7 @@ class TestV2LocalStageStore
         seedLocalOwner(jdbc, "legacy-wrong");
         freezeContextBaseForMigratedFixture(jdbc, "master");
         seedImplementationRequest(jdbc);
+        seedDevelopmentSubmission(jdbc);
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);
         TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
@@ -157,6 +158,58 @@ class TestV2LocalStageStore
     }
 
     @Test
+    void aBlankCommitSummaryIsAcceptedBecauseTheSimplifyPromptInvitesIt()
+            throws Exception
+    {
+        // SIMPLIFY_INSTRUCTION tells a Turn that changed nothing to "leave
+        // commitSummary blank". Requiring it here parked every such Turn on a
+        // protocol failure the agent was instructed to produce.
+        DataSource dataSource = database("blank-commit-summary.db");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedLocalOwner(jdbc, "legacy-wrong");
+        freezeContextBaseForMigratedFixture(jdbc, "master");
+        seedImplementationRequest(jdbc);
+        seedDevelopmentSubmission(jdbc, "");
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2StageStore stageStore = new V2StageStore(jdbc);
+        TaskManager tasks = new TaskManager(
+                commands, taskStore(jdbc, transactions));
+        LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
+                commands, stageStore, stageStore);
+        ResultFence fence = implementationFence();
+        commands.execute("task-1", () -> local.requestImplementationInCommand(
+                new StageManager.Command(
+                        "request-implementation", "runtime", "task-1",
+                        1, "local-stage", 1, 0),
+                fence, "implementation-request"));
+        ObjectMapper mapper = new ObjectMapper();
+        AgentTurnOwnerResultCodec.OwnerResult delivery = stageDelivery(
+                mapper, fence, true, "head-new",
+                "Nothing needed simplifying.");
+        markSucceededResultPending(
+                jdbc, "implementation-ticket", fence,
+                mapper.writeValueAsString(delivery.payload()), null);
+        persistFinishedAgentExecution(
+                jdbc, mapper, "implementation-ticket", 1, delivery);
+
+        DispatchTicket.DeliveryReceipt receipt = runtime(
+                commands, tasks, local,
+                new SqliteLocalDevelopmentRuntimeStore(jdbc),
+                mapper, mock(PRService.class))
+                .deliverStageTurn(delivery);
+
+        assertThat(receipt.acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+        assertThat(jdbc.queryForObject("""
+                SELECT commit_summary FROM dev_report
+                WHERE stage_turn_id = 'implementation-turn'
+                """, String.class))
+                .isEmpty();
+    }
+
+    @Test
     void developmentReportOwnershipRollsBackWithItsAcceptedCommand()
             throws Exception
     {
@@ -164,6 +217,7 @@ class TestV2LocalStageStore
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedImplementationRequest(jdbc);
+        seedDevelopmentSubmission(jdbc);
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);
         TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
@@ -248,14 +302,19 @@ class TestV2LocalStageStore
     }
 
     @Test
-    void proseAndJsonRemainAnInvalidDevelopmentResult()
+    void aTurnThatNeverRecordedItsResultIsRejected()
             throws Exception
     {
+        // The replacement for "prose is not strict JSON". Prose in the final
+        // message is now fine — it is never parsed. What fails instead is a
+        // Turn that ended without calling record_development_result, and it
+        // fails by that name rather than with a Jackson message.
         assertInvalidStageResult(
                 true,
                 "head-new",
-                "Applying the approved change.\n\n" + developmentResult(),
-                "not strict JSON");
+                "I finished the work but forgot to report it.",
+                "succeeded without record_development_result",
+                false);
     }
 
     @Test
@@ -1787,10 +1846,10 @@ class TestV2LocalStageStore
                 .contains("rate_limit_event")
                 .contains(providerMessage)
                 .contains("Retry this exact Local Development operation")
-                .contains("exactly one raw JSON object")
-                .contains("first non-whitespace character must be '{'")
-                .contains("last non-whitespace character must be '}'")
-                .contains("Do not wrap it in Markdown fences or add prose");
+                // The retry carries the same reporting contract as the Turn it
+                // replaces: a tool call, not a raw-JSON final message.
+                .contains("report it with record_development_result")
+                .doesNotContain("exactly one raw JSON object");
         assertThat(retryJson.path("prompt").asText().indexOf("transport_error"))
                 .isLessThan(retryJson.path("prompt").asText()
                         .indexOf("rate_limit_event"));
@@ -1824,6 +1883,50 @@ class TestV2LocalStageStore
         assertThat(stageStore.findOwner("task-1", "local-stage")
                 .orElseThrow().stage().pendingResult().operationId())
                 .isEqualTo(retry.replacementOperationId());
+    }
+
+    @Test
+    void recordingTheResultTwiceIsIdempotentButCannotBeChanged()
+    {
+        // The write path record_development_result reaches. An identical
+        // re-submission is a no-op so a retried tool call is safe; a differing
+        // one is refused, and refused in a sentence the agent can act on.
+        DataSource dataSource = database("record-development-result.db");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedLocalOwner(jdbc);
+        seedImplementationRequest(jdbc);
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2StageStore stageStore = new V2StageStore(jdbc);
+        SqliteLocalDevelopmentRuntimeStore store =
+                new SqliteLocalDevelopmentRuntimeStore(jdbc);
+        LocalDevelopmentRuntimeCoordinator owner = runtime(
+                commands, new TaskManager(commands, taskStore(jdbc, transactions)),
+                new LocalDevelopmentStageManager(commands, stageStore, stageStore),
+                store, new ObjectMapper());
+        SqliteLocalDevelopmentRuntimeStore.DevelopmentReport report =
+                new SqliteLocalDevelopmentRuntimeStore.DevelopmentReport(
+                        "implemented", "one commit", "one file", "mvn verify",
+                        "none", "none", "none", "## Summary");
+
+        owner.recordDevelopmentResult(
+                "implementation-turn", "implementation-operation", report);
+        owner.recordDevelopmentResult(
+                "implementation-turn", "implementation-operation", report);
+
+        assertThat(store.findDevelopmentSubmission("implementation-turn"))
+                .contains(report);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM stage_turn_development_submission",
+                Integer.class))
+                .isEqualTo(1);
+        assertThatThrownBy(() -> owner.recordDevelopmentResult(
+                "implementation-turn", "implementation-operation",
+                new SqliteLocalDevelopmentRuntimeStore.DevelopmentReport(
+                        "something else", "one commit", "one file", "mvn verify",
+                        "none", "none", "none", "## Summary")))
+                .hasMessageContaining("already called with different content");
     }
 
     private static LocalDevelopmentRuntimeCoordinator runtime(
@@ -2106,10 +2209,24 @@ class TestV2LocalStageStore
             String expectedMessage)
             throws Exception
     {
+        assertInvalidStageResult(clean, outputHead, finalText, expectedMessage, true);
+    }
+
+    private void assertInvalidStageResult(
+            boolean clean,
+            String outputHead,
+            String finalText,
+            String expectedMessage,
+            boolean recordedResult)
+            throws Exception
+    {
         DataSource dataSource = database();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedLocalOwner(jdbc);
         seedImplementationRequest(jdbc);
+        if (recordedResult) {
+            seedDevelopmentSubmission(jdbc);
+        }
         DataSourceTransactionManager transactions =
                 new DataSourceTransactionManager(dataSource);
         TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
@@ -2344,19 +2461,35 @@ class TestV2LocalStageStore
                 mapper, fence, clean, outputHead, developmentResult());
     }
 
+    /** The Turn's final message. Prose on purpose: nothing parses it now. */
     private static String developmentResult()
     {
-        return """
-                {"schemaVersion":1,
-                 "implementedIntent":"implemented",
-                 "commitSummary":"one commit",
-                 "fileSummary":"one file",
-                 "validationSummary":"pending",
-                 "knownRisks":"none",
-                 "unresolvedConcerns":"none",
-                 "contextRefs":"none",
-                 "prDescription":"## Summary\\nRaised the label.\\n\\n## Validation\\nmvn verify"}
-                """;
+        return "Implemented the approved change and recorded the result.";
+    }
+
+    /** Stand in for the record_development_result call the agent makes while
+     *  its Turn is running, so delivery has a submission row to read. */
+    private static void seedDevelopmentSubmission(JdbcTemplate jdbc)
+    {
+        seedDevelopmentSubmission(jdbc, "one commit");
+    }
+
+    private static void seedDevelopmentSubmission(
+            JdbcTemplate jdbc, String commitSummary)
+    {
+        jdbc.update("""
+                INSERT INTO stage_turn_development_submission(
+                    stage_turn_id, operation_id, task_id, implemented_intent,
+                    commit_summary, file_summary, validation_summary,
+                    known_risks, unresolved_concerns, context_refs,
+                    pr_description, submitted_at_ms)
+                VALUES ('implementation-turn', 'implementation-operation',
+                    'task-1', 'implemented', ?, 'one file', 'pending',
+                    'none', 'none', 'none',
+                    '## Summary' || char(10) || 'Raised the label.' || char(10)
+                        || char(10) || '## Validation' || char(10) || 'mvn verify',
+                    1)
+                """, commitSummary);
     }
 
     private static AgentTurnOwnerResultCodec.OwnerResult stageDelivery(

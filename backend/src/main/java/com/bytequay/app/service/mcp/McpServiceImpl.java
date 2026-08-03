@@ -526,14 +526,16 @@ public class McpServiceImpl
     }
 
     /** Adapt a registry handler's lane-neutral {@link ToolOutcome} to
-     *  the MCP wire. A successful Completed echoes its text verbatim;
-     *  an error Completed is wrapped as a deny envelope so the model
-     *  reads it as a recoverable tool failure (matching the old hand-
-     *  coded read handlers). */
+     *  the MCP wire. A successful Completed echoes its text verbatim; an
+     *  error Completed becomes an MCP tool-execution error, which the
+     *  model reads and can correct from within the same session. It used
+     *  to be wrapped as a deny envelope, but that is the permission-prompt
+     *  protocol — Claude Code ends the turn on it, so a recoverable
+     *  failure cost the model its retry. */
     private JsonNode adaptOutcome(JsonNode id, ToolOutcome outcome)
     {
         if (outcome instanceof ToolOutcome.Completed(String text, boolean isError)) {
-            return isError ? responses.toolResponse(id, responses.deny(text)) : responses.plainText(id, text);
+            return isError ? responses.toolError(id, text) : responses.plainText(id, text);
         }
         if (outcome instanceof ToolOutcome.WaitForUser(String text, String ignored)) {
             return responses.plainText(id, text);

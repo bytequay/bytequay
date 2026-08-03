@@ -34,9 +34,11 @@ import org.springframework.stereotype.Component;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -63,6 +65,8 @@ import static java.util.Objects.requireNonNull;
  *   <li>{@code int / long / Integer / Long} → {@code "integer"}</li>
  *   <li>{@code boolean / Boolean} → {@code "boolean"}</li>
  *   <li>{@code JsonNode} → {@code "object"}</li>
+ *   <li>{@code List<T>} / any {@code Collection<T>} → {@code "array"}
+ *       with an {@code items} schema read from the declared element</li>
  * </ul>
  *
  * {@link ToolParam#description()} on the component becomes the
@@ -319,11 +323,11 @@ public class AgentToolRegistry
         for (RecordComponent component : argsType.getRecordComponents()) {
             ToolParam paramAnnotation = readToolParam(argsType, component);
             String wireName = wireNameOf(argsType, component);
-            String type = jsonTypeFor(component.getType());
+            String type = jsonTypeFor(component);
             String description = paramAnnotation == null ? "" : paramAnnotation.description();
             StringBuilder prop = new StringBuilder();
             prop.append('"').append(escape(wireName)).append("\":{");
-            prop.append("\"type\":\"").append(type).append('"');
+            prop.append(type);
             if (!description.isEmpty()) {
                 prop.append(",\"description\":\"").append(escape(description)).append('"');
             }
@@ -395,23 +399,55 @@ public class AgentToolRegistry
         }
     }
 
+    /**
+     * The {@code "type"} fragment for one args component — the whole fragment,
+     * not just the token, so a collection can carry the {@code items} schema
+     * that makes it usable.
+     *
+     * <p>This used to take the erased {@link Class} and answer {@code "object"}
+     * for anything it did not recognise, so a {@code List<String>} was published
+     * to the model as an object. The model was told to send the wrong shape and
+     * then rejected by Jackson for sending it. Reading the generic type keeps
+     * the published schema honest.
+     */
+    private static String jsonTypeFor(RecordComponent component)
+    {
+        Class<?> type = component.getType();
+        if (Collection.class.isAssignableFrom(type)) {
+            return "\"type\":\"array\",\"items\":{"
+                    + jsonTypeFor(elementType(component.getGenericType())) + "}";
+        }
+        return jsonTypeFor(type);
+    }
+
     private static String jsonTypeFor(Class<?> type)
     {
         if (type == String.class) {
-            return "string";
+            return "\"type\":\"string\"";
         }
         if (type == int.class || type == long.class
                 || type == Integer.class || type == Long.class) {
-            return "integer";
+            return "\"type\":\"integer\"";
         }
         if (type == boolean.class || type == Boolean.class) {
-            return "boolean";
+            return "\"type\":\"boolean\"";
         }
-        if (JsonNode.class.isAssignableFrom(type)) {
-            return "object";
+        // JsonNode and anything else: an object the caller shapes itself.
+        return "\"type\":\"object\"";
+    }
+
+    /** The declared element of a collection component, or {@link Object} when
+     *  it is raw — a raw collection publishes objects, which is the same
+     *  honest answer as before for a type we genuinely cannot read. */
+    private static Class<?> elementType(Type generic)
+    {
+        if (generic instanceof ParameterizedType parameterized) {
+            Type[] arguments = parameterized.getActualTypeArguments();
+            if (arguments.length == 1 && arguments[0] instanceof Class<?> element) {
+                return element;
+            }
         }
-        // Fallback — anything else is an object the caller can shape.
-        return "object";
+        return Object.class;
     }
 
     /** Append an {@code enum} + {@code oneOf} block for a param whose
@@ -462,10 +498,4 @@ public class AgentToolRegistry
     {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
-
-    /** Suppresses an unused-warning on Arrays — kept here so future
-     *  scalar-array handling can wire in without re-introducing the
-     *  import. */
-    @SuppressWarnings("unused")
-    private static final Class<?> ARRAY_MARKER = Arrays.class;
 }

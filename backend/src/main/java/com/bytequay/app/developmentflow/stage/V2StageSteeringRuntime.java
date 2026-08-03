@@ -29,6 +29,10 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringSto
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -54,6 +58,8 @@ import static java.util.Objects.requireNonNull;
 public final class V2StageSteeringRuntime
         implements V2StageSteeringControl, ExecutionPorts.MaintenanceWork
 {
+    /** Reads and rewrites a structured Plan revision when the user steers it. */
+    private static final ObjectMapper STEERING_JSON = new ObjectMapper();
     private static final String ACTOR = "user";
     private static final int SWEEP_LIMIT = 32;
 
@@ -537,18 +543,39 @@ public final class V2StageSteeringRuntime
         return sha256(canonical.toString().getBytes(UTF_8));
     }
 
+    /**
+     * The next revision, carrying what the user steered.
+     *
+     * <p>A structured revision takes the steering as a field. Appending to it as
+     * text would look like it worked and silently lose the user's words: Jackson
+     * reads the leading object and stops, so everything after the JSON — the
+     * steering itself — is never seen again. Pre-protocol Markdown revisions keep
+     * the append.
+     */
     private static String planContent(
             String previous, Request request, List<Attachment> attachments)
     {
-        StringBuilder content = new StringBuilder(previous)
-                .append("\n\n## User steering\n\n")
-                .append(request.body());
+        StringBuilder steering = new StringBuilder(request.body());
         if (!attachments.isEmpty()) {
-            content.append("\n\nDurable attachments:\n");
-            attachments.forEach(attachment -> content
+            steering.append("\n\nDurable attachments:\n");
+            attachments.forEach(attachment -> steering
                     .append("- ").append(attachment.contentRef()).append('\n'));
         }
-        return content.toString();
+        try {
+            JsonNode plan = STEERING_JSON.readTree(previous);
+            if (plan != null && plan.isObject()) {
+                ObjectNode next = ((ObjectNode) plan).deepCopy();
+                String existing = next.path("userSteering").asText("");
+                next.put("userSteering", existing.isBlank()
+                        ? steering.toString()
+                        : existing + "\n\n" + steering);
+                return STEERING_JSON.writeValueAsString(next);
+            }
+        }
+        catch (JsonProcessingException ignored) {
+            // Revisions recorded before the structured protocol were Markdown.
+        }
+        return previous + "\n\n## User steering\n\n" + steering;
     }
 
     private static String sha256(byte[] value)

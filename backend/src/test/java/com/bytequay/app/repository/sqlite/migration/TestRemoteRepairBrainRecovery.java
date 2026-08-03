@@ -2078,7 +2078,7 @@ class TestRemoteRepairBrainRecovery
                 ? new AgentTurnOperationHandler.OutputCodeSubject(
                         "fingerprint-2", "head-2", turn.base(), true,
                         turn.base(), "source-tree", "result-tree", null,
-                        null, turn.head(), turn.head(), turn.branchName())
+                        null, turn.head(), turn.head(), turn.branchName(), null)
                 : null;
         AgentTurnOperationHandler.RawResult payload =
                 new AgentTurnOperationHandler.RawResult(

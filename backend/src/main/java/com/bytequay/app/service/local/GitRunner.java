@@ -1572,6 +1572,36 @@ public class GitRunner
         }
     }
 
+    /**
+     * Added-line total for {@code fromSha..toSha}, summed across every file.
+     * One {@code git diff --numstat} pass; binary files report {@code -} and
+     * count as 0.
+     *
+     * <p>Additions only. Callers sizing a change to decide whether it is worth
+     * acting on want the volume of new code, not the churn: a commit that only
+     * deletes has nothing to review.
+     */
+    public int addedLines(Path workingDir, String fromSha, String toSha)
+            throws IOException, InterruptedException
+    {
+        if (fromSha == null || toSha == null || fromSha.equals(toSha)) {
+            return 0;
+        }
+        GitResult result = run(
+                List.of("git", "diff", "--numstat", fromSha + ".." + toSha),
+                workingDir);
+        result.requireSuccess();
+        int additions = 0;
+        for (String line : result.stdout().split("\n", -1)) {
+            String[] columns = line.split("\t", 3);
+            if (columns.length < 3) {
+                continue;
+            }
+            additions += parseNumstat(columns[0]);
+        }
+        return additions;
+    }
+
     public record LineStats(int additions, int deletions) {}
 
     /**

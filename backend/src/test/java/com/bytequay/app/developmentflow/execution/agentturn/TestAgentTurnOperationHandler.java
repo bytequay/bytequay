@@ -385,7 +385,7 @@ class TestAgentTurnOperationHandler
         }).when(git).stageAll(
                 Path.of(WORKTREE), List.of(".bytequay-hooks"));
         when(git.commit(
-                Path.of(WORKTREE), "ByteQuay checkpoint: IMPLEMENT"))
+                Path.of(WORKTREE), "ByteQuay checkpoint: uncommitted IMPLEMENT work (the turn returned changes it did not commit)"))
                 .thenAnswer(invocation -> {
                     assertThat(insideAuthorization).isTrue();
                     provider.events.add("commit");
@@ -431,7 +431,7 @@ class TestAgentTurnOperationHandler
         verify(git).stageAll(
                 Path.of(WORKTREE), List.of(".bytequay-hooks"));
         verify(git).commit(
-                Path.of(WORKTREE), "ByteQuay checkpoint: IMPLEMENT");
+                Path.of(WORKTREE), "ByteQuay checkpoint: uncommitted IMPLEMENT work (the turn returned changes it did not commit)");
         AgentTurnOperationHandler.Evidence evidence = MAPPER.readValue(
                 result.evidenceJson(), AgentTurnOperationHandler.Evidence.class);
         assertThat(evidence.writerFence().fencingToken()).isEqualTo(19);
@@ -439,10 +439,15 @@ class TestAgentTurnOperationHandler
         AgentTurnOwnerResultCodec.OwnerResult decoded =
                 new AgentTurnOwnerResultCodec(MAPPER).decode(
                         envelope.owner(), envelope.fence(), result);
+        // Spelled out rather than using a convenience constructor: the handler
+        // now always captures an added-line count, so the expected subject
+        // carries the mocked GitRunner's 0 instead of the "never measured"
+        // null those constructors default to.
         assertThat(decoded.requireOutputCodeSubject("base-1")).isEqualTo(
                 new AgentTurnOperationHandler.OutputCodeSubject(
                         "fingerprint-2", "head-2", "base-1", true, "base-1",
-                        "tree-1", "tree-2"));
+                        "tree-1", "tree-2", null, null, null, null,
+                        "dev/task-1", 0));
         assertThatThrownBy(() -> decoded.requireOutputCodeSubject("other-base"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exact frozen base");
@@ -717,7 +722,7 @@ class TestAgentTurnOperationHandler
                 Path.of(WORKTREE), List.of(".bytequay-hooks"));
         verify(git).commit(
                 Path.of(WORKTREE),
-                "ByteQuay checkpoint: REMOTE_CI_REPAIR");
+                "ByteQuay checkpoint: uncommitted REMOTE_CI_REPAIR work (the turn returned changes it did not commit)");
         verify(git).resetHard(Path.of(WORKTREE), "head-1");
         verify(git).commitParentShas(Path.of(WORKTREE), "head-2");
         verify(git, times(2)).cleanUntracked(

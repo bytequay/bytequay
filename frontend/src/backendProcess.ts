@@ -11,14 +11,65 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app } from 'electron';
-import { ChildProcess, spawn } from 'node:child_process';
+import { app, dialog } from 'electron';
+import { ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 export const BACKEND_PORT = 53123;
 export const BACKEND_BASE = `http://127.0.0.1:${BACKEND_PORT}`;
 
+const MIN_JAVA_VERSION = 21;
+
 let child: ChildProcess | null = null;
+let failure: string | null = null;
+let reported = false;
+let stderrTail = '';
+
+/**
+ * A Finder-launched .app inherits a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+ * where `java` is Apple's stub that fails unless a JDK is registered under
+ * /Library/Java or ~/Library/Java. JDKs installed via Homebrew or SDKMAN are
+ * only on the shell PATH, so we probe the usual homes explicitly.
+ */
+function resolveJava(): string | null {
+  const candidates = [
+    process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, 'bin', 'java') : null,
+    javaHomeTool(),
+    '/opt/homebrew/opt/openjdk/bin/java',
+    '/usr/bin/java',
+  ];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    const version = javaMajorVersion(candidate);
+    if (version !== null && version >= MIN_JAVA_VERSION) return candidate;
+  }
+  failure = `ByteQuay needs Java ${MIN_JAVA_VERSION} or newer on this Mac and couldn't find it.\n\n`
+    + `Install a JDK (e.g. "brew install openjdk@21") or set JAVA_HOME, then reopen ByteQuay.\n\n`
+    + `Looked in: ${[...seen].join(', ')}`;
+  return null;
+}
+
+function javaHomeTool(): string | null {
+  try {
+    const home = execFileSync('/usr/libexec/java_home', ['-v', `${MIN_JAVA_VERSION}+`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return home ? path.join(home, 'bin', 'java') : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `java -version` prints to stderr; the stub prints an install prompt and exits non-zero. */
+export function javaMajorVersion(javaBin: string): number | null {
+  const res = spawnSync(javaBin, ['-version'], { encoding: 'utf8' });
+  if (res.error || res.status !== 0) return null;
+  const match = /version "(\d+)/.exec(`${res.stderr}${res.stdout}`);
+  return match ? Number(match[1]) : null;
+}
 
 /**
  * Spawn the packaged Spring Boot JAR as a child process.
@@ -51,14 +102,41 @@ export function spawnBackend(): void {
     '-XX:ReservedCodeCacheSize=128m',
     '-XX:+ExitOnOutOfMemoryError',
   ];
-  child = spawn('java', [...jvmArgs, '-jar', jar], {
-    stdio: ['ignore', 'inherit', 'inherit'],
+  const java = resolveJava();
+  if (!java) return;
+
+  child = spawn(java, [...jvmArgs, '-jar', jar], {
+    stdio: ['ignore', 'inherit', 'pipe'],
     detached: false,
+  });
+  // The backend logs to ~/Library/Logs/ByteQuay/backend.log once Spring is up;
+  // this tail only exists to explain crashes that happen before that.
+  child.stderr?.on('data', (chunk: Buffer) => {
+    stderrTail = (stderrTail + chunk.toString()).slice(-4000);
+    process.stderr.write(chunk);
+  });
+  child.on('error', (e) => {
+    failure = `Could not start the ByteQuay backend (${java}): ${e.message}`;
+    child = null;
   });
   child.on('exit', (code) => {
     console.log(`[backend] exited with code ${code}`);
+    if (code !== 0 && code !== null) {
+      // A crash mid-session (commonly: another ByteQuay already owns port
+      // 53123) otherwise leaves every later IPC call failing with a bare
+      // "fetch failed".
+      failure = `The ByteQuay backend exited with code ${code}.\n\n${stderrTail.trim()}`;
+      reportBackendFailure();
+    }
     child = null;
   });
+}
+
+/** Show the recorded failure once, if there is one. */
+export function reportBackendFailure(): void {
+  if (reported || !failure) return;
+  reported = true;
+  dialog.showErrorBox('ByteQuay backend is not running', failure);
 }
 
 export function killBackend(): void {
@@ -77,7 +155,10 @@ export async function waitForBackendReady(timeoutMs = 30_000): Promise<boolean> 
     } catch {
       // not up yet
     }
+    if (failure) return false;
     await new Promise((r) => setTimeout(r, 300));
   }
+  failure ??= `The ByteQuay backend did not answer on ${BACKEND_BASE} within ${Math.round(timeoutMs / 1000)}s.`
+    + '\n\nSee ~/Library/Logs/ByteQuay/backend.log.';
   return false;
 }

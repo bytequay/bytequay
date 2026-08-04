@@ -109,7 +109,7 @@ async function runPrRemoteCommand(
   return response;
 }
 import started from 'electron-squirrel-startup';
-import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './backendProcess';
+import { BACKEND_BASE, killBackend, reportBackendFailure, spawnBackend, waitForBackendReady } from './backendProcess';
 import { registerTaskStreamIpc } from './threadStreamBridge';
 
 // Override the menu-bar / About-box / dock display name. Without this
@@ -140,7 +140,7 @@ app.setAsDefaultProtocolClient(APP_PROTOCOL);
 /** Pre-1.0 version surfaced in the About dialog and packaged metadata.
  *  Bump alongside frontend/package.json + backend/pom.xml when we cut
  *  a release. Shown in the About panel as e.g. "ByteQuay 0.1.0". */
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.3.1';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -6724,8 +6724,10 @@ app.on('ready', async () => {
     );
     registerIpc();
     spawnBackend();
-    if (app.isPackaged) {
-      await waitForBackendReady();
+    if (app.isPackaged && !await waitForBackendReady()) {
+      // Without this the window opens against a dead sidecar and every action
+      // fails with a bare "fetch failed".
+      reportBackendFailure();
     }
     // Open the window immediately so the user isn't staring at a blank screen.
     // The sync runs in the background; the frontend will show data once it arrives.

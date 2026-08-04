@@ -62,7 +62,18 @@ class TestLocalDevelopmentResultPrompt
                          "reasoningEffort":"HIGH"}
                         """,
                 "claude", "claude-opus-4-1", null,
-                "approval-1", "revision-1", "Change the left nav.", "digest");
+                "approval-1", "revision-1",
+                """
+                        {"status":"finalized","goal":"Raise the nav font size",
+                         "understanding":{"summary":"The token is 12px today."},
+                         "intent":{"summary":"Bump the token.",
+                          "steps":[{"ordinal":1,"action":"Bump the token to 14px",
+                                    "files":["frontend/src/css/v3-nav.css"],
+                                    "rationale":"It is the only nav token."}],
+                          "validationStrategy":"npm run lint"},
+                         "outOfScope":["sibling nav stylesheets"]}
+                        """,
+                "digest");
         when(store.findInitialReceipt("task-1", "local-stage", "approval-1"))
                 .thenReturn(Optional.empty());
         when(store.requireInitialContext("task-1", "local-stage", "approval-1"))
@@ -85,8 +96,20 @@ class TestLocalDevelopmentResultPrompt
                 ArgumentCaptor.forClass(InitialTurn.class);
         verify(store).insertInitialTurn(turn.capture());
         JsonNode launch = json.readTree(turn.getValue().launchInput());
-        assertResultTool(launch.path("prompt").asText());
+        String prompt = launch.path("prompt").asText();
+        assertResultTool(prompt);
         assertResultTool(launch.path("systemPrompt").asText());
+        // The plan reaches the implementing agent as prose. Inlining the stored
+        // JSON put a wall of braces ahead of the instruction naming the tool the
+        // Turn is accepted on, and the agent stopped without calling it.
+        assertThat(prompt)
+                .contains("Goal: Raise the nav font size")
+                .contains("1. Bump the token to 14px")
+                .contains("files: frontend/src/css/v3-nav.css")
+                .contains("Validation: npm run lint")
+                .contains("Out of scope")
+                .doesNotContain("\"validationStrategy\"")
+                .doesNotContain("{\"status\":\"finalized\"");
     }
 
     /**

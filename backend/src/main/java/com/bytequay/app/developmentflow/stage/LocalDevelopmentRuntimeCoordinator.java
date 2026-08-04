@@ -71,6 +71,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -2110,10 +2111,85 @@ public final class LocalDevelopmentRuntimeCoordinator
                 lane, laneMask, write(launch), digest(prompt), ACTOR, requestedAt);
     }
 
+    /**
+     * The approved plan as prose the implementing agent can read.
+     *
+     * <p>Plans are stored structured now, and inlining that JSON verbatim put
+     * a wall of braces between the agent and the instructions that follow it —
+     * including the one naming the tool the Turn is accepted on. Renders the
+     * fields the plan actually carries; anything unparseable (a revision
+     * recorded before the structured protocol) passes through as written.
+     */
+    private String readablePlan(String content)
+    {
+        JsonNode plan;
+        try {
+            plan = json.readTree(content);
+        }
+        catch (JsonProcessingException notStructured) {
+            return content;
+        }
+        if (plan == null || !plan.isObject()) {
+            return content;
+        }
+        StringBuilder out = new StringBuilder();
+        appendLine(out, "Goal", plan.path("goal").asText(""));
+        appendLine(out, "Understanding",
+                plan.path("understanding").path("summary").asText(""));
+        appendLine(out, "Intent", plan.path("intent").path("summary").asText(""));
+        JsonNode steps = plan.path("intent").path("steps");
+        if (steps.isArray() && !steps.isEmpty()) {
+            out.append("\nSteps:\n");
+            int ordinal = 0;
+            for (JsonNode step : steps) {
+                out.append(++ordinal).append(". ")
+                        .append(step.path("action").asText("")).append('\n');
+                String files = String.join(", ", textValues(step.path("files")));
+                if (!files.isBlank()) {
+                    out.append("   files: ").append(files).append('\n');
+                }
+                String rationale = step.path("rationale").asText("");
+                if (!rationale.isBlank()) {
+                    out.append("   why: ").append(rationale).append('\n');
+                }
+            }
+        }
+        appendLine(out, "Validation",
+                plan.path("intent").path("validationStrategy").asText(""));
+        List<String> outOfScope = textValues(plan.path("outOfScope"));
+        if (!outOfScope.isEmpty()) {
+            out.append("\nOut of scope:\n");
+            outOfScope.forEach(item -> out.append("- ").append(item).append('\n'));
+        }
+        return out.toString().strip();
+    }
+
+    private static void appendLine(StringBuilder out, String label, String value)
+    {
+        if (value != null && !value.isBlank()) {
+            out.append(label).append(": ").append(value).append('\n');
+        }
+    }
+
+    private static List<String> textValues(JsonNode array)
+    {
+        if (!array.isArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonNode item : array) {
+            String text = item.asText("");
+            if (!text.isBlank()) {
+                values.add(text);
+            }
+        }
+        return values;
+    }
+
     private String implementationPrompt(InitialContext context)
     {
         return "Implement this approved plan in the checked-out Task worktree:\n\n"
-                + context.planContent()
+                + readablePlan(context.planContent())
                 // The commit must be asked for explicitly. Requesting only a
                 // `commitSummary` while forbidding "remote effects" read as a
                 // blanket ban on committing, and the Turn returned work that

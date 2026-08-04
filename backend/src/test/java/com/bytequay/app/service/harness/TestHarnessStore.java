@@ -141,6 +141,61 @@ class TestHarnessStore
     }
 
     @Test
+    void repeatSightingsPromoteEvenThoughTheModelWordsEachDiagnosisDifferently()
+    {
+        // The orchestrator stores the whole serialized Diagnosis as recipe_json, and
+        // its free-text rationale/root_cause differ on every model call. Comparing it
+        // rejected every genuine second sighting, so no candidate ever reached the
+        // promotion threshold.
+        Rule first = new Rule(
+                "rule-1", "ws", "acme", "widget", "plan mismatch", null,
+                "resource:plan_mismatch", "recipe:refresh_plan",
+                "{\"rationale\":\"regenerated the stale plan\",\"confidence\":0.91}",
+                RuleStatus.CANDIDATE, "agent", 100, "[]", 1, 1, 1, null);
+        Rule second = new Rule(
+                "rule-2", "ws", "acme", "widget", "plan mismatch", null,
+                "resource:plan_mismatch", "recipe:refresh_plans",
+                "{\"rationale\":\"the checked-in plan is out of date\",\"confidence\":0.88}",
+                RuleStatus.CANDIDATE, "agent", 100, "[]", 1, 2, 2, null);
+        Rule third = new Rule(
+                "rule-3", "ws", "acme", "widget", "plan mismatch", null,
+                "resource:plan_mismatch", "recipe:regen_plan",
+                "{\"rationale\":\"plan regeneration was not re-run\",\"confidence\":0.95}",
+                RuleStatus.CANDIDATE, "agent", 100, "[]", 1, 3, 3, null);
+
+        assertThat(store.upsertCandidate(first).status()).isEqualTo(RuleStatus.CANDIDATE);
+        assertThat(store.upsertCandidate(second).status()).isEqualTo(RuleStatus.CANDIDATE);
+        Rule active = store.upsertCandidate(third);
+
+        assertThat(active.status()).isEqualTo(RuleStatus.ACTIVE);
+        assertThat(active.hits()).isEqualTo(3);
+        // The first verified recipe is the one that is kept and replayed.
+        assertThat(active.binding()).isEqualTo("recipe:refresh_plan");
+        assertThat(active.recipeJson()).contains("regenerated the stale plan");
+    }
+
+    @Test
+    void retiringARuleIsNotUndoneByTheNextSightingOfTheSameSignature()
+    {
+        Rule candidate = new Rule(
+                "rule-1", "ws", "acme", "widget", "flaky thing", null,
+                "test", "agent", null, RuleStatus.CANDIDATE, "agent", 100, "[]", 1, 1, 1, null);
+        store.upsertCandidate(candidate);
+        assertThat(store.retireRule("rule-1", 2).status()).isEqualTo(RuleStatus.RETIRED);
+
+        Rule seenAgain = new Rule(
+                "rule-2", "ws", "acme", "widget", "flaky thing", null,
+                "test", "agent", null, RuleStatus.CANDIDATE, "agent", 100, "[]", 1, 3, 3, null);
+        Rule after = store.upsertCandidate(seenAgain);
+
+        assertThat(after.status()).isEqualTo(RuleStatus.RETIRED);
+        assertThat(after.hits()).isEqualTo(1);
+        assertThat(new HarnessClassifier(store)
+                .classify("ws", "acme", "widget", "root", "flaky thing", "", 4).rule())
+                .isNull();
+    }
+
+    @Test
     void matchingCandidateIdentityFailsClosedWhenProposalsDisagree()
     {
         Rule agent = new Rule(

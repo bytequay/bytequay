@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurnStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurnStore.RepairContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
@@ -64,7 +65,8 @@ class TestCiRepairBrainRetirement
         ObjectMapper json = new ObjectMapper();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         RemoteRepairTurnRuntime repairTurns = new RemoteRepairTurnRuntime(
-                commands, tasks, remote, turns, json, clock, 8080);
+                commands, tasks, remote, turns,
+                mock(SqliteAgentResultSubmissionStore.class), json, clock, 8080);
         RemoteCiRepairRuntimeCoordinator repairs =
                 new RemoteCiRepairRuntimeCoordinator(
                         commands, remote,

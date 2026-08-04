@@ -13,9 +13,15 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator.ReplyResult;
 import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.EffectDraft;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.EffectKind;
@@ -26,6 +32,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmen
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.Provenance;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore.ReplyDraft;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore.TurnRequest;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
@@ -124,6 +131,7 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
         RemoteFeedbackRuntimeCoordinator coordinator =
                 new RemoteFeedbackRuntimeCoordinator(
                         commands, tasks, stage, remote, loop,
+                        new SqliteAgentResultSubmissionStore(jdbc),
                         new ObjectMapper(), Clock.fixed(now, ZoneOffset.UTC),
                         53123);
 
@@ -160,6 +168,40 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
                   AND external_revision = 1
                   AND frozen_body = 'please fix'
                 """, Integer.class)).isOne();
+
+        // A repair that ends without calling the tool fails by name, however
+        // fluent its final message was.
+        assertThatThrownBy(() -> coordinator.deliverStageTurn(
+                stageTurnResult(new ObjectMapper(), request)))
+                .hasMessageContaining(
+                        "succeeded without record_feedback_repair");
+
+        // The repair's result is a tool call now, not its final message. An
+        // identical re-submission is a no-op so a retried call is safe; a
+        // differing one is refused, and a draft whose body contradicts its
+        // effect kind is refused while the agent can still fix it.
+        List<ReplyResult> replies = List.of(new ReplyResult(
+                null, 1, "POST_TOP_LEVEL_REPLY", "fixed, thanks", "comment-1"));
+        coordinator.recordFeedbackRepair(
+                request.turnId(), request.operationId(), "fixed review", replies);
+        coordinator.recordFeedbackRepair(
+                request.turnId(), request.operationId(), "fixed review", replies);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM stage_turn_repair_submission
+                WHERE stage_turn_id = ?
+                """, Integer.class, request.turnId())).isOne();
+        assertThatThrownBy(() -> coordinator.recordFeedbackRepair(
+                request.turnId(), request.operationId(), "something else",
+                replies))
+                .hasMessageContaining("already called with different content");
+        assertThatThrownBy(() -> coordinator.recordFeedbackRepair(
+                "other-turn", request.operationId(), "fixed review", replies))
+                .hasMessageContaining("Remote repair Turn owner is missing");
+        assertThatThrownBy(() -> coordinator.recordFeedbackRepair(
+                request.turnId(), request.operationId(), "fixed review",
+                List.of(new ReplyResult(
+                        null, 1, "RESOLVE_THREAD", "a body", "comment-1"))))
+                .hasMessageContaining("does not match its effect kind");
 
         var turn = loop.requireStageTurnContext(
                 request.turnId(), request.operationId());
@@ -229,6 +271,46 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
                 SELECT MAX(external_revision) FROM remote_inbox_item
                 WHERE external_key = 'observed-key'
                 """, Long.class)).isEqualTo(2L);
+    }
+
+    private static AgentTurnOwnerResultCodec.OwnerResult stageTurnResult(
+            ObjectMapper json, TurnRequest request)
+            throws Exception
+    {
+        DispatchTicket.OperationFence fence =
+                new DispatchTicket.OperationFence(
+                        1L, "remote-stage-1", 1L, request.operationId(), 1,
+                        "fingerprint-1", "head-1", "base-1");
+        AgentTurnOperationHandler.OutputCodeSubject output =
+                new AgentTurnOperationHandler.OutputCodeSubject(
+                        "fingerprint-2", "head-2", "base-1", true, "base-1");
+        AgentTurnOperationHandler.RawResult payload =
+                new AgentTurnOperationHandler.RawResult(
+                        1, request.turnId(), DispatchTicket.OwnerKind.STAGE_TURN,
+                        "ADDRESS_REMOTE_FEEDBACK",
+                        AgentTurnProviderSession.Transport.API, "openai",
+                        "feedback-session",
+                        "I replied to every comment and pushed the fix.",
+                        1, 1, 1, null,
+                        AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
+                        null, null, output);
+        AgentTurnOperationHandler.Evidence evidence =
+                new AgentTurnOperationHandler.Evidence(
+                        1,
+                        AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
+                        null,
+                        new AgentTurnProviderSession.WriterFence(
+                                "/tmp/task-1", "task-1", request.operationId(),
+                                1, 1),
+                        null, output);
+        return new AgentTurnOwnerResultCodec(json).decode(
+                new DispatchTicket.OwnerReference(
+                        DispatchTicket.OwnerKind.STAGE_TURN, request.turnId(),
+                        RemoteFeedbackRuntimeCoordinator.TURN_CALLBACK),
+                fence, new DispatchTicket.DispatchResult(
+                        fence, DispatchTicket.Outcome.SUCCEEDED,
+                        json.writeValueAsString(payload),
+                        json.writeValueAsString(evidence), null));
     }
 
     private static InboxItem inbox(

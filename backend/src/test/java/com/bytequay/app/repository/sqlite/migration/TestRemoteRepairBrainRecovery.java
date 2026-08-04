@@ -29,6 +29,7 @@ import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurnStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurnStore.BrainRequest;
@@ -39,6 +40,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeSto
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiEpisode;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ObservationRequest;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.RemoteContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -106,7 +108,7 @@ class TestRemoteRepairBrainRecovery
                  WHERE operation.kind = 'FIX_STAGE_TURN'
                 """, (rs, row) -> turn(rs));
         AgentTurnOwnerResultCodec.OwnerResult stageResult = stageResult(
-                runtime.json(), stage);
+                runtime, stage);
         markResultPending(runtime.jdbc(), stage,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(stageResult.payload()));
@@ -215,7 +217,7 @@ class TestRemoteRepairBrainRecovery
 
         Turn first = latestCiStageTurn(runtime);
         AgentTurnOwnerResultCodec.OwnerResult stageResult = stageResult(
-                runtime.json(), first);
+                runtime, first);
         markResultPending(runtime.jdbc(), first,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(stageResult.payload()));
@@ -472,13 +474,15 @@ class TestRemoteRepairBrainRecovery
                 .containsEntry("callback_route", "BRANCH_SYNC_BRAIN_RESULT");
 
         Turn replacement = turn(runtime, retry.replacementOperationId());
+        // The verdict is the row record_development_verdict writes; the final
+        // message is the reviewer's own words and nobody parses it.
+        recordBrainVerdict(
+                runtime, replacement, "APPROVED",
+                "rebased repair is safe to push");
         AgentTurnOwnerResultCodec.OwnerResult approved = branchBrainResult(
                 runtime.json(), replacement, DispatchTicket.Outcome.SUCCEEDED,
                 AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
-                """
-                {"schemaVersion":1,"verdict":"APPROVED",
-                 "summary":"rebased repair is safe to push","findings":[]}
-                """, null);
+                "The rebase preserves Task intent. Safe to push.", null);
         markResultPending(runtime.jdbc(), replacement,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(approved.payload()));
@@ -559,6 +563,40 @@ class TestRemoteRepairBrainRecovery
                 "retry-branch-two", "user",
                 "retry replacement Branch Brain failure")
                 .replacementTurnId()).isNotEqualTo(first.replacementTurnId());
+    }
+
+    @Test
+    void onlyAnUnreportedVerdictIsSweptForAnAutomaticSecondReview()
+            throws Exception
+    {
+        // The automatic sweep offers one replacement to a review that ended
+        // without calling record_development_verdict. A review whose provider
+        // genuinely failed is a different problem and stays for the user, so
+        // the sweep discriminates on the reason the gate wrote.
+        FailedBranchBrain failed = failedBranchBrain("branch-brain-sweep.db");
+        SqliteStageSteeringStore steering =
+                new SqliteStageSteeringStore(failed.runtime().jdbc());
+
+        assertThat(steering.findParkedRemoteBrainReviews(
+                "succeeded without record_development_verdict", 32)).isEmpty();
+
+        failed.runtime().jdbc().update("""
+                UPDATE task_blocker SET payload_json = ?
+                 WHERE id = ?
+                """,
+                "{\"error\":\"OWNER_OUTPUT_MALFORMED: Remote repair Brain "
+                        + "succeeded without record_development_verdict\"}",
+                failed.blockerId());
+
+        assertThat(steering.findParkedRemoteBrainReviews(
+                "succeeded without record_development_verdict", 32))
+                .singleElement()
+                .satisfies(parked -> {
+                    assertThat(parked.taskId()).isEqualTo("task-1");
+                    assertThat(parked.blockerId()).isEqualTo(failed.blockerId());
+                    assertThat(parked.failedTurnId())
+                            .isEqualTo(failed.brain().turnId());
+                });
     }
 
     @Test
@@ -968,7 +1006,7 @@ class TestRemoteRepairBrainRecovery
                 "SELECT id FROM ci_repair_episode", String.class);
         Turn first = latestCiStageTurn(runtime);
         AgentTurnOwnerResultCodec.OwnerResult firstNoChange = stageResult(
-                runtime.json(), first, "tree-1", "tree-1");
+                runtime, first, "tree-1", "tree-1");
         markResultPending(runtime.jdbc(), first,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(firstNoChange.payload()));
@@ -1057,7 +1095,7 @@ class TestRemoteRepairBrainRecovery
                 .contains("Do not create an empty commit");
 
         AgentTurnOwnerResultCodec.OwnerResult secondNoChange = stageResult(
-                runtime.json(), second, "tree-1", "tree-1");
+                runtime, second, "tree-1", "tree-1");
         markResultPending(runtime.jdbc(), second,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(secondNoChange.payload()));
@@ -1142,7 +1180,7 @@ class TestRemoteRepairBrainRecovery
                 """, Integer.class, episodeId)).isOne();
 
         AgentTurnOwnerResultCodec.OwnerResult thirdNoChange = stageResult(
-                runtime.json(), third, "tree-1", "tree-1");
+                runtime, third, "tree-1", "tree-1");
         markResultPending(runtime.jdbc(), third,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(thirdNoChange.payload()));
@@ -1188,7 +1226,7 @@ class TestRemoteRepairBrainRecovery
                 "SELECT id FROM ci_repair_episode", String.class);
         Turn stage = latestCiStageTurn(runtime);
         AgentTurnOwnerResultCodec.OwnerResult legacy =
-                legacyStageResultWithoutTrees(runtime.json(), stage);
+                legacyStageResultWithoutTrees(runtime, stage);
         markResultPending(runtime.jdbc(), stage,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(legacy.payload()));
@@ -1237,7 +1275,7 @@ class TestRemoteRepairBrainRecovery
                 "SELECT id FROM ci_repair_episode", String.class);
         Turn stage = latestCiStageTurn(runtime);
         AgentTurnOwnerResultCodec.OwnerResult changed = stageResult(
-                runtime.json(), stage, "tree-1", "tree-2");
+                runtime, stage, "tree-1", "tree-2");
         markResultPending(runtime.jdbc(), stage,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(changed.payload()));
@@ -1391,7 +1429,7 @@ class TestRemoteRepairBrainRecovery
                  WHERE operation.kind = 'FIX_STAGE_TURN'
                 """, (rs, row) -> turn(rs));
         AgentTurnOwnerResultCodec.OwnerResult stageResult = stageResult(
-                runtime.json(), stage);
+                runtime, stage);
         markResultPending(runtime.jdbc(), stage,
                 DispatchTicket.Outcome.SUCCEEDED,
                 runtime.json().writeValueAsString(stageResult.payload()));
@@ -1779,7 +1817,8 @@ class TestRemoteRepairBrainRecovery
         ObjectMapper json = new ObjectMapper();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         RemoteRepairTurnRuntime turnRuntime = new RemoteRepairTurnRuntime(
-                commands, tasks, remoteStore, turnStore, json, clock,
+                commands, tasks, remoteStore, turnStore,
+                new SqliteAgentResultSubmissionStore(jdbc), json, clock,
                 8080);
         turnRuntime.setNormalizationStore(
                 new SqliteRemoteRepairNormalizationStore(jdbc));
@@ -1945,20 +1984,36 @@ class TestRemoteRepairBrainRecovery
                         payload, payload, null));
     }
 
-    private static AgentTurnOwnerResultCodec.OwnerResult stageResult(
-            ObjectMapper json, Turn turn)
-            throws Exception
+    /** A repair Turn reports through record_repair_summary now, so the fixture
+     *  writes the row the tool would have written and leaves the final message
+     *  as the prose a repairing agent actually writes. */
+    private static void recordRepairSummary(Harness runtime, Turn turn)
     {
-        return stageResult(json, turn, "tree-1", "tree-2");
+        runtime.jdbc().update("""
+                INSERT INTO stage_turn_repair_submission(
+                    stage_turn_id, operation_id, task_id, summary,
+                    replies_json, submitted_at_ms)
+                VALUES (?, ?, 'task-1', 'fixed CI', '[]', 1)
+                ON CONFLICT(stage_turn_id) DO NOTHING
+                """, turn.turnId(), turn.operationId());
     }
 
     private static AgentTurnOwnerResultCodec.OwnerResult stageResult(
-            ObjectMapper json,
+            Harness runtime, Turn turn)
+            throws Exception
+    {
+        return stageResult(runtime, turn, "tree-1", "tree-2");
+    }
+
+    private static AgentTurnOwnerResultCodec.OwnerResult stageResult(
+            Harness runtime,
             Turn turn,
             String sourceTreeSha,
             String resultTreeSha)
             throws Exception
     {
+        recordRepairSummary(runtime, turn);
+        ObjectMapper json = runtime.json();
         DispatchTicket.OperationFence fence = turn.fence();
         boolean noChange = sourceTreeSha.equals(resultTreeSha);
         AgentTurnOperationHandler.OutputCodeSubject output =
@@ -1974,7 +2029,7 @@ class TestRemoteRepairBrainRecovery
                         "REMOTE_CI_REPAIR",
                         AgentTurnProviderSession.Transport.API, "openai",
                         "stage-session",
-                        "{\"schemaVersion\":1,\"summary\":\"fixed CI\"}",
+                        "Fixed CI. The flaky assertion now waits for the queue.",
                         1, 1, 1, null,
                         AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
                         null, null, output);
@@ -2024,9 +2079,11 @@ class TestRemoteRepairBrainRecovery
     }
 
     private static AgentTurnOwnerResultCodec.OwnerResult
-            legacyStageResultWithoutTrees(ObjectMapper json, Turn turn)
+            legacyStageResultWithoutTrees(Harness runtime, Turn turn)
             throws Exception
     {
+        recordRepairSummary(runtime, turn);
+        ObjectMapper json = runtime.json();
         DispatchTicket.OperationFence fence = turn.fence();
         AgentTurnOperationHandler.OutputCodeSubject output =
                 new AgentTurnOperationHandler.OutputCodeSubject(
@@ -2037,7 +2094,7 @@ class TestRemoteRepairBrainRecovery
                         "REMOTE_CI_REPAIR",
                         AgentTurnProviderSession.Transport.API, "openai",
                         "legacy-stage-session",
-                        "{\"schemaVersion\":1,\"summary\":\"fixed CI\"}",
+                        "Fixed CI, but without tree proof.",
                         1, 1, 1, null,
                         AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
                         null, null, output);
@@ -2126,6 +2183,19 @@ class TestRemoteRepairBrainRecovery
                 fence, new DispatchTicket.DispatchResult(
                         fence, outcome, json.writeValueAsString(payload),
                         "{}", error));
+    }
+
+    /** A Brain review reports through record_development_verdict now, so the
+     *  fixture writes the row the tool would have written. */
+    private static void recordBrainVerdict(
+            Harness runtime, Turn turn, String verdict, String summary)
+    {
+        runtime.jdbc().update("""
+                INSERT INTO task_turn_brain_verdict(
+                    task_turn_id, operation_id, task_id, verdict, summary,
+                    findings_json, submitted_at_ms)
+                VALUES (?, ?, 'task-1', ?, ?, '[]', 1)
+                """, turn.turnId(), turn.operationId(), verdict, summary);
     }
 
     private static AgentTurnOwnerResultCodec.OwnerResult branchBrainResult(

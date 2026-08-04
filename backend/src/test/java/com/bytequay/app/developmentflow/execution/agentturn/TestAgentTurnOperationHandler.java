@@ -677,7 +677,7 @@ class TestAgentTurnOperationHandler
     }
 
     @Test
-    void malformedRemoteCiOutputFreezesCandidateBeforeRestoringSource()
+    void unreportedRemoteCiOutputFreezesCandidateBeforeRestoringSource()
             throws Exception
     {
         DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
@@ -688,7 +688,7 @@ class TestAgentTurnOperationHandler
         authorizeStageMutation(context, new AtomicBoolean());
         provider.result = new AgentTurnProviderSession.Result(
                 AgentTurnProviderSession.Completion.SUCCEEDED,
-                "session-1", "I fixed it, but this is not JSON", 1, 1, 0,
+                "session-1", "I fixed it, but never recorded it", 1, 1, 0,
                 123L, null);
         when(git.hasUncommittedChanges(Path.of(WORKTREE)))
                 .thenReturn(false, true, false, false);
@@ -699,7 +699,7 @@ class TestAgentTurnOperationHandler
         when(git.commitParentShas(Path.of(WORKTREE), "head-2"))
                 .thenReturn(List.of("head-1"));
 
-        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+        DispatchTicket.DispatchResult result = handlerWithoutResult(turn).execute(context);
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
         AgentTurnOwnerResultCodec.OwnerResult decoded =
@@ -709,7 +709,7 @@ class TestAgentTurnOperationHandler
                 .isEqualTo(AgentTurnOperationHandler.Disposition
                         .OWNER_OUTPUT_MALFORMED);
         assertThat(decoded.payload().finalText())
-                .isEqualTo("I fixed it, but this is not JSON");
+                .isEqualTo("I fixed it, but never recorded it");
         assertThat(decoded.payload().outputCodeSubject()).isNotNull().satisfies(output -> {
             assertThat(output.headSha()).isEqualTo("head-2");
             assertThat(output.sourceTreeSha()).isEqualTo("tree-1");
@@ -730,7 +730,7 @@ class TestAgentTurnOperationHandler
     }
 
     @Test
-    void malformedRemoteCiMultiCommitCandidateFailsAndRestoresSource()
+    void unreportedRemoteCiMultiCommitCandidateFailsAndRestoresSource()
             throws Exception
     {
         DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
@@ -741,7 +741,7 @@ class TestAgentTurnOperationHandler
         authorizeStageMutation(context, new AtomicBoolean());
         provider.result = new AgentTurnProviderSession.Result(
                 AgentTurnProviderSession.Completion.SUCCEEDED,
-                "session-1", "I fixed it, but this is not JSON", 1, 1, 0,
+                "session-1", "I fixed it, but never recorded it", 1, 1, 0,
                 123L, null);
         when(git.headSha(Path.of(WORKTREE)))
                 .thenReturn("head-1", "head-2", "head-1");
@@ -750,7 +750,7 @@ class TestAgentTurnOperationHandler
         when(git.commitParentShas(Path.of(WORKTREE), "head-2"))
                 .thenReturn(List.of("intermediate-head"));
 
-        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+        DispatchTicket.DispatchResult result = handlerWithoutResult(turn).execute(context);
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
         assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
@@ -794,30 +794,36 @@ class TestAgentTurnOperationHandler
     }
 
     @Test
-    void remoteStageStrictJsonRejectsTrailingFencesAndDuplicateKeys()
+    void remoteStageRepairIsJudgedByItsRecordedRowNotItsFinalMessage()
             throws Exception
     {
         DispatchTicket.DispatchEnvelope envelope = envelope(STAGE_TURN, true);
         AgentTurnOperationHandler.ExactTurn turn = withPurpose(
                 turn(STAGE_TURN, launchInput(STAGE_TURN)),
                 "REMOTE_CI_REPAIR");
-        for (String malformed : List.of(
-                "{\"schemaVersion\":1,\"summary\":\"fixed\"} trailing prose",
-                "```json\n{\"schemaVersion\":1,\"summary\":\"fixed\"}\n```",
-                "{\"schemaVersion\":1,\"summary\":\"first\","
-                        + "\"summary\":\"second\"}")) {
-            ExecutionContext context = context(envelope);
-            authorizeStageMutation(context, new AtomicBoolean());
-            provider.result = new AgentTurnProviderSession.Result(
-                    AgentTurnProviderSession.Completion.SUCCEEDED,
-                    "session-1", malformed, 1, 1, 0, 123L, null);
+        // Prose that no JSON reader would accept, from a Turn that did call
+        // record_repair_summary. This used to be the exact shape that got a
+        // committed CI repair thrown away.
+        provider.result = new AgentTurnProviderSession.Result(
+                AgentTurnProviderSession.Completion.SUCCEEDED,
+                "session-1", "The flaky assertion is fixed.", 1, 1, 0, 123L, null);
+        ExecutionContext reported = context(envelope);
+        authorizeStageMutation(reported, new AtomicBoolean());
 
-            DispatchTicket.DispatchResult result = handler(turn).execute(context);
+        assertThat(handler(turn).execute(reported).outcome())
+                .isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
 
-            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
-            assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
-                    .asText()).isEqualTo("OWNER_OUTPUT_MALFORMED");
-        }
+        // The same message from a Turn that never recorded anything fails, and
+        // the error names the tool it skipped.
+        ExecutionContext unreported = context(envelope);
+        authorizeStageMutation(unreported, new AtomicBoolean());
+        DispatchTicket.DispatchResult result =
+                handlerWithoutResult(turn).execute(unreported);
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
+                .asText()).isEqualTo("OWNER_OUTPUT_MALFORMED");
+        assertThat(result.error()).contains("record_repair_summary");
     }
 
     @Test
@@ -832,12 +838,13 @@ class TestAgentTurnOperationHandler
         authorizeStageMutation(context, new AtomicBoolean());
         provider.result = new AgentTurnProviderSession.Result(
                 AgentTurnProviderSession.Completion.SUCCEEDED,
-                "session-1", "not strict JSON", 1, 1, 0, 123L, null);
+                "session-1", "no result recorded", 1, 1, 0, 123L, null);
         doAnswer(invocation -> {
             throw new IOException("reset failed");
         }).when(git).resetHard(Path.of(WORKTREE), "head-1");
 
-        DispatchTicket.DispatchResult result = handler(turn).execute(context);
+        DispatchTicket.DispatchResult result =
+                handlerWithoutResult(turn).execute(context);
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
         assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
@@ -853,18 +860,18 @@ class TestAgentTurnOperationHandler
     }
 
     @Test
-    void malformedRemoteBrainOutputBecomesOneTypedProviderFailure()
+    void unreportedRemoteBrainVerdictBecomesOneTypedProviderFailure()
             throws Exception
     {
         DispatchTicket.DispatchEnvelope envelope = envelope(TASK_TURN, false);
         AgentTurnOperationHandler.ExactTurn turn = withPurpose(
                 turn(TASK_TURN, launchInput()),
-                "REMOTE_CI_BRAIN_REVIEW");
+                "BRANCH_SYNC_BRAIN_REVIEW");
         provider.result = new AgentTurnProviderSession.Result(
                 AgentTurnProviderSession.Completion.SUCCEEDED,
                 "session-1", "APPROVED in prose", 1, 1, 0, 123L, null);
 
-        DispatchTicket.DispatchResult result = handler(turn)
+        DispatchTicket.DispatchResult result = handlerWithoutResult(turn)
                 .execute(context(envelope));
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
@@ -875,34 +882,34 @@ class TestAgentTurnOperationHandler
                 .isEqualTo(AgentTurnOperationHandler.Disposition
                         .OWNER_OUTPUT_MALFORMED);
         assertThat(decoded.payload().finalText()).isEqualTo("APPROVED in prose");
-        assertThat(result.error()).startsWith("OWNER_OUTPUT_MALFORMED:");
+        assertThat(result.error())
+                .startsWith("OWNER_OUTPUT_MALFORMED:")
+                .contains("record_development_verdict");
         verify(writers, never()).acquire(any(), any());
     }
 
     @Test
-    void remoteBrainStrictJsonRejectsTrailingAndDuplicateFields()
+    void reportedRemoteBrainVerdictAcceptsWhateverTheReviewerWroteLast()
             throws Exception
     {
         DispatchTicket.DispatchEnvelope envelope = envelope(TASK_TURN, false);
         AgentTurnOperationHandler.ExactTurn turn = withPurpose(
                 turn(TASK_TURN, launchInput()),
-                "REMOTE_CI_BRAIN_REVIEW");
-        for (String malformed : List.of(
-                "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
-                        + "\"summary\":\"safe\",\"findings\":[]} prose",
-                "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
-                        + "\"verdict\":\"CHANGES_REQUESTED\","
-                        + "\"summary\":\"unsafe\",\"findings\":[\"fix\"]}")) {
+                "BRANCH_SYNC_BRAIN_REVIEW");
+        // Every one of these used to be rejected for its punctuation. The
+        // verdict is a row now, so a reviewer's closing paragraph is free text.
+        for (String prose : List.of(
+                "Looks good — the rebase preserves intent.",
+                "```\nApproved\n```",
+                "{\"verdict\":\"APPROVED\"} and some trailing thoughts")) {
             provider.result = new AgentTurnProviderSession.Result(
                     AgentTurnProviderSession.Completion.SUCCEEDED,
-                    "session-1", malformed, 1, 1, 0, 123L, null);
+                    "session-1", prose, 1, 1, 0, 123L, null);
 
             DispatchTicket.DispatchResult result = handler(turn)
                     .execute(context(envelope));
 
-            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
-            assertThat(MAPPER.readTree(result.payloadJson()).path("disposition")
-                    .asText()).isEqualTo("OWNER_OUTPUT_MALFORMED");
+            assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
         }
         verify(writers, never()).acquire(any(), any());
     }
@@ -1258,9 +1265,45 @@ class TestAgentTurnOperationHandler
             AgentTurnOperationHandler.ExactTurn turn,
             ActiveAgentContextRegistry contexts)
     {
+        return handler(turn, contexts, true);
+    }
+
+    /** A handler whose Store reports that the Turn's result tool never wrote
+     *  its row — what the gate now asks instead of parsing the final message. */
+    private AgentTurnOperationHandler handlerWithoutResult(
+            AgentTurnOperationHandler.ExactTurn turn)
+    {
+        return handler(turn, new ActiveAgentContextRegistry(), false);
+    }
+
+    private AgentTurnOperationHandler handler(
+            AgentTurnOperationHandler.ExactTurn turn,
+            ActiveAgentContextRegistry contexts,
+            boolean resultRecorded)
+    {
         return new AgentTurnOperationHandler(
-                (kind, id) -> kind == turn.ownerKind() && id.equals(turn.turnId())
-                        ? Optional.of(turn) : Optional.empty(),
+                new AgentTurnOperationHandler.Store()
+                {
+                    @Override
+                    public Optional<AgentTurnOperationHandler.ExactTurn> find(
+                            DispatchTicket.OwnerKind kind, String id)
+                    {
+                        return kind == turn.ownerKind() && id.equals(turn.turnId())
+                                ? Optional.of(turn) : Optional.empty();
+                    }
+
+                    @Override
+                    public boolean hasRepairSubmission(String turnId)
+                    {
+                        return resultRecorded;
+                    }
+
+                    @Override
+                    public boolean hasBrainVerdict(String turnId)
+                    {
+                        return resultRecorded;
+                    }
+                },
                 provider,
                 writers,
                 fingerprints,

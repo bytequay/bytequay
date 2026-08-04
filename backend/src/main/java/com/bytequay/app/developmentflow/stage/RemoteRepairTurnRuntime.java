@@ -24,6 +24,8 @@ import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResult
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.Classification;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
 import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionOperationHandler.AdoptionResult;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore.RepairSubmission;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore.AdoptionCompletion;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore.NormalizationDue;
@@ -100,11 +102,11 @@ public final class RemoteRepairTurnRuntime
     private final TaskManager tasks;
     private final SqliteRemoteRuntimeStore remoteStore;
     private final SqliteRemoteRepairTurnStore turns;
+    private final SqliteAgentResultSubmissionStore submissions;
     private final ObjectMapper json;
     private final ObjectReader stageReader;
     /** Names this Turn in every brain-protocol failure message. */
     private static final String BRAIN_LABEL = "Remote repair Brain";
-    private final ObjectReader brainReader;
     private final ObjectReader adoptionReader;
     private final ObjectReader workModelReader;
     private final Clock clock;
@@ -118,6 +120,7 @@ public final class RemoteRepairTurnRuntime
             TaskManager tasks,
             SqliteRemoteRuntimeStore remoteStore,
             SqliteRemoteRepairTurnStore turns,
+            SqliteAgentResultSubmissionStore submissions,
             ObjectMapper json,
             Clock clock,
             int serverPort)
@@ -126,9 +129,9 @@ public final class RemoteRepairTurnRuntime
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.remoteStore = requireNonNull(remoteStore, "remoteStore is null");
         this.turns = requireNonNull(turns, "turns is null");
+        this.submissions = requireNonNull(submissions, "submissions is null");
         this.json = requireNonNull(json, "json is null");
         this.stageReader = strictReader(StageResult.class);
-        this.brainReader = AgentBrainResult.reader(json);
         this.adoptionReader = strictReader(AdoptionResult.class);
         this.workModelReader = strictReader(WorkModel.class);
         this.clock = requireNonNull(clock, "clock is null");
@@ -157,6 +160,43 @@ public final class RemoteRepairTurnRuntime
     {
         this.reasoningEfforts = requireNonNull(
                 reasoningEfforts, "reasoningEfforts is null");
+    }
+
+    /**
+     * Persist the summary a CI or branch-conflict repair reports through
+     * {@code record_repair_summary}. Called from the tool handler while the
+     * subprocess is still alive, so a rejection reaches the agent as an MCP tool
+     * error it can correct in the same session — unlike the old contract, where
+     * the summary was parsed out of the final message after the process had
+     * exited and only a normalizer Turn or a human could unstick it.
+     *
+     * <p>Idempotent: an identical re-submission is accepted, a differing one is
+     * rejected. A submission from a Turn that goes stale is inert — delivery
+     * reads only its own {@code turnId} and rejects a stale Turn regardless.
+     */
+    public void recordRepairSummary(String turnId, String operationId, String summary)
+    {
+        String taskId = submissions.requireStageRepairTurnTaskId(
+                requireNonNull(turnId, "turnId is null"),
+                requireNonNull(operationId, "operationId is null"));
+        RepairSubmission submitted = new RepairSubmission(
+                required(summary, "summary"), List.of());
+        commands.execute(taskId, () -> {
+            TaskCommandExecutor.requireCurrent(taskId);
+            RepairSubmission existing =
+                    submissions.findRepairSubmission(turnId).orElse(null);
+            if (existing != null) {
+                if (!existing.equals(submitted)) {
+                    throw new IllegalArgumentException(
+                            "record_repair_summary was already called with a "
+                                    + "different summary for this Turn");
+                }
+                return existing;
+            }
+            submissions.insertRepairSubmission(
+                    turnId, operationId, taskId, submitted, clock.instant());
+            return submitted;
+        });
     }
 
     public SqliteRemoteRepairTurnStore.TurnRequest admitSteeringInCommand(
@@ -213,7 +253,8 @@ public final class RemoteRepairTurnRuntime
                     "Fix every failed CI check for the exact current Task head. "
                             + "Some failures may be base-owned, mixed, or "
                             + "unattributable. Treat all of them as part of this "
-                            + "repair. Commit the repair before returning."
+                            + "repair. Commit the repair, then report it by "
+                            + "calling record_repair_summary."
                             + "\n\nCI evidence:\n"
                             + write(candidate.ciEvaluation().checks()));
             return;
@@ -314,7 +355,8 @@ public final class RemoteRepairTurnRuntime
         String prompt = "Resolve every conflict while rebasing the exact Task "
                 + "head onto base " + episode.targetBaseSha()
                 + ". Do not push. Finish the rebase and commit the resolved "
-                + "head before returning.\n\nConflict evidence:\n"
+                + "head, then report it by calling record_repair_summary."
+                + "\n\nConflict evidence:\n"
                 + Objects.toString(rebaseResult.evidence(), "");
         String turnId = id("branch-sync-stage-turn",
                 step.id() + ":" + (step.attemptCount() + 1));
@@ -684,7 +726,7 @@ public final class RemoteRepairTurnRuntime
                     raw, context, rawDigest, error, now);
             return receipt(ACCEPTED, "Remote repair StageTurn failed");
         }
-        StageResult result = decodeStage(raw.payload().finalText());
+        RepairSubmission result = requireRepairSubmission(context);
         ValidatedCodeSubject validated;
         try {
             validated = requireOutputCodeSubject(raw, context);
@@ -768,7 +810,7 @@ public final class RemoteRepairTurnRuntime
         CodeSubject output = null;
         String summary = null;
         if (acceptOutput) {
-            StageResult result = decodeStage(raw.payload().finalText());
+            RepairSubmission result = requireRepairSubmission(context);
             output = requireChangedOutput(requireOutputCodeSubject(raw, context));
             summary = result.summary();
         }
@@ -807,7 +849,7 @@ public final class RemoteRepairTurnRuntime
                     raw, context, rawDigest, error, now);
             return receipt(ACCEPTED, "Remote steering Turn failed");
         }
-        StageResult result = decodeStage(raw.payload().finalText());
+        RepairSubmission result = requireRepairSubmission(context);
         CodeSubject output = requireChangedOutput(
                 requireOutputCodeSubject(raw, context));
         turns.finishSteeringTurn(
@@ -891,8 +933,12 @@ public final class RemoteRepairTurnRuntime
                     accepted.state().version(), now);
             return receipt(ACCEPTED, "Remote repair Brain failed");
         }
-        AgentBrainResult result = AgentBrainResult.decode(
-                brainReader, raw.payload().finalText(), BRAIN_LABEL);
+        // The review's final message is prose. Its verdict is the row
+        // record_development_verdict wrote while the Turn was running; the
+        // pre-delivery gate already refused a SUCCEEDED Turn without one.
+        AgentBrainResult result = submissions.findBrainVerdict(context.turnId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        BRAIN_LABEL + " succeeded without record_development_verdict"));
         TaskManager.BrainVerdict verdict = result.requireVerdict(BRAIN_LABEL);
         turns.finishBrain(
                 context, raw.outcome().name(), rawDigest, ACCEPTED.name(),
@@ -1115,7 +1161,8 @@ public final class RemoteRepairTurnRuntime
                 + "the current history exactly: do not amend, rebase, reset, "
                 + "squash, reorder, or force-push. Append one or more ordinary "
                 + "repair commits at the current tip, leave a clean committed "
-                + "head, and return. ByteQuay will perform the authorized "
+                + "head, then report it by calling record_repair_summary. "
+                + "ByteQuay will perform the authorized "
                 + "deterministic history rewrite.\n\nCI evidence:\n"
                 + Objects.toString(evidence, "");
     }
@@ -1161,8 +1208,9 @@ public final class RemoteRepairTurnRuntime
         String turnId = id("branch-sync-task-turn", suffix);
         String operationId = id("branch-sync-operation", suffix);
         String prompt = "Review the exact conflict repair rebased onto "
-                + episode.targetBaseSha() + ". Return APPROVED only when the "
-                + "resolved head preserves Task intent and is safe to push.";
+                + episode.targetBaseSha() + ". Call record_development_verdict "
+                + "with APPROVED only when the resolved head preserves Task "
+                + "intent and is safe to push.";
         BrainRequest brain = turns.insertBranchBrain(
                 context, episode, step,
                 write(launch(context, model, "TASK_TURN", turnId,
@@ -1828,6 +1876,22 @@ public final class RemoteRepairTurnRuntime
                         context.worktreePath()));
     }
 
+    /** The result the Turn recorded through {@code record_repair_summary}. Its
+     *  final message is prose and nobody parses it. */
+    private RepairSubmission requireRepairSubmission(TurnDelivery context)
+    {
+        return submissions.findRepairSubmission(context.turnId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Remote repair StageTurn succeeded without "
+                                + "record_repair_summary"));
+    }
+
+    /**
+     * The one payload still carried in a final message: the result normalizer's.
+     * It is launched deliberately tool-free — its whole job is to restate a
+     * frozen malformed result, and V324 pins the adopted payload to be exactly
+     * the text it returned, so there is nothing for a tool to add.
+     */
     private StageResult decodeStage(String value)
     {
         try {
@@ -1845,8 +1909,6 @@ public final class RemoteRepairTurnRuntime
                     "Remote repair result is not strict JSON", e);
         }
     }
-
-
 
     private static void requireSubject(
             RepairContext context,
@@ -1953,9 +2015,11 @@ public final class RemoteRepairTurnRuntime
         String base = """
                 You own one exact Remote Development repair. Edit only the supplied Task worktree.
                 Do not push or perform other remote effects.
-                Return exactly one raw JSON object shaped {"schemaVersion":1,"summary":"string"}.
-                Its first non-whitespace character must be '{' and its last non-whitespace character must be '}'.
-                Do not wrap it in Markdown fences or add prose before or after it.
+                Report your result by calling record_repair_summary once, as your last act.
+                The repair is accepted on that call; one that ends without it is discarded.
+                Your final message is not the result, but do not leave it empty:
+                write a short plain summary of what you did. Recovery reads it
+                when the tool call is missing.
                 """;
         return roleSkill == null || roleSkill.isBlank()
                 ? base : base + "\n\nRole skill:\n" + roleSkill;
@@ -1966,10 +2030,12 @@ public final class RemoteRepairTurnRuntime
         String base = """
                 You are the read-only Task Brain reviewing one exact Remote repair.
                 Do not edit files or perform remote effects.
-                Return exactly one raw JSON object shaped {"schemaVersion":1,"verdict":"APPROVED","summary":"string","findings":[]}.
-                Set verdict to APPROVED or CHANGES_REQUESTED. APPROVED requires an empty findings array; CHANGES_REQUESTED requires one or more non-blank finding strings.
-                Its first non-whitespace character must be '{' and its last non-whitespace character must be '}'.
-                Do not wrap it in Markdown fences or add prose before or after it.
+                Report your verdict by calling record_development_verdict once, as your last act.
+                Set verdict to APPROVED or CHANGES_REQUESTED. APPROVED takes an empty findings list; CHANGES_REQUESTED takes one or more non-blank findings.
+                The review is accepted on that call; one that ends without it is discarded.
+                Your final message is not the result, but do not leave it empty:
+                write a short plain summary of what you did. Recovery reads it
+                when the tool call is missing.
                 """;
         return roleSkill == null || roleSkill.isBlank()
                 ? base : base + "\n\nRole skill:\n" + roleSkill;

@@ -19,24 +19,29 @@ import java.lang.reflect.Method;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * These prompts used to demand a raw JSON object as the Turn's final message,
+ * and this test guarded that wording. Every remote payload is a result tool
+ * now, so the same guard asks the opposite question: does the system prompt
+ * name the tool the delivery actually reads, and has the raw-JSON instruction
+ * that contradicted it gone.
+ */
 class TestStrictJsonAgentPromptContracts
 {
     @Test
-    void remoteRepairStageAndBrainPromptsRequireRawJson()
+    void remoteRepairStageAndBrainPromptsNameTheirResultTool()
             throws Exception
     {
         String stage = prompt(RemoteRepairTurnRuntime.class, "stageSystemPrompt");
         String brain = prompt(RemoteRepairTurnRuntime.class, "brainSystemPrompt");
 
-        assertRawJson(stage);
-        assertThat(stage).contains(
-                "{\"schemaVersion\":1,\"summary\":\"string\"}");
-        assertRawJson(brain);
+        assertReportsThroughTool(stage, "record_repair_summary");
+        assertReportsThroughTool(brain, "record_development_verdict");
         assertBrainCardinality(brain);
     }
 
     @Test
-    void remoteFeedbackSharedPromptsKeepSchemasForEveryRetry()
+    void remoteFeedbackSharedPromptsNameTheirResultToolForEveryRetry()
             throws Exception
     {
         String stage = prompt(
@@ -44,15 +49,8 @@ class TestStrictJsonAgentPromptContracts
         String brain = prompt(
                 RemoteFeedbackRuntimeCoordinator.class, "brainSystemPrompt");
 
-        assertRawJson(stage);
-        assertThat(stage)
-                .contains("\"schemaVersion\":1")
-                .contains("\"summary\":\"string\"")
-                .contains("\"replies\":[")
-                .contains("\"batchItemOrdinal\":1")
-                .contains("POST_INLINE_REPLY, POST_TOP_LEVEL_REPLY, or RESOLVE_THREAD")
-                .contains("RESOLVE_THREAD requires body=null");
-        assertRawJson(brain);
+        assertReportsThroughTool(stage, "record_feedback_repair");
+        assertReportsThroughTool(brain, "record_development_verdict");
         assertBrainCardinality(brain);
     }
 
@@ -64,23 +62,29 @@ class TestStrictJsonAgentPromptContracts
         return (String) method.invoke(null, "test role skill");
     }
 
-    private static void assertRawJson(String prompt)
+    private static void assertReportsThroughTool(String prompt, String tool)
     {
         assertThat(prompt)
-                .contains("Return exactly one raw JSON object")
-                .contains("first non-whitespace character must be '{'")
-                .contains("last non-whitespace character must be '}'")
-                .contains("Do not wrap it in Markdown fences")
-                .contains("or add prose before or after it");
+                .contains("calling " + tool)
+                .contains("as your last act")
+                .contains("ends without it is discarded")
+                // Not "your final message is not read": the CI recovery only
+                // fires on non-blank final text, so telling the agent its
+                // message is worthless silently disables it.
+                .contains("final message is not the result")
+                .contains("do not leave it empty")
+                // The contradiction that broke the Local review before it was
+                // converted: a system prompt still demanding raw JSON while the
+                // user prompt asked for a tool call.
+                .doesNotContain("Return exactly one raw JSON object")
+                .doesNotContain("\"schemaVersion\":1");
     }
 
     private static void assertBrainCardinality(String prompt)
     {
         assertThat(prompt)
-                .contains("\"verdict\":\"APPROVED\"")
-                .contains("\"findings\":[]")
-                .contains("APPROVED requires an empty findings array")
-                .contains("CHANGES_REQUESTED requires one or more")
-                .contains("non-blank finding strings");
+                .contains("APPROVED or CHANGES_REQUESTED")
+                .contains("APPROVED takes an empty findings list")
+                .contains("CHANGES_REQUESTED takes one or more non-blank findings");
     }
 }

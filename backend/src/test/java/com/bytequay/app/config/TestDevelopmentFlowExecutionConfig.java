@@ -83,6 +83,7 @@ import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinato
 import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.V2ReadinessAssistanceRuntime;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
@@ -823,6 +824,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(CleanupQuiescenceHandoff.class))
                 .withBean(SqliteRemoteFeedbackLoopStore.class,
                         () -> mock(SqliteRemoteFeedbackLoopStore.class))
+                .withBean(SqliteAgentResultSubmissionStore.class,
+                        () -> mock(SqliteAgentResultSubmissionStore.class))
                 .withBean(SqliteRemoteRepairNormalizationStore.class,
                         () -> mock(SqliteRemoteRepairNormalizationStore.class))
                 .withBean(SqliteRemoteFeedbackEffectOperationStore.class,

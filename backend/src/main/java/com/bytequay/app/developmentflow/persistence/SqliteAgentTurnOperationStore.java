@@ -128,6 +128,30 @@ public class SqliteAgentTurnOperationStore
     }
 
     @Override
+    public boolean hasRepairSubmission(String turnId)
+    {
+        return exists("""
+                SELECT COUNT(*) FROM stage_turn_repair_submission
+                WHERE stage_turn_id = ?
+                """, turnId);
+    }
+
+    @Override
+    public boolean hasBrainVerdict(String turnId)
+    {
+        return exists("""
+                SELECT COUNT(*) FROM task_turn_brain_verdict
+                WHERE task_turn_id = ?
+                """, turnId);
+    }
+
+    private boolean exists(String sql, String turnId)
+    {
+        Integer count = jdbc.queryForObject(sql, Integer.class, turnId);
+        return count != null && count > 0;
+    }
+
+    @Override
     @Transactional
     public Optional<AgentTurnOperationHandler.McpContext> authorizeMcp(
             DispatchTicket.OwnerKind ownerKind,

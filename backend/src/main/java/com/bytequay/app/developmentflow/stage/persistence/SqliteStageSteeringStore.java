@@ -521,6 +521,52 @@ public final class SqliteStageSteeringStore
                 DispatchTicket.RESULT_PROTOCOL_FAILURE_PREFIX + "%", limit);
     }
 
+    /**
+     * A Remote feedback repair parked because it never called
+     * {@code record_feedback_repair}. Separate from the Local query above
+     * because the two Turns park on different callback routes and the Local one
+     * carries an extra {@code attempt = 1} bound that a Remote semantic attempt
+     * would read as "only the first repair of a batch may be recovered".
+     *
+     * <p>One automatic replacement per failed Turn, held by the steering request
+     * derived from its operation: a repeat sweep produces the same request id
+     * and the NOT EXISTS below excludes the Turn outright.
+     */
+    public List<ParkedResult> findParkedRemoteFeedbackResults(int limit)
+    {
+        return jdbc.query("""
+                SELECT stage.task_id AS task_id, turn.stage_id AS stage_id,
+                       turn.id AS turn_id, ticket.last_error AS last_error
+                  FROM stage_turn turn
+                  JOIN stage ON stage.id = turn.stage_id
+                  JOIN dispatch_ticket ticket ON ticket.owner_id = turn.id
+                 WHERE stage.kind = 'REMOTE_DEVELOPMENT'
+                   AND stage.completed_at_ms IS NULL
+                   AND turn.purpose = 'ADDRESS_REMOTE_FEEDBACK'
+                   AND ticket.owner_kind = 'STAGE_TURN'
+                   AND ticket.callback_route = 'REMOTE_FEEDBACK_TURN_RESULT'
+                   AND ticket.status = 'RESULT_PENDING'
+                   AND ticket.pending_result_outcome = 'SUCCEEDED'
+                   AND ticket.delivery_acceptance IS NULL
+                   -- Parked by the delivery cap, not merely waiting to retry.
+                   AND ticket.next_attempt_at_ms IS NULL
+                   AND ticket.last_error LIKE ?
+                   AND NOT EXISTS (SELECT 1
+                         FROM stage_steering_request_v257 request
+                        WHERE request.predecessor_operation_id = turn.operation_id
+                          AND request.mode = 'CANCEL_AND_REPLACE')
+                   AND NOT EXISTS (SELECT 1 FROM stage_turn later
+                        WHERE later.stage_id = turn.stage_id
+                          AND later.stage_generation = turn.stage_generation
+                          AND later.rowid > turn.rowid)
+                 LIMIT ?
+                """,
+                (rs, row) -> new ParkedResult(
+                        rs.getString("task_id"), rs.getString("stage_id"),
+                        rs.getString("turn_id"), rs.getString("last_error")),
+                DispatchTicket.RESULT_PROTOCOL_FAILURE_PREFIX + "%", limit);
+    }
+
     /** A Development Brain review parked because its verdict did not parse.
      *  The Turn reviewed the code; only the report is unusable. */
     public record ParkedBrainReview(
@@ -550,6 +596,39 @@ public final class SqliteStageSteeringStore
                         rs.getString("task_id"), rs.getString("blocker_id"),
                         rs.getString("failed_turn_id"), rs.getString("message")),
                 limit);
+    }
+
+    /**
+     * A Remote repair Brain review parked because it never called
+     * {@code record_development_verdict}. Its blocker names the failed Turn as
+     * its owner rather than carrying it in the payload, and the pre-delivery
+     * gate has already written the reason into the error, so the reason is what
+     * distinguishes an unreported verdict from a Brain that genuinely failed —
+     * only the first is worth an automatic second attempt.
+     *
+     * <p>Bounded by the caller, which asks for the retry under a command id
+     * derived from the failed Turn: repeat sweeps before the blocker resolves
+     * return the same receipt rather than launching a second review.
+     */
+    public List<ParkedBrainReview> findParkedRemoteBrainReviews(
+            String errorFragment, int limit)
+    {
+        return jdbc.query("""
+                SELECT blocker.id AS blocker_id, blocker.task_id AS task_id,
+                       blocker.subject_revision AS failed_turn_id,
+                       json_extract(blocker.payload_json, '$.error') AS message
+                  FROM task_blocker blocker
+                  JOIN tasks task ON task.id = blocker.task_id
+                 WHERE blocker.status = 'OPEN'
+                   AND blocker.blocker_type = 'REMOTE_REPAIR_BRAIN_FAILED'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND json_extract(blocker.payload_json, '$.error') LIKE ?
+                 LIMIT ?
+                """,
+                (rs, row) -> new ParkedBrainReview(
+                        rs.getString("task_id"), rs.getString("blocker_id"),
+                        rs.getString("failed_turn_id"), rs.getString("message")),
+                "%" + errorFragment + "%", limit);
     }
 
     public boolean cancellationRequestedFor(String operationId)

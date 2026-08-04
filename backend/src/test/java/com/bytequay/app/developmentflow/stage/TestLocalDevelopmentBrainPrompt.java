@@ -51,7 +51,7 @@ class TestLocalDevelopmentBrainPrompt
     private static final Instant NOW = Instant.parse("2026-07-30T00:00:00Z");
 
     @Test
-    void launchInputRequiresFinalStrictJsonInsteadOfLegacyToolSubmission()
+    void launchInputAsksForTheVerdictThroughItsResultTool()
             throws Exception
     {
         ObjectMapper json = new ObjectMapper();
@@ -120,23 +120,16 @@ class TestLocalDevelopmentBrainPrompt
                 eq(context), eq(evidence), anyString(), anyString(), anyString(),
                 anyString(), eq("CLI"), eq(1), launchInput.capture(), eq(NOW));
         JsonNode launch = json.readTree(launchInput.getValue());
+        // The review reports through record_development_verdict now. This
+        // prompt used to forbid exactly that and demand a raw JSON final
+        // message instead — a reviewer that wrote prose lost its whole review.
         assertThat(launch.path("prompt").asText())
-                .contains("Return only strict JSON with exactly this shape")
-                .contains("\"schemaVersion\":1")
-                .contains("\"verdict\":\"APPROVED\"")
-                .contains("\"summary\":\"string\"")
-                .contains("\"findings\":[]")
+                .contains("record_development_verdict")
                 .contains("APPROVED or CHANGES_REQUESTED")
-                .contains("APPROVED requires an empty findings array")
-                .contains("CHANGES_REQUESTED requires one or more")
-                .contains("Do not submit the verdict through a tool")
-                .contains("exactly one raw JSON object")
-                .contains("Do not wrap it in Markdown fences or add prose");
-        assertThat(launch.path("systemPrompt").asText())
-                .contains("exactly one raw JSON object")
-                .contains("first non-whitespace character must be '{'")
-                .contains("last non-whitespace character must be '}'")
-                .contains("Do not wrap it in Markdown fences or add prose");
+                .contains("Your final message is not read")
+                .doesNotContain("Do not submit the verdict through a tool")
+                .doesNotContain("exactly one raw JSON object")
+                .doesNotContain("\"schemaVersion\":1");
         assertThat(launchInput.getValue())
                 .doesNotContain("owner-scoped tool", "record_review_verdict");
     }

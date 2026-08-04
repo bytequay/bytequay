@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.developmentflow.stage.persistence;
 
+import com.bytequay.app.developmentflow.AgentBrainResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -33,6 +36,9 @@ import static java.util.Objects.requireNonNull;
 @Repository
 public class SqliteLocalDevelopmentRuntimeStore
 {
+    /** Findings are a JSON array in one column; the shape is fixed and tiny. */
+    private static final ObjectMapper FINDINGS_JSON = new ObjectMapper();
+
     private final JdbcTemplate jdbc;
 
     public SqliteLocalDevelopmentRuntimeStore(JdbcTemplate jdbc)
@@ -221,6 +227,57 @@ public class SqliteLocalDevelopmentRuntimeStore
                 report.validationSummary(), report.knownRisks(),
                 report.unresolvedConcerns(), report.contextRefs(),
                 report.prDescription(), submittedAt.toEpochMilli());
+    }
+
+    /** The verdict a Brain review reported through its result tool. */
+    public Optional<AgentBrainResult> findBrainVerdict(String turnId)
+    {
+        return jdbc.query("""
+                SELECT verdict, summary, findings_json
+                FROM task_turn_brain_verdict
+                WHERE task_turn_id = ?
+                """, (rs, row) -> new AgentBrainResult(
+                        1, rs.getString("verdict"), rs.getString("summary"),
+                        readFindings(rs.getString("findings_json"))), turnId)
+                .stream().findFirst();
+    }
+
+    public void insertBrainVerdict(
+            String turnId,
+            String operationId,
+            String taskId,
+            AgentBrainResult verdict,
+            Instant submittedAt)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO task_turn_brain_verdict(
+                    task_turn_id, operation_id, task_id, verdict, summary,
+                    findings_json, submitted_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                turnId, operationId, taskId, verdict.verdict(), verdict.summary(),
+                writeFindings(verdict.findings()), submittedAt.toEpochMilli());
+    }
+
+    private List<String> readFindings(String json)
+    {
+        try {
+            return List.of(FINDINGS_JSON.readValue(json, String[].class));
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("stored Brain findings are unreadable", e);
+        }
+    }
+
+    private String writeFindings(List<String> findings)
+    {
+        try {
+            return FINDINGS_JSON.writeValueAsString(findings);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("Brain findings are unwritable", e);
+        }
     }
 
     public Optional<StageTurnDeliveryReceipt> findStageTurnReceipt(String turnId)

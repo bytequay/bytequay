@@ -494,9 +494,8 @@ class TestV2LocalStageStore
         markSucceededResultPending(jdbc, "brain-ticket", fence);
         ObjectMapper mapper = new ObjectMapper();
         AgentTurnOwnerResultCodec.OwnerResult delivery = brainDelivery(
-                mapper, "brain-turn", fence,
-                "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
-                        + "\"summary\":\"ready\",\"findings\":[]}");
+                mapper, "brain-turn", fence, "The change is ready.");
+        seedBrainVerdict(jdbc, "APPROVED", "ready", "[]");
         PRService prs = mock(PRService.class);
         LocalDevelopmentRuntimeCoordinator owner = runtime(
                 commands, tasks, local,
@@ -543,9 +542,8 @@ class TestV2LocalStageStore
         markSucceededResultPending(jdbc, "brain-ticket", fence);
         ObjectMapper mapper = new ObjectMapper();
         AgentTurnOwnerResultCodec.OwnerResult delivery = brainDelivery(
-                mapper, "brain-turn", fence,
-                "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
-                        + "\"summary\":\"ready\",\"findings\":[]}");
+                mapper, "brain-turn", fence, "The change is ready.");
+        seedBrainVerdict(jdbc, "APPROVED", "ready", "[]");
         PRService prs = mock(PRService.class);
         doThrow(new IllegalStateException("stable PR is unavailable"))
                 .when(prs).requestUserReviewInCommand(
@@ -604,11 +602,10 @@ class TestV2LocalStageStore
         AgentTurnOwnerResultCodec.OwnerResult delivery = brainDelivery(
                 mapper, fence, DispatchTicket.Outcome.SUCCEEDED,
                 AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
-                """
-                        {"schemaVersion":1,"verdict":"CHANGES_REQUESTED",
-                         "summary":"one issue remains","findings":["fix A"]}
-                        """,
+                "One issue remains.",
                 null);
+        seedBrainVerdict(jdbc, "CHANGES_REQUESTED", "one issue remains",
+                "[\"fix A\"]");
         DispatchTicket.DeliveryReceipt accepted = new LocalBrainResultDeliveryPort(
                 runtime(
                         commands, tasks, local,
@@ -2815,6 +2812,19 @@ class TestV2LocalStageStore
             context.refresh();
             return context.getBean(TaskManager.Store.class);
         }
+    }
+
+    /** Stand in for the record_development_verdict call the reviewing Brain
+     *  makes while its Turn is running, so delivery has a verdict to read. */
+    private static void seedBrainVerdict(
+            JdbcTemplate jdbc, String verdict, String summary, String findingsJson)
+    {
+        jdbc.update("""
+                INSERT INTO task_turn_brain_verdict(
+                    task_turn_id, operation_id, task_id, verdict, summary,
+                    findings_json, submitted_at_ms)
+                VALUES ('brain-turn', 'brain-operation', 'task-1', ?, ?, ?, 1)
+                """, verdict, summary, findingsJson);
     }
 
     private static void seedBrainReview(JdbcTemplate jdbc)

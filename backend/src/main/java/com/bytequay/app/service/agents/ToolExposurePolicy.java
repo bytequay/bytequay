@@ -108,7 +108,10 @@ public class ToolExposurePolicy
             "count_operations", "read_commit_summary", "read_diff_summary",
             "check_test_coverage", "read_stage_metrics", "read_phase_history",
             "read_review_panel_findings", "read_remote_pr_status",
-            "list_unresolved_comments", "read_dev_report", "read_dev_conversation"));
+            "list_unresolved_comments", "read_dev_report", "read_dev_conversation",
+            // The review's conclusion. Without it in the catalog the tool never
+            // reaches tools/list and every review fails unreported.
+            "record_development_verdict"));
 
     private static final Set<String> V2_AUTOMATIC_TASK_BRAIN = Set.copyOf(
             V2_TASK_BRAIN.stream()

@@ -108,6 +108,17 @@ public final class LocalDevelopmentRuntimeCoordinator
                     + "APPROVED or CHANGES_REQUESTED. APPROVED requires an empty "
                     + "findings array; CHANGES_REQUESTED requires one or more "
                     + "non-blank finding strings. " + RAW_JSON_OBJECT_BOUNDARY;
+    /** How a Brain review reports. The tool's schema is the contract; this
+     *  only has to name it and say when to call it. */
+    private static final String BRAIN_VERDICT_INSTRUCTION =
+            "Report your conclusion by calling the record_development_verdict "
+                    + "tool as your last act. That call is how the review is "
+                    + "accepted: a review that ends without it is discarded. Set "
+                    + "verdict to APPROVED or CHANGES_REQUESTED — APPROVED takes "
+                    + "an empty findings list, CHANGES_REQUESTED takes one entry "
+                    + "per change you want. If the call comes back rejected, read "
+                    + "the reason and call it again. Your final message is not "
+                    + "read; put the verdict in the tool call, not in prose.";
     private static final String BRAIN_RESULT_SHAPE =
             "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
                     + "\"summary\":\"string\",\"findings\":[]}";
@@ -153,7 +164,6 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final ObjectReader validationResultReader;
     /** Names this Turn in every brain-protocol failure message. */
     private static final String BRAIN_LABEL = "Development Brain";
-    private final ObjectReader brainResultReader;
     private final Clock clock;
     private final int serverPort;
     private SqliteStageSteeringStore steering;
@@ -181,7 +191,6 @@ public final class LocalDevelopmentRuntimeCoordinator
         this.validationResultReader = json.readerFor(
                         LocalValidationOperationHandler.ValidationResult.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        this.brainResultReader = AgentBrainResult.reader(json);
         this.clock = requireNonNull(clock, "clock is null");
         if (serverPort < 1 || serverPort > 65535) {
             throw new IllegalArgumentException("serverPort is invalid");
@@ -591,6 +600,37 @@ public final class LocalDevelopmentRuntimeCoordinator
             store.insertDevelopmentSubmission(
                     turnId, operationId, taskId, report, clock.instant());
             return report;
+        });
+    }
+
+    /**
+     * Persist the verdict a Development Brain review reports through
+     * {@code record_development_verdict}. Same reasoning as the Development
+     * Turn's result: a review that read the code and formed an opinion should
+     * not be discarded for writing that opinion as prose.
+     */
+    public void recordDevelopmentVerdict(
+            String turnId, String operationId, AgentBrainResult verdict)
+    {
+        requireNonNull(verdict, "verdict is null");
+        verdict.requireVerdict(BRAIN_LABEL);
+        String taskId = store.requireBrainTurnTaskId(
+                requireNonNull(turnId, "turnId is null"),
+                requireNonNull(operationId, "operationId is null"));
+        commands.execute(taskId, () -> {
+            TaskCommandExecutor.requireCurrent(taskId);
+            AgentBrainResult existing = store.findBrainVerdict(turnId).orElse(null);
+            if (existing != null) {
+                if (!existing.equals(verdict)) {
+                    throw new IllegalArgumentException(
+                            "record_development_verdict was already called with "
+                                    + "a different verdict for this Turn");
+                }
+                return existing;
+            }
+            store.insertBrainVerdict(
+                    turnId, operationId, taskId, verdict, clock.instant());
+            return verdict;
         });
     }
 
@@ -1182,8 +1222,19 @@ public final class LocalDevelopmentRuntimeCoordinator
         TaskManager.BrainVerdict domainVerdict;
         int unresolved;
         try {
-            verdict = AgentBrainResult.decode(
-                    brainResultReader, result.payload().finalText(), BRAIN_LABEL);
+            // A review's final message is prose; its verdict is the row
+            // record_development_verdict wrote while the Turn was running. The
+            // repair Turn is the one exception — it is launched deliberately
+            // tool-free, because its whole job is to restate a verdict that
+            // already exists, so it still answers in its final message.
+            verdict = context.resultRepair()
+                    ? AgentBrainResult.decode(
+                            AgentBrainResult.reader(json),
+                            result.payload().finalText(), BRAIN_LABEL)
+                    : store.findBrainVerdict(context.turnId())
+                            .orElseThrow(() -> new IllegalArgumentException(
+                                    BRAIN_LABEL + " review succeeded without "
+                                            + "record_development_verdict"));
             domainVerdict = verdict.requireVerdict(BRAIN_LABEL);
             unresolved = verdict.findings().size();
         }
@@ -2000,14 +2051,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     private static String brainPrompt(ValidationContext context)
     {
         return "Review the implementation against its intent and the current "
-                + "worktree. Return only strict JSON with exactly this shape: "
-                + "{\"schemaVersion\":1,\"verdict\":\"APPROVED\","
-                + "\"summary\":\"string\",\"findings\":[]}. Set verdict to "
-                + "APPROVED or CHANGES_REQUESTED. APPROVED requires an empty "
-                + "findings array; CHANGES_REQUESTED requires one or more "
-                + "non-blank finding strings. Do not submit the verdict through "
-                + "a tool; your final JSON response is the TaskTurn result. "
-                + RAW_JSON_OBJECT_BOUNDARY
+                + "worktree. " + BRAIN_VERDICT_INSTRUCTION
                 + "\n\nIntent:\n" + context.implementedIntent()
                 + "\n\nFiles:\n" + context.fileSummary()
                 + "\n\nValidation:\n" + context.validationSummary()
@@ -2019,7 +2063,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     {
         String base = "You are the read-only Task Brain reviewing one exact "
                 + "Local Development code subject. Do not modify files or create "
-                + "remote effects. " + RAW_JSON_OBJECT_BOUNDARY;
+                + "remote effects. " + BRAIN_VERDICT_INSTRUCTION;
         return roleSkill == null || roleSkill.isBlank()
                 ? base
                 : base + "\n\nRole skill:\n" + roleSkill;

@@ -348,6 +348,18 @@ class TestV2StageSteeringStore
     }
 
     @Test
+    void aHealthyTurnIsNeverOfferedAnAutomaticReplacement()
+    {
+        // The sweep runs against every workspace every few seconds, so the
+        // query matching something healthy would relaunch live work. Proves
+        // the SQL is valid and that a Turn which has not parked is not a
+        // candidate; the parked case is covered through the runtime.
+        Fixture fixture = fixture("parked-missing-result.db", false);
+
+        assertThat(fixture.steering().findParkedMissingResults(10)).isEmpty();
+    }
+
+    @Test
     void cancelAndReplaceWaitsForWriterQuiescenceThenAdmitsExactlyOneTurn()
     {
         Fixture fixture = fixture("replace.db", false);

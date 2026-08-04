@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 
 import static java.util.Objects.requireNonNull;
@@ -33,7 +34,16 @@ public final class RemoteFeedbackBrainResultDeliveryPort
     @Override
     public DispatchTicket.DeliveryReceipt deliver(
             AgentTurnOwnerResultCodec.OwnerResult result)
+            throws ExecutionPorts.ResultProtocolException
     {
-        return runtime.deliverBrain(result);
+        try {
+            return runtime.deliverBrain(result);
+        }
+        catch (IllegalArgumentException | IllegalStateException failure) {
+            // Park rather than spin: the verdict is frozen on the ticket, so a
+            // re-delivery reproduces this failure exactly.
+            throw new ExecutionPorts.ResultProtocolException(
+                    failure.getMessage(), failure);
+        }
     }
 }

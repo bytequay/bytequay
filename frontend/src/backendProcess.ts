@@ -26,10 +26,63 @@ let reported = false;
 let stderrTail = '';
 
 /**
- * A Finder-launched .app inherits a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin),
- * where `java` is Apple's stub that fails unless a JDK is registered under
- * /Library/Java or ~/Library/Java. JDKs installed via Homebrew or SDKMAN are
- * only on the shell PATH, so we probe the usual homes explicitly.
+ * Directories a developer's tools land in that a bare PATH never covers.
+ * Appended after the login shell's PATH as a backstop, so the probe below
+ * failing degrades to "most installs still work" rather than "nothing runs".
+ */
+const FALLBACK_BIN_DIRS = [
+  `${process.env.HOME}/.local/bin`,
+  `${process.env.HOME}/.bun/bin`,
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+];
+
+const PATH_MARKER = '__BYTEQUAY_PATH__';
+
+/**
+ * A Finder-launched .app inherits a bare PATH (/usr/bin:/bin:/usr/sbin:/sbin).
+ * Everything the backend shells out to — the `claude` and `codex` CLIs, git,
+ * mvn, gh — lives on the *shell* PATH instead, so a packaged build spawns them
+ * and gets "Cannot run program ...: error=2, No such file or directory".
+ *
+ * Ask the user's login shell what PATH it builds. That covers nvm, asdf, bun,
+ * Homebrew shellenv and hand-rolled rc edits, none of which a hardcoded list
+ * can enumerate. `-i` matters: zsh only reads .zshrc when interactive, and
+ * that is where version managers install themselves. The marker separates our
+ * answer from whatever the rc files print on startup.
+ */
+export function loginShellPath(): string | null {
+  const shell = process.env.SHELL;
+  if (!shell) return null;
+  try {
+    const out = execFileSync(shell, ['-ilc', `printf '%s%s' ${PATH_MARKER} "$PATH"`], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const marker = out.lastIndexOf(PATH_MARKER);
+    if (marker < 0) return null;
+    const resolved = out.slice(marker + PATH_MARKER.length).trim();
+    return resolved || null;
+  } catch {
+    return null;
+  }
+}
+
+/** The login shell's PATH plus the fallback dirs, deduped, order preserved. */
+export function mergedPath(shellPath: string | null, currentPath: string | undefined): string {
+  const entries = [
+    ...(shellPath ?? '').split(':'),
+    ...(currentPath ?? '').split(':'),
+    ...FALLBACK_BIN_DIRS,
+  ];
+  return [...new Set(entries.filter((entry) => entry.length > 0))].join(':');
+}
+
+/**
+ * `java` on a bare PATH is Apple's stub that fails unless a JDK is registered
+ * under /Library/Java or ~/Library/Java. JDKs installed via Homebrew or SDKMAN
+ * are only on the shell PATH, so we probe the usual homes explicitly.
  */
 function resolveJava(): string | null {
   const candidates = [
@@ -83,6 +136,11 @@ export function javaMajorVersion(javaBin: string): number | null {
 export function spawnBackend(): void {
   if (!app.isPackaged) return;
   if (child) return;
+
+  // Before anything is resolved or spawned: the backend inherits this PATH,
+  // and so does every CLI it spawns in turn. Dev runs come from a shell that
+  // already has the right one, so only the packaged app pays the probe.
+  process.env.PATH = mergedPath(loginShellPath(), process.env.PATH);
 
   const jar = path.join(process.resourcesPath, 'bytequay-backend.jar');
   // App-wide RAM budget is ~8 GB; the backend gets ~2 GB of that

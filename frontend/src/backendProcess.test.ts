@@ -16,7 +16,40 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: { isPackaged: false }, dialog: { showErrorBox: vi.fn() } }));
 
-import { javaMajorVersion } from './backendProcess';
+import { javaMajorVersion, loginShellPath, mergedPath } from './backendProcess';
+
+describe('mergedPath', () => {
+  it('puts the login shell PATH first and keeps the fallback dirs', () => {
+    const merged = mergedPath('/opt/tools/bin:/usr/bin', '/usr/bin:/bin').split(':');
+
+    expect(merged[0]).toBe('/opt/tools/bin');
+    expect(merged).toContain('/bin');
+    expect(merged).toContain('/opt/homebrew/bin');
+    // Deduped — /usr/bin appears in both inputs.
+    expect(merged.filter((entry) => entry === '/usr/bin')).toHaveLength(1);
+    expect(merged).not.toContain('');
+  });
+
+  it('still yields a usable PATH when the shell probe fails', () => {
+    const merged = mergedPath(null, undefined).split(':');
+
+    expect(merged).toContain('/opt/homebrew/bin');
+    expect(merged).toContain('/usr/local/bin');
+  });
+});
+
+describe('loginShellPath', () => {
+  it('returns the shell PATH without the rc-file noise around it', () => {
+    const resolved = loginShellPath();
+
+    // No SHELL (or a shell that refuses -ilc) is a legitimate null; anything
+    // else must be a clean PATH, not the marker or startup chatter.
+    if (resolved === null) return;
+    expect(resolved).not.toContain('__BYTEQUAY_PATH__');
+    expect(resolved).not.toContain('\n');
+    expect(resolved.split(':')).toContain('/usr/bin');
+  });
+});
 
 describe('javaMajorVersion', () => {
   it('reads the major version from a working JDK', () => {

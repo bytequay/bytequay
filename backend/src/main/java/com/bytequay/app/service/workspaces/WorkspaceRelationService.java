@@ -35,16 +35,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -52,12 +49,7 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class WorkspaceRelationService
 {
-    public static final String UPSTREAM_PR_TRAILER = "Upstream-PR";
-    public static final String UPSTREAM_COMMIT_TRAILER = "Upstream-Commit";
-    private static final int HISTORY_LIMIT = 50_000;
-    private static final Pattern CANONICAL_PR = Pattern.compile(
-            "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\\d+$");
-    private static final Pattern SQUASH_PR = Pattern.compile("\\(#(\\d+)\\)\\s*$");
+    private static final int HISTORY_LIMIT = 5_000;
     private static final Logger log = LoggerFactory.getLogger(WorkspaceRelationService.class);
 
     private final JdbcTemplate jdbc;
@@ -278,22 +270,22 @@ public class WorkspaceRelationService
                 : revision.strip();
         String ref = resolveRef(resolved.upstreamClone(), branch);
         List<GitRunner.DecoratedCommitEntry> history = git.listDecoratedCommits(
-                resolved.upstreamClone(), ref, HISTORY_LIMIT, UPSTREAM_PR_TRAILER);
+                resolved.upstreamClone(), ref, HISTORY_LIMIT);
         String targetBranch = defaultBranch(resolved.target(), resolved.targetClone());
         String targetRef = resolveRef(resolved.targetClone(), targetBranch);
-        Set<String> pickedShas = pickedCommitShas(resolved, targetRef, history);
+        Set<String> pickedSubjects = pickedCommitSubjects(resolved, targetRef);
 
         List<UpstreamCommitDto> rows = history.stream()
                 .limit(limit)
                 .map(commit -> toCommit(
                         commit,
-                        resolved.upstream().fullName(),
                         resolved.relation().tagsEnabled(),
-                        pickedShas))
+                        pickedSubjects))
                 .toList();
         int notInFork = (int) history.stream()
-                .map(GitRunner.DecoratedCommitEntry::sha)
-                .filter(sha -> !pickedShas.contains(sha.toLowerCase(Locale.ROOT)))
+                .map(GitRunner.DecoratedCommitEntry::subject)
+                .map(WorkspaceRelationService::normalizeSubject)
+                .filter(subject -> !pickedSubjects.contains(subject))
                 .count();
         int indexed = resolved.relation().indexedCommitCount() == 0
                 ? history.size()
@@ -365,98 +357,41 @@ public class WorkspaceRelationService
                 "branch is not available on fetched origin: " + branchName);
     }
 
-    Set<String> pickedCommitShas(
-            ResolvedRelation relation,
-            String targetRef,
-            List<GitRunner.DecoratedCommitEntry> upstreamHistory)
+    /**
+     * Subjects of every commit already on the target branch, normalized for
+     * comparison. A cherry-pick rewrites the sha, so the subject is what the
+     * copy and the original still share.
+     *
+     * <p>Note the trade-off against the sha/trailer scheme this replaced:
+     * subjects are not unique. Repeated messages ("Fix checkstyle issues",
+     * dependabot bumps) collide, and a collision marks an upstream commit as
+     * already present when it is not, so it is skipped. That failure is silent
+     * and drops work, where the previous scheme failed the other way and merely
+     * re-offered a commit.
+     */
+    Set<String> pickedCommitSubjects(ResolvedRelation relation, String targetRef)
             throws IOException, InterruptedException
     {
-        Set<String> commitTrailers = git.listTrailerValues(
-                relation.targetClone(), targetRef,
-                UPSTREAM_COMMIT_TRAILER, HISTORY_LIMIT);
-        Set<String> prTrailers = git.listTrailerValues(
-                relation.targetClone(), targetRef,
-                UPSTREAM_PR_TRAILER, HISTORY_LIMIT);
-        return pickedCommitShas(
-                upstreamHistory,
-                relation.upstream().fullName(),
-                commitTrailers,
-                prTrailers);
+        return git.listCommits(relation.targetClone(), targetRef, HISTORY_LIMIT).stream()
+                .map(GitRunner.CommitEntry::subject)
+                .map(WorkspaceRelationService::normalizeSubject)
+                .filter(subject -> !subject.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
-    static Set<String> pickedCommitShas(
-            List<GitRunner.DecoratedCommitEntry> upstreamHistory,
-            String upstreamRepoFullName,
-            Set<String> commitTrailers,
-            Set<String> prTrailers)
+    /** Whitespace and case are incidental to whether two subjects are the same. */
+    public static String normalizeSubject(String subject)
     {
-        Set<String> picked = new HashSet<>();
-        commitTrailers.stream()
-                .map(String::strip)
-                .filter(value -> !value.isEmpty())
-                .map(value -> value.toLowerCase(Locale.ROOT))
-                .forEach(picked::add);
-
-        Set<String> pickedPrs = new HashSet<>();
-        for (String value : prTrailers) {
-            String canonical = value.strip();
-            if (CANONICAL_PR.matcher(canonical).matches()
-                    && canonical.regionMatches(
-                            true,
-                            0,
-                            upstreamRepoFullName + "#",
-                            0,
-                            upstreamRepoFullName.length() + 1)) {
-                pickedPrs.add(canonical.toLowerCase(Locale.ROOT));
-            }
-        }
-
-        Map<String, Set<String>> shasByPr = new HashMap<>();
-        for (GitRunner.DecoratedCommitEntry commit : upstreamHistory) {
-            upstreamPr(commit, upstreamRepoFullName).ifPresent(pr ->
-                    shasByPr.computeIfAbsent(
-                                    pr.toLowerCase(Locale.ROOT), ignored -> new HashSet<>())
-                            .add(commit.sha().toLowerCase(Locale.ROOT)));
-        }
-        for (String pickedPr : pickedPrs) {
-            Set<String> shas = shasByPr.getOrDefault(pickedPr, Set.of());
-            if (shas.size() == 1) {
-                picked.add(shas.iterator().next());
-            }
-        }
-        return Set.copyOf(picked);
-    }
-
-    public static Optional<String> upstreamPr(
-            GitRunner.DecoratedCommitEntry commit,
-            String upstreamRepoFullName)
-    {
-        Optional<String> trailer = commit.trailerValues().stream()
-                .map(String::strip)
-                .filter(value -> CANONICAL_PR.matcher(value).matches())
-                .filter(value -> value.regionMatches(
-                        true,
-                        0,
-                        upstreamRepoFullName + "#",
-                        0,
-                        upstreamRepoFullName.length() + 1))
-                .findFirst();
-        if (trailer.isPresent()) {
-            return trailer;
-        }
-        Matcher matcher = SQUASH_PR.matcher(commit.subject());
-        return matcher.find()
-                ? Optional.of(upstreamRepoFullName + "#" + matcher.group(1))
-                : Optional.empty();
+        return subject == null
+                ? ""
+                : subject.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     private UpstreamCommitDto toCommit(
             GitRunner.DecoratedCommitEntry commit,
-            String upstreamRepoFullName,
             boolean tagsEnabled,
-            Set<String> pickedShas)
+            Set<String> pickedSubjects)
     {
-        String upstreamPr = upstreamPr(commit, upstreamRepoFullName).orElse(null);
         return new UpstreamCommitDto(
                 commit.sha(),
                 commit.shortSha(),
@@ -465,8 +400,7 @@ public class WorkspaceRelationService
                 commit.authorEmail(),
                 Instant.parse(commit.authoredAt()),
                 tagsEnabled ? commit.tags() : List.of(),
-                upstreamPr,
-                pickedShas.contains(commit.sha().toLowerCase(Locale.ROOT)));
+                pickedSubjects.contains(normalizeSubject(commit.subject())));
     }
 
     private Optional<String> suggestedParent(
@@ -618,7 +552,6 @@ public class WorkspaceRelationService
             String authorEmail,
             Instant authoredAt,
             List<String> tags,
-            String upstreamPr,
             boolean picked) {}
 
     public record ResolvedRelation(

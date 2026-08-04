@@ -29,9 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -189,43 +187,21 @@ class TestWorkspaceRelationService
     }
 
     @Test
-    void fallsBackToAPrTrailerOnlyWhenItIdentifiesOneUpstreamCommit()
+    void subjectNormalizationIgnoresCaseAndWhitespaceButNothingElse()
     {
-        String unique = "a".repeat(40);
-        String direct = "b".repeat(40);
-        String ambiguous = "c".repeat(40);
-        List<GitRunner.DecoratedCommitEntry> history = List.of(
-                decorated(unique, "Unique", "acme/upstream#101"),
-                decorated(direct, "First part", "acme/upstream#202"),
-                decorated(ambiguous, "Second part", "acme/upstream#202"));
+        assertThat(WorkspaceRelationService.normalizeSubject("  Fix   Checkstyle issues "))
+                .isEqualTo(WorkspaceRelationService.normalizeSubject("fix checkstyle ISSUES"));
+        assertThat(WorkspaceRelationService.normalizeSubject(null)).isEmpty();
 
-        Set<String> picked = WorkspaceRelationService.pickedCommitShas(
-                history,
-                "acme/upstream",
-                Set.of("  " + direct.toUpperCase(Locale.ROOT) + "  "),
-                Set.of(
-                        "ACME/UPSTREAM#101",
-                        "acme/upstream#202",
-                        "other/repo#303"));
+        // Distinct work stays distinct.
+        assertThat(WorkspaceRelationService.normalizeSubject("Bump guava to 33"))
+                .isNotEqualTo(WorkspaceRelationService.normalizeSubject("Bump guava to 34"));
 
-        assertThat(picked).containsExactlyInAnyOrder(unique, direct);
-        assertThat(picked).doesNotContain(ambiguous);
-    }
-
-    private static GitRunner.DecoratedCommitEntry decorated(
-            String sha,
-            String subject,
-            String upstreamPr)
-    {
-        return new GitRunner.DecoratedCommitEntry(
-                sha,
-                sha.substring(0, 7),
-                "Test",
-                "test@example.com",
-                "2026-07-24T00:00:00Z",
-                subject,
-                List.of(),
-                List.of(upstreamPr));
+        // The known hazard of matching on subjects: two genuinely different
+        // upstream commits that happen to share a message are indistinguishable,
+        // so the second is treated as already present and silently skipped.
+        assertThat(WorkspaceRelationService.normalizeSubject("Fix flaky test"))
+                .isEqualTo(WorkspaceRelationService.normalizeSubject("Fix flaky test"));
     }
 
     private static Fixture fixture(Path root)

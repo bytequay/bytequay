@@ -60,6 +60,8 @@ class TestUpstreamCherryPickPlan
         assertThat(filters.skipReason("anything at all")).isNull();
     }
 
+    // The already-picked set is keyed on normalized subjects, not shas: a
+    // cherry-pick rewrites the sha, so the subject is the only shared handle.
     @Test
     void planMarksAlreadyPickedAndFilteredCommitsWithDistinctReasons()
     {
@@ -71,7 +73,7 @@ class TestUpstreamCherryPickPlan
 
         List<PlannedCommit> planned = UpstreamCherryPickService.plan(
                 ordered,
-                Set.of("ccc"),
+                Set.of("add null checks"),
                 SkipFilters.normalize(List.of("bump"), List.of()));
 
         assertThat(planned).extracting(PlannedCommit::sha, PlannedCommit::pick, PlannedCommit::skipReason)
@@ -87,7 +89,7 @@ class TestUpstreamCherryPickPlan
     {
         List<PlannedCommit> planned = UpstreamCherryPickService.plan(
                 List.of(commit("aaa", "Bump guava to 33")),
-                Set.of("aaa"),
+                Set.of("bump guava to 33"),
                 SkipFilters.normalize(List.of("bump"), List.of()));
 
         assertThat(planned).singleElement()
@@ -123,6 +125,6 @@ class TestUpstreamCherryPickPlan
     {
         return new GitRunner.DecoratedCommitEntry(
                 sha, sha.substring(0, 3), "Author", "author@example.com",
-                null, subject, List.of(), List.of());
+                null, subject, List.of());
     }
 }

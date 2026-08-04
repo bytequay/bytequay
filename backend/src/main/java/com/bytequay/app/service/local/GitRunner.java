@@ -28,9 +28,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -774,12 +772,30 @@ public class GitRunner
             List<String> commits)
             throws IOException, InterruptedException
     {
+        return cherryPick(workingDir, commits, false);
+    }
+
+    /**
+     * @param recordOrigin pass {@code -x} so git appends
+     *         {@code (cherry picked from commit <sha>)} to each message. The line
+     *         survives a conflict resolved through {@code --continue}, because the
+     *         sequencer keeps the flag for the whole run.
+     */
+    public CherryPickOutcome cherryPick(
+            Path workingDir,
+            List<String> commits,
+            boolean recordOrigin)
+            throws IOException, InterruptedException
+    {
         requireNonNull(commits, "commits is null");
         int applied = 0;
         for (String commit : commits) {
             requireNonNull(commit, "commit is null");
+            List<String> argv = recordOrigin
+                    ? List.of("git", "cherry-pick", "-x", commit)
+                    : List.of("git", "cherry-pick", commit);
             GitResult result = run(
-                    List.of("git", "cherry-pick", commit),
+                    argv,
                     workingDir,
                     300);
             if (result.exitCode() != 0) {
@@ -852,41 +868,6 @@ public class GitRunner
                 : result.stderr().strip();
         return new CherryPickOutcome(
                 false, 0, null, unresolvedPaths(workingDir), detail);
-    }
-
-    /**
-     * Rewrites HEAD's message so it contains exactly one value for the named
-     * trailer. The cherry-picked author remains intact; only the committer and
-     * commit message change, as they do for a normal amend.
-     */
-    public void amendHeadTrailer(Path workingDir, String key, String value)
-            throws IOException, InterruptedException
-    {
-        requireNonNull(key, "key is null");
-        requireNonNull(value, "value is null");
-        if (!key.matches("[A-Za-z0-9-]+") || value.isBlank()) {
-            throw new IllegalArgumentException("invalid commit trailer");
-        }
-        CommitDetailEntry head = commitDetail(workingDir, "HEAD")
-                .orElseThrow(() -> new IllegalStateException("HEAD commit is unavailable"));
-        String prefix = key.toLowerCase(Locale.ROOT) + ":";
-        String body = head.body().lines()
-                .filter(line -> !line.stripLeading()
-                        .toLowerCase(Locale.ROOT)
-                        .startsWith(prefix))
-                .collect(Collectors.joining("\n"))
-                .strip();
-        boolean hasTrailerBlock = !body.isBlank()
-                && body.lines().reduce((first, second) -> second).orElse("")
-                        .matches("[A-Za-z0-9-]+:\\s+\\S.*");
-        String message = head.subject()
-                + (body.isBlank() ? "" : "\n\n" + body)
-                + (hasTrailerBlock ? "\n" : "\n\n")
-                + key + ": " + value;
-        run(List.of("git", "commit", "--amend", "-m", message),
-                workingDir,
-                300)
-                .requireSuccess();
     }
 
     public record CherryPickOutcome(
@@ -2155,23 +2136,19 @@ public class GitRunner
             String authoredAt,
             String subject) {}
 
-    /** Commit-list projection with exact tag decorations and one trailer key. */
+    /** Commit-list projection with exact tag decorations. */
     public List<DecoratedCommitEntry> listDecoratedCommits(
             Path workingDir,
             String revision,
-            int limit,
-            String trailerKey)
+            int limit)
             throws IOException, InterruptedException
     {
         if (limit <= 0) {
             return List.of();
         }
-        requireTrailerKey(trailerKey);
         String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
                 + "%ae" + US_SEP + "%aI" + US_SEP + "%s" + US_SEP
-                + "%D" + US_SEP
-                + "%(trailers:key=" + trailerKey
-                + ",valueonly,separator=%x1e)";
+                + "%D";
         List<String> args = new ArrayList<>(List.of(
                 "git", "log", "--max-count=" + limit, "-z",
                 "--pretty=format:" + fmt));
@@ -2186,7 +2163,7 @@ public class GitRunner
                 continue;
             }
             String[] parts = record.split(US_SEP, -1);
-            if (parts.length < 8) {
+            if (parts.length < 7) {
                 continue;
             }
             List<String> tags = Arrays.stream(parts[6].split(", "))
@@ -2194,13 +2171,9 @@ public class GitRunner
                     .filter(decoration -> decoration.startsWith("tag: "))
                     .map(decoration -> decoration.substring("tag: ".length()))
                     .toList();
-            List<String> trailers = Arrays.stream(parts[7].split(RS_SEP, -1))
-                    .map(String::strip)
-                    .filter(value -> !value.isBlank())
-                    .toList();
             entries.add(new DecoratedCommitEntry(
                     parts[0], parts[1], parts[2], parts[3], parts[4],
-                    parts[5], tags, trailers));
+                    parts[5], tags));
         }
         return List.copyOf(entries);
     }
@@ -2212,39 +2185,7 @@ public class GitRunner
             String authorEmail,
             String authoredAt,
             String subject,
-            List<String> tags,
-            List<String> trailerValues) {}
-
-    /** Every distinct value for one commit-message trailer reachable from the
-     * supplied revision. Callers choose the real target branch explicitly so
-     * abandoned worktree and topic refs cannot produce false positives. */
-    public Set<String> listTrailerValues(
-            Path workingDir,
-            String revision,
-            String trailerKey,
-            int limit)
-            throws IOException, InterruptedException
-    {
-        if (limit <= 0) {
-            return Set.of();
-        }
-        requireNonNull(revision, "revision is null");
-        requireTrailerKey(trailerKey);
-        String fmt = "%(trailers:key=" + trailerKey
-                + ",valueonly,separator=%x1e)";
-        GitResult result = run(List.of(
-                "git", "log", "--max-count=" + limit, "-z",
-                "--pretty=format:" + fmt, revision), workingDir, 60);
-        result.requireSuccess();
-        Set<String> values = new LinkedHashSet<>();
-        for (String record : result.stdout().split(NUL_SEP, -1)) {
-            Arrays.stream(record.split(RS_SEP, -1))
-                    .map(String::strip)
-                    .filter(value -> !value.isBlank())
-                    .forEach(values::add);
-        }
-        return Set.copyOf(values);
-    }
+            List<String> tags) {}
 
     public int countCommits(Path workingDir, String revision)
             throws IOException, InterruptedException
@@ -2256,14 +2197,6 @@ public class GitRunner
                 60);
         result.requireSuccess();
         return Integer.parseInt(result.stdout().strip());
-    }
-
-    private static void requireTrailerKey(String trailerKey)
-    {
-        requireNonNull(trailerKey, "trailerKey is null");
-        if (!trailerKey.matches("[A-Za-z0-9-]+")) {
-            throw new IllegalArgumentException("invalid trailer key");
-        }
     }
 
     /**

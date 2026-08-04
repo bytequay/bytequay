@@ -198,7 +198,7 @@ export default function WorkspaceCommitsPage({
             onClick={() => setShaRangeOpen(true)}>
             Cherry-pick range…
           </button>
-          <small>inclusive · resolved against full upstream history, not just the loaded page</small>
+          <small>inclusive · resolved against the latest 5,000 upstream commits, not just the loaded page</small>
         </div>
       )}
       {source === 'upstream' ? (

@@ -208,13 +208,14 @@ export function UpstreamCherryPicker({
             <label className="wu-upstream-cherry__branch">
               <strong>SKIP COMMITS WHOSE SUBJECT…</strong>
               <span className="wu-upstream-cherry__filters">
-                <input aria-label="Skip commits whose subject starts with"
-                  placeholder="starts with — e.g. Bump, Revert:"
-                  value={skipStartsWith} onChange={event => setSkipStartsWith(event.target.value)} />
-                <input aria-label="Skip commits whose subject contains"
-                  placeholder="contains — e.g. dependabot"
-                  value={skipContains} onChange={event => setSkipContains(event.target.value)} />
-                <small>comma-separated · case-insensitive · matched on the subject line</small>
+                <label>starts with
+                  <input aria-label="Skip commits whose subject starts with"
+                    value={skipStartsWith} onChange={event => setSkipStartsWith(event.target.value)} />
+                </label>
+                <label>contains
+                  <input aria-label="Skip commits whose subject contains"
+                    value={skipContains} onChange={event => setSkipContains(event.target.value)} />
+                </label>
               </span>
             </label>
             <div className="wu-upstream-cherry__dryrun">

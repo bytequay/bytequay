@@ -202,7 +202,8 @@ class TestHarnessDiagnosisService
                 root, upstream);
         when(git.resolveCommitSha(root, "picked")).thenReturn(Optional.of(localSha));
         when(git.commitDetail(root, localSha)).thenReturn(Optional.of(new CommitDetailEntry(
-                localSha, "Pick upstream", "Upstream-Commit: " + upstreamSha)));
+                localSha, "Pick upstream",
+                "(cherry picked from commit " + upstreamSha + ")")));
         when(git.commitFiles(root, localSha)).thenReturn(List.of(
                 new CommitFileChange("pom.xml", "M", 1, 1)));
         when(git.commitFileDiff(root, localSha, "pom.xml", 4_000)).thenReturn("local patch");

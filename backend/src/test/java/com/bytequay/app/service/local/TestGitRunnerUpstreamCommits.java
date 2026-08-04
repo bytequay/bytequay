@@ -41,7 +41,7 @@ class TestGitRunnerUpstreamCommits
         String featureSha = output(upstream, "rev-parse", "HEAD");
 
         List<GitRunner.DecoratedCommitEntry> commits =
-                git.listDecoratedCommits(upstream, "main", 10, "Upstream-PR");
+                git.listDecoratedCommits(upstream, "main", 10);
 
         assertThat(commits).extracting(GitRunner.DecoratedCommitEntry::subject)
                 .containsExactly("Add feature (#102)", "Release one (#101)");
@@ -55,23 +55,40 @@ class TestGitRunnerUpstreamCommits
         Path worktree = root.resolve("pick-worktree");
         git.worktreeAdd(fork, worktree, "upstream-pick", "main");
 
-        assertThat(git.cherryPick(worktree, List.of(featureSha)).complete()).isTrue();
-        git.amendHeadTrailer(worktree, "Upstream-PR", "acme/upstream#102");
-        git.amendHeadTrailer(worktree, "Upstream-Commit", featureSha);
+        assertThat(git.cherryPick(worktree, List.of(featureSha), true).complete()).isTrue();
         git.worktreeRemove(fork, worktree);
 
+        // git writes the provenance itself; nothing amends the message afterwards.
         assertThat(git.commitDetail(fork, "upstream-pick").orElseThrow().body())
-                .contains("Upstream-PR: acme/upstream#102")
-                .contains("Upstream-Commit: " + featureSha);
-        assertThat(git.listTrailerValues(
-                fork, "upstream-pick", "Upstream-PR", 100))
-                .containsExactly("acme/upstream#102");
-        assertThat(git.listTrailerValues(
-                fork, "upstream-pick", "Upstream-Commit", 100))
-                .containsExactly(featureSha);
-        assertThat(git.listTrailerValues(fork, "main", "Upstream-Commit", 100))
-                .as("an abandoned topic branch must not mark the target branch as picked")
-                .isEmpty();
+                .contains("(cherry picked from commit " + featureSha + ")");
+        assertThat(git.commitDetail(fork, "main").orElseThrow().body())
+                .as("an abandoned topic branch must not touch the target branch")
+                .doesNotContain("cherry picked from commit");
+    }
+
+    @Test
+    void plainCherryPickLeavesNoProvenanceLine(@TempDir Path root)
+            throws Exception
+    {
+        Path upstream = root.resolve("upstream");
+        Files.createDirectory(upstream);
+        initialise(upstream);
+        commit(upstream, "a.txt", "a", "Base");
+        commit(upstream, "b.txt", "b", "Feature (#102)");
+        String featureSha = output(upstream, "rev-parse", "HEAD");
+        Path fork = root.resolve("fork");
+        Files.createDirectory(fork);
+        initialise(fork);
+        commit(fork, "base.txt", "base", "Fork base");
+        git.fetchObjects(fork, upstream, List.of(featureSha));
+        Path worktree = root.resolve("plain-worktree");
+        git.worktreeAdd(fork, worktree, "plain-pick", "main");
+
+        assertThat(git.cherryPick(worktree, List.of(featureSha)).complete()).isTrue();
+        git.worktreeRemove(fork, worktree);
+
+        assertThat(git.commitDetail(fork, "plain-pick").orElseThrow().body())
+                .doesNotContain("cherry picked from commit");
     }
 
     private static void initialise(Path repo)

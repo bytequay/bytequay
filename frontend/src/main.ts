@@ -402,8 +402,13 @@ function openInPopupWindow(url: string): void {
 
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 720,
+    width: 1280,
+    height: 800,
+    // `.wu-page` declares a 900px content floor and clips (overflow: hidden)
+    // anything past it, so a window narrower than the nav rail's default
+    // width (272px) plus that floor cuts off the page header's actions.
+    minWidth: 1180,
+    minHeight: 620,
     backgroundColor: MAIN_BG,
     vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined,
     visualEffectState: process.platform === 'darwin' ? 'active' : undefined,

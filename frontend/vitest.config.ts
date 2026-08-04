@@ -22,5 +22,6 @@ export default defineConfig({
     // the directive must live in the first comment block, where the
     // license header now sits).
     environment: 'jsdom',
+    setupFiles: ['./src/testSetup.ts'],
   },
 });

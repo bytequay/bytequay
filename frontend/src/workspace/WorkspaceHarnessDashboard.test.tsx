@@ -30,7 +30,7 @@ afterEach(cleanup);
 function snapshot(status: CiHarnessWatchSnapshotDto['status']): CiHarnessWatchSnapshotDto {
   return {
     watchId: 'watch-1', workspaceId: 'w1', status, owner: 'acme', repo: 'widget',
-    prNumber: 4004, localPrId: 'local-pr-1', branch: 'bump-upstream-9.9', title: 'Bump Trino',
+    prNumber: 1234, localPrId: 'local-pr-1', branch: 'bump-upstream-9.9', title: 'Bump Trino',
     headSha: 'abc123', bootstrapStatus: 'complete',
     bootstrapProfile: {
       forge: 'github-actions', ecosystems: ['maven'], workflowFiles: ['.github/workflows/ci.yml'],

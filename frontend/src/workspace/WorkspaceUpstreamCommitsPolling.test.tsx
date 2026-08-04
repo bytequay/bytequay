@@ -29,7 +29,7 @@ afterEach(() => {
 });
 
 const running: UpstreamCherryPickJobDto = {
-  jobId: 'job-1', status: 'RUNNING', resultBranch: 'bump-upstream-9.9', requestedCount: 1,
+  jobId: 'job-1', status: 'RUNNING', resultBranch: 'upstream-9-9', requestedCount: 1,
   appliedCount: 0, skippedCount: 0, conflictPaths: [], worktreePath: '/tmp/job-1',
   prNumber: null, prUrl: null, harnessWatchId: null, errorMessage: null,
 };
@@ -60,12 +60,12 @@ const repository: WorkspaceRepositoryDto = {
 const commit: UpstreamCommitDto = {
   sha: 'a'.repeat(40), shortSha: 'aaaaaaa', subject: 'Update dependency',
   authorName: 'A', authorEmail: 'a@example.com', authoredAt: null,
-  tags: ['v482'], picked: false, upstreamPr: 'trinodb/trino#1',
+  tags: ['v9.9'], picked: false, upstreamPr: 'upstream/widget#1',
 };
 
 const snapshot: UpstreamCommitsDto = {
-  upstreamWorkspaceId: 'trino', upstreamWorkspaceName: 'Trino',
-  upstreamRepoFullName: 'trinodb/trino', revision: 'master', lastFetchedAt: null,
+  upstreamWorkspaceId: 'upstream', upstreamWorkspaceName: 'Upstream',
+  upstreamRepoFullName: 'upstream/widget', revision: 'master', lastFetchedAt: null,
   indexedCommitCount: 1, notInForkCount: 1, commits: [commit],
 };
 
@@ -142,7 +142,7 @@ describe('UpstreamCherryPicker durable polling', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start another' }));
 
     expect(screen.getByRole('button', { name: 'Start cherry-pick' })).toBeTruthy();
-    expect(screen.getByDisplayValue('bump-upstream-9.9')).toBeTruthy();
+    expect(screen.getByDisplayValue('upstream-9-9')).toBeTruthy();
   });
 });
 

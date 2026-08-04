@@ -31,7 +31,7 @@ const linked: WorkspaceRelationDto = {
 };
 
 const repo = {
-  owner: 'chenjian2664', repo: 'widget', fullName: 'chenjian2664/widget', defaultBaseBranch: 'master',
+  owner: 'chenjian2664', repo: 'widget', fullName: 'acme/widget', defaultBaseBranch: 'master',
   local: { currentBranch: 'master', defaultBranch: 'origin/master', localClonePath: '/repo/widget' },
 } as unknown as WorkspaceRepositoryDto;
 

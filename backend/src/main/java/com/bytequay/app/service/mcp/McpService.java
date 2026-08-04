@@ -87,7 +87,9 @@ public interface McpService
             description = "Run a bounded shell command in the active task's worktree. "
                     + "Each call surfaces a permission prompt to the user — no command "
                     + "runs without an explicit click. Policy: 60-second timeout, 256 KB "
-                    + "output cap, plain argv only, no shell operators. Use as an escape "
+                    + "output cap, plain argv only, no shell operators. Quotes and "
+                    + "backslash escapes are honoured, so quote any path containing "
+                    + "spaces. Use as an escape "
                     + "hatch for ad-hoc probes; prefer the test runner / ship_task / "
                     + "request_review for longer flows.",
             security = SecurityType.CODE_EXEC,

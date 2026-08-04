@@ -16,6 +16,7 @@ package com.bytequay.app.service.local;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -94,6 +95,49 @@ class TestShellRunner
         assertThat(result.output()).contains("bytequay-shell-test");
         assertThat(result.truncated()).isFalse();
         assertThat(result.error()).isNull();
+    }
+
+    @Test
+    void quotedPathWithSpacesStaysOneArgument(@TempDir Path worktree)
+            throws Exception
+    {
+        // Managed worktrees live under "~/Library/Application Support/…",
+        // so a whitespace split would hand the child two broken fragments
+        // and it would report the path as not found.
+        Path directory = worktree.resolve("my repo");
+        Files.createDirectories(directory);
+
+        ShellRunner.Result quoted = runner.run(worktree, "ls -d \"" + directory + "\"");
+        ShellRunner.Result escaped = runner.run(
+                worktree, "ls -d " + directory.toString().replace(" ", "\\ "));
+
+        assertThat(quoted.exitCode()).isZero();
+        assertThat(quoted.output()).contains("my repo");
+        assertThat(escaped.exitCode()).isZero();
+        assertThat(escaped.output()).contains("my repo");
+    }
+
+    @Test
+    void unterminatedQuoteIsRefused(@TempDir Path worktree)
+            throws InterruptedException
+    {
+        ShellRunner.Result result = runner.run(worktree, "ls -d \"/Users/me/my repo");
+
+        assertThat(result.ran()).isFalse();
+        assertThat(result.error()).contains("unterminated quote");
+    }
+
+    @Test
+    void tokenizeKeepsQuotingRulesStraight()
+    {
+        assertThat(ShellRunner.tokenize("ls -d \"/a b\" '/c d' /e\\ f"))
+                .containsExactly("ls", "-d", "/a b", "/c d", "/e f");
+        // A single quote takes the bytes literally, backslash included.
+        assertThat(ShellRunner.tokenize("printf 'a\\b'")).containsExactly("printf", "a\\b");
+        // An empty quoted argument is still an argument.
+        assertThat(ShellRunner.tokenize("printf ''")).containsExactly("printf", "");
+        assertThat(ShellRunner.tokenize("ls \"/a b")).isNull();
+        assertThat(ShellRunner.tokenize("ls /a\\")).isNull();
     }
 
     @Test

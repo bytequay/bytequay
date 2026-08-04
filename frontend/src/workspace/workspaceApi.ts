@@ -353,7 +353,6 @@ export type WorkspaceRelationCandidateDto = {
 export type UpstreamCommitDto = LocalCommitDto & {
   tags: string[];
   picked: boolean;
-  upstreamPr: string | null;
 };
 
 export type UpstreamCommitsDto = {

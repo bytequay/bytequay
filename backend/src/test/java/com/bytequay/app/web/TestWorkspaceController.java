@@ -147,7 +147,7 @@ class TestWorkspaceController
                     created_at_ms, updated_at_ms)
                 VALUES ('reload-job', ?, ?, 'COMPLETED', 'main', 'source-sha',
                     'main', 'base-sha', 'release-pick',
-                    '[{"sha":"commit-1","upstreamPr":"acme/upstream#1","subject":"Feature"}]',
+                    '[{"sha":"commit-1","subject":"Feature"}]',
                     '["commit-1"]', '[]', 1, '[]', '/tmp/reload-job',
                     0, 0, 5000, 100, 100)
                 """, WORKSPACE_ID, WORKSPACE_ID);

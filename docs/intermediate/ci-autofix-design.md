@@ -166,6 +166,54 @@ with diagnosis card, KB browser, escalation queue, bootstrap/"what I derived" vi
 Mockup PNGs → `docs/mockups/design/ci-autofix/`, HTML sources →
 `docs/mockups/design/ci-autofix/_src/`.
 
+## Cherry-pick conflicts — agent repair behind a compile gate (decided 2026-08-04)
+
+The cherry-picker feeds the harness, and its conflict handling changed. **This
+reverses the previous rule** ("conflicts are retained for a human and never enqueue
+an agent turn"), which is still written on `UpstreamCherryPickService`'s class
+javadoc until the flow lands.
+
+**Two tiers of judgement, deliberately different.**
+
+- *Per commit, while picking:* a **compile-only hard gate**. Not the CI suite — a
+  range can be hundreds of commits and running the suite on each is untenable.
+- *Once, on the final commit:* the real CI verdict, which is what the harness watch
+  on the pull request already provides.
+
+Compilation is the right per-commit gate for a conflicted pick specifically: a commit
+still holding `<<<<<<<` markers cannot parse, so the gate cannot be satisfied until
+they are gone. It is a structural check, not a taste check.
+
+**Flow on conflict.** `git cherry-pick -x` conflicts → the app stages and commits the
+conflicted state (markers included, `-x` line preserved — verified: git keeps the
+prepared message in the sequencer and `--continue` uses it) → run the compile gate →
+red → the agent proposes edits → the program applies them and commits a `fixup!`
+targeting that pick → re-gate → bounded attempts (`LocalCiFixExecutor` sets the
+precedent at 5).
+
+**If the attempts are exhausted the job parks and does *not* push or open the PR.**
+That rule is what keeps a marker-bearing commit off GitHub, and it is the whole
+mitigation for committing an invalid tree in the first place. Without it a failed
+repair publishes conflict markers.
+
+**Compile command resolution**, most explicit first:
+
+1. a run script typed on the cherry-pick request;
+2. the script learned from a CI job the user names — the agent reads
+   `.github/workflows/*.yml` and extracts that job's build step;
+3. otherwise a plain compile: `./mvnw clean install -DskipTests`, scoped with
+   `-pl <module> -am` when the last commit's module is known to the build.
+
+Implemented in `CherryPickCompileGate`. Scripts are restricted to a bare
+`mvn`/`./mvnw` invocation — no operators, redirects or substitutions — and a command
+that *fails to run at all* is reported as not-reproduced rather than as a red gate,
+so the agent is never sent to fix a defect that is not in the code.
+
+**Known risk, accepted.** Auto-resolving a conflict is the highest-risk thing an
+agent does here: a resolution that compiles can still be semantically wrong, and
+unlike a CI failure nothing downstream catches it before the final commit. The
+compile gate proves the markers are gone; it does not prove the merge was right.
+
 ## Open items
 
 - Surface naming in nav ("CI Harness"? "Autofix"?) — resolved: "CI Harness".

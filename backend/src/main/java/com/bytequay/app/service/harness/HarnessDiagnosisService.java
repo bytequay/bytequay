@@ -43,6 +43,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -327,11 +328,10 @@ public class HarnessDiagnosisService
         if (localDetail.isEmpty()) {
             return out.toString();
         }
-        String upstreamSha = trailer(
-                localDetail.orElseThrow().body(), WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER);
-        String upstreamPr = trailer(
-                localDetail.orElseThrow().body(), WorkspaceRelationService.UPSTREAM_PR_TRAILER);
-        if (upstreamSha == null && upstreamPr == null) {
+        // Picks now record provenance with `git cherry-pick -x` rather than a
+        // trailer, so the upstream sha is read from the line git writes.
+        String upstreamSha = cherryPickedFrom(localDetail.orElseThrow().body());
+        if (upstreamSha == null) {
             return out.toString();
         }
         try {
@@ -339,10 +339,7 @@ public class HarnessDiagnosisService
             if (!relation.relation().commitsEnabled()) {
                 return out.toString();
             }
-            if (upstreamSha == null) {
-                upstreamSha = uniqueUpstreamCommit(relation, upstreamPr);
-            }
-            if (upstreamSha == null || !upstreamSha.matches("[0-9a-fA-F]{7,64}")) {
+            if (!upstreamSha.matches("[0-9a-fA-F]{7,64}")) {
                 return out.toString();
             }
             String resolved = git.resolveCommitSha(relation.upstreamClone(), upstreamSha)
@@ -358,25 +355,6 @@ public class HarnessDiagnosisService
         return out.substring(0, Math.min(out.length(), MAX_TOOL_OUTPUT));
     }
 
-    private String uniqueUpstreamCommit(ResolvedRelation relation, String upstreamPr)
-            throws IOException, InterruptedException
-    {
-        if (upstreamPr == null) {
-            return null;
-        }
-        String branch = relations.defaultBranch(relation.upstream(), relation.upstreamClone());
-        String ref = relations.resolveRef(relation.upstreamClone(), branch);
-        List<GitRunner.DecoratedCommitEntry> matches = git.listDecoratedCommits(
-                        relation.upstreamClone(), ref, 2_000,
-                        WorkspaceRelationService.UPSTREAM_PR_TRAILER).stream()
-                .filter(candidate -> WorkspaceRelationService.upstreamPr(
-                                candidate, relation.upstream().fullName())
-                        .filter(upstreamPr::equalsIgnoreCase).isPresent())
-                .limit(2)
-                .toList();
-        return matches.size() == 1 ? matches.getFirst().sha() : null;
-    }
-
     private void appendCommitDiff(
             StringBuilder out, String label, Path checkout, String sha)
             throws IOException, InterruptedException
@@ -390,6 +368,27 @@ public class HarnessDiagnosisService
                 break;
             }
         }
+    }
+
+    private static final Pattern CHERRY_PICKED_FROM = Pattern.compile(
+            "^\\(cherry picked from commit ([0-9a-f]{7,40})\\)$",
+            Pattern.CASE_INSENSITIVE);
+
+    /** The sha from git's own `-x` line. Last wins: a commit picked more than
+     *  once carries one line per hop, and the newest names the direct source. */
+    static String cherryPickedFrom(String body)
+    {
+        if (body == null) {
+            return null;
+        }
+        String found = null;
+        for (String line : body.lines().map(String::strip).toList()) {
+            Matcher matcher = CHERRY_PICKED_FROM.matcher(line);
+            if (matcher.matches()) {
+                found = matcher.group(1);
+            }
+        }
+        return found;
     }
 
     private static String trailer(String body, String key)

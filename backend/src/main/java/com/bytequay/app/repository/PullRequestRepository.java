@@ -445,16 +445,6 @@ public interface PullRequestRepository
     }
 
     /**
-     * Pull requests associated with one commit. Used only when an upstream
-     * squash commit's subject does not carry the conventional {@code (#123)}
-     * suffix needed for its durable {@code Upstream-PR} trailer.
-     */
-    default List<PullRequest> listPullRequestsForCommit(String pat, RepoRef repo, String sha)
-    {
-        throw new UnsupportedOperationException("listPullRequestsForCommit not implemented");
-    }
-
-    /**
      * Creates a new pull request in the given repository.
      * Maps to: POST /repos/{owner}/{repo}/pulls
      */

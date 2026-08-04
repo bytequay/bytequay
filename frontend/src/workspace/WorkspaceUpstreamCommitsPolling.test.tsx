@@ -60,7 +60,7 @@ const repository: WorkspaceRepositoryDto = {
 const commit: UpstreamCommitDto = {
   sha: 'a'.repeat(40), shortSha: 'aaaaaaa', subject: 'Update dependency',
   authorName: 'A', authorEmail: 'a@example.com', authoredAt: null,
-  tags: ['v9.9'], picked: false, upstreamPr: 'upstream/widget#1',
+  tags: ['v9.9'], picked: false,
 };
 
 const snapshot: UpstreamCommitsDto = {
@@ -68,6 +68,78 @@ const snapshot: UpstreamCommitsDto = {
   upstreamRepoFullName: 'upstream/widget', revision: 'master', lastFetchedAt: null,
   indexedCommitCount: 1, notInForkCount: 1, commits: [commit],
 };
+
+describe('UpstreamCherryPicker dry run', () => {
+  it('splits the plan into a picked list and a skipped list that carries reasons', async () => {
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks/preview') {
+        return {
+          pickCount: 2,
+          skipCount: 2,
+          commits: [
+            { sha: 'a1', shortSha: 'a1a1a1a', subject: 'Add null checks', authorName: 'A', pick: true, skipReason: null },
+            { sha: 'b2', shortSha: 'b2b2b2b', subject: 'Bump guava', authorName: 'B', pick: false, skipReason: 'subject starts with "bump"' },
+            { sha: 'c3', shortSha: 'c3c3c3c', subject: 'Update docs', authorName: 'C', pick: true, skipReason: null },
+            { sha: 'd4', shortSha: 'd4d4d4d', subject: 'Old change', authorName: 'D', pick: false, skipReason: 'already in the fork' },
+          ],
+        };
+      }
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
+      commits={[commit]} onClose={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+    await flush();
+
+    // Two separate lists, each counted in its own summary.
+    const picks = document.querySelector('.wu-plan-list.is-pick');
+    const skips = document.querySelector('.wu-plan-list.is-skip');
+    expect(picks?.querySelector('summary')?.textContent).toBe('2 will be cherry-picked');
+    expect(skips?.querySelector('summary')?.textContent).toBe('2 skipped');
+    expect(picks?.querySelectorAll('li')).toHaveLength(2);
+    expect(skips?.querySelectorAll('li')).toHaveLength(2);
+
+    // The skip reason travels with the commit rather than being summarised away.
+    expect(screen.getByText('subject starts with "bump"')).toBeTruthy();
+    expect(screen.getByText('already in the fork')).toBeTruthy();
+
+    // A picked commit must not carry a reason.
+    const picked = screen.getByText('Add null checks').closest('li');
+    expect(picked?.querySelector('em')).toBeNull();
+    expect(picked?.querySelector('code')?.textContent).toBe('a1a1a1a');
+  });
+
+  it('drops a stale plan when a filter changes so it cannot be read as current', async () => {
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [];
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks/preview') {
+        return { pickCount: 1, skipCount: 0, commits: [
+          { sha: 'a1', shortSha: 'a1a1a1a', subject: 'Add null checks', authorName: 'A', pick: true, skipReason: null },
+        ] };
+      }
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
+      commits={[commit]} onClose={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: 'Dry run' }));
+    await flush();
+    expect(screen.getByText('Add null checks')).toBeTruthy();
+
+    fireEvent.change(
+      screen.getByLabelText('Skip commits whose subject contains'),
+      { target: { value: 'docs' } });
+    await flush();
+
+    expect(screen.queryByText('Add null checks')).toBeNull();
+  });
+});
 
 describe('UpstreamCherryPicker durable polling', () => {
   it('rediscovers a running job and retries after a transient read failure', async () => {

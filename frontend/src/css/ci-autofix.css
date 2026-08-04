@@ -344,8 +344,17 @@
 
 /* The shared backdrop pins modals to the top-left; this one is a decision
    dialog, so it sits in the middle of the app window like the other centred
-   modals. Padding keeps it clear of the window chrome on short displays. */
-.wu-upstream-cherry-backdrop { align-items: center; justify-content: center; padding: 24px; z-index: 50; }
+   modals. Padding keeps it clear of the window chrome on short displays.
+   Both selectors are needed: `.workspace-redesign .wu-modal-backdrop` is a
+   two-class rule that outranks a lone `.wu-upstream-cherry-backdrop` no matter
+   what order the sheets load in, and the app shell always carries that class. */
+.wu-modal-backdrop.wu-upstream-cherry-backdrop,
+.workspace-redesign .wu-modal-backdrop.wu-upstream-cherry-backdrop {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 10001;
+}
 /* Capped and scrollable: the body grew a description field and two result
    lists, and without a max-height the dialog ran off the bottom of the window
    and clipped whatever came last. */
@@ -355,10 +364,10 @@
 .wu-upstream-cherry__branch textarea { border: 1px solid #d5dbe1; border-radius: 8px; font: 12px var(--sans, inherit); line-height: 1.5; padding: 8px 11px; resize: vertical; width: 100%; }
 .wu-upstream-cherry__branch textarea:focus { border-color: #0969da; outline: none; }
 .wu-upstream-cherry__branch > span:has(textarea) { display: grid; gap: 4px; }
-.wu-upstream-cherry__filters { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
-.wu-upstream-cherry__filters input { border: 1px solid #d5dbe1; border-radius: 8px; font: 12px ui-monospace, monospace; padding: 7px 11px; }
+.wu-upstream-cherry__filters { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+.wu-upstream-cherry__filters > label { color: #57606a; display: grid; font-size: 10.5px; gap: 4px; min-width: 0; }
+.wu-upstream-cherry__filters input { border: 1px solid #d5dbe1; border-radius: 8px; font: 12px ui-monospace, monospace; min-width: 0; padding: 7px 11px; width: 100%; }
 .wu-upstream-cherry__filters input:focus { border-color: #0969da; outline: none; }
-.wu-upstream-cherry__filters small { color: #8b949e; font-size: 10.5px; grid-column: 1 / -1; }
 .wu-upstream-cherry__dryrun { display: grid; gap: 8px; }
 .wu-upstream-cherry__dryrun > button { background: #fff; border: 1px solid #d5dbe1; border-radius: 7px; cursor: pointer; font-size: 11.5px; font-weight: 600; justify-self: start; padding: 6px 13px; }
 .wu-upstream-cherry__dryrun > button:disabled { color: #8b949e; cursor: default; }

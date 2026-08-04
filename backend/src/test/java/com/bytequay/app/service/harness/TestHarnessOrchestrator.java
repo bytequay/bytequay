@@ -527,6 +527,131 @@ class TestHarnessOrchestrator
     }
 
     @Test
+    void aRejectedDiagnosisEscalatesOnlyItsOwnFailureAndKeepsVerifiedFixups()
+            throws Exception
+    {
+        // A malformed or unusable model response is the single most likely event in
+        // this loop. It must not unwind fixups that already passed verification.
+        Watch watch = watch(WatchStatus.WATCHING, "old", null);
+        when(store.findWatch(watch.id())).thenReturn(Optional.of(watch));
+        when(store.isCycleActive(watch.id(), cycle.id())).thenReturn(true);
+        when(store.updateWatchStatusIfNotStopped(
+                eq(watch.id()), eq(WatchStatus.RUNNING), isNull(), anyLong())).thenReturn(true);
+        when(store.updateWatchHeadAndPoll(
+                eq(watch.id()), eq("new"), eq("feature"), anyLong())).thenReturn(true);
+        when(service.json(any())).thenAnswer(invocation ->
+                mapper.writeValueAsString(invocation.getArgument(0)));
+        FailedJob job = new FailedJob("run", 7, "build", "failure", false, "two failures");
+        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+                "new", "base", "feature", false, false, List.of(job), "build: failure"));
+        when(parser.parse("run", 7, "build", "two failures", BootstrapProfile.empty()))
+                .thenReturn(List.of(
+                        new ParsedFailure("run", 7, "build", "one", null, null,
+                                "first failure", "first failure"),
+                        new ParsedFailure("run", 7, "build", "two", null, null,
+                                "second failure", "second failure")));
+        Failure first = failure("first", "one", "first failure", null);
+        Failure second = failure("second", "two", "second failure", null);
+        when(store.insertFailure(any())).thenReturn(first, second);
+        when(classifier.classify(
+                eq("ws"), eq("acme"), eq("widget"), any(), any(), any(), anyLong()))
+                .thenReturn(new Classification(Bucket.UNKNOWN, null));
+        when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(first, second));
+        Diagnosis firstDiagnosis = diagnosis(
+                "first failure", "build", "agent", "Update first", 0.9);
+        when(diagnosis.diagnose(eq(first), any(), eq("base"), any(), anyLong(), eq("ws"), isNull()))
+                .thenReturn(new DiagnosisOutcome(firstDiagnosis, 10, "{}", 1, "complete"));
+        when(diagnosis.diagnose(eq(second), any(), eq("base"), any(), anyLong(), eq("ws"), isNull()))
+                .thenThrow(new IllegalArgumentException("diagnosis is not valid JSON"));
+        FixResult firstFix = new FixResult(
+                List.of("first.txt"), "Update first", List.of("build"), "agent");
+        when(applier.apply(any(), eq(firstDiagnosis))).thenReturn(firstFix);
+        when(verifier.verify(any(), eq(firstFix), eq(BootstrapProfile.empty()), eq("one")))
+                .thenReturn(new VerifiedFix(
+                        firstFix, new VerificationResult(true, true, List.of(), "passed")));
+        FixupBatch batch = mock(FixupBatch.class);
+        when(gitSafety.beginFixupBatch(
+                any(), eq("base"), eq("origin"), eq("feature"), any(), any()))
+                .thenReturn(batch);
+        when(batch.finish()).thenReturn(new SafetyResult("backup", "original", proof()));
+        when(store.upsertCandidate(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(store.finishHandoff(
+                eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
+                eq("build: failure"), any(), anyLong())).thenReturn(true);
+
+        orchestrator.runCycle(cycle.id());
+
+        // The verified fixup survives and the cycle still hands off cleanly.
+        verify(batch).commitFixup(firstFix.filesChanged(), firstFix.targetSubject());
+        verify(batch).finish();
+        verify(batch, never()).abort();
+        verify(store).finishHandoff(
+                eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
+                eq("build: failure"), any(), anyLong());
+        // The rejected failure is escalated, not silently dropped.
+        verify(store).updateFailure(
+                eq(second.id()), any(), any(), eq(FailureStatus.ESCALATED),
+                any(), any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void aKnowledgeBaseWriteFailureNeverUnwindsACommittedFixup()
+            throws Exception
+    {
+        Watch watch = watch(WatchStatus.WATCHING, "old", null);
+        when(store.findWatch(watch.id())).thenReturn(Optional.of(watch));
+        when(store.isCycleActive(watch.id(), cycle.id())).thenReturn(true);
+        when(store.updateWatchStatusIfNotStopped(
+                eq(watch.id()), eq(WatchStatus.RUNNING), isNull(), anyLong())).thenReturn(true);
+        when(store.updateWatchHeadAndPoll(
+                eq(watch.id()), eq("new"), eq("feature"), anyLong())).thenReturn(true);
+        when(service.json(any())).thenAnswer(invocation ->
+                mapper.writeValueAsString(invocation.getArgument(0)));
+        FailedJob job = new FailedJob("run", 7, "build", "failure", false, "one failure");
+        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+                "new", "base", "feature", false, false, List.of(job), "build: failure"));
+        when(parser.parse("run", 7, "build", "one failure", BootstrapProfile.empty()))
+                .thenReturn(List.of(new ParsedFailure(
+                        "run", 7, "build", "one", null, null, "only failure", "only failure")));
+        Failure only = failure("only", "one", "only failure", null);
+        when(store.insertFailure(any())).thenReturn(only);
+        when(classifier.classify(
+                eq("ws"), eq("acme"), eq("widget"), any(), any(), any(), anyLong()))
+                .thenReturn(new Classification(Bucket.UNKNOWN, null));
+        when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(only));
+        Diagnosis proposed = diagnosis("only failure", "build", "agent", "Update only", 0.9);
+        when(diagnosis.diagnose(eq(only), any(), eq("base"), any(), anyLong(), eq("ws"), isNull()))
+                .thenReturn(new DiagnosisOutcome(proposed, 10, "{}", 1, "complete"));
+        FixResult fix = new FixResult(
+                List.of("only.txt"), "Update only", List.of("build"), "agent");
+        when(applier.apply(any(), eq(proposed))).thenReturn(fix);
+        when(verifier.verify(any(), eq(fix), eq(BootstrapProfile.empty()), eq("one")))
+                .thenReturn(new VerifiedFix(
+                        fix, new VerificationResult(true, true, List.of(), "passed")));
+        FixupBatch batch = mock(FixupBatch.class);
+        when(gitSafety.beginFixupBatch(
+                any(), eq("base"), eq("origin"), eq("feature"), any(), any()))
+                .thenReturn(batch);
+        when(batch.finish()).thenReturn(new SafetyResult("backup", "original", proof()));
+        // Bookkeeping is not in the commit critical path.
+        when(store.upsertCandidate(any()))
+                .thenThrow(new IllegalStateException("candidate identity collided"));
+        when(store.finishHandoff(
+                eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
+                eq("build: failure"), any(), anyLong())).thenReturn(true);
+
+        orchestrator.runCycle(cycle.id());
+
+        verify(batch).commitFixup(fix.filesChanged(), fix.targetSubject());
+        verify(batch).finish();
+        verify(batch, never()).abort();
+        verify(gitSafety, never()).discardTrackedProposal(any(), any());
+        verify(store).finishHandoff(
+                eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
+                eq("build: failure"), any(), anyLong());
+    }
+
+    @Test
     void approvedLearnedRecipeRoutesDeterministicallyWithoutDiagnosis()
             throws Exception
     {

@@ -402,9 +402,29 @@ public class HarnessOrchestrator
                     List<String> unrelated = unrelatedSignatures(allFailures, failure);
                     store.updateFailure(failure.id(), failure.bucketLabel(), failure.ruleId(),
                             FailureStatus.DIAGNOSING, null, null, null, null, now());
-                    DiagnosisOutcome outcome = diagnosis.diagnose(
-                            failure, root, probeResult.baseSha(), unrelated, remaining,
-                            watch.workspaceId(), cycle.steeringText());
+                    DiagnosisOutcome outcome;
+                    try {
+                        outcome = diagnosis.diagnose(
+                                failure, root, probeResult.baseSha(), unrelated, remaining,
+                                watch.workspaceId(), cycle.steeringText());
+                    }
+                    catch (CycleCancelledException cancelled) {
+                        throw cancelled;
+                    }
+                    catch (RuntimeException rejected) {
+                        // A rejected or unusable diagnosis escalates this failure only.
+                        // It must never unwind the batch: fixups already committed in
+                        // this cycle were each independently verified.
+                        String reason = "Diagnosis was rejected: "
+                                + Optional.ofNullable(rejected.getMessage())
+                                        .orElse(rejected.getClass().getSimpleName());
+                        log.info("CI harness cycle {} could not use a diagnosis for {}: {}",
+                                cycle.id(), failure.signature(), reason);
+                        recordEscalation(watch, cycle, failure, reason);
+                        escalatedIds.add(failure.id());
+                        escalationReasons.add(reason);
+                        continue;
+                    }
                     store.addWatchCost(watch.id(), outcome.costMilliUsd(), now());
                     store.addCycleCost(cycle.id(), outcome.costMilliUsd(), now());
                     proposed = outcome.diagnosis();
@@ -482,12 +502,21 @@ public class HarnessOrchestrator
                     long candidateAt = now();
                     String recipeJson = proposed.binding().startsWith("recipe:")
                             ? json(proposed) : null;
-                    Rule candidate = store.upsertCandidate(new Rule(
-                            UUID.randomUUID().toString(), watch.workspaceId(), watch.owner(), watch.repo(),
-                            proposed.signaturePattern(), failure.module(), proposed.bucketLabel(),
-                            proposed.binding(), recipeJson, RuleStatus.CANDIDATE, "agent", 100,
-                            json(List.of(failure.id())), 1, candidateAt, candidateAt, null));
-                    candidateIds.add(candidate.id());
+                    try {
+                        Rule candidate = store.upsertCandidate(new Rule(
+                                UUID.randomUUID().toString(), watch.workspaceId(), watch.owner(), watch.repo(),
+                                proposed.signaturePattern(), failure.module(), proposed.bucketLabel(),
+                                proposed.binding(), recipeJson, RuleStatus.CANDIDATE, "agent", 100,
+                                json(List.of(failure.id())), 1, candidateAt, candidateAt, null));
+                        candidateIds.add(candidate.id());
+                    }
+                    catch (RuntimeException notLearned) {
+                        // Knowledge-base bookkeeping is not in the commit critical path.
+                        // The fixup above is already verified and committed; failing to
+                        // record what it taught us costs a future shortcut, nothing more.
+                        log.warn("CI harness cycle {} could not record a candidate rule for {}",
+                                cycle.id(), failure.signature(), notLearned);
+                    }
                 }
                 completed++;
             }

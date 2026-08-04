@@ -32,7 +32,18 @@ public class HarnessLogParser
     private static final Pattern TEMP_PATH = Pattern.compile("(?:/tmp|/private/tmp|[A-Za-z]:\\\\Temp)[/\\\\]\\S+");
     private static final Pattern TIMESTAMP = Pattern.compile("\\b\\d{4}-\\d{2}-\\d{2}T[\\d:.+-]+Z?\\b");
     private static final Pattern STACK_LINE = Pattern.compile(":\\d+\\)");
+    private static final Pattern ELAPSED = Pattern.compile(
+            "\\b\\d+(?:\\.\\d+)?\\s*(?:ms|s|sec|secs)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern IDENTITY_HASH = Pattern.compile(
+            "(?:@|0x)[0-9a-f]{6,}\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
+    /** GitHub Actions prefixes every raw log line with an RFC3339 timestamp. Left in
+     * place it defeats every {@code startsWith} test below, including the
+     * {@code Caused by:} root-cause walk, so the signature degrades to the outer
+     * wrapper line. Stripped per line, not globally: a timestamp appearing mid-line
+     * is log content and normalization scrubs it instead. */
+    private static final Pattern ACTIONS_LINE_PREFIX = Pattern.compile(
+            "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z\\s");
     private static final Pattern MAVEN_TEST = Pattern.compile("(?:\\[ERROR]\\s+)?([\\w.$]+)(?:#|\\.)([\\w$]+).*?(?:FAILURE|ERROR)", Pattern.CASE_INSENSITIVE);
     private static final Pattern PYTEST_TEST = Pattern.compile("([\\w/.-]+\\.py)::([\\w.-]+)");
     private static final Pattern PATH = Pattern.compile("(?:^|\\s)([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+)(?::\\d+)?");
@@ -43,7 +54,9 @@ public class HarnessLogParser
             return List.of();
         }
         String clean = ANSI.matcher(log).replaceAll("");
-        List<String> lines = clean.lines().toList();
+        List<String> lines = clean.lines()
+                .map(line -> ACTIONS_LINE_PREFIX.matcher(line).replaceFirst(""))
+                .toList();
         Map<String, ParsedFailure> deduped = new LinkedHashMap<>();
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i).strip();
@@ -84,6 +97,11 @@ public class HarnessLogParser
         out = TEMP_PATH.matcher(out).replaceAll("<tmp>");
         out = TIMESTAMP.matcher(out).replaceAll("<ts>");
         out = STACK_LINE.matcher(out).replaceAll(":<n>)");
+        // Both vary per run and appear on essentially every surefire failure line.
+        // Unscrubbed they break the dedupe key and the KB matcher at once, so a
+        // learned rule can never accumulate the hits it needs to graduate.
+        out = ELAPSED.matcher(out).replaceAll("<dur>");
+        out = IDENTITY_HASH.matcher(out).replaceAll("<addr>");
         out = out.replaceAll("\\s+", " ").strip();
         return out.substring(0, Math.min(out.length(), 200));
     }

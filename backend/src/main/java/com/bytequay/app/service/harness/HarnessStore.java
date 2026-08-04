@@ -33,7 +33,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -526,6 +525,11 @@ public class HarnessStore
         if (inserted == 1) {
             return persisted;
         }
+        if (persisted.status() == RuleStatus.RETIRED) {
+            // A human retired this signature. Record nothing and resurrect nothing;
+            // the classifier already ignores retired rules.
+            return persisted;
+        }
         requireConsistentCandidate(persisted, rule);
         jdbc.update("""
                 UPDATE ci_harness_rule SET
@@ -611,13 +615,21 @@ public class HarnessStore
         }
     }
 
+    /**
+     * Guards against two different routings hiding behind one matcher. Deliberately
+     * compares routing only: {@code recipe_json} is a whole serialized {@code Diagnosis}
+     * including free-text {@code rationale} and {@code root_cause}, which differ on every
+     * model call, so comparing it rejected every genuine second sighting of a signature —
+     * the exact event that is supposed to advance a candidate toward promotion. The stored
+     * recipe is the first verified one either way; the UPDATE below never rewrites it.
+     */
     private static void requireConsistentCandidate(Rule persisted, Rule proposed)
     {
+        boolean persistedIsRecipe = persisted.binding().startsWith("recipe:");
         if (!persisted.bucketLabel().equals(proposed.bucketLabel())
-                || !persisted.binding().equals(proposed.binding())
-                || !Objects.equals(persisted.recipeJson(), proposed.recipeJson())) {
+                || persistedIsRecipe != proposed.binding().startsWith("recipe:")) {
             throw new IllegalStateException(
-                    "matching candidate proposals disagree on bucket, binding, or recipe");
+                    "matching candidate proposals disagree on bucket or routing");
         }
     }
 

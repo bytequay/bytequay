@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,6 +43,51 @@ class TestHarnessLogParser
                     assertThat(failure.module()).isEqualTo("module-a");
                     assertThat(failure.signature()).contains("<tmp>", "<ts>", ":<n>)");
                 });
+    }
+
+    @Test
+    void scrubsElapsedTimesAndIdentityHashesButKeepsRealDifferences()
+    {
+        // Both appear on essentially every surefire failure line and vary per run.
+        assertThat(HarnessLogParser.normalize(
+                "testWriterScaling(io.x.TestFoo)  Time elapsed: 0.052 s  <<< FAILURE!"))
+                .isEqualTo(HarnessLogParser.normalize(
+                        "testWriterScaling(io.x.TestFoo)  Time elapsed: 0.071 s  <<< FAILURE!"));
+        assertThat(HarnessLogParser.normalize("expected: <io.x.Row@1f3a9c2b> but was: <io.x.Row@7de4a01f>"))
+                .isEqualTo(HarnessLogParser.normalize("expected: <io.x.Row@9ab2ff31> but was: <io.x.Row@0c1d88ee>"));
+
+        // Over-scrubbing is the opposite failure: two real bugs must not collapse.
+        assertThat(HarnessLogParser.normalize("testAlpha(io.x.TestFoo) Time elapsed: 0.05 s <<< FAILURE!"))
+                .isNotEqualTo(HarnessLogParser.normalize(
+                        "testBeta(io.x.TestFoo) Time elapsed: 0.05 s <<< FAILURE!"));
+        assertThat(HarnessLogParser.normalize("cannot find symbol: method getFoo()"))
+                .isNotEqualTo(HarnessLogParser.normalize("cannot find symbol: method getBar()"));
+        assertThat(HarnessLogParser.normalize("expected:<[5]> but was:<[7]>"))
+                .isNotEqualTo(HarnessLogParser.normalize("expected:<[5]> but was:<[9]>"));
+    }
+
+    @Test
+    void stripsActionsTimestampPrefixSoTheRootCauseWalkStillFires()
+    {
+        String body = """
+                [ERROR] Failed to execute goal on project module-a: Compilation failure
+                Caused by: java.lang.NoSuchMethodError: io.x.Bar.baz()
+                """;
+        String raw = body.lines()
+                .map(line -> "2026-08-04T10:11:12.3456789Z " + line)
+                .collect(Collectors.joining("\n"));
+
+        // Unstripped, every startsWith("caused by:") test misses and the signature
+        // degrades to the outer wrapper line.
+        assertThat(parser.parse("run", 7, "build", raw, profile()))
+                .singleElement()
+                .satisfies(failure -> assertThat(failure.signature())
+                        .contains("NoSuchMethodError")
+                        .doesNotContain("2026-08-04"));
+
+        // The prefixed and unprefixed logs must fingerprint identically.
+        assertThat(parser.parse("run", 7, "build", raw, profile()).getFirst().signature())
+                .isEqualTo(parser.parse("run", 7, "build", body, profile()).getFirst().signature());
     }
 
     private static BootstrapProfile profile()

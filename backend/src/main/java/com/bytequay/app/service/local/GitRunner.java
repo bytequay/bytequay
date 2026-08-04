@@ -937,6 +937,13 @@ public class GitRunner
     {
         requireNonNull(ref, "ref is null");
         requireNonNull(path, "path is null");
+        // A ref is concatenated into a single argv token below, so a leading "-" is
+        // parsed by git as an option rather than a revision. `git show --output=<file>`
+        // is a perfectly good file writer, which would make this read-only helper a
+        // write primitive for any caller that forwards an untrusted ref.
+        if (ref.isBlank() || ref.startsWith("-")) {
+            throw new IllegalArgumentException("ref must not be blank or start with '-'");
+        }
         Path relative = Path.of(path).normalize();
         if (relative.isAbsolute() || relative.startsWith("..")) {
             throw new IllegalArgumentException("path escapes repository");

@@ -96,15 +96,26 @@ public class GitHubActionsProbe
                 // duplicate diagnosis.
                 continue;
             }
+            boolean noEvidence = false;
             if (log.isBlank()) {
                 log = Optional.ofNullable(check.outputSummary())
                         .filter(value -> !value.isBlank())
-                        .orElseGet(() -> Optional.ofNullable(check.outputTitle()).orElse(
-                                "CI log unavailable for " + name + " (" + conclusion + ")"));
+                        .orElseGet(() -> Optional.ofNullable(check.outputTitle())
+                                .filter(value -> !value.isBlank())
+                                .orElse(""));
+                if (log.isBlank()) {
+                    // No log and no output text: an expired artifact, external CI, or a
+                    // job GitHub exposes nothing for. Surface it so the human sees the
+                    // red check, but mark it undiagnosable so it defers instead of
+                    // spending a model call on a placeholder string with no evidence.
+                    noEvidence = true;
+                    log = "CI log unavailable for " + name + " (" + conclusion + ")";
+                }
             }
             failed.add(new FailedJob(
                     runId(check.htmlUrl()), check.githubId() == null ? -1 : check.githubId(),
-                    name, conclusion, profile.infraJobs().contains(name), log));
+                    name, conclusion,
+                    noEvidence || profile.infraJobs().contains(name), log));
         }
         return new ProbeResult(detail.headSha(), detail.baseSha(), detail.headRef(), green, pending,
                 List.copyOf(failed), tail(tail));

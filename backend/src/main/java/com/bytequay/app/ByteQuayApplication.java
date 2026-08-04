@@ -13,6 +13,7 @@
  */
 package com.bytequay.app;
 
+import com.bytequay.app.config.LegacyDatabaseGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -37,6 +38,7 @@ public final class ByteQuayApplication
         Path dbDir = home.resolve("ByteQuay");
         Files.createDirectories(dbDir);
         log.debug("Database directory ready: {}", dbDir);
+        LegacyDatabaseGuard.quarantinePreBaselineDatabase(dbDir.resolve("bytequay.db"));
 
         SpringApplication.run(ByteQuayApplication.class, args);
     }

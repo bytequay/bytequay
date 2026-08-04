@@ -323,6 +323,7 @@ public final class V2StageSteeringRuntime
     public void maintain(Instant now)
     {
         relaunchTurnsThatReportedNoResult();
+        repairBrainReviewsThatReportedNoVerdict();
         for (Request request : store.findPending(SWEEP_LIMIT)) {
             signalCancellation(request);
             attempt(request.id());
@@ -343,6 +344,33 @@ public final class V2StageSteeringRuntime
      * command ids from the stage and predecessor, so a second sweep before the
      * first request is admitted produces the same ids and no duplicate.
      */
+    /**
+     * Offer one repair to a Development Brain review whose verdict did not
+     * parse. The Brain read the code and formed an opinion; it just wrote that
+     * opinion as prose. Reuses the same entry point the user's Retry Brain
+     * review button calls, which is idempotent on its command id.
+     */
+    private void repairBrainReviewsThatReportedNoVerdict()
+    {
+        for (SqliteStageSteeringStore.ParkedBrainReview parked
+                : store.findParkedBrainReviews(SWEEP_LIMIT)) {
+            try {
+                local.retryFailedBrainReview(
+                        parked.taskId(), parked.failedTurnId(), parked.blockerId(),
+                        stableId("brain-review-repair", parked.taskId(),
+                                parked.failedTurnId()),
+                        "automation/brain-review-repair",
+                        "the Brain review did not report a parseable verdict");
+                log.info("Repairing Brain review {} on task {}: {}",
+                        parked.failedTurnId(), parked.taskId(), parked.message());
+            }
+            catch (RuntimeException e) {
+                log.warn("Could not repair Brain review {}: {}",
+                        parked.failedTurnId(), e.toString());
+            }
+        }
+    }
+
     private void relaunchTurnsThatReportedNoResult()
     {
         for (SqliteStageSteeringStore.ParkedResult parked

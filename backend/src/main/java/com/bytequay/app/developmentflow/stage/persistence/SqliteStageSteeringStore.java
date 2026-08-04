@@ -521,6 +521,37 @@ public final class SqliteStageSteeringStore
                 DispatchTicket.RESULT_PROTOCOL_FAILURE_PREFIX + "%", limit);
     }
 
+    /** A Development Brain review parked because its verdict did not parse.
+     *  The Turn reviewed the code; only the report is unusable. */
+    public record ParkedBrainReview(
+            String taskId, String blockerId, String failedTurnId, String message) {}
+
+    public List<ParkedBrainReview> findParkedBrainReviews(int limit)
+    {
+        return jdbc.query("""
+                SELECT blocker.id AS blocker_id, blocker.task_id AS task_id,
+                       json_extract(blocker.payload_json, '$.failedTurnId')
+                           AS failed_turn_id,
+                       json_extract(blocker.payload_json, '$.message') AS message
+                  FROM task_blocker blocker
+                  JOIN tasks task ON task.id = blocker.task_id
+                 WHERE blocker.status = 'OPEN'
+                   AND blocker.blocker_type = 'OPERATION_FAILED'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND json_extract(blocker.payload_json, '$.schema')
+                           = 'DEVELOPMENT_BRAIN_PROTOCOL_FAILURE_V1'
+                   -- Bounded by the caller: it asks for the repair under a
+                   -- command id derived from the failed Turn, so repeat sweeps
+                   -- before the blocker resolves return the same receipt rather
+                   -- than launching a second Turn.
+                 LIMIT ?
+                """,
+                (rs, row) -> new ParkedBrainReview(
+                        rs.getString("task_id"), rs.getString("blocker_id"),
+                        rs.getString("failed_turn_id"), rs.getString("message")),
+                limit);
+    }
+
     public boolean cancellationRequestedFor(String operationId)
     {
         Integer count = jdbc.queryForObject("""

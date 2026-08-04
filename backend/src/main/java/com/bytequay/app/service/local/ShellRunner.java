@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -33,10 +34,12 @@ import java.util.regex.Pattern;
  * tool. The escape-hatch contract is intentionally narrow:
  *
  * <ul>
- *   <li>The command is parsed as space-separated argv — no shell
- *       interpretation. Pipes, redirects, command substitution, and
- *       background forks are refused so the human approving the call
- *       has a clear, parseable cmdline in the prompt.</li>
+ *   <li>The command is parsed as whitespace-separated argv, honouring
+ *       quotes and backslash escapes so a path containing spaces stays
+ *       one argument — no other shell interpretation. Pipes, redirects,
+ *       command substitution, and background forks are refused so the
+ *       human approving the call has a clear, parseable cmdline in the
+ *       prompt.</li>
  *   <li>{@code working dir} is the active task's worktreePath. The
  *       runner won't accept an absolute working dir override; the
  *       agent's reach is fenced to its own task.</li>
@@ -87,8 +90,77 @@ public class ShellRunner
                             + "command substitution / background forks. If you need a "
                             + "pipeline, run each stage separately or use a test runner.");
         }
-        List<String> argv = List.of(command.trim().split("\\s+"));
+        List<String> argv = tokenize(command);
+        if (argv == null) {
+            return Result.refused(
+                    "command has an unterminated quote or a trailing backslash — "
+                            + "quote paths that contain spaces, e.g. "
+                            + "ls \"/Users/me/my repo\".");
+        }
         return runArgv(workingDir, argv, TIMEOUT_SECONDS, MAX_OUTPUT_BYTES);
+    }
+
+    /**
+     * Splits a command into argv on whitespace, keeping {@code "…"},
+     * {@code '…'} and backslash-escaped characters together. Managed
+     * worktrees live under {@code ~/Library/Application Support/ByteQuay},
+     * and a user's own clone can sit anywhere, so a plain whitespace split
+     * tears every such path in half and the child process reports the
+     * fragment as not found.
+     *
+     * <p>ponytail: the escaping rules are POSIX-shaped but not POSIX-exact —
+     * a backslash inside double quotes escapes any character here, where a
+     * real shell only honours a few. That only matters for arguments this
+     * runner's forbidden-operator check already rejects.
+     *
+     * @return the argv, or null when a quote or escape is left open
+     */
+    static List<String> tokenize(String command)
+    {
+        List<String> argv = new ArrayList<>();
+        StringBuilder token = new StringBuilder();
+        boolean started = false;
+        char quote = 0;
+        for (int i = 0; i < command.length(); i++) {
+            char c = command.charAt(i);
+            if (c == '\\' && quote != '\'') {
+                if (i + 1 >= command.length()) {
+                    return null;
+                }
+                token.append(command.charAt(++i));
+                started = true;
+            }
+            else if (quote != 0) {
+                if (c == quote) {
+                    quote = 0;
+                }
+                else {
+                    token.append(c);
+                }
+            }
+            else if (c == '"' || c == '\'') {
+                quote = c;
+                started = true;
+            }
+            else if (Character.isWhitespace(c)) {
+                if (started) {
+                    argv.add(token.toString());
+                    token.setLength(0);
+                    started = false;
+                }
+            }
+            else {
+                token.append(c);
+                started = true;
+            }
+        }
+        if (quote != 0) {
+            return null;
+        }
+        if (started) {
+            argv.add(token.toString());
+        }
+        return argv;
     }
 
     /**

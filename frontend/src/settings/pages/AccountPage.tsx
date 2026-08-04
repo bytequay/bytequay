@@ -194,7 +194,8 @@ function AccountPage() {
               <span className="sv2-danger__title">Reset local test data</span>
               <span className="sv2-danger__desc">
                 Development only. Restarts ByteQuay at first-run setup while keeping
-                bundled system prompts and required managed tools and skills.
+                your saved credentials, bundled system prompts and required managed
+                tools and skills.
               </span>
             </span>
             {reset !== 'asking' && (
@@ -210,7 +211,7 @@ function AccountPage() {
           </div>
           {reset === 'asking' && (
             <div className="sv2-danger__confirm">
-              <span>This clears credentials, workspaces and cached PRs on this Mac. It can’t be undone.</span>
+              <span>This clears workspaces and cached PRs on this Mac. It can’t be undone.</span>
               <button className="sv2-btn sv2-btn--sm" type="button" onClick={() => setReset('idle')}>Cancel</button>
               <button className="sv2-btn sv2-btn--danger-solid" type="button" onClick={() => { void resetLocalData(); }}>
                 Yes, reset

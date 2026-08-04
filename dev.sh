@@ -16,6 +16,7 @@ set -m
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PORT=53123
+APP_DB="$HOME/Library/Application Support/ByteQuay/bytequay.db"
 DEV_RESET_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-dev-reset.XXXXXX")" || {
   echo "[dev] error: could not create reset control directory"
   exit 1
@@ -145,6 +146,25 @@ wait_for_backend() {
   return 1
 }
 
+# A reset stashes the pre-reset database (see scripts/reset-dev-data.sh) so
+# saved credentials outlive it. The rows can only go back once Flyway has
+# rebuilt the schema, which is why this runs after the backend is up rather
+# than during the wipe itself.
+restore_saved_credentials() {
+  local saved="${BYTEQUAY_DEV_RESET_KEEP_DIR:-}"
+  unset BYTEQUAY_DEV_RESET_KEEP_DIR
+  [[ -n "$saved" && -f "$saved/bytequay.db" ]] || return 0
+  if sqlite3 "$APP_DB" \
+      "ATTACH DATABASE '$saved/bytequay.db' AS saved;
+       INSERT INTO credentials SELECT * FROM saved.credentials;
+       DETACH DATABASE saved;"; then
+    echo "[dev] restored saved credentials"
+  else
+    echo "[dev] warning: saved credentials could not be restored — re-enter them in Settings"
+  fi
+  rm -rf -- "$saved"
+}
+
 if ! command -v mvn >/dev/null 2>&1; then
   echo "[dev] error: 'mvn' not found on PATH. Install Maven (brew install maven) or open the backend in IntelliJ."
   exit 1
@@ -196,6 +216,8 @@ if ! wait_for_backend; then
   exit 1
 fi
 
+restore_saved_credentials
+
 echo "[dev] starting frontend (Electron + Vite)..."
 # Background the frontend and wait on it explicitly. A bash `wait` is
 # interrupted by a trapped signal right away, so Ctrl+C runs cleanup()
@@ -225,10 +247,14 @@ if [[ "$reset_requested" == "1" ]]; then
     exit 1
   fi
   echo "[dev] clearing local ByteQuay user data..."
-  if BYTEQUAY_DEV_RESET_CONFIRMED=1 "$ROOT/scripts/reset-dev-data.sh"; then
+  keep_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-dev-keep.XXXXXX")" || keep_dir=""
+  [[ -n "$keep_dir" ]] && chmod 700 "$keep_dir"
+  if BYTEQUAY_DEV_RESET_CONFIRMED=1 BYTEQUAY_DEV_RESET_KEEP_DIR="$keep_dir" \
+      "$ROOT/scripts/reset-dev-data.sh"; then
     echo "[dev] reset complete — restarting with first-run state"
-    exec "$ROOT/dev.sh"
+    exec env BYTEQUAY_DEV_RESET_KEEP_DIR="$keep_dir" "$ROOT/dev.sh"
   fi
+  rm -rf -- "$keep_dir"
   exit 1
 fi
 

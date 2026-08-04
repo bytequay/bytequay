@@ -11,17 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// eslint-disable-next-line import/no-unresolved -- subpath export, resolves at runtime
-import { defineConfig } from 'vitest/config';
+import { afterEach } from 'vitest';
+import { clearIdCaches } from './threads/brain/idCache';
 
-export default defineConfig({
-  test: {
-    // jsdom for every spec — lets component / render tests use
-    // `document` and `window` without a per-file
-    // `@vitest-environment jsdom` directive (which is fragile because
-    // the directive must live in the first comment block, where the
-    // license header now sits).
-    environment: 'jsdom',
-    setupFiles: ['./src/testSetup.ts'],
-  },
-});
+// Module state outlives a single case. The stale-while-revalidate caches
+// key on task / stage / thread ids, and specs reuse those ids across
+// cases, so without this a case can render the previous case's snapshot
+// while its own fetch is still in flight.
+afterEach(() => { clearIdCaches(); });

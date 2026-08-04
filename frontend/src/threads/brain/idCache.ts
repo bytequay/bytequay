@@ -28,10 +28,24 @@ export type IdCache<T> = {
  * space here is small (the stages of a task, the tasks of a thread) and
  * entries are cheap snapshots.
  */
+const stores: Map<string, unknown>[] = [];
+
 export function makeIdCache<T>(): IdCache<T> {
   const store = new Map<string, T>();
+  stores.push(store as Map<string, unknown>);
   return {
     get: (id: string) => store.get(id),
     set: (id: string, value: T) => { store.set(id, value); },
   };
+}
+
+/**
+ * Empties every cache. Process lifetime is one app run in production, but
+ * one whole spec file under the test runner: a snapshot cached under an id
+ * in one case would otherwise paint synchronously in the next case that
+ * reuses that id, before its own fetch resolves. Called from the shared
+ * test setup, not from app code.
+ */
+export function clearIdCaches(): void {
+  stores.forEach(store => store.clear());
 }

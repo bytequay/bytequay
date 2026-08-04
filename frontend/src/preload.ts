@@ -578,6 +578,10 @@ const bridge: Bridge = {
   getGitHubOAuthConnection: (): Promise<{ connected: boolean; login?: string }> =>
     ipcRenderer.invoke('githubOAuth:connection'),
   disconnectGitHubOAuth: (): Promise<void> => ipcRenderer.invoke('githubOAuth:disconnect'),
+  getGitHubCliAvailable: (): Promise<{ available: boolean }> =>
+    ipcRenderer.invoke('githubCli:available'),
+  importGitHubCliToken: (): Promise<{ login: string }> =>
+    ipcRenderer.invoke('githubCli:import'),
   onGitHubOauthComplete: (callback: (payload: { success: boolean; error?: string; login?: string }) => void) => {
     const listener = (_event: unknown, payload: { success: boolean; error?: string; login?: string }) => callback(payload);
     ipcRenderer.on('github:oauth-complete', listener);

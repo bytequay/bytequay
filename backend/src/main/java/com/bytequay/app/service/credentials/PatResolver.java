@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.service.credentials;
 
+import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.github.GhCliService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,7 +35,8 @@ import static java.util.Objects.requireNonNull;
  *   <li>(REPO, {@code "owner/repo"}) — when a repo slug is provided and a
  *       per-repo token exists.</li>
  *   <li>(ACCOUNT, {@code "github"}) — the account-level token, used for
- *       cross-repo and account-scoped calls.</li>
+ *       cross-repo and account-scoped calls. When that slot was filled
+ *       from the GitHub CLI, gh's live token wins over the stored copy.</li>
  * </ol>
  * Throws 401 if no usable token is configured.
  */
@@ -41,10 +44,12 @@ import static java.util.Objects.requireNonNull;
 public class PatResolver
 {
     private final CredentialService credentialService;
+    private final GhCliService ghCli;
 
-    public PatResolver(CredentialService credentialService)
+    public PatResolver(CredentialService credentialService, GhCliService ghCli)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.ghCli = requireNonNull(ghCli, "ghCli is null");
     }
 
     /** Resolves the account-level PAT (no per-repo override considered). */
@@ -68,10 +73,34 @@ public class PatResolver
             }
         }
 
-        return credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
-                .filter(value -> isNotBlank(value))
+        return liveGhCliToken()
+                .or(this::storedAccountToken)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(401),
                         "GitHub PAT not configured. Add it in Settings → GitHub token."));
+    }
+
+    /**
+     * When the account slot was filled from the GitHub CLI, the stored value
+     * is only a copy — gh owns the real one. Reading gh's live token (cached
+     * by {@link GhCliService}) means a {@code gh auth login} rotation heals
+     * itself instead of 401-ing until the user re-imports.
+     *
+     * <p>Empty for PAT- and OAuth-sourced slots, and when gh has since been
+     * uninstalled or logged out; both fall through to the stored copy.
+     */
+    private Optional<String> liveGhCliToken()
+    {
+        return credentialService.get(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
+                .map(Credential::configJson)
+                .filter(GhCliService.SOURCE_MARKER::equals)
+                .flatMap(marker -> ghCli.currentToken())
+                .filter(value -> isNotBlank(value));
+    }
+
+    private Optional<String> storedAccountToken()
+    {
+        return credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
+                .filter(value -> isNotBlank(value));
     }
 }

@@ -35,6 +35,7 @@ import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.GitHubResponseCache;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
@@ -506,7 +507,7 @@ class TestAiReviewService
 
         private FixedPatResolver(String token)
         {
-            super(Mockito.mock(CredentialService.class));
+            super(Mockito.mock(CredentialService.class), Mockito.mock(GhCliService.class));
             this.token = token;
         }
 

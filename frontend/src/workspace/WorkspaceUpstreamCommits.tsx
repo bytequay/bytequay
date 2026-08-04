@@ -14,6 +14,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   workspaceApi,
+  type CherryPickPlanDto,
+  type PlannedCommitDto,
   type UpstreamCherryPickJobDto,
   type UpstreamCommitDto,
   type UpstreamCommitsDto,
@@ -78,18 +80,31 @@ export function UpstreamCommitHistory({ rows, query, loading, range, rangeExpand
   );
 }
 
-export function UpstreamCherryPicker({ workspaceId, repo, snapshot, commits, onClose, onOpenHarness }: {
+export function UpstreamCherryPicker({
+  workspaceId, repo, snapshot, commits, fromSha, toSha, onClose, onOpenHarness,
+}: {
   workspaceId: string;
   repo: WorkspaceRepositoryDto;
   snapshot: UpstreamCommitsDto;
   commits: UpstreamCommitDto[];
+  /** When set, the range is resolved server-side and may reach commits the
+   *  list has not loaded. Takes precedence over the checkbox selection. */
+  fromSha?: string;
+  toSha?: string;
   onClose: () => void;
   onOpenHarness?: (watchId?: string) => void;
 }) {
+  const byRange = fromSha !== undefined && toSha !== undefined;
   const [targetBranch, setTargetBranch] = useState(() => suggestedTarget(snapshot, commits));
   const [openDraftPr, setOpenDraftPr] = useState(true);
   const [createHarnessWatch, setCreateHarnessWatch] = useState(true);
   const [budgetUsd, setBudgetUsd] = useState('5.00');
+  const [prDescription, setPrDescription] = useState('');
+  const [skipStartsWith, setSkipStartsWith] = useState('');
+  const [skipContains, setSkipContains] = useState('');
+  const [plan, setPlan] = useState<CherryPickPlanDto | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [planError, setPlanError] = useState<string | null>(null);
   const [job, setJob] = useState<UpstreamCherryPickJobDto | null>(null);
   const [discoveringJob, setDiscoveringJob] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -142,6 +157,30 @@ export function UpstreamCherryPicker({ workspaceId, repo, snapshot, commits, onC
     };
   }, [job, workspaceId]);
 
+  const startsWithTerms = splitTerms(skipStartsWith);
+  const containsTerms = splitTerms(skipContains);
+  const selection = byRange
+    ? { fromSha, toSha, skipStartsWith: startsWithTerms, skipContains: containsTerms }
+    : {
+      shas: commits.map(commit => commit.sha),
+      skipStartsWith: startsWithTerms,
+      skipContains: containsTerms,
+    };
+  // The plan is only valid for the filters it was run with; editing either box
+  // clears it so a stale preview can never be mistaken for the current one.
+  useEffect(() => { setPlan(null); setPlanError(null); }, [skipStartsWith, skipContains]);
+
+  const runDryRun = () => {
+    setPlanning(true);
+    setPlanError(null);
+    void workspaceApi.previewUpstreamCherryPick(workspaceId, {
+      sourceBranch: snapshot.revision,
+      ...selection,
+    }).then(setPlan)
+      .catch(reason => setPlanError(errorMessage(reason)))
+      .finally(() => setPlanning(false));
+  };
+
   return (
     <div className="wu-modal-backdrop wu-upstream-cherry-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="wu-upstream-cherry" role="dialog" aria-modal="true" aria-labelledby="upstream-cherry-title"
@@ -151,15 +190,49 @@ export function UpstreamCherryPicker({ workspaceId, repo, snapshot, commits, onC
         {job === null ? (
           <div className="wu-upstream-cherry__body">
             <div className="wu-upstream-cherry__summary">
-              <strong>{commits.length} commits from {snapshot.upstreamWorkspaceName}/{snapshot.revision}</strong>
-              <code>{commits[0]?.shortSha}…{commits.at(-1)?.shortSha}</code>
-              <span>{skipped} already in {repo.repo} will be <b>skipped</b>.</span>
+              <strong>{byRange
+                ? `Range from ${snapshot.upstreamWorkspaceName}/${snapshot.revision}`
+                : `${commits.length} commits from ${snapshot.upstreamWorkspaceName}/${snapshot.revision}`}</strong>
+              <code>{byRange
+                ? `${fromSha?.slice(0, 10)}…${toSha?.slice(0, 10)}`
+                : `${commits[0]?.shortSha}…${commits.at(-1)?.shortSha}`}</code>
+              <span>{byRange
+                ? 'Run a dry run to see the resolved commits.'
+                : <>{skipped} already in {repo.repo} will be <b>skipped</b>.</>}</span>
             </div>
             <label className="wu-upstream-cherry__branch">
               <strong>TARGET BRANCH</strong>
               <span><input value={targetBranch} onChange={event => setTargetBranch(event.target.value)} />
                 <small>new branch from <code>{repo.fullName}/{defaultBranch(repo)}</code></small></span>
             </label>
+            <label className="wu-upstream-cherry__branch">
+              <strong>SKIP COMMITS WHOSE SUBJECT…</strong>
+              <span className="wu-upstream-cherry__filters">
+                <input aria-label="Skip commits whose subject starts with"
+                  placeholder="starts with — e.g. Bump, Revert:"
+                  value={skipStartsWith} onChange={event => setSkipStartsWith(event.target.value)} />
+                <input aria-label="Skip commits whose subject contains"
+                  placeholder="contains — e.g. dependabot"
+                  value={skipContains} onChange={event => setSkipContains(event.target.value)} />
+                <small>comma-separated · case-insensitive · matched on the subject line</small>
+              </span>
+            </label>
+            <div className="wu-upstream-cherry__dryrun">
+              <button type="button" onClick={runDryRun} disabled={planning}>
+                {planning ? 'Checking…' : 'Dry run'}
+              </button>
+              {plan === null
+                ? <small>See exactly which commits will be picked and which skipped.</small>
+                : (
+                  <div className="wu-upstream-cherry__plan">
+                    <PlanList label="will be cherry-picked" tone="pick" defaultOpen
+                      rows={plan.commits.filter(entry => entry.pick)} />
+                    <PlanList label="skipped" tone="skip"
+                      rows={plan.commits.filter(entry => !entry.pick)} />
+                  </div>
+                )}
+              {planError !== null && <span className="wu-form-error">{planError}</span>}
+            </div>
             <CherryOption label="Open a draft PR"
               detail={`${repo.fullName}/${defaultBranch(repo)} ← ${targetBranch || 'new branch'} · one Upstream-PR trailer per pick.`}
               checked={openDraftPr} onChange={value => {
@@ -174,7 +247,16 @@ export function UpstreamCherryPicker({ workspaceId, repo, snapshot, commits, onC
                 onChange={event => setBudgetUsd(event.target.value)} /></label>}
               onChange={setCreateHarnessWatch} />
             {!budgetValid && <span className="wu-form-error">Harness budget must be $0.10–$100.00.</span>}
-            <p className="wu-upstream-cherry__guard">⌾ Runs in your checkout · backup ref before history rewrites · conflicts pause for you.</p>
+            {openDraftPr && (
+              <label className="wu-upstream-cherry__branch">
+                <strong>PULL REQUEST DESCRIPTION</strong>
+                <span><textarea rows={4} value={prDescription}
+                  placeholder="Why this bump, what reviewers should watch for…"
+                  onChange={event => setPrDescription(event.target.value)} />
+                  <small>optional · provenance and trailers are appended automatically</small></span>
+              </label>
+            )}
+            <p className="wu-upstream-cherry__guard">⌾ Runs in an app-owned worktree, never your checkout · backup ref before history rewrites · conflicts pause for you.</p>
             {error !== null && <span className="wu-form-error">{error}</span>}
           </div>
         ) : (
@@ -206,7 +288,8 @@ export function UpstreamCherryPicker({ workspaceId, repo, snapshot, commits, onC
                 void workspaceApi.createUpstreamCherryPick(workspaceId, {
                   sourceBranch: snapshot.revision,
                   targetBranch: targetBranch.trim(),
-                  shas: commits.map(commit => commit.sha),
+                  ...selection,
+                  prDescription: prDescription.trim() === '' ? null : prDescription.trim(),
                   openDraftPr,
                   createHarnessWatch,
                   budgetMilliUsd: createHarnessWatch ? Math.round(parsedBudget * 1000) : null,
@@ -294,6 +377,37 @@ export function rangeLabel(
     ? inRangeOldestTag : olderBoundary?.tags[0];
   return newestTag !== undefined && oldestTag !== undefined && newestTag !== oldestTag
     ? `${oldestTag} → ${newestTag}` : 'contiguous range';
+}
+
+function PlanList({ label, tone, rows, defaultOpen = false }: {
+  label: string;
+  tone: 'pick' | 'skip';
+  rows: PlannedCommitDto[];
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className={`wu-plan-list is-${tone}`} open={defaultOpen && rows.length > 0}>
+      <summary><b>{rows.length}</b> {label}</summary>
+      {rows.length === 0
+        ? <p className="wu-plan-list__empty">None.</p>
+        : (
+          <ul>
+            {rows.map(entry => (
+              <li key={entry.sha}>
+                <code>{entry.shortSha}</code>
+                <span title={entry.subject}>{entry.subject}</span>
+                {entry.skipReason !== null && <em>{entry.skipReason}</em>}
+              </li>
+            ))}
+          </ul>
+        )}
+    </details>
+  );
+}
+
+/** Comma-separated filter terms; blanks dropped so an empty box filters nothing. */
+function splitTerms(value: string): string[] {
+  return value.split(',').map(term => term.trim()).filter(term => term.length > 0);
 }
 
 function suggestedTarget(snapshot: UpstreamCommitsDto, commits: UpstreamCommitDto[]): string {

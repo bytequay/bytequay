@@ -96,7 +96,7 @@ class TestUpstreamCherryPickService
                 "fork-ws",
                 new UpstreamCherryPickService.StartRequest(
                         "main", "same-pr-pick", List.of(first, second),
-                        false, false, null));
+                        null, null, null, null, null, false, false, null));
         UpstreamCherryPickService.UpstreamCherryPickJobDto completed = awaitStatus(
                 service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
 
@@ -227,7 +227,7 @@ class TestUpstreamCherryPickService
                 "fork-ws",
                 new UpstreamCherryPickService.StartRequest(
                         null, "release-pick", List.of("commit-1"),
-                        false, false, null)))
+                        null, null, null, null, null, false, false, null)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("not associated with a pull request");
 
@@ -286,7 +286,7 @@ class TestUpstreamCherryPickService
                 "fork-ws",
                 new UpstreamCherryPickService.StartRequest(
                         null, "release-pick", List.of("commit-1"),
-                        false, false, null)))
+                        null, null, null, null, null, false, false, null)))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
                     assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
                     assertThat(failure.getReason()).contains("already exists");
@@ -695,6 +695,9 @@ class TestUpstreamCherryPickService
                     pr_url TEXT,
                     harness_watch_id TEXT,
                     error_message TEXT,
+                    pr_description TEXT,
+                    skip_filters_json TEXT NOT NULL
+                        DEFAULT '{"startsWith":[],"contains":[]}',
                     created_at_ms INTEGER NOT NULL,
                     updated_at_ms INTEGER NOT NULL)
                 """);

@@ -367,6 +367,30 @@ export type UpstreamCommitsDto = {
   commits: UpstreamCommitDto[];
 };
 
+/** A selection is either an explicit sha list or an inclusive from/to range. */
+export type UpstreamCherryPickSelection = {
+  shas?: string[];
+  fromSha?: string | null;
+  toSha?: string | null;
+  skipStartsWith?: string[];
+  skipContains?: string[];
+};
+
+export type PlannedCommitDto = {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  authorName: string;
+  pick: boolean;
+  skipReason: string | null;
+};
+
+export type CherryPickPlanDto = {
+  commits: PlannedCommitDto[];
+  pickCount: number;
+  skipCount: number;
+};
+
 export type UpstreamCherryPickJobDto = {
   jobId: string;
   status: 'QUEUED' | 'RUNNING' | 'PAUSED_CONFLICT' | 'COMPLETED' | 'FAILED';
@@ -1005,12 +1029,20 @@ export const workspaceApi = {
         revision === undefined ? '' : `revision=${enc(revision)}&`
       }limit=${limit}`,
     }),
+  previewUpstreamCherryPick: (
+    workspaceId: string,
+    input: UpstreamCherryPickSelection & { sourceBranch: string },
+  ) => window.bridge.workspaceApi<CherryPickPlanDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/preview`,
+    method: 'POST',
+    body: input,
+  }),
   createUpstreamCherryPick: (
     workspaceId: string,
-    input: {
+    input: UpstreamCherryPickSelection & {
       sourceBranch: string;
       targetBranch: string;
-      shas: string[];
+      prDescription: string | null;
       openDraftPr: boolean;
       createHarnessWatch: boolean;
       budgetMilliUsd: number | null;

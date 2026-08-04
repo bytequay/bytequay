@@ -3494,6 +3494,12 @@ export type Bridge = {
   /** Connection-state snapshot for the OAuth-stored token. */
   getGitHubOAuthConnection: () => Promise<{ connected: boolean; login?: string }>;
   disconnectGitHubOAuth: () => Promise<void>;
+  /** Whether a `gh` binary is on disk. Says nothing about whether the user
+   *  is logged in to it — that only surfaces when the import runs. */
+  getGitHubCliAvailable: () => Promise<{ available: boolean }>;
+  /** Stores the token `gh` already holds in the same slot the PAT/OAuth
+   *  paths use. Rejects with gh's own message when it can't produce one. */
+  importGitHubCliToken: () => Promise<{ login: string }>;
   /** Subscribes to OAuth-callback completions. Fires after GitHub redirects
    *  to bytequay://github-oauth-callback and the backend has exchanged the
    *  code. Returns a teardown that removes the listener. */

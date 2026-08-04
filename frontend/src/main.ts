@@ -3565,6 +3565,25 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // Alternative to the OAuth dance for orgs that block PATs but have
+  // approved the GitHub CLI: import the token `gh` already holds. Lands
+  // in the same Keychain slot, so nothing downstream cares.
+  ipcMain.handle('githubCli:available', async (): Promise<{ available: boolean }> => {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/github/cli`);
+    if (!res.ok) throw new Error(`backend /api/auth/github/cli returned ${res.status}`);
+    return (await res.json()) as { available: boolean };
+  });
+
+  ipcMain.handle('githubCli:import', async (): Promise<{ login: string }> => {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/github/cli/import`, { method: 'POST' });
+    const body = (await res.json().catch((): null => null)) as { login?: string; message?: string } | null;
+    if (!res.ok || !body?.login) {
+      // Spring's error body carries gh's own guidance ("please run: gh auth login").
+      throw new Error(body?.message ?? `backend /api/auth/github/cli/import returned ${res.status}`);
+    }
+    return { login: body.login };
+  });
+
   ipcMain.handle('githubOAuth:disconnect', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/auth/github/disconnect`, { method: 'POST' });
     if (!res.ok) throw new Error(`backend /api/auth/github/disconnect returned ${res.status}`);

@@ -31,8 +31,10 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.github.GhCliService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -426,7 +428,8 @@ class TestLocalRepoServiceManagedClone
 
         FixedPatResolver(String token)
         {
-            super(new CredentialService(new EmptyCredentialStore(), new MemoryAppSettingsStore()));
+            super(new CredentialService(new EmptyCredentialStore(), new MemoryAppSettingsStore()),
+                    Mockito.mock(GhCliService.class));
             this.token = token;
         }
 

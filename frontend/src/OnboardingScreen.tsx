@@ -39,6 +39,10 @@ export default function OnboardingScreen({ onSaved }: Props) {
   const [patState, setPatState] = useState<'idle' | 'saving' | 'error'>('idle');
   const [patError, setPatError] = useState<string | null>(null);
 
+  const [ghAvailable, setGhAvailable] = useState(false);
+  const [ghState, setGhState] = useState<'idle' | 'importing' | 'error'>('idle');
+  const [ghError, setGhError] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -53,6 +57,20 @@ export default function OnboardingScreen({ onSaved }: Props) {
         if (cancelled) return;
         setOauthConfigured(false);
         setShowPat(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await window.bridge.getGitHubCliAvailable();
+        if (!cancelled) setGhAvailable(res.available);
+      }
+      catch {
+        if (!cancelled) setGhAvailable(false);
       }
     })();
     return () => { cancelled = true; };
@@ -92,6 +110,21 @@ export default function OnboardingScreen({ onSaved }: Props) {
     catch (e) {
       setOauthStatus('error');
       setOauthError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const importGhCli = async () => {
+    if (ghState === 'importing') return;
+    setGhState('importing');
+    setGhError(null);
+    try {
+      await window.bridge.importGitHubCliToken();
+      setGhState('idle');
+      onSaved();
+    }
+    catch (e) {
+      setGhState('error');
+      setGhError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -159,6 +192,26 @@ export default function OnboardingScreen({ onSaved }: Props) {
               >
                 Use a personal access token instead
               </button>
+            )}
+          </div>
+        )}
+
+        {ghAvailable && (
+          <div className="onboarding__oauth">
+            <button
+              type="button"
+              className="onboarding__cta onboarding__cta--secondary"
+              onClick={() => { void importGhCli(); }}
+              disabled={ghState === 'importing'}
+            >
+              {ghState === 'importing' ? 'Reading gh credentials…' : 'Use my GitHub CLI login'}
+            </button>
+            <p className="onboarding__hint">
+              Reuses the token <code>gh</code> already holds — handy when your org
+              blocks personal access tokens but allows the GitHub CLI.
+            </p>
+            {ghState === 'error' && ghError && (
+              <div className="onboarding__error" role="alert">{ghError}</div>
             )}
           </div>
         )}

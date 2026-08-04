@@ -33,6 +33,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -58,6 +60,16 @@ import static java.util.Objects.requireNonNull;
 public final class V2StageSteeringRuntime
         implements V2StageSteeringControl, ExecutionPorts.MaintenanceWork
 {
+    private static final Logger log =
+            LoggerFactory.getLogger(V2StageSteeringRuntime.class);
+    /** Sent with an automatic replacement so the agent knows its edits survive. */
+    private static final String MISSING_RESULT_STEER =
+            "Your previous attempt finished its work but ended without calling "
+                    + "record_development_result, so the Turn could not be "
+                    + "accepted. The edits it made are already committed in this "
+                    + "worktree — inspect them with git rather than redoing the "
+                    + "work, then call record_development_result to report them.";
+
     /** Reads and rewrites a structured Plan revision when the user steers it. */
     private static final ObjectMapper STEERING_JSON = new ObjectMapper();
     private static final String ACTOR = "user";
@@ -310,9 +322,44 @@ public final class V2StageSteeringRuntime
     @Override
     public void maintain(Instant now)
     {
+        relaunchTurnsThatReportedNoResult();
         for (Request request : store.findPending(SWEEP_LIMIT)) {
             signalCancellation(request);
             attempt(request.id());
+        }
+    }
+
+    /**
+     * Offer one replacement to a Local Development Turn that finished its work
+     * but never reported it.
+     *
+     * <p>The Turn's edits are committed in the worktree; only the report is
+     * missing, and without it the Stage cannot advance. This asks for exactly
+     * what the user's own Retry asks for — a CANCEL_AND_REPLACE against the
+     * parked predecessor — so the replacement runs through the same reviewed
+     * path rather than a second one built for automation.
+     *
+     * <p>Idempotent by construction: {@link #steer} derives the request and
+     * command ids from the stage and predecessor, so a second sweep before the
+     * first request is admitted produces the same ids and no duplicate.
+     */
+    private void relaunchTurnsThatReportedNoResult()
+    {
+        for (SqliteStageSteeringStore.ParkedResult parked
+                : store.findParkedMissingResults(SWEEP_LIMIT)) {
+            try {
+                steer(parked.taskId(), parked.stageId(), MISSING_RESULT_STEER,
+                        List.of(), Mode.CANCEL_AND_REPLACE, parked.turnId());
+                log.info("Relaunching Local Development Turn {} on stage {}: "
+                                + "it finished without reporting a result ({})",
+                        parked.turnId(), parked.stageId(), parked.error());
+            }
+            catch (RuntimeException e) {
+                // One unhealthy row must not stop the rest of the sweep; the
+                // Turn stays parked and the user can still replace it by hand.
+                log.warn("Could not relaunch Local Development Turn {}: {}",
+                        parked.turnId(), e.toString());
+            }
         }
     }
 

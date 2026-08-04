@@ -475,6 +475,52 @@ public final class SqliteStageSteeringStore
         return ready != null && ready == 1;
     }
 
+    /** A Local Development Turn parked because it reported no result, and that
+     *  nothing has replaced yet. The flow cannot advance past one of these on
+     *  its own, so the sweep offers it a single automatic replacement. */
+    public record ParkedResult(
+            String taskId, String stageId, String turnId, String error) {}
+
+    public List<ParkedResult> findParkedMissingResults(int limit)
+    {
+        return jdbc.query("""
+                SELECT stage.task_id AS task_id, turn.stage_id AS stage_id,
+                       turn.id AS turn_id, ticket.last_error AS last_error
+                  FROM stage_turn turn
+                  JOIN stage ON stage.id = turn.stage_id
+                  JOIN dispatch_ticket ticket ON ticket.owner_id = turn.id
+                 WHERE stage.kind = 'LOCAL_DEVELOPMENT'
+                   AND stage.completed_at_ms IS NULL
+                   AND ticket.owner_kind = 'STAGE_TURN'
+                   AND ticket.callback_route = 'STAGE_TURN_RESULT'
+                   AND ticket.status = 'RESULT_PENDING'
+                   AND ticket.pending_result_outcome = 'SUCCEEDED'
+                   AND ticket.delivery_acceptance IS NULL
+                   -- Parked by the delivery cap, not merely waiting to retry.
+                   AND ticket.next_attempt_at_ms IS NULL
+                   AND ticket.last_error LIKE ?
+                   -- One automatic replacement. An agent that skipped the tool
+                   -- twice will skip it again; the second park waits for a human.
+                   AND turn.attempt = 1
+                   AND NOT EXISTS (SELECT 1
+                         FROM local_stage_turn_delivery_receipt receipt
+                        WHERE receipt.stage_turn_id = turn.id)
+                   AND NOT EXISTS (SELECT 1
+                         FROM stage_steering_request_v257 request
+                        WHERE request.predecessor_operation_id = turn.operation_id
+                          AND request.mode = 'CANCEL_AND_REPLACE')
+                   AND NOT EXISTS (SELECT 1 FROM stage_turn later
+                        WHERE later.stage_id = turn.stage_id
+                          AND later.stage_generation = turn.stage_generation
+                          AND later.rowid > turn.rowid)
+                 LIMIT ?
+                """,
+                (rs, row) -> new ParkedResult(
+                        rs.getString("task_id"), rs.getString("stage_id"),
+                        rs.getString("turn_id"), rs.getString("last_error")),
+                DispatchTicket.RESULT_PROTOCOL_FAILURE_PREFIX + "%", limit);
+    }
+
     public boolean cancellationRequestedFor(String operationId)
     {
         Integer count = jdbc.queryForObject("""

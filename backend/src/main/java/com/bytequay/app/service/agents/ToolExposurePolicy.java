@@ -113,10 +113,19 @@ public class ToolExposurePolicy
             // reaches tools/list and every review fails unreported.
             "record_development_verdict"));
 
+    /**
+     * The remote CI and branch-sync Brain reviews. They share the Task Brain
+     * catalog but not its result contract: they still report by formatting JSON
+     * into their final message, and nothing reads a recorded verdict for them.
+     * record_development_verdict is withheld until their delivery reads the row
+     * — offering a tool whose result is discarded is worse than not offering it,
+     * because the review looks accepted and is not.
+     */
     private static final Set<String> V2_AUTOMATIC_TASK_BRAIN = Set.copyOf(
             V2_TASK_BRAIN.stream()
                     .filter(tool -> !Set.of(
-                            "approval_prompt", "ask_user_question").contains(tool))
+                            "approval_prompt", "ask_user_question",
+                            "record_development_verdict").contains(tool))
                     .toList());
 
     private static final Set<String> V2_LOCAL_DEVELOPMENT = union(V2_COMMON, Set.of(

@@ -151,16 +151,25 @@ class TestAgentDevelopmentE2E
         // real MCP, and delivery read that row rather than its final message.
         // Without this the test passes on a git commit alone and says nothing
         // about the result contract — which is how it kept passing while the
-        // contract it claimed to cover was replaced underneath it.
-        assertThat(jdbc.queryForObject("""
-                SELECT implemented_intent FROM stage_turn_development_submission
-                """, String.class))
-                .isEqualTo("Added the marker file");
+        // contract it claimed to cover was replaced underneath it. The commit
+        // lands before that tool call, so the marker file being on the branch
+        // is not yet evidence the row exists — wait for it.
+        pumpUntil(() -> submittedIntent() != null);
+        assertThat(submittedIntent()).isEqualTo("Added the marker file");
 
-        // The commit lands mid-Turn, so keep pumping until delivery has
-        // consumed the submission — that is the half this change moved.
+        // Then keep pumping until delivery has consumed the submission — that
+        // is the half this change moved.
         pumpUntil(() -> reportedIntent() != null);
         assertThat(reportedIntent()).isEqualTo("Added the marker file");
+    }
+
+    /** The Development Turn's recorded result, once its tool call lands. */
+    private String submittedIntent()
+    {
+        return jdbc.query(
+                "SELECT implemented_intent FROM stage_turn_development_submission",
+                (rs, row) -> rs.getString(1))
+                .stream().findFirst().orElse(null);
     }
 
     /** The intent delivery persisted, once it has consumed the submission. */

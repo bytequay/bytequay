@@ -101,18 +101,80 @@ public class UpstreamCherryPickService
         this.harnessHandoff = requireNonNull(harnessHandoff, "harnessHandoff is null");
     }
 
+    /**
+     * Read-only dry run. Deliberately does not fetch: a range is pinned to two
+     * commit SHAs, so fetching cannot change which commits it covers, and the
+     * page would otherwise pay a network round trip on every edit. {@link #enqueue}
+     * fetches and re-plans before it applies anything.
+     */
+    public CherryPickPlan preview(String workspaceId, PreviewRequest request)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(request, "request is null");
+        WorkspaceRelationService.ResolvedRelation relation =
+                relations.requireResolved(workspaceId);
+        if (!relation.relation().commitsEnabled()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "upstream commit reading is disabled for this relation");
+        }
+        String sourceBranch = request.sourceBranch() == null || request.sourceBranch().isBlank()
+                ? relations.defaultBranch(relation.upstream(), relation.upstreamClone())
+                : request.sourceBranch().strip();
+        String sourceRef = relations.resolveFetchedRemoteRef(
+                relation.upstreamClone(), sourceBranch);
+        String baseBranch = relations.defaultBranch(relation.target(), relation.targetClone());
+        String baseRef = relations.resolveFetchedRemoteRef(
+                relation.targetClone(), baseBranch);
+        List<GitRunner.DecoratedCommitEntry> history = git.listDecoratedCommits(
+                relation.upstreamClone(), sourceRef, HISTORY_LIMIT,
+                WorkspaceRelationService.UPSTREAM_PR_TRAILER);
+        List<GitRunner.DecoratedCommitEntry> ordered = resolveSelection(
+                relation.upstreamClone(), history, request.fromSha(), request.toSha(), request.shas());
+        List<PlannedCommit> planned = plan(
+                ordered,
+                relations.pickedCommitShas(relation, baseRef, history),
+                SkipFilters.normalize(request.skipStartsWith(), request.skipContains()));
+        int picks = (int) planned.stream().filter(PlannedCommit::pick).count();
+        return new CherryPickPlan(planned, picks, planned.size() - picks);
+    }
+
+    /** A selection arrives either as an explicit sha list or as a from/to range. */
+    private List<GitRunner.DecoratedCommitEntry> resolveSelection(
+            Path upstreamClone,
+            List<GitRunner.DecoratedCommitEntry> history,
+            String fromSha,
+            String toSha,
+            List<String> shas)
+            throws IOException, InterruptedException
+    {
+        boolean hasRange = fromSha != null && !fromSha.isBlank()
+                && toSha != null && !toSha.isBlank();
+        if (hasRange) {
+            return rangeOldestFirst(upstreamClone, history, fromSha, toSha);
+        }
+        if (shas == null || shas.isEmpty() || shas.size() > MAX_COMMITS) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "choose between 1 and " + MAX_COMMITS + " commits, or a from/to range");
+        }
+        return contiguousOldestFirst(upstreamClone, history, shas);
+    }
+
     public synchronized UpstreamCherryPickJobDto enqueue(
             String workspaceId,
             StartRequest request)
             throws IOException, InterruptedException
     {
         requireNonNull(request, "request is null");
-        if (request.shas() == null
+        boolean hasRange = request.fromSha() != null && !request.fromSha().isBlank()
+                && request.toSha() != null && !request.toSha().isBlank();
+        if (!hasRange && (request.shas() == null
                 || request.shas().isEmpty()
-                || request.shas().size() > MAX_COMMITS) {
+                || request.shas().size() > MAX_COMMITS)) {
             throw new ResponseStatusException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
-                    "choose between 1 and " + MAX_COMMITS + " commits");
+                    "choose between 1 and " + MAX_COMMITS + " commits, or a from/to range");
         }
         requireText(request.targetBranch(), "targetBranch");
         if (!git.isValidBranchName(request.targetBranch())) {
@@ -168,17 +230,23 @@ public class UpstreamCherryPickService
                 sourceRef,
                 HISTORY_LIMIT,
                 WorkspaceRelationService.UPSTREAM_PR_TRAILER);
-        List<GitRunner.DecoratedCommitEntry> ordered = contiguousOldestFirst(
-                relation.upstreamClone(), history, request.shas());
+        List<GitRunner.DecoratedCommitEntry> ordered = resolveSelection(
+                relation.upstreamClone(), history,
+                request.fromSha(), request.toSha(), request.shas());
         List<CommitSpec> specs = resolveCommitSpecs(relation, ordered);
         Set<String> picked = relations.pickedCommitShas(
                 relation, baseRef, history);
-        boolean allPicked = specs.stream()
-                .allMatch(spec -> picked.contains(spec.sha().toLowerCase(Locale.ROOT)));
-        if (allPicked && request.openDraftPr()) {
+        SkipFilters filters = SkipFilters.normalize(
+                request.skipStartsWith(), request.skipContains());
+        // Same planner the preview ran, against freshly fetched refs.
+        boolean noneSurvive = plan(ordered, picked, filters).stream()
+                .noneMatch(PlannedCommit::pick);
+        if (noneSurvive) {
             throw new ResponseStatusException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
-                    "the selected upstream range is already present in the fork");
+                    filters.isEmpty()
+                            ? "the selected upstream range is already present in the fork"
+                            : "every commit in that range is already in the fork or excluded by a filter");
         }
 
         String id = UUID.randomUUID().toString();
@@ -197,9 +265,10 @@ public class UpstreamCherryPickService
                     applied_shas_json, skipped_shas_json,
                     next_commit_index, conflict_paths_json, worktree_path,
                     open_draft_pr, create_harness_watch, budget_milli_usd,
+                    pr_description, skip_filters_json,
                     created_at_ms, updated_at_ms)
                 VALUES (?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?,
-                    '[]', '[]', 0, '[]', ?, ?, ?, ?, ?, ?)
+                    '[]', '[]', 0, '[]', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 workspaceId,
@@ -214,6 +283,8 @@ public class UpstreamCherryPickService
                 request.openDraftPr() ? 1 : 0,
                 request.createHarnessWatch() ? 1 : 0,
                 budget,
+                normalizedDescription(request.prDescription()),
+                json(filters),
                 now,
                 now);
         launchAfterCommit(id);
@@ -422,7 +493,11 @@ public class UpstreamCherryPickService
             int index = row.nextCommitIndex();
             while (index < row.specs().size()) {
                 CommitSpec commit = row.specs().get(index);
-                if (picked.contains(commit.sha().toLowerCase(Locale.ROOT))) {
+                // Same two skip reasons the preview reported, re-evaluated here
+                // because the worker resumes across restarts and the fork may
+                // have gained commits since the range was planned.
+                if (picked.contains(commit.sha().toLowerCase(Locale.ROOT))
+                        || row.skipFilters().skipReason(commit.subject()) != null) {
                     skipped.add(commit.sha());
                     index++;
                     progress(id, applied, skipped, index);
@@ -592,11 +667,16 @@ public class UpstreamCherryPickService
                 ? row.specs().getFirst().subject()
                 : "Cherry-pick " + row.specs().size() + " commits from "
                         + relation.upstream().fullName();
-        String body = "Cherry-picked a contiguous range from `"
+        String provenance = "Cherry-picked a contiguous range from `"
                 + relation.upstream().fullName() + "/" + row.sourceBranch()
                 + "`. Each applied commit records its source in `"
                 + WorkspaceRelationService.UPSTREAM_PR_TRAILER + "` and `"
-                + WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER + "` trailers.";
+                + WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER + "` trailers."
+                + (row.skipFilters().isEmpty() ? ""
+                        : " Commits excluded by a subject filter were skipped.");
+        String body = row.prDescription() == null || row.prDescription().isBlank()
+                ? provenance
+                : row.prDescription() + "\n\n---\n\n" + provenance;
         try {
             return pullRequests.createPullRequest(
                     pat,
@@ -612,6 +692,39 @@ public class UpstreamCherryPickService
         }
     }
 
+    private static final int MAX_PR_DESCRIPTION = 60_000;
+
+    private static String normalizedDescription(String value)
+    {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.strip();
+        if (normalized.length() > MAX_PR_DESCRIPTION) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "pull-request description must be at most "
+                            + MAX_PR_DESCRIPTION + " characters");
+        }
+        return normalized;
+    }
+
+    private SkipFilters readFilters(String value)
+    {
+        if (value == null || value.isBlank()) {
+            return SkipFilters.none();
+        }
+        try {
+            return mapper.readValue(value, SkipFilters.class);
+        }
+        catch (JsonProcessingException e) {
+            // A row written before filters existed, or hand-edited. Applying no
+            // filter is the safe reading: it picks more, never silently fewer.
+            log.warn("unreadable cherry-pick skip filters; treating as none", e);
+            return SkipFilters.none();
+        }
+    }
+
     private String requireLocalPrId(
             JobRow row,
             WorkspaceRelationService.ResolvedRelation relation)
@@ -623,6 +736,163 @@ public class UpstreamCherryPickService
                         "draft pull request could not be synced locally: "
                                 + relation.target().fullName() + "#" + row.prNumber()));
     }
+
+    /**
+     * Expands a from/to pair into the inclusive range between them, oldest first.
+     * Order of the two endpoints does not matter. Resolution happens against the
+     * full {@code HISTORY_LIMIT} scan rather than the page the UI renders, so a
+     * range may reference commits older than anything currently displayed.
+     */
+    private List<GitRunner.DecoratedCommitEntry> rangeOldestFirst(
+            Path upstreamClone,
+            List<GitRunner.DecoratedCommitEntry> history,
+            String fromSha,
+            String toSha)
+            throws IOException, InterruptedException
+    {
+        int first = requirePosition(upstreamClone, history, fromSha);
+        int last = requirePosition(upstreamClone, history, toSha);
+        int newest = Math.min(first, last);
+        int oldest = Math.max(first, last);
+        int size = oldest - newest + 1;
+        if (size > MAX_COMMITS) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "that range covers " + size + " commits; the maximum is " + MAX_COMMITS);
+        }
+        List<GitRunner.DecoratedCommitEntry> ordered = new ArrayList<>();
+        for (int i = oldest; i >= newest; i--) {
+            ordered.add(history.get(i));
+        }
+        return List.copyOf(ordered);
+    }
+
+    private int requirePosition(
+            Path upstreamClone,
+            List<GitRunner.DecoratedCommitEntry> history,
+            String requestedSha)
+            throws IOException, InterruptedException
+    {
+        requireText(requestedSha, "sha");
+        String resolved = git.resolveCommitSha(upstreamClone, requestedSha)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "unknown upstream commit: " + requestedSha));
+        int position = indexOf(history, resolved);
+        if (position < 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "commit is not on the selected upstream branch: " + requestedSha);
+        }
+        return position;
+    }
+
+    /**
+     * The single place that decides what a cherry-pick will and will not apply.
+     * The preview endpoint and {@link #enqueue} both route through it, so a dry
+     * run cannot describe a different outcome than the run it previews.
+     */
+    static List<PlannedCommit> plan(
+            List<GitRunner.DecoratedCommitEntry> orderedOldestFirst,
+            Set<String> alreadyPicked,
+            SkipFilters filters)
+    {
+        List<PlannedCommit> planned = new ArrayList<>();
+        for (GitRunner.DecoratedCommitEntry commit : orderedOldestFirst) {
+            String skipReason = null;
+            if (alreadyPicked.contains(commit.sha().toLowerCase(Locale.ROOT))) {
+                skipReason = "already in the fork";
+            }
+            else {
+                skipReason = filters.skipReason(commit.subject());
+            }
+            planned.add(new PlannedCommit(
+                    commit.sha(),
+                    commit.shortSha(),
+                    commit.subject(),
+                    commit.authorName(),
+                    skipReason == null,
+                    skipReason));
+        }
+        return List.copyOf(planned);
+    }
+
+    /**
+     * Subject filters. Matching is case-insensitive and evaluated against the
+     * commit subject only, never the body, so a term appearing in a long message
+     * cannot silently drop a commit the user meant to keep.
+     */
+    public record SkipFilters(List<String> startsWith, List<String> contains)
+    {
+        private static final int MAX_TERMS = 20;
+        private static final int MAX_TERM_LENGTH = 200;
+
+        public static SkipFilters none()
+        {
+            return new SkipFilters(List.of(), List.of());
+        }
+
+        public static SkipFilters normalize(List<String> startsWith, List<String> contains)
+        {
+            return new SkipFilters(normalizeTerms(startsWith), normalizeTerms(contains));
+        }
+
+        private static List<String> normalizeTerms(List<String> terms)
+        {
+            if (terms == null) {
+                return List.of();
+            }
+            List<String> normalized = terms.stream()
+                    .filter(term -> term != null && !term.isBlank())
+                    .map(term -> term.strip().toLowerCase(Locale.ROOT))
+                    .distinct()
+                    .toList();
+            if (normalized.size() > MAX_TERMS) {
+                throw new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "at most " + MAX_TERMS + " filter terms are allowed");
+            }
+            if (normalized.stream().anyMatch(term -> term.length() > MAX_TERM_LENGTH)) {
+                throw new ResponseStatusException(
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "a filter term may be at most " + MAX_TERM_LENGTH + " characters");
+            }
+            return normalized;
+        }
+
+        /** Null when the subject survives every filter. */
+        public String skipReason(String subject)
+        {
+            String candidate = subject == null ? "" : subject.strip().toLowerCase(Locale.ROOT);
+            return startsWith.stream()
+                    .filter(candidate::startsWith)
+                    .findFirst()
+                    .map(term -> "subject starts with \"" + term + "\"")
+                    .or(() -> contains.stream()
+                            .filter(candidate::contains)
+                            .findFirst()
+                            .map(term -> "subject contains \"" + term + "\""))
+                    .orElse(null);
+        }
+
+        public boolean isEmpty()
+        {
+            return startsWith.isEmpty() && contains.isEmpty();
+        }
+    }
+
+    public record PlannedCommit(
+            String sha,
+            String shortSha,
+            String subject,
+            String authorName,
+            boolean pick,
+            String skipReason) {}
+
+    public record CherryPickPlan(
+            List<PlannedCommit> commits,
+            int pickCount,
+            int skipCount) {}
 
     private List<GitRunner.DecoratedCommitEntry> contiguousOldestFirst(
             Path upstreamClone,
@@ -757,6 +1027,8 @@ public class UpstreamCherryPickService
                 rs.getInt("open_draft_pr") != 0,
                 rs.getInt("create_harness_watch") != 0,
                 rs.getLong("budget_milli_usd"),
+                rs.getString("pr_description"),
+                readFilters(rs.getString("skip_filters_json")),
                 prNumber,
                 rs.getString("pr_url"),
                 rs.getString("harness_watch_id"),
@@ -884,9 +1156,22 @@ public class UpstreamCherryPickService
             String sourceBranch,
             String targetBranch,
             List<String> shas,
+            String fromSha,
+            String toSha,
+            String prDescription,
+            List<String> skipStartsWith,
+            List<String> skipContains,
             boolean openDraftPr,
             boolean createHarnessWatch,
             Long budgetMilliUsd) {}
+
+    public record PreviewRequest(
+            String sourceBranch,
+            List<String> shas,
+            String fromSha,
+            String toSha,
+            List<String> skipStartsWith,
+            List<String> skipContains) {}
 
     public record UpstreamCherryPickJobDto(
             String jobId,
@@ -929,6 +1214,8 @@ public class UpstreamCherryPickService
             boolean openDraftPr,
             boolean createHarnessWatch,
             long budgetMilliUsd,
+            String prDescription,
+            SkipFilters skipFilters,
             Integer prNumber,
             String prUrl,
             String harnessWatchId,

@@ -399,6 +399,15 @@ public class WorkspaceRepositoryController
         return interrupted(() -> relations.commits(workspaceId, revision, limit));
     }
 
+    /** Dry run: what a cherry-pick would apply and what it would skip, and why. */
+    @PostMapping("/upstream/cherry-picks/preview")
+    public UpstreamCherryPickService.CherryPickPlan previewUpstreamCherryPick(
+            @PathVariable String workspaceId,
+            @RequestBody UpstreamCherryPickService.PreviewRequest body)
+    {
+        return interrupted(() -> upstreamCherryPicks.preview(workspaceId, body));
+    }
+
     @PostMapping("/upstream/cherry-picks")
     public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
             startUpstreamCherryPick(

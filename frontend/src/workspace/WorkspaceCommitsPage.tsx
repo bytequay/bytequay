@@ -75,6 +75,11 @@ export default function WorkspaceCommitsPage({
   const [upstreamRange, setUpstreamRange] = useState<[number, number] | null>(null);
   const [rangeExpanded, setRangeExpanded] = useState(false);
   const [upstreamCherryOpen, setUpstreamCherryOpen] = useState(false);
+  const [fromSha, setFromSha] = useState('');
+  const [toSha, setToSha] = useState('');
+  // A typed range is resolved by the backend against full history, so it can
+  // reach commits older than the page has loaded.
+  const [shaRangeOpen, setShaRangeOpen] = useState(false);
 
   const loadRelation = useCallback(() => {
     void workspaceApi.relation(workspaceId)
@@ -182,6 +187,20 @@ export default function WorkspaceCommitsPage({
         </div>
       )}
       {error !== null && <div className="wu-inline-error">{error}</div>}
+      {source === 'upstream' && (
+        <div className="wu-upstream-sha-range">
+          <label>from <input aria-label="Range start commit sha" placeholder="sha"
+            value={fromSha} onChange={event => setFromSha(event.target.value)} /></label>
+          <label>to <input aria-label="Range end commit sha" placeholder="sha"
+            value={toSha} onChange={event => setToSha(event.target.value)} /></label>
+          <button type="button"
+            disabled={fromSha.trim().length === 0 || toSha.trim().length === 0}
+            onClick={() => setShaRangeOpen(true)}>
+            Cherry-pick range…
+          </button>
+          <small>inclusive · resolved against full upstream history, not just the loaded page</small>
+        </div>
+      )}
       {source === 'upstream' ? (
         <UpstreamCommitHistory
           rows={upstream?.commits ?? []}
@@ -226,6 +245,18 @@ export default function WorkspaceCommitsPage({
             setLinkOpen(false);
             setSource('upstream');
           }} />
+      )}
+      {shaRangeOpen && upstream !== null && (
+        <UpstreamCherryPicker
+          workspaceId={workspaceId}
+          repo={repo}
+          snapshot={upstream}
+          commits={[]}
+          fromSha={fromSha.trim()}
+          toSha={toSha.trim()}
+          onClose={() => setShaRangeOpen(false)}
+          onOpenHarness={onOpenHarness}
+        />
       )}
       {upstreamCherryOpen && upstream !== null && upstreamRange !== null && (
         <UpstreamCherryPicker

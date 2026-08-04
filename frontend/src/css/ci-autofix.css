@@ -253,6 +253,39 @@
 }
 .wu-upstream-banner button { background: transparent; border: 0; color: #0969da; cursor: pointer; font-size: 11.5px; font-weight: 600; margin-left: auto; }
 
+.wu-upstream-sha-range {
+  align-items: center;
+  background: #fafbfc;
+  border-bottom: 1px solid #eef0f2;
+  display: flex;
+  gap: 8px;
+  padding: 8px 24px;
+}
+.wu-upstream-sha-range label { align-items: center; color: #8b949e; display: flex; font-size: 11px; gap: 6px; }
+.wu-upstream-sha-range input {
+  background: #fff;
+  border: 1px solid #e1e5e9;
+  border-radius: 7px;
+  color: #17191c;
+  font: 11.5px ui-monospace, monospace;
+  padding: 5px 9px;
+  width: 128px;
+}
+.wu-upstream-sha-range input:focus { border-color: #0969da; box-shadow: 0 0 0 3px rgba(9,105,218,.12); outline: 0; }
+.wu-upstream-sha-range button {
+  background: #fff;
+  border: 1px solid #e1e5e9;
+  border-radius: 7px;
+  color: #17191c;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 11px;
+}
+.wu-upstream-sha-range button:hover:not(:disabled) { background: #f6f8fa; border-color: #c6cbd1; }
+.wu-upstream-sha-range button:disabled { color: #8b949e; cursor: not-allowed; opacity: .6; }
+.wu-upstream-sha-range small { color: #8b949e; font-size: 10.5px; margin-left: auto; }
+
 .wu-upstream-commit-list {
   flex: 1;
   min-height: 0;
@@ -309,8 +342,47 @@
 .wu-upstream-cherry-bar button { background: transparent; border: 0; color: #c6cbd1; cursor: pointer; font-size: 11.5px; padding: 5px 7px; }
 .wu-upstream-cherry-bar button:last-child { background: #fff; border-radius: 7px; color: #17191c; font-weight: 700; padding: 6px 13px; }
 
-.wu-upstream-cherry-backdrop { z-index: 50; }
-.wu-upstream-cherry { background: #fff; border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,.3); overflow: hidden; width: min(580px, calc(100vw - 48px)); }
+/* The shared backdrop pins modals to the top-left; this one is a decision
+   dialog, so it sits in the middle of the app window like the other centred
+   modals. Padding keeps it clear of the window chrome on short displays. */
+.wu-upstream-cherry-backdrop { align-items: center; justify-content: center; padding: 24px; z-index: 50; }
+/* Capped and scrollable: the body grew a description field and two result
+   lists, and without a max-height the dialog ran off the bottom of the window
+   and clipped whatever came last. */
+.wu-upstream-cherry { background: #fff; border-radius: 14px; box-shadow: 0 24px 64px rgba(0,0,0,.3); display: flex; flex-direction: column; max-height: min(88vh, 860px); overflow: hidden; width: min(580px, calc(100vw - 48px)); }
+.wu-upstream-cherry > header, .wu-upstream-cherry > footer { flex: 0 0 auto; }
+.wu-upstream-cherry__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.wu-upstream-cherry__branch textarea { border: 1px solid #d5dbe1; border-radius: 8px; font: 12px var(--sans, inherit); line-height: 1.5; padding: 8px 11px; resize: vertical; width: 100%; }
+.wu-upstream-cherry__branch textarea:focus { border-color: #0969da; outline: none; }
+.wu-upstream-cherry__branch > span:has(textarea) { display: grid; gap: 4px; }
+.wu-upstream-cherry__filters { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
+.wu-upstream-cherry__filters input { border: 1px solid #d5dbe1; border-radius: 8px; font: 12px ui-monospace, monospace; padding: 7px 11px; }
+.wu-upstream-cherry__filters input:focus { border-color: #0969da; outline: none; }
+.wu-upstream-cherry__filters small { color: #8b949e; font-size: 10.5px; grid-column: 1 / -1; }
+.wu-upstream-cherry__dryrun { display: grid; gap: 8px; }
+.wu-upstream-cherry__dryrun > button { background: #fff; border: 1px solid #d5dbe1; border-radius: 7px; cursor: pointer; font-size: 11.5px; font-weight: 600; justify-self: start; padding: 6px 13px; }
+.wu-upstream-cherry__dryrun > button:disabled { color: #8b949e; cursor: default; }
+.wu-upstream-cherry__dryrun > small { color: #8b949e; font-size: 10.5px; }
+.wu-upstream-cherry__plan { display: grid; gap: 6px; }
+.wu-plan-list { border: 1px solid #e7e9ec; border-radius: 10px; overflow: hidden; }
+.wu-plan-list > summary { cursor: pointer; font-size: 11.5px; list-style-position: inside; padding: 8px 12px; }
+.wu-plan-list.is-pick > summary { background: #f2fbf4; color: #1a7f37; }
+.wu-plan-list.is-skip > summary { background: #fafbfc; color: #57606a; }
+.wu-plan-list > summary b { font-weight: 700; }
+.wu-plan-list ul { display: grid; gap: 2px; list-style: none; margin: 0; max-height: 220px; overflow-y: auto; padding: 6px; }
+/* Three explicit columns: without them the sha, subject and reason ran
+   together into one unreadable string. */
+.wu-plan-list li { align-items: baseline; display: grid; gap: 9px; grid-template-columns: 78px minmax(0, 1fr) auto; padding: 3px 6px; }
+.wu-plan-list li code { color: #0969da; font: 10.5px ui-monospace, monospace; }
+.wu-plan-list li span { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wu-plan-list li em { color: #8b949e; font-size: 10px; font-style: normal; white-space: nowrap; }
+.wu-plan-list__empty { color: #8b949e; font-size: 11px; margin: 0; padding: 8px 12px; }
+.wu-upstream-sha-range { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 14px; }
+.wu-upstream-sha-range label { align-items: center; color: #57606a; display: flex; font-size: 11px; gap: 5px; }
+.wu-upstream-sha-range input { border: 1px solid #d5dbe1; border-radius: 7px; font: 11px ui-monospace, monospace; padding: 5px 9px; width: 128px; }
+.wu-upstream-sha-range button { background: #fff; border: 1px solid #d5dbe1; border-radius: 7px; cursor: pointer; font-size: 11.5px; font-weight: 600; padding: 5px 11px; }
+.wu-upstream-sha-range button:disabled { color: #8b949e; cursor: default; }
+.wu-upstream-sha-range small { color: #8b949e; font-size: 10.5px; }
 .wu-upstream-cherry > header { align-items: center; border-bottom: 1px solid #eef0f2; display: flex; gap: 8px; padding: 14px 18px; }
 .wu-upstream-cherry > header > span { color: #8250df; font-size: 18px; }
 .wu-upstream-cherry > header h2 { font-size: 14.5px; margin: 0; }

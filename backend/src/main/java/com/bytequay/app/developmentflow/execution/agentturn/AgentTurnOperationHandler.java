@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.developmentflow.execution.agentturn;
 
-import com.bytequay.app.developmentflow.AgentBrainResult;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
@@ -84,7 +83,6 @@ public final class AgentTurnOperationHandler
     private final ObjectMapper mapper;
     private final ObjectReader launchReader;
     private final ObjectReader remoteStageResultReader;
-    private final ObjectReader remoteBrainResultReader;
 
     public AgentTurnOperationHandler(
             Store store,
@@ -110,7 +108,6 @@ public final class AgentTurnOperationHandler
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                 .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
-        this.remoteBrainResultReader = AgentBrainResult.reader(mapper);
     }
 
     @Override
@@ -820,14 +817,19 @@ public final class AgentTurnOperationHandler
      * writer can leave its lease. The domain runtime still owns decoding and
      * transitions; this check only decides whether provider output is safe to
      * hand to that owner as a success.
+     *
+     * <p>The question used to be "does the final message parse". It is now "did
+     * the result tool land its row" for every Turn that has one — same gate,
+     * same disposition, same recovery downstream, but asking about the artifact
+     * the contract actually produces instead of about the phrasing of a
+     * sentence. Only the result normalizer still answers in its final message:
+     * it is launched deliberately tool-free, because its whole job is to restate
+     * a frozen malformed result that a tool call cannot carry.
      */
     private String remoteResultProtocolError(ExactTurn turn, String finalText)
     {
         try {
-            if (remoteRepairResultNormalization(turn)
-                    || turn.ownerKind() == DispatchTicket.OwnerKind.STAGE_TURN
-                    && ("REMOTE_CI_REPAIR".equals(turn.purpose())
-                        || "BRANCH_CONFLICT_REPAIR".equals(turn.purpose()))) {
+            if (remoteRepairResultNormalization(turn)) {
                 RemoteStageResult result = remoteStageResultReader.readValue(
                         requireText(finalText, "Remote repair Stage result"));
                 if (result.schemaVersion() != 1) {
@@ -836,22 +838,27 @@ public final class AgentTurnOperationHandler
                 }
                 requireText(result.summary(), "Remote repair Stage summary");
             }
+            else if (turn.ownerKind() == DispatchTicket.OwnerKind.STAGE_TURN
+                    && ("REMOTE_CI_REPAIR".equals(turn.purpose())
+                        || "BRANCH_CONFLICT_REPAIR".equals(turn.purpose()))
+                    && !store.hasRepairSubmission(turn.turnId())) {
+                throw new IllegalArgumentException(
+                        "Remote repair StageTurn succeeded without "
+                                + "record_repair_summary");
+            }
             else if (turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
                     && ("REMOTE_CI_BRAIN_REVIEW".equals(turn.purpose())
-                        || "BRANCH_SYNC_BRAIN_REVIEW".equals(turn.purpose()))) {
-                // Validate without consuming: the gate only reports whether
-                // the text is admissible, and the runtime decodes it again to
-                // use the values.
-                AgentBrainResult.decode(
-                                remoteBrainResultReader, finalText,
-                                "Remote repair Brain")
-                        .requireVerdict("Remote repair Brain");
+                        || "BRANCH_SYNC_BRAIN_REVIEW".equals(turn.purpose()))
+                    && !store.hasBrainVerdict(turn.turnId())) {
+                throw new IllegalArgumentException(
+                        "Remote repair Brain succeeded without "
+                                + "record_development_verdict");
             }
             return null;
         }
         catch (JsonProcessingException | RuntimeException e) {
             return "OWNER_OUTPUT_MALFORMED: " + Objects.toString(
-                    e.getMessage(), "Remote repair result is not strict JSON");
+                    e.getMessage(), "Remote repair result was not reported");
         }
     }
 
@@ -974,6 +981,23 @@ public final class AgentTurnOperationHandler
     public interface Store
     {
         Optional<ExactTurn> find(DispatchTicket.OwnerKind ownerKind, String turnId);
+
+        /** Whether a Remote repair StageTurn called {@code record_repair_summary}
+         *  or {@code record_feedback_repair}. Defaults to true: only a Store over
+         *  the real schema can answer, and a Store that cannot answer must not
+         *  fail a Turn on a question it did not understand. */
+        default boolean hasRepairSubmission(String turnId)
+        {
+            return true;
+        }
+
+        /** Whether a Brain review called {@code record_development_verdict}.
+         *  Defaults to true for the same reason as
+         *  {@link #hasRepairSubmission}. */
+        default boolean hasBrainVerdict(String turnId)
+        {
+            return true;
+        }
 
         default Optional<McpContext> authorizeMcp(
                 DispatchTicket.OwnerKind ownerKind,

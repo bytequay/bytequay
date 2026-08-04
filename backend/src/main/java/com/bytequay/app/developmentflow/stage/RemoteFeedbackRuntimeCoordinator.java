@@ -19,6 +19,8 @@ import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.OutputCodeSubject;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore.RepairSubmission;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RuntimeDeliveryReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
@@ -76,12 +78,14 @@ public final class RemoteFeedbackRuntimeCoordinator
     private final RemoteDevelopmentStageManager remote;
     private final SqliteRemoteDevelopmentRuntimeStore remoteStore;
     private final SqliteRemoteFeedbackLoopStore store;
+    private final SqliteAgentResultSubmissionStore submissions;
     private final ObjectMapper json;
-    private final ObjectReader repairReader;
+    /** One stored reply draft. The drafts arrive as tool arguments and are
+     *  stored as JSON, so this reads back what the tool already validated. */
+    private final ObjectReader replyReader;
     private final ObjectReader validationReader;
     /** Names this Turn in every brain-protocol failure message. */
     private static final String BRAIN_LABEL = "Remote Brain";
-    private final ObjectReader brainReader;
     private final ObjectReader workModelReader;
     private final Clock clock;
     private final int serverPort;
@@ -94,6 +98,7 @@ public final class RemoteFeedbackRuntimeCoordinator
             RemoteDevelopmentStageManager remote,
             SqliteRemoteDevelopmentRuntimeStore remoteStore,
             SqliteRemoteFeedbackLoopStore store,
+            SqliteAgentResultSubmissionStore submissions,
             ObjectMapper json,
             Clock clock,
             int serverPort)
@@ -103,11 +108,11 @@ public final class RemoteFeedbackRuntimeCoordinator
         this.remote = requireNonNull(remote, "remote is null");
         this.remoteStore = requireNonNull(remoteStore, "remoteStore is null");
         this.store = requireNonNull(store, "store is null");
+        this.submissions = requireNonNull(submissions, "submissions is null");
         this.json = requireNonNull(json, "json is null");
-        this.repairReader = strictReader(RepairResult.class);
+        this.replyReader = strictReader(ReplyResult.class);
         this.validationReader = strictReader(
                 RemoteFeedbackValidationOperationHandler.ValidationResult.class);
-        this.brainReader = AgentBrainResult.reader(json);
         this.workModelReader = strictReader(WorkModel.class);
         this.clock = requireNonNull(clock, "clock is null");
         if (serverPort < 1 || serverPort > 65535) {
@@ -127,6 +132,76 @@ public final class RemoteFeedbackRuntimeCoordinator
     {
         this.reasoningEfforts = requireNonNull(
                 reasoningEfforts, "reasoningEfforts is null");
+    }
+
+    /**
+     * Persist the repair a Remote feedback Turn reports through
+     * {@code record_feedback_repair}. Called from the tool handler while the
+     * subprocess is still alive, so a malformed reply draft comes back as an MCP
+     * tool error the agent can correct in the same session — the old contract
+     * rejected it after the process had exited, discarding a repair that was
+     * already committed because one draft named the wrong effect kind.
+     *
+     * <p>The drafts are shape-checked here rather than at delivery for the same
+     * reason: the agent is the only party that can fix them, and it is only
+     * reachable now. Idempotent — an identical re-submission is accepted, a
+     * differing one is rejected.
+     */
+    public void recordFeedbackRepair(
+            String turnId,
+            String operationId,
+            String summary,
+            List<ReplyResult> replies)
+    {
+        requireNonNull(replies, "replies is null");
+        String taskId = submissions.requireFeedbackRepairTurnTaskId(
+                requireNonNull(turnId, "turnId is null"),
+                requireNonNull(operationId, "operationId is null"));
+        // Build-and-discard: replyDraft is the validation, and the draft ids it
+        // derives belong to the repair, which does not exist until delivery.
+        replies.forEach(reply -> replyDraft("shape-check", reply));
+        RepairSubmission submitted = new RepairSubmission(
+                required(summary, "summary"),
+                replies.stream().map(this::write).toList());
+        commands.execute(taskId, () -> {
+            TaskCommandExecutor.requireCurrent(taskId);
+            RepairSubmission existing =
+                    submissions.findRepairSubmission(turnId).orElse(null);
+            if (existing != null) {
+                if (!existing.equals(submitted)) {
+                    throw new IllegalArgumentException(
+                            "record_feedback_repair was already called with "
+                                    + "different content for this Turn");
+                }
+                return existing;
+            }
+            submissions.insertRepairSubmission(
+                    turnId, operationId, taskId, submitted, clock.instant());
+            return submitted;
+        });
+    }
+
+    /** The repair the Turn recorded through {@code record_feedback_repair}. Its
+     *  final message is prose and nobody parses it. */
+    private RepairResult requireRepairSubmission(String turnId)
+    {
+        RepairSubmission stored = submissions.findRepairSubmission(turnId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Remote feedback StageTurn succeeded without "
+                                + "record_feedback_repair"));
+        return new RepairResult(
+                1, stored.summary(),
+                stored.replies().stream().map(this::readReply).toList());
+    }
+
+    private ReplyResult readReply(String value)
+    {
+        try {
+            return replyReader.readValue(value);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("a stored reply draft is unreadable", e);
+        }
     }
 
     public TurnRequest admitSteeringInCommand(Request request)
@@ -266,7 +341,7 @@ public final class RemoteFeedbackRuntimeCoordinator
             return record(context.operationId(), TURN_CALLBACK, rawDigest,
                     SUPERSEDED, "Remote StageTurn subject is stale", now);
         }
-        RepairResult resultValue = decodeRepair(result.payload().finalText());
+        RepairResult resultValue = requireRepairSubmission(context.turnId());
         CodeSubject output = requireOutputCodeSubject(result, context);
         store.finishStageTurn(context, "SUCCEEDED", null, now);
         String repairId = id("remote-feedback-repair", context.operationId());
@@ -278,7 +353,7 @@ public final class RemoteFeedbackRuntimeCoordinator
         ValidationRequest validation = store.insertRepairAndValidation(
                 context, repairId, output.headSha(), output.fingerprint(),
                 required(resultValue.summary(), "summary"),
-                digest(result.payload().finalText()), drafts,
+                digest(write(resultValue)), drafts,
                 validationId, validationTicket, now);
         return record(context.operationId(), TURN_CALLBACK, rawDigest, ACCEPTED,
                 "validation-requested:" + validation.operationId(), now);
@@ -300,7 +375,7 @@ public final class RemoteFeedbackRuntimeCoordinator
             return record(context.operationId(), TURN_CALLBACK, rawDigest,
                     SUPERSEDED, "Remote feedback predecessor was superseded", now);
         }
-        RepairResult result = decodeRepair(raw.payload().finalText());
+        RepairResult result = requireRepairSubmission(context.turnId());
         CodeSubject output = requireOutputCodeSubject(raw, context);
         store.finishStageTurn(context, "SUCCEEDED", null, now);
         String repairId = id("remote-feedback-repair", context.operationId());
@@ -310,7 +385,7 @@ public final class RemoteFeedbackRuntimeCoordinator
         store.insertRepairForSteering(
                 context, repairId, output.headSha(), output.fingerprint(),
                 required(result.summary(), "summary"),
-                digest(raw.payload().finalText()), drafts, now);
+                digest(write(result)), drafts, now);
         return record(context.operationId(), TURN_CALLBACK, rawDigest,
                 ACCEPTED, "Remote feedback predecessor completed before steering",
                 now);
@@ -421,8 +496,11 @@ public final class RemoteFeedbackRuntimeCoordinator
             throw new IllegalStateException(
                     "Remote Brain failed without a typed terminal decision");
         }
-        AgentBrainResult result = AgentBrainResult.decode(
-                brainReader, raw.payload().finalText(), BRAIN_LABEL);
+        // The review's final message is prose; its verdict is the row
+        // record_development_verdict wrote while the Turn was running.
+        AgentBrainResult result = submissions.findBrainVerdict(raw.owner().id())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        BRAIN_LABEL + " succeeded without record_development_verdict"));
         TaskManager.BrainVerdict verdict = result.requireVerdict(BRAIN_LABEL);
         int findings = result.findings().size();
         store.completeBrain(
@@ -538,8 +616,9 @@ public final class RemoteFeedbackRuntimeCoordinator
         String lane = model.kind().name();
         int laneMask = model.kind() == WorkModelKind.CLI ? 1 : 2;
         String prompt = "Review the current local repair against frozen Remote "
-                + "feedback batch " + batchId + ". Return APPROVED only when every "
-                + "item is addressed and every proposed reply is accurate.";
+                + "feedback batch " + batchId + ". Call record_development_verdict "
+                + "with APPROVED only when every item is addressed and every "
+                + "proposed reply is accurate.";
         ObjectNode launch = launch(
                 context, model, "TASK_TURN", turnId, operationId,
                 "TASK_BRAIN_READ_ONLY", brainSystemPrompt(context.roleSkill()),
@@ -617,10 +696,9 @@ public final class RemoteFeedbackRuntimeCoordinator
                     .append(item.externalRevision()).append("\n")
                     .append(Objects.toString(item.body(), ""));
         }
-        prompt.append("\n\nReturn strict JSON: {schemaVersion:1, summary:string, ")
-                .append("replies:[{batchItemOrdinal,kind,body,externalTarget}]}. ")
-                .append("kind is POST_INLINE_REPLY, POST_TOP_LEVEL_REPLY, or ")
-                .append("RESOLVE_THREAD; RESOLVE_THREAD has null body.");
+        prompt.append("\n\nReport the result by calling record_feedback_repair "
+                + "once, as your last act: the summary, plus one draft per item "
+                + "you are answering.");
         return prompt.toString();
     }
 
@@ -637,7 +715,7 @@ public final class RemoteFeedbackRuntimeCoordinator
             attachments.forEach(attachment -> prompt
                     .append("- ").append(attachment.contentRef()).append('\n'));
         }
-        prompt.append("\n\nReturn the normal strict Remote feedback repair JSON.");
+        prompt.append("\n\nReport the result through record_feedback_repair as usual.");
         return prompt.toString();
     }
 
@@ -663,21 +741,6 @@ public final class RemoteFeedbackRuntimeCoordinator
                 id("remote-reply-draft", repairId + ":" + ordinal), ordinal,
                 reply.batchItemOrdinal(), reply.kind(), reply.body(),
                 resolve ? null : digest(reply.body()), reply.externalTarget());
-    }
-
-    private RepairResult decodeRepair(String value)
-    {
-        try {
-            RepairResult result = repairReader.readValue(required(value, "repair result"));
-            if (result.schemaVersion() != 1) {
-                throw new IllegalArgumentException("Unsupported repair result version");
-            }
-            required(result.summary(), "summary");
-            return result;
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("Remote repair result is not strict JSON", e);
-        }
     }
 
     private RemoteFeedbackValidationOperationHandler.ValidationResult decodeValidation(
@@ -861,11 +924,12 @@ public final class RemoteFeedbackRuntimeCoordinator
     {
         String base = """
                 You own one Remote Development feedback repair. Edit only the supplied Task worktree.
-                Do not push or post reviewer-visible content; return typed drafts for a later user authorization.
-                Return exactly one raw JSON object shaped {"schemaVersion":1,"summary":"string","replies":[{"ordinal":1,"batchItemOrdinal":1,"kind":"POST_INLINE_REPLY","body":"string","externalTarget":"string"}]}.
-                kind must be POST_INLINE_REPLY, POST_TOP_LEVEL_REPLY, or RESOLVE_THREAD; RESOLVE_THREAD requires body=null.
-                Its first non-whitespace character must be '{' and its last non-whitespace character must be '}'.
-                Do not wrap it in Markdown fences or add prose before or after it.
+                Do not push or post reviewer-visible content; record drafts for a later user authorization.
+                Report your result by calling record_feedback_repair once, as your last act.
+                The repair is accepted on that call; one that ends without it is discarded.
+                Your final message is not the result, but do not leave it empty: write a
+short plain summary of what you did. Recovery reads it when the tool call
+is missing.
                 """;
         return roleSkill == null || roleSkill.isBlank()
                 ? base : base + "\n\nRole skill:\n" + roleSkill;
@@ -876,10 +940,12 @@ public final class RemoteFeedbackRuntimeCoordinator
         String base = """
                 You are the read-only Task Brain reviewing one exact Remote feedback repair.
                 Do not edit files or perform remote effects.
-                Return exactly one raw JSON object shaped {"schemaVersion":1,"verdict":"APPROVED","summary":"string","findings":[]}.
-                Set verdict to APPROVED or CHANGES_REQUESTED. APPROVED requires an empty findings array; CHANGES_REQUESTED requires one or more non-blank finding strings.
-                Its first non-whitespace character must be '{' and its last non-whitespace character must be '}'.
-                Do not wrap it in Markdown fences or add prose before or after it.
+                Report your verdict by calling record_development_verdict once, as your last act.
+                Set verdict to APPROVED or CHANGES_REQUESTED. APPROVED takes an empty findings list; CHANGES_REQUESTED takes one or more non-blank findings.
+                The review is accepted on that call; one that ends without it is discarded.
+                Your final message is not the result, but do not leave it empty: write a
+short plain summary of what you did. Recovery reads it when the tool call
+is missing.
                 """;
         return roleSkill == null || roleSkill.isBlank()
                 ? base : base + "\n\nRole skill:\n" + roleSkill;

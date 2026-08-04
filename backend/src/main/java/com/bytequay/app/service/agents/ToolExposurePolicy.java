@@ -114,18 +114,15 @@ public class ToolExposurePolicy
             "record_development_verdict"));
 
     /**
-     * The remote CI and branch-sync Brain reviews. They share the Task Brain
-     * catalog but not its result contract: they still report by formatting JSON
-     * into their final message, and nothing reads a recorded verdict for them.
-     * record_development_verdict is withheld until their delivery reads the row
-     * — offering a tool whose result is discarded is worse than not offering it,
-     * because the review looks accepted and is not.
+     * The remote CI and branch-sync Brain reviews. A finite automatic verdict
+     * cannot suspend an owning remote episode, so the two user-wait tools come
+     * out; record_development_verdict stays, because their delivery reads the
+     * row it writes exactly as the Local Development review's does.
      */
     private static final Set<String> V2_AUTOMATIC_TASK_BRAIN = Set.copyOf(
             V2_TASK_BRAIN.stream()
                     .filter(tool -> !Set.of(
-                            "approval_prompt", "ask_user_question",
-                            "record_development_verdict").contains(tool))
+                            "approval_prompt", "ask_user_question").contains(tool))
                     .toList());
 
     private static final Set<String> V2_LOCAL_DEVELOPMENT = union(V2_COMMON, Set.of(
@@ -138,7 +135,12 @@ public class ToolExposurePolicy
     private static final Set<String> V2_REMOTE_DEVELOPMENT = union(V2_COMMON, Set.of(
             "run_checks", "read_remote_pr_status", "read_ci_log",
             "get_new_updated_ci_fixing_log", "read_dev_report", "read_dev_conversation",
-            "list_unresolved_comments", "list_pr_review_threads"));
+            "list_unresolved_comments", "list_pr_review_threads",
+            // The Turn's result. Without these in the catalog the tools never
+            // reach tools/list and every Remote repair fails unreported. Both
+            // are here because one catalog serves every Remote Development
+            // StageTurn; each tool refuses a Turn of the other's purpose.
+            "record_repair_summary", "record_feedback_repair"));
 
     public Set<String> activeTools(ByteQuayRole role, StageType stageType)
     {

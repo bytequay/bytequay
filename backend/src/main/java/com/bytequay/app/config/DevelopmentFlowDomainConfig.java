@@ -44,6 +44,7 @@ import com.bytequay.app.developmentflow.stage.RemoteTerminalObservationCoordinat
 import com.bytequay.app.developmentflow.stage.RemoteTerminalToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.ReplanHandoff;
 import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteAgentResultSubmissionStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalPublishBaseSyncStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
@@ -220,12 +221,13 @@ public class DevelopmentFlowDomainConfig
             RemoteDevelopmentStageManager remote,
             SqliteRemoteDevelopmentRuntimeStore remoteStore,
             SqliteRemoteFeedbackLoopStore feedbackStore,
+            SqliteAgentResultSubmissionStore submissions,
             ObjectMapper json,
             @Value("${server.port:53123}") int serverPort)
     {
         return new RemoteFeedbackRuntimeCoordinator(
                 commands, tasks, remote, remoteStore, feedbackStore,
-                json, Clock.systemUTC(), serverPort);
+                submissions, json, Clock.systemUTC(), serverPort);
     }
 
     @Bean
@@ -234,11 +236,12 @@ public class DevelopmentFlowDomainConfig
             TaskManager tasks,
             SqliteRemoteRuntimeStore remoteStore,
             SqliteRemoteRepairTurnStore turns,
+            SqliteAgentResultSubmissionStore submissions,
             ObjectMapper json,
             @Value("${server.port:53123}") int serverPort)
     {
         return new RemoteRepairTurnRuntime(
-                commands, tasks, remoteStore, turns, json,
+                commands, tasks, remoteStore, turns, submissions, json,
                 Clock.systemUTC(), serverPort);
     }
 

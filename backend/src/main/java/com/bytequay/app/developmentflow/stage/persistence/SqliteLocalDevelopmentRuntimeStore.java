@@ -17,8 +17,6 @@ import com.bytequay.app.developmentflow.AgentBrainResult;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -36,14 +34,16 @@ import static java.util.Objects.requireNonNull;
 @Repository
 public class SqliteLocalDevelopmentRuntimeStore
 {
-    /** Findings are a JSON array in one column; the shape is fixed and tiny. */
-    private static final ObjectMapper FINDINGS_JSON = new ObjectMapper();
-
     private final JdbcTemplate jdbc;
+    /** Stateless SQL over the same template, constructed rather than injected:
+     *  the Brain verdict row is shared with the remote deliveries, but nothing
+     *  about that sharing belongs in this store's wiring. */
+    private final SqliteAgentResultSubmissionStore submissions;
 
     public SqliteLocalDevelopmentRuntimeStore(JdbcTemplate jdbc)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.submissions = new SqliteAgentResultSubmissionStore(jdbc);
     }
 
     public Optional<InitialImplementationReceipt> findInitialReceipt(
@@ -229,17 +229,12 @@ public class SqliteLocalDevelopmentRuntimeStore
                 report.prDescription(), submittedAt.toEpochMilli());
     }
 
-    /** The verdict a Brain review reported through its result tool. */
+    /** The verdict a Brain review reported through its result tool. Owned by
+     *  {@link SqliteAgentResultSubmissionStore} because the remote repair and
+     *  remote feedback deliveries read the same row. */
     public Optional<AgentBrainResult> findBrainVerdict(String turnId)
     {
-        return jdbc.query("""
-                SELECT verdict, summary, findings_json
-                FROM task_turn_brain_verdict
-                WHERE task_turn_id = ?
-                """, (rs, row) -> new AgentBrainResult(
-                        1, rs.getString("verdict"), rs.getString("summary"),
-                        readFindings(rs.getString("findings_json"))), turnId)
-                .stream().findFirst();
+        return submissions.findBrainVerdict(turnId);
     }
 
     public void insertBrainVerdict(
@@ -249,35 +244,8 @@ public class SqliteLocalDevelopmentRuntimeStore
             AgentBrainResult verdict,
             Instant submittedAt)
     {
-        requireTransaction();
-        jdbc.update("""
-                INSERT INTO task_turn_brain_verdict(
-                    task_turn_id, operation_id, task_id, verdict, summary,
-                    findings_json, submitted_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                turnId, operationId, taskId, verdict.verdict(), verdict.summary(),
-                writeFindings(verdict.findings()), submittedAt.toEpochMilli());
-    }
-
-    private List<String> readFindings(String json)
-    {
-        try {
-            return List.of(FINDINGS_JSON.readValue(json, String[].class));
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("stored Brain findings are unreadable", e);
-        }
-    }
-
-    private String writeFindings(List<String> findings)
-    {
-        try {
-            return FINDINGS_JSON.writeValueAsString(findings);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("Brain findings are unwritable", e);
-        }
+        submissions.insertBrainVerdict(
+                turnId, operationId, taskId, verdict, submittedAt);
     }
 
     public Optional<StageTurnDeliveryReceipt> findStageTurnReceipt(String turnId)
@@ -998,25 +966,12 @@ public class SqliteLocalDevelopmentRuntimeStore
                 receipt.recordedAt().toEpochMilli());
     }
 
+    /** Owned by {@link SqliteAgentResultSubmissionStore}: the verdict tool has
+     *  to resolve the task for a remote Brain review too, and those Turns have
+     *  no {@code brain_review_episode} row this lookup used to join through. */
     public String requireBrainTurnTaskId(String turnId, String operationId)
     {
-        List<String> rows = jdbc.query("""
-                SELECT episode.task_id
-                FROM task_turn turn
-                LEFT JOIN task_turn_user_wait_continuation_v266 continuation
-                  ON continuation.successor_turn_id = turn.id
-                JOIN brain_review_episode episode
-                  ON episode.task_turn_id = COALESCE(
-                      continuation.logical_turn_id, turn.id)
-                WHERE turn.id = ? AND turn.operation_id = ?
-                  AND turn.purpose IN (
-                      'DEVELOPMENT_BRAIN_REVIEW',
-                      'DEVELOPMENT_BRAIN_RESULT_REPAIR')
-                """, (rs, row) -> rs.getString(1), turnId, operationId);
-        if (rows.size() != 1) {
-            throw new IllegalStateException("Development Brain owner is missing");
-        }
-        return rows.getFirst();
+        return submissions.requireBrainTurnTaskId(turnId, operationId);
     }
 
     public BrainTurnContext requireBrainTurnContext(String turnId, String operationId)

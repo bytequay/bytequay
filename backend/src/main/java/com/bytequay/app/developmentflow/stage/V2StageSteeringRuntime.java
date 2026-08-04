@@ -64,11 +64,22 @@ public final class V2StageSteeringRuntime
             LoggerFactory.getLogger(V2StageSteeringRuntime.class);
     /** Sent with an automatic replacement so the agent knows its edits survive. */
     private static final String MISSING_RESULT_STEER =
-            "Your previous attempt finished its work but ended without calling "
-                    + "record_development_result, so the Turn could not be "
-                    + "accepted. The edits it made are already committed in this "
-                    + "worktree — inspect them with git rather than redoing the "
-                    + "work, then call record_development_result to report them.";
+            missingResultSteer("record_development_result");
+    private static final String MISSING_FEEDBACK_RESULT_STEER =
+            missingResultSteer("record_feedback_repair");
+    /** Written by the pre-delivery gate; matched to tell a Brain review that
+     *  never reported from one that genuinely failed. */
+    private static final String MISSING_VERDICT_ERROR =
+            "succeeded without record_development_verdict";
+
+    private static String missingResultSteer(String tool)
+    {
+        return "Your previous attempt finished its work but ended without "
+                + "calling " + tool + ", so the Turn could not be accepted. The "
+                + "edits it made are already committed in this worktree — "
+                + "inspect them with git rather than redoing the work, then "
+                + "call " + tool + " to report them.";
+    }
 
     /** Reads and rewrites a structured Plan revision when the user steers it. */
     private static final ObjectMapper STEERING_JSON = new ObjectMapper();
@@ -323,7 +334,9 @@ public final class V2StageSteeringRuntime
     public void maintain(Instant now)
     {
         relaunchTurnsThatReportedNoResult();
+        relaunchRemoteFeedbackTurnsThatReportedNoResult();
         repairBrainReviewsThatReportedNoVerdict();
+        repairRemoteBrainReviewsThatReportedNoVerdict();
         for (Request request : store.findPending(SWEEP_LIMIT)) {
             signalCancellation(request);
             attempt(request.id());
@@ -387,6 +400,59 @@ public final class V2StageSteeringRuntime
                 // Turn stays parked and the user can still replace it by hand.
                 log.warn("Could not relaunch Local Development Turn {}: {}",
                         parked.turnId(), e.toString());
+            }
+        }
+    }
+
+    /** The same offer to a Remote feedback repair that committed its changes
+     *  and then ended without recording them. */
+    private void relaunchRemoteFeedbackTurnsThatReportedNoResult()
+    {
+        for (SqliteStageSteeringStore.ParkedResult parked
+                : store.findParkedRemoteFeedbackResults(SWEEP_LIMIT)) {
+            try {
+                steer(parked.taskId(), parked.stageId(),
+                        MISSING_FEEDBACK_RESULT_STEER, List.of(),
+                        Mode.CANCEL_AND_REPLACE, parked.turnId());
+                log.info("Relaunching Remote feedback Turn {} on stage {}: "
+                                + "it finished without reporting a result ({})",
+                        parked.turnId(), parked.stageId(), parked.error());
+            }
+            catch (RuntimeException e) {
+                log.warn("Could not relaunch Remote feedback Turn {}: {}",
+                        parked.turnId(), e.toString());
+            }
+        }
+    }
+
+    /**
+     * Offer one repair to a Remote repair Brain review that ended without
+     * recording a verdict. Reuses the entry point the user's own recovery
+     * control calls, which is idempotent on its command id — so this is one
+     * automatic attempt per failed Turn, not a relaunch loop.
+     */
+    private void repairRemoteBrainReviewsThatReportedNoVerdict()
+    {
+        RemoteRepairTurnRuntime repairs = remoteRepairs.getIfAvailable();
+        if (repairs == null) {
+            return;
+        }
+        for (SqliteStageSteeringStore.ParkedBrainReview parked
+                : store.findParkedRemoteBrainReviews(
+                        MISSING_VERDICT_ERROR, SWEEP_LIMIT)) {
+            try {
+                repairs.retryFailedBrain(
+                        parked.taskId(), parked.failedTurnId(), parked.blockerId(),
+                        stableId("remote-brain-review-repair", parked.taskId(),
+                                parked.failedTurnId()),
+                        "automation/remote-brain-review-repair",
+                        "the Brain review did not report a verdict");
+                log.info("Repairing Remote Brain review {} on task {}: {}",
+                        parked.failedTurnId(), parked.taskId(), parked.message());
+            }
+            catch (RuntimeException e) {
+                log.warn("Could not repair Remote Brain review {}: {}",
+                        parked.failedTurnId(), e.toString());
             }
         }
     }

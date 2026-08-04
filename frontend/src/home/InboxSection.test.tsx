@@ -92,8 +92,10 @@ describe('InboxSection', () => {
     const { container } = render(
       <InboxSection prs={[]} onOpenPr={() => {}} onPrsChanged={() => {}} />,
     );
-    await screen.findByText('Ack all');
-    expect(container.querySelector('.home-inbox__badge')?.textContent).toBe('3');
+    // 'Ack all' is a static group header — it paints before the notifications
+    // load, so it says nothing about the badge. Wait on the badge itself.
+    await waitFor(() => expect(
+      container.querySelector('.home-inbox__badge')?.textContent).toBe('3'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Ack all' }));
 
@@ -101,7 +103,8 @@ describe('InboxSection', () => {
     expect(bridge.markNotificationRead).toHaveBeenCalledWith('fyi-1');
     expect(bridge.markNotificationRead).toHaveBeenCalledWith('fyi-2');
     expect(bridge.markNotificationRead).not.toHaveBeenCalledWith('review-1');
-    expect(container.querySelector('.home-inbox__badge')?.textContent).toBe('1');
+    await waitFor(() => expect(
+      container.querySelector('.home-inbox__badge')?.textContent).toBe('1'));
   });
 
   it('hides read action-required rows when filtering to unread only', async () => {

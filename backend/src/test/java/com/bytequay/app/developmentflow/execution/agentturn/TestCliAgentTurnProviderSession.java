@@ -453,6 +453,7 @@ class TestCliAgentTurnProviderSession
         Path invocations = tempDir.resolve("invocations.txt");
         Path executable = executable(tempDir, """
                 #!/bin/sh
+                cat >/dev/null
                 printf 'invoked\\n' >> '%s'
                 printf '%%s\\n' '{"type":"thread.started","thread_id":"accepted-session"}'
                 printf '%%s\\n' '{"type":"turn.failed","error":{"message":"no rollout found for thread id stale-session"}}'

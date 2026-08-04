@@ -40,13 +40,24 @@ public final class RemoteFeedbackTurnResultDeliveryPort
             DispatchTicket.OwnerReference owner,
             DispatchTicket.OperationFence expectedFence,
             DispatchTicket.DispatchResult rawResult)
+            throws ExecutionPorts.ResultProtocolException
     {
         if (!RemoteFeedbackRuntimeCoordinator.TURN_CALLBACK.equals(
                 owner.callbackRoute())) {
             return new DispatchTicket.DeliveryReceipt(
                     REJECTED, "Unknown Remote feedback StageTurn route");
         }
-        return runtime.deliverStageTurn(
-                codec.decode(owner, expectedFence, rawResult));
+        try {
+            return runtime.deliverStageTurn(
+                    codec.decode(owner, expectedFence, rawResult));
+        }
+        catch (IllegalArgumentException failure) {
+            // Classify it as a protocol failure so the dispatcher parks the
+            // ticket. Without this the decode escapes as a plain exception and
+            // the same undeliverable result is re-armed every retryDelay
+            // forever — the spin the Local lane was fixed for.
+            throw new ExecutionPorts.ResultProtocolException(
+                    failure.getMessage(), failure);
+        }
     }
 }

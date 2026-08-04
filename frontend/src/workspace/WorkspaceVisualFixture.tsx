@@ -1094,7 +1094,7 @@ function InboxStudy() {
     id: 'acme/widget#4062',
     repo: 'acme/widget',
     number: 4062,
-    title: '[Cherry Pick] Skip Iceberg Glue column comment caching when content is invalid',
+    title: '[Cherry Pick] Skip metadata cache when the cached entry is invalid',
     updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
   };
   const mention = {
@@ -1129,7 +1129,7 @@ function InboxStudy() {
       id: 'visual-review-remote',
       type: 'review',
       title: 'Review requested on #4062',
-      sub: '[Cherry Pick] Skip Iceberg Glue column comment caching when content is invalid · acme/widget',
+      sub: '[Cherry Pick] Skip metadata cache when the cached entry is invalid · acme/widget',
       time: remoteReview.updatedAt!,
       read: false,
       source: { kind: 'pr', pr: remoteReview },

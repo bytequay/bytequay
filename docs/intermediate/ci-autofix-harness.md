@@ -11,9 +11,10 @@ while preserving a clean, reviewable commit history.
 > internal fork. That project enters only as adapters + learned knowledge, never as engine
 > code, so nothing below names it.
 >
-> This Markdown is the durable, canonical copy. Component-level detail lives alongside it in
-> [`ci-autofix-harness-component-specs.html`](./ci-autofix-harness-component-specs.html) —
-> open it from the repo; there is no external copy to consult.
+> This Markdown is the durable, canonical copy. A component-specs HTML used to sit beside
+> it; it was deleted 2026-08-05, when ByteQuay's integration inverted the program/agent
+> split and made the components it specified obsolete. Recover it from git history if you
+> need the archaeology.
 
 ---
 
@@ -23,7 +24,9 @@ A version-bump PR is a long tail of cherry-picks from upstream onto the fork. Ea
 fine in isolation; failures come from **the seams** — an upstream refactor whose fork-only
 consumers weren't updated, a resource that must be regenerated, a semantic change that
 ripples downstream. The job is to drive CI green **while preserving a clean
-"one fixup per cherry-pick" history** so every commit stays independently reviewable.
+"one fixup per cherry-pick" history** so every commit stays independently reviewable —
+the fixup sitting *next to* its pick, not folded into it, so the pick still matches
+upstream verbatim.
 
 On that PR, ~70% of the work was mechanical and repeatable (fetch logs, parse, classify,
 regenerate, run style checks, create a path-scoped fixup, rebase it into place, prove the
@@ -62,7 +65,10 @@ the agent's discretion.
 - **Assume no failures — learn them.** No project-specific failure signatures are hardcoded.
 - **Learned rules are candidate-until-confirmed** — a new classification never routes to an
   automated fix until confirmed (K hits or human approval), and every fix passes the Verifier.
-- **Never push.** The harness hands off; a human pushes.
+- **Never push** — *policy, not engine (see §3: this is a Policy/config layer choice, set
+  once per team). ByteQuay overrides it as of 2026-08-05: the harness pushes to the
+  cherry-pick branch it owns so the CI loop closes unattended, and parks for review once
+  green. It still never merges and never touches a branch it did not create.*
 
 ---
 
@@ -262,8 +268,8 @@ def run_loop(pr):
         run = probe.wait_for_next(pr, after=run.id)
 ```
 
-Component-level detail (interfaces, worked code, edge cases, tests) lives in
-[`ci-autofix-harness-component-specs.html`](./ci-autofix-harness-component-specs.html).
+Component-level detail (interfaces, worked code, edge cases, tests) lived in a
+component-specs HTML deleted 2026-08-05 — see the note at the top of this file.
 
 ---
 
@@ -286,6 +292,15 @@ Component-level detail (interfaces, worked code, edge cases, tests) lives in
 | fixup / rebase / net-neutral / divergence | Program | Git Safety Layer |
 | "Real bug vs flake?" edge calls | Agent → Human | agent judges; escalates if unsure |
 | Trade-off decisions, sign-off, push | Human | Human Gate |
+
+> **ByteQuay override (2026-08-05).** The rows above split judgment between the program and
+> the agent. ByteQuay's integration gives the agent the whole fix — it edits the worktree,
+> commits the fixup, positions it, validates it, pushes, and writes the knowledge-base
+> entry — and the program keeps only the mechanical work: run the picks, probe, parse,
+> annotate, persist, wait for CI to finalize, wake the agent. §8's boundaries ("no
+> git-history mutation, no push, no write-shell") do not hold there, and the knowledge base
+> is prose memory rather than the rule table of §5. See "The upstream sync run" in
+> [`ci-autofix-design.md`](./ci-autofix-design.md).
 
 ---
 
@@ -332,7 +347,7 @@ no invented commit subjects; bounded tool budget, escalate rather than lower the
 | Backup before rewrite | Git Safety Layer | no recovery point |
 | Unique-anchor edits | Fix Applier | wrong-location edit |
 | Recipe/agent fix always verified | Orchestrator | commits a broken fix |
-| Never push | everywhere | publishes unreviewed history |
+| Never push *(policy; ByteQuay pushes its own branch — see §2)* | everywhere | publishes unreviewed history |
 
 ---
 

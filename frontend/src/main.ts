@@ -147,6 +147,20 @@ if (started) {
   app.quit();
 }
 
+// Only one ByteQuay may run at a time: a second instance would spawn its own
+// backend against the same port and the same SQLite file, and the user just
+// sees two identical windows. Hand focus to the window that's already open.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 /** macOS-only: replace the default Electron dock icon with the project
  *  logo while running under `dev.sh` / `npm start`. The packaged build
  *  picks up the icon from forge.config.ts; this hook only matters for

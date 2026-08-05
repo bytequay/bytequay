@@ -490,6 +490,9 @@
 }
 
 .sv2-error {
+  display: flex;
+  align-items: center;
+  gap: 11px;
   padding: 10px 14px;
   border: 1px solid #ffcdc9;
   border-radius: 11px;

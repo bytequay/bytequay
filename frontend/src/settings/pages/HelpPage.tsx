@@ -44,10 +44,7 @@ function HelpPage() {
     setError(null);
     setCreated(null);
     try {
-      const full = attachDiagnostics && env !== null
-        ? `${body.trim()}\n\n---\n${diagnosticsBlock(env)}`
-        : body.trim();
-      setCreated(await window.bridge.reportByteQuayIssue(title.trim(), full));
+      setCreated(await window.bridge.reportByteQuayIssue(title.trim(), composeBody()));
       setTitle('');
       setBody('');
     } catch (reason) {
@@ -55,6 +52,27 @@ function HelpPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const composeBody = () => (attachDiagnostics && env !== null
+    ? `${body.trim()}\n\n---\n${diagnosticsBlock(env)}`
+    : body.trim());
+
+  /* Filing through the API needs a token with issue-write access to
+   * bytequay/bytequay — a fine-grained PAT scoped to the user's own repos
+   * can never have that. GitHub's own new-issue form needs no token at all,
+   * so failures fall back to it with the draft prefilled. */
+  const openPrefilledIssue = async () => {
+    const full = composeBody();
+    const base = `https://github.com/${REPO}/issues/new?title=${encodeURIComponent(title.trim())}`;
+    const withBody = `${base}&body=${encodeURIComponent(full)}`;
+    if (withBody.length > 6000) {
+      await navigator.clipboard.writeText(full);
+      setError('Report copied to clipboard — paste it into the GitHub form.');
+      await window.bridge.openInAppBrowser(base);
+      return;
+    }
+    await window.bridge.openInAppBrowser(withBody);
   };
 
   const copyDiagnostics = async () => {
@@ -164,7 +182,19 @@ function HelpPage() {
               {submitting ? 'Submitting…' : 'Submit issue'}
             </button>
           </div>
-          {error !== null && <div className="sv2-error" role="alert">{error}</div>}
+          {error !== null && (
+            <div className="sv2-error" role="alert">
+              <span>{error}</span>
+              <button
+                className="sv2-btn sv2-btn--sm"
+                type="button"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => { void openPrefilledIssue(); }}
+              >
+                Open on GitHub instead ↗
+              </button>
+            </div>
+          )}
         </form>
       </div>
 

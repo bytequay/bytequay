@@ -1296,6 +1296,16 @@
   background: #fff;
 }
 
+/* Every page below has a 900px floor. In a window narrower than that plus the
+   sidebar, the overflow has to go somewhere: without this it is silently cut
+   off at the right edge — commit authors, dates and header controls simply
+   gone. overflow-y stays hidden so the pages' own scrolling panes still own
+   the vertical axis. */
+.workspace-redesign .wu-workspace-shell > .main {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .workspace-redesign .wu-page {
   display: flex;
   min-width: 900px;
@@ -11566,14 +11576,29 @@ button.workspace-redesign .wu-table-row,
   flex-shrink: 0;
 }
 
+/* Pinned so the box stays reachable while scrolling a few hundred refs. */
+.workspace-redesign .wu-ce-menu-filter {
+  position: sticky;
+  top: -5px;
+  z-index: 1;
+  flex: 0 0 auto;
+  margin-bottom: 3px;
+  padding: 6px 9px;
+  border: 1px solid var(--bq-line);
+  border-radius: 7px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--bq-text);
+}
+
 /* Heading above the upstream refs in the branch picker, so `upstream/master`
    reads as another repo's branch rather than an oddly named local one. */
 .workspace-redesign .wu-ce-menu-group {
   display: block;
   /* Sticky so you still know which repo you're scrolling through once the
-     local branches have scrolled past. */
+     local branches have scrolled past — below the filter box, not under it. */
   position: sticky;
-  top: -5px;
+  top: 30px;
   background: #fff;
   padding: 8px 9px 3px;
   border-top: 1px solid var(--bq-line);

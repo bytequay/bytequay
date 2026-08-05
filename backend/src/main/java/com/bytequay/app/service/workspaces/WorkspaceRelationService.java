@@ -255,6 +255,23 @@ public class WorkspaceRelationService
         return List.copyOf(result);
     }
 
+    /**
+     * Every branch the linked upstream's clone knows about, as unqualified
+     * names so they read the same as the revision {@link #commits} reports.
+     * Read off {@code origin/*} rather than the upstream workspace's own
+     * local branches: that clone rarely checks anything out, so its heads
+     * would list one branch where the remote carries hundreds.
+     */
+    public List<String> upstreamBranches(String workspaceId)
+            throws IOException, InterruptedException
+    {
+        ResolvedRelation resolved = requireResolved(workspaceId);
+        return git.listRemoteBranches(resolved.upstreamClone(), "origin").stream()
+                .map(name -> name.substring("origin/".length()))
+                .sorted()
+                .toList();
+    }
+
     public UpstreamCommitsDto commits(String workspaceId, String revision, int requestedLimit)
             throws IOException, InterruptedException
     {

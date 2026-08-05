@@ -403,6 +403,13 @@ public class WorkspaceRepositoryController
         return relations.candidates(workspaceId);
     }
 
+    /** Branches of the linked upstream, for picking a cherry-pick source. */
+    @GetMapping("/relation/branches")
+    public List<String> relationBranches(@PathVariable String workspaceId)
+    {
+        return interrupted(() -> relations.upstreamBranches(workspaceId));
+    }
+
     @GetMapping("/upstream/commits")
     public WorkspaceRelationService.UpstreamCommitsDto upstreamCommits(
             @PathVariable String workspaceId,

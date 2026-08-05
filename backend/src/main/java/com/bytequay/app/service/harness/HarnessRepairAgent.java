@@ -20,13 +20,20 @@ import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -52,19 +59,28 @@ public class HarnessRepairAgent
     private static final int MAX_DETAIL = 500;
     private static final int MAX_EXCERPT = 6_000;
     private static final int MAX_FAILURES = 40;
+    private static final int MAX_LEARNED = 5;
+    private static final int MAX_TITLE = 200;
+    private static final int MAX_BODY = 8_000;
+    private static final Pattern LEARNED_BLOCK = Pattern.compile(
+            "<learned\\s+title=\"([^\"]{1,300})\"\\s*>(.*?)</learned>", Pattern.DOTALL);
+    private static final Logger log = LoggerFactory.getLogger(HarnessRepairAgent.class);
 
     private final CliReviewRunner cli;
     private final WorkspaceEngineSettings engines;
     private final AiDefaultsService aiDefaults;
+    private final SessionKnowledgeProvider knowledge;
 
     public HarnessRepairAgent(
             CliReviewRunner cli,
             WorkspaceEngineSettings engines,
-            AiDefaultsService aiDefaults)
+            AiDefaultsService aiDefaults,
+            SessionKnowledgeProvider knowledge)
     {
         this.cli = requireNonNull(cli, "cli is null");
         this.engines = requireNonNull(engines, "engines is null");
         this.aiDefaults = requireNonNull(aiDefaults, "aiDefaults is null");
+        this.knowledge = requireNonNull(knowledge, "knowledge is null");
     }
 
     // ponytail: duplicated from ConflictRepairAgent — 12 lines and one enum
@@ -104,6 +120,7 @@ public class HarnessRepairAgent
         }
         boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
         String prompt = (resuming ? "" : systemPrompt() + "\n\n")
+                + knowledge(workspaceId, failures)
                 + userPrompt(failures, steeringText, resuming);
         CliReviewRunner.Result result = cli.run(
                 cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
@@ -113,29 +130,134 @@ public class HarnessRepairAgent
     }
 
     /**
+     * The run's last turn, after a human merged it. Everything worth keeping from
+     * this range gets written down now or not at all: the worktree is about to go,
+     * and the session that knows what was tried and rejected goes with it.
+     *
+     * @return the entries it wrote; the caller persists them
+     */
+    public Outcome retrospective(
+            Path worktree, String workspaceId, Integer prNumber,
+            long budgetMilliUsd, String resumeSessionId)
+    {
+        requireNonNull(worktree, "worktree is null");
+        WorkModel engine = engineFor(workspaceId);
+        if (engine.kind() != WorkModelKind.CLI) {
+            return new Outcome(false, true, "no CLI agent to write a retrospective", 0, null);
+        }
+        String prompt = RETROSPECTIVE_PROMPT
+                + (prNumber == null ? "" : "\n\nThe merged pull request was #" + prNumber + ".");
+        CliReviewRunner.Result result = cli.run(
+                cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
+                toIntExact(Math.max(1, budgetMilliUsd / 10)),
+                CliReviewRunner.Sandbox.WRITE);
+        return read(result.text(), result.costUsdMilli(), result.sessionId());
+    }
+
+    /**
+     * The base moved and the branch no longer merges. Same session, same commit
+     * shape rules — only the job is different, so the prompt is too.
+     */
+    public Outcome rebaseOntoBase(
+            Path worktree, String workspaceId, long budgetMilliUsd, String resumeSessionId)
+    {
+        requireNonNull(worktree, "worktree is null");
+        WorkModel engine = engineFor(workspaceId);
+        if (engine.kind() != WorkModelKind.CLI) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "rebasing needs a CLI agent; this workspace's CI-fix engine is "
+                            + engine.agentOrProvider());
+        }
+        boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
+        String prompt = (resuming ? "" : systemPrompt() + "\n\n") + REBASE_PROMPT;
+        CliReviewRunner.Result result = cli.run(
+                cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
+                toIntExact(Math.max(1, budgetMilliUsd / 10)),
+                CliReviewRunner.Sandbox.WRITE);
+        return read(result.text(), result.costUsdMilli(), result.sessionId());
+    }
+
+    /**
+     * What this repo has already taught the agent about failures like these.
+     * Prose, retrieved by relevance to this round's signatures — it informs the
+     * agent's judgement and never routes around it.
+     */
+    private String knowledge(String workspaceId, List<Failure> failures)
+    {
+        String hint = failures.stream()
+                .map(Failure::signature)
+                .filter(signature -> signature != null && !signature.isBlank())
+                .limit(8)
+                .collect(Collectors.joining(" "));
+        String projection = "";
+        try {
+            projection = knowledge.render(workspaceId, "ci-fix", hint);
+        }
+        catch (RuntimeException unavailable) {
+            // Memory is an advantage, not a precondition. A round still runs
+            // without it; it just starts from less.
+            log.warn("CI harness knowledge projection unavailable: {}", unavailable.getMessage());
+        }
+        if (projection == null || projection.isBlank()) {
+            return "";
+        }
+        return "What this repository has taught you before:\n<knowledge>\n"
+                + projection.strip() + "\n</knowledge>\n\n";
+    }
+
+    /**
      * The verdict is the last non-blank line. A turn that ends any other way is
      * a park: the program will not push a tree whose author never said it was
      * ready.
      */
     Outcome read(String raw, long costMilliUsd, String sessionId)
     {
+        List<Learned> learned = learned(raw);
         String last = lastLine(raw);
         String upper = last.toUpperCase(Locale.ROOT);
         if (upper.startsWith(COMMITTED)) {
-            return new Outcome(true, false, detail(last, COMMITTED), costMilliUsd, sessionId);
+            return new Outcome(
+                    true, false, detail(last, COMMITTED), learned, costMilliUsd, sessionId);
         }
         if (upper.startsWith(NOTHING)) {
-            return new Outcome(false, true, detail(last, NOTHING), costMilliUsd, sessionId);
+            return new Outcome(
+                    false, true, detail(last, NOTHING), learned, costMilliUsd, sessionId);
         }
         if (upper.startsWith(PARKED)) {
-            return new Outcome(false, false, detail(last, PARKED), costMilliUsd, sessionId);
+            return new Outcome(
+                    false, false, detail(last, PARKED), learned, costMilliUsd, sessionId);
         }
         return new Outcome(
                 false, false,
                 last.isBlank()
                         ? "the round ended without a verdict"
                         : "the round ended without a verdict: " + clamp(last),
-                costMilliUsd, sessionId);
+                learned, costMilliUsd, sessionId);
+    }
+
+    /**
+     * Entries the agent wrote for a fix CI has now confirmed. Extracted rather
+     * than written by the agent directly: it authors the memory, the program
+     * persists it, same as every other side effect in this loop.
+     */
+    static List<Learned> learned(String raw)
+    {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        List<Learned> entries = new ArrayList<>();
+        Matcher matcher = LEARNED_BLOCK.matcher(raw);
+        while (matcher.find() && entries.size() < MAX_LEARNED) {
+            String title = matcher.group(1).strip();
+            String body = matcher.group(2).strip();
+            if (!title.isBlank() && !body.isBlank()) {
+                entries.add(new Learned(
+                        title.length() <= MAX_TITLE ? title : title.substring(0, MAX_TITLE),
+                        body.length() <= MAX_BODY ? body : body.substring(0, MAX_BODY)));
+            }
+        }
+        return List.copyOf(entries);
     }
 
     private static String lastLine(String raw)
@@ -208,6 +330,48 @@ public class HarnessRepairAgent
         return prompt.toString();
     }
 
+    private static final String RETROSPECTIVE_PROMPT = """
+            A human has reviewed and merged this range. The run is over and this
+            worktree is about to be removed, so anything worth keeping has to be
+            written down now.
+
+            Look back over the whole range — your own picks, the conflicts you
+            resolved, the CI failures you chased — and, importantly, at what changed
+            between what you last pushed and what was actually merged. A reviewer's
+            correction is the most useful thing you will see all run and this is the
+            only moment it is still visible: `git log` and `git diff` against what you
+            pushed will show it.
+
+            Write what a future run on this fork should know. One block per thing
+            worth knowing, and nothing that is merely true of this one range:
+
+              <learned title="short, searchable, names the thing">
+              What happens, why it happens on this fork specifically, and what to do
+              about it. Include what you got wrong and what corrected it.
+              </learned>
+
+            Write nothing if the range taught nothing durable — that is a real answer.
+
+            End your turn with:
+              NOTHING: <one sentence on what this range taught, or that it taught nothing>
+            """;
+
+    private static final String REBASE_PROMPT = """
+            This branch no longer merges into the fork's target branch — the target has
+            moved under us, which it will on a range that takes days.
+
+            Fetch the target branch and rebase this one onto it. Resolve the conflicts
+            the way this fork wants them, keeping every commit-shape rule above: each
+            resolution belongs in the fixup of the pick that owns it, one fixup per pick,
+            and a change no single pick owns becomes its own commit at the tip.
+
+            Do not push. Do not squash the picks together. Do not reorder them.
+
+            End your turn with exactly one of:
+              COMMITTED: <one sentence on what the rebase took>
+              PARKED: <why a human has to resolve this one>
+            """;
+
     private static String systemPrompt()
     {
         return """
@@ -251,6 +415,20 @@ public class HarnessRepairAgent
 
                 Leave the worktree clean: everything committed, nothing staged, no strays.
 
+                When a fix of yours is GONE from the failures — CI has confirmed it — write
+                what it taught this repository, before you move on:
+
+                  <learned title="short, searchable, names the failure">
+                  What the failure looked like in the log. What actually caused it. What you
+                  changed and why that worked. What you tried first that did not, and why.
+                  </learned>
+
+                Only after CI confirms it. A fix that merely passed on your machine has not
+                been confirmed, and a memory of something that did not work is worse than no
+                memory at all. You will be shown these entries on later runs, so write them
+                for a reader who has forgotten everything but has the same failure in front
+                of them. Nothing to confirm this round means no block — most rounds have none.
+
                 End your turn with exactly one of these as the final line:
                   COMMITTED: <one sentence on what you fixed>
                   NOTHING: <why nothing here is yours to fix>
@@ -263,11 +441,24 @@ public class HarnessRepairAgent
      * @param nothing   the agent looked and judged nothing here to be its work — not a
      *                  failure, but nothing to push either
      * @param detail    the agent's own sentence
+     * @param learned   memories for fixes CI has now confirmed; empty on most rounds
      */
     public record Outcome(
             boolean committed,
             boolean nothing,
             String detail,
+            List<Learned> learned,
             long costMilliUsd,
-            String sessionId) {}
+            String sessionId)
+    {
+        public Outcome(
+                boolean committed, boolean nothing, String detail,
+                long costMilliUsd, String sessionId)
+        {
+            this(committed, nothing, detail, List.of(), costMilliUsd, sessionId);
+        }
+    }
+
+    /** One knowledge-base entry, in the agent's own prose. */
+    public record Learned(String title, String body) {}
 }

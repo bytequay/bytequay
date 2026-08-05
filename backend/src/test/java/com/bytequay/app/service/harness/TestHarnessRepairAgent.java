@@ -18,6 +18,7 @@ import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -31,7 +32,8 @@ class TestHarnessRepairAgent
     private final HarnessRepairAgent agent = new HarnessRepairAgent(
             mock(CliReviewRunner.class),
             mock(WorkspaceEngineSettings.class),
-            mock(AiDefaultsService.class));
+            mock(AiDefaultsService.class),
+            mock(SessionKnowledgeProvider.class));
 
     @Test
     void aCommittedRoundIsTheOnlyVerdictThatGetsPushed()
@@ -97,6 +99,61 @@ class TestHarnessRepairAgent
 
         // Silent truncation would read as "that is all of it" to the agent.
         assertThat(prompt).contains("60 failure(s) this round").contains("are shown");
+    }
+
+    @Test
+    void whatTheAgentLearnedIsLiftedOutForTheProgramToPersist()
+    {
+        HarnessRepairAgent.Outcome outcome = agent.read("""
+                The plan fixtures were stale again.
+
+                <learned title="stale plan fixtures after an optimizer change">
+                Shows up as expected/but was on a generated plan file. Regenerating the
+                fixtures fixes it; editing the assertion does not, because the next
+                optimizer change reintroduces it.
+                </learned>
+
+                COMMITTED: regenerated the plan fixtures
+                """, 300, "s-1");
+
+        assertThat(outcome.learned()).hasSize(1);
+        assertThat(outcome.learned().getFirst().title())
+                .isEqualTo("stale plan fixtures after an optimizer change");
+        // The "what didn't work and why" half is the part only the session that
+        // tried it can write, so it has to survive extraction intact.
+        assertThat(outcome.learned().getFirst().body())
+                .contains("editing the assertion does not");
+        assertThat(outcome.committed()).isTrue();
+    }
+
+    @Test
+    void mostRoundsLearnNothingAndThatIsNotAnError()
+    {
+        assertThat(agent.read("COMMITTED: fixed it", 300, "s-1").learned()).isEmpty();
+        // A malformed block is dropped rather than persisted half-written.
+        assertThat(agent.read(
+                "<learned title=\"\"></learned>\nCOMMITTED: fixed it", 300, "s-1").learned())
+                .isEmpty();
+    }
+
+    @Test
+    void aRetrospectiveMayWriteSeveralEntriesOrNone()
+    {
+        HarnessRepairAgent.Outcome outcome = agent.read("""
+                <learned title="the fork keeps its own config prefix">
+                Upstream renames keys; this fork does not follow. Rename in the fixup.
+                </learned>
+                <learned title="coverage gate needs a stub for new fork-only classes">
+                Adding one to the generated list is enough; the gate reads it at build time.
+                </learned>
+                NOTHING: two things worth keeping from this range
+                """, 900, "s-9");
+
+        assertThat(outcome.learned()).hasSize(2);
+        assertThat(outcome.learned().stream().map(HarnessRepairAgent.Learned::title))
+                .contains("the fork keeps its own config prefix");
+        // A retrospective is not a fix: nothing here should ever be pushed.
+        assertThat(outcome.committed()).isFalse();
     }
 
     private static Failure failure(String signature)

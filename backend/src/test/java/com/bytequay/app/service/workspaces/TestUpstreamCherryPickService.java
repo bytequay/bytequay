@@ -92,7 +92,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
                 "fork-ws",
@@ -207,7 +207,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         service.guide("fork-ws", "job-1", "prefer our fork's config names");
         service.resume("fork-ws", "job-1");
@@ -269,7 +269,7 @@ class TestUpstreamCherryPickService
                 jdbc, new ObjectMapper(), mock(WorkspaceRelationService.class),
                 mock(GitRunner.class), mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         assertThat(service.list("fork-ws", 20))
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickJobDto::jobId)
@@ -318,7 +318,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         assertThatThrownBy(() -> service.enqueue(
                 "fork-ws",
@@ -396,6 +396,7 @@ class TestUpstreamCherryPickService
                 pullRequests,
                 mock(PRSyncService.class),
                 handoff,
+                mock(ObjectProvider.class),
                 mock(ObjectProvider.class));
         service.recover();
 
@@ -474,7 +475,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         assertThatThrownBy(() -> service.retry("other-ws", "job-1"))
                 .isInstanceOf(NoSuchElementException.class);
@@ -559,7 +560,8 @@ class TestUpstreamCherryPickService
 
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, pats, pullRequests,
-                mock(PRSyncService.class), handoff, mock(ObjectProvider.class));
+                mock(PRSyncService.class), handoff, mock(ObjectProvider.class),
+                mock(ObjectProvider.class));
         service.recover();
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto job = awaitStatus(
@@ -636,7 +638,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), prSync, provider,
-                mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         service.recover();
         UpstreamCherryPickService.UpstreamCherryPickJobDto completed =
@@ -821,7 +823,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class), provider,
-                mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto closed =
                 service.close("fork-ws", "job-1");
@@ -902,7 +904,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), prSync, provider,
-                mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         // Still open on the remote: the run keeps its worktree.
         when(prSync.syncExternalPR("acme/fork", 123)).thenReturn(Optional.of(externalPr(
@@ -1027,7 +1029,7 @@ class TestUpstreamCherryPickService
         return new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, new GitRunner(),
                 mock(PatResolver.class), pullRequests, mock(PRSyncService.class),
-                mock(ObjectProvider.class), advisorProvider);
+                mock(ObjectProvider.class), mock(ObjectProvider.class), advisorProvider);
     }
 
     private static JdbcTemplate jdbc(Path database)

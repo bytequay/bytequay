@@ -31,6 +31,7 @@ import com.bytequay.app.service.harness.HarnessModels.Phase;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,12 +63,13 @@ class TestHarnessOrchestrator
     private final HarnessLogParser parser = mock(HarnessLogParser.class);
     private final HarnessClassifier classifier = mock(HarnessClassifier.class);
     private final HarnessRepairAgent agent = mock(HarnessRepairAgent.class);
+    private final WorkspaceKnowledgeService knowledge = mock(WorkspaceKnowledgeService.class);
     private final HarnessGitSafety gitSafety = mock(HarnessGitSafety.class);
     private final GitRunner git = mock(GitRunner.class);
     private final PRStore prs = mock(PRStore.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final HarnessOrchestrator orchestrator = new HarnessOrchestrator(
-            store, service, probe, parser, classifier, agent,
+            store, service, probe, parser, classifier, agent, knowledge,
             gitSafety, git, prs, mock(ApplicationEventPublisher.class),
             mapper, Runnable::run);
 

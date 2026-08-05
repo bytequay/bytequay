@@ -86,6 +86,8 @@ public class UpstreamCherryPickService
     private final PullRequestRepository pullRequests;
     private final PRSyncService prSync;
     private final ObjectProvider<HarnessWatchHandoff> harnessHandoff;
+    /** Optional by design: with no writer registered a merge simply tears down. */
+    private final ObjectProvider<SyncRetrospectiveWriter> retrospective;
     /** Optional by design: with no agent registered a conflict simply parks. */
     private final ObjectProvider<ConflictRepairAdvisor> repairAdvisor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
@@ -99,6 +101,7 @@ public class UpstreamCherryPickService
             PullRequestRepository pullRequests,
             PRSyncService prSync,
             ObjectProvider<HarnessWatchHandoff> harnessHandoff,
+            ObjectProvider<SyncRetrospectiveWriter> retrospective,
             ObjectProvider<ConflictRepairAdvisor> repairAdvisor)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
@@ -109,6 +112,7 @@ public class UpstreamCherryPickService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.prSync = requireNonNull(prSync, "prSync is null");
         this.harnessHandoff = requireNonNull(harnessHandoff, "harnessHandoff is null");
+        this.retrospective = requireNonNull(retrospective, "retrospective is null");
         this.repairAdvisor = requireNonNull(repairAdvisor, "repairAdvisor is null");
     }
 
@@ -447,16 +451,61 @@ public class UpstreamCherryPickService
                         .map(PR::status)
                         .filter(status -> PR.STATUS_MERGED.equals(status)
                                 || PR.STATUS_CLOSED.equals(status))
-                        .ifPresent(status -> closeRun(
-                                requireRow(row.id()),
-                                "— pull request #" + row.prNumber() + " was "
-                                        + (PR.STATUS_MERGED.equals(status)
-                                                ? "merged" : "closed")));
+                        .ifPresent(status -> {
+                            // A merge is the run's last chance to remember anything:
+                            // the worktree still holds the merged history, the session
+                            // still remembers what it tried, and whatever a reviewer
+                            // corrected before merging is visible nowhere else. So the
+                            // retrospective runs before teardown, never after.
+                            if (PR.STATUS_MERGED.equals(status)) {
+                                writeRetrospective(requireRow(row.id()));
+                            }
+                            closeRun(
+                                    requireRow(row.id()),
+                                    "— pull request #" + row.prNumber() + " was "
+                                            + (PR.STATUS_MERGED.equals(status)
+                                                    ? "merged" : "closed"));
+                        });
             }
             catch (RuntimeException e) {
                 log.warn("checking pull request state for sync run {} failed: {}",
                         row.id(), e.getMessage());
             }
+        }
+    }
+
+    /**
+     * The run's last act: what this range taught the fork, written by the session
+     * that lived through it. Distinct from the per-failure memories phase 2 writes
+     * — this one is about the range as a whole, and it is the only moment anything
+     * a reviewer changed before merging is still there to read.
+     *
+     * <p>Best-effort by design. A retrospective that fails loses a memory; it must
+     * never leave a worktree behind, so nothing here can stop the teardown.
+     */
+    private void writeRetrospective(JobRow row)
+    {
+        SyncRetrospectiveWriter writer = retrospective.getIfAvailable();
+        String session = agentSessionId(row.id());
+        if (writer == null || row.worktreePath() == null || session == null) {
+            // No session means no picks were repaired and nothing was chased —
+            // there is no run to look back over.
+            return;
+        }
+        Path worktree = Path.of(row.worktreePath());
+        if (!Files.isDirectory(worktree)) {
+            return;
+        }
+        try {
+            writer.write(
+                    worktree, row.workspaceId(), row.prNumber(),
+                    Math.max(0, row.budgetMilliUsd() - spentMilliUsd(row.id())),
+                    session);
+            record(row.id(), null, "note",
+                    "Wrote what this range taught the repository", null, null, null);
+        }
+        catch (RuntimeException e) {
+            log.warn("retrospective for sync run {} failed: {}", row.id(), e.getMessage());
         }
     }
 

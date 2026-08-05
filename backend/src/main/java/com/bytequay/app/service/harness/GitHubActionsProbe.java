@@ -117,7 +117,9 @@ public class GitHubActionsProbe
                     name, conclusion,
                     noEvidence || profile.infraJobs().contains(name), log));
         }
-        return new ProbeResult(detail.headSha(), detail.baseSha(), detail.headRef(), green, pending,
+        return new ProbeResult(
+                detail.headSha(), detail.baseSha(), detail.headRef(), green, pending,
+                Boolean.FALSE.equals(detail.mergeable()),
                 List.copyOf(failed), tail(tail));
     }
 
@@ -210,14 +212,28 @@ public class GitHubActionsProbe
         return failure.getCause() instanceof IOException;
     }
 
+    /**
+     * @param conflicted GitHub reports the branch no longer merges into its base —
+     *         the fork's target branch moved under a run that takes days. Read off
+     *         the poll we already make, so noticing costs no extra fetch.
+     */
     public record ProbeResult(
             String headSha,
             String baseSha,
             String branch,
             boolean green,
             boolean pending,
+            boolean conflicted,
             List<FailedJob> failedJobs,
-            String runStatusTail) {}
+            String runStatusTail)
+    {
+        public ProbeResult(
+                String headSha, String baseSha, String branch, boolean green,
+                boolean pending, List<FailedJob> failedJobs, String runStatusTail)
+        {
+            this(headSha, baseSha, branch, green, pending, false, failedJobs, runStatusTail);
+        }
+    }
 
     public record FailedJob(
             String runId,

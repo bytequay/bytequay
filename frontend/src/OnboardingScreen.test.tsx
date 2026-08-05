@@ -36,6 +36,25 @@ it('tells a user without gh how to get one instead of hiding the option', async 
   expect(screen.queryByRole('button', { name: 'Use my GitHub CLI login' })).toBeNull();
 });
 
+it('warns on a fine-grained token but leaves classic and legacy ones alone', async () => {
+  bridge(false, async () => ({ login: 'nobody' }));
+  render(<OnboardingScreen onSaved={vi.fn()} />);
+  const field = await screen.findByLabelText('GitHub personal access token');
+  const warning = /only reach the repositories it was issued for/;
+
+  fireEvent.change(field, { target: { value: 'github_pat_11ABCDE' } });
+  expect(screen.getByText(warning)).toBeTruthy();
+
+  fireEvent.change(field, { target: { value: 'ghp_16CharsOfToken' } });
+  expect(screen.queryByText(warning)).toBeNull();
+
+  // pre-2021 classic tokens are bare 40-hex, and gh's is gho_ — neither warns
+  fireEvent.change(field, { target: { value: 'a'.repeat(40) } });
+  expect(screen.queryByText(warning)).toBeNull();
+  fireEvent.change(field, { target: { value: 'gho_16CharsOfToken' } });
+  expect(screen.queryByText(warning)).toBeNull();
+});
+
 it('surfaces the login command when gh is installed but logged out', async () => {
   bridge(true, async () => {
     throw new Error('The GitHub CLI couldn\'t provide a token: please run: gh auth login');

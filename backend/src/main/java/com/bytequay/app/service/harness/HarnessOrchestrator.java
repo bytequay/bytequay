@@ -32,6 +32,7 @@ import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PrUpdatedEvent;
+import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -74,6 +75,7 @@ public class HarnessOrchestrator
     private final HarnessLogParser parser;
     private final HarnessClassifier classifier;
     private final HarnessRepairAgent agent;
+    private final WorkspaceKnowledgeService knowledge;
     private final HarnessGitSafety gitSafety;
     private final GitRunner git;
     private final PRStore prs;
@@ -89,6 +91,7 @@ public class HarnessOrchestrator
             HarnessLogParser parser,
             HarnessClassifier classifier,
             HarnessRepairAgent agent,
+            WorkspaceKnowledgeService knowledge,
             HarnessGitSafety gitSafety,
             GitRunner git,
             PRStore prs,
@@ -102,6 +105,7 @@ public class HarnessOrchestrator
         this.parser = requireNonNull(parser, "parser is null");
         this.classifier = requireNonNull(classifier, "classifier is null");
         this.agent = requireNonNull(agent, "agent is null");
+        this.knowledge = requireNonNull(knowledge, "knowledge is null");
         this.gitSafety = requireNonNull(gitSafety, "gitSafety is null");
         this.git = requireNonNull(git, "git is null");
         this.prs = requireNonNull(prs, "prs is null");
@@ -241,6 +245,14 @@ public class HarnessOrchestrator
                 return;
             }
 
+            // The fork's target branch moves under a run that takes days. Ahead of
+            // everything else, including a green board: a branch that will not
+            // merge is not done, and rebasing rewrites every sha so any verdict
+            // read before it is about a tree that no longer exists.
+            if (result.conflicted()) {
+                runRebaseRound(watch, cycle, result);
+                return;
+            }
             if (result.pending()) {
                 finishNoChange(watch, cycle, "CI is still running", result.runStatusTail());
                 return;
@@ -378,6 +390,7 @@ public class HarnessOrchestrator
         store.appendEvent(watch.id(), cycle.id(), Phase.FIX,
                 outcome.committed() ? "agent_committed" : "agent_finished",
                 outcome.detail(), null, now());
+        remember(watch, cycle, outcome);
 
         if (!outcome.committed()) {
             handoff(watch, cycle, null, null, null, outcome.nothing()
@@ -400,6 +413,89 @@ public class HarnessOrchestrator
         }
         ensureActive(watch, cycle);
         pushRound(watch, cycle, probeResult, root, outcome);
+    }
+
+    /**
+     * The base moved and the branch no longer merges. The agent rebases onto the
+     * updated target and repairs the conflicts, each resolution landing as a
+     * {@code fixup!} under the same one-per-pick rule as everything else.
+     *
+     * <p>Its own round on purpose: the rebase rewrites every sha, so whatever CI
+     * last said describes a branch that no longer exists. Push, and let the next
+     * run judge the new tree.
+     */
+    private void runRebaseRound(Watch watch, Cycle cycle, ProbeResult probeResult)
+    {
+        Path root = Path.of(requireNonNull(watch.localPath(), "watch local path is null"));
+        if (!isAppOwnedWorktree(watch.localPath())) {
+            handoff(watch, cycle, null, null, null,
+                    "The pull request no longer merges into its base, and rebasing "
+                            + "requires an app-owned worktree");
+            return;
+        }
+        long spent = store.findWatch(watch.id())
+                .map(Watch::spentMilliUsd)
+                .orElse(watch.spentMilliUsd());
+        long remaining = Math.max(0, watch.budgetMilliUsd() - spent);
+        if (remaining < 100) {
+            handoff(watch, cycle, null, null, null,
+                    "The pull request no longer merges into its base and the run's budget "
+                            + "is spent. Raise it to carry on, or stop here.");
+            return;
+        }
+        ensureClean(root);
+        phase(watch, cycle, Phase.FIX, "The base moved — rebasing onto it");
+        HarnessRepairAgent.Outcome outcome = agent.rebaseOntoBase(
+                root, watch.workspaceId(), remaining, watch.agentSessionId());
+        store.addWatchCost(watch.id(), outcome.costMilliUsd(), now());
+        store.addCycleCost(cycle.id(), outcome.costMilliUsd(), now());
+        store.updateWatchAgentSession(watch.id(), outcome.sessionId(), now());
+        store.appendEvent(watch.id(), cycle.id(), Phase.FIX, "rebased",
+                outcome.detail(), null, now());
+        if (!outcome.committed()) {
+            handoff(watch, cycle, null, null, null, outcome.detail());
+            return;
+        }
+        try {
+            if (git.hasUncommittedChanges(root)) {
+                handoff(watch, cycle, null, null, null,
+                        "The rebase was reported finished but left uncommitted changes");
+                return;
+            }
+        }
+        catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            throw new IllegalStateException("unable to inspect harness worktree", e);
+        }
+        ensureActive(watch, cycle);
+        pushRound(watch, cycle, probeResult, root, outcome);
+    }
+
+    /**
+     * Persists what the agent learned from a fix CI has now confirmed. The agent
+     * authors it; the program writes it, like every other side effect here.
+     *
+     * <p>Never in the critical path: the round's commits are already made, and a
+     * knowledge write that fails costs a future shortcut, nothing more.
+     */
+    private void remember(Watch watch, Cycle cycle, HarnessRepairAgent.Outcome outcome)
+    {
+        for (HarnessRepairAgent.Learned entry : outcome.learned()) {
+            try {
+                knowledge.saveKnowledge(
+                        watch.workspaceId(), null, entry.title(), entry.body(),
+                        List.of("ci-fix"),
+                        Map.of("harnessWatchId", watch.id(), "harnessCycleId", cycle.id()));
+                store.appendEvent(watch.id(), cycle.id(), Phase.FIX, "learned",
+                        entry.title(), null, now());
+            }
+            catch (RuntimeException notLearned) {
+                log.warn("CI harness cycle {} could not record what it learned: {}",
+                        cycle.id(), notLearned.getMessage());
+            }
+        }
     }
 
     /**

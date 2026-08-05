@@ -22,6 +22,11 @@ type Props = {
 
 type OauthStatus = 'idle' | 'launching' | 'awaiting' | 'error';
 
+/** Only fine-grained tokens carry a repo-selection ceiling. Classic ones are
+ *  `ghp_` or, pre-2021, bare 40-hex; gh's is `gho_` — none of those warrant
+ *  the warning, so this prefix is the whole test. */
+const FINE_GRAINED_PREFIX = 'github_pat_';
+
 /**
  * First-run onboarding. OAuth-first when the backend is configured with
  * a GitHub OAuth App (GITHUB_CLIENT_ID/SECRET); falls back to the PAT
@@ -262,6 +267,14 @@ export default function OnboardingScreen({ onSaved }: Props) {
               Required scopes (classic PAT): <code>repo</code>, <code>read:user</code>.
               Stored encrypted in your macOS Keychain.
             </p>
+            {token.trim().startsWith(FINE_GRAINED_PREFIX) && (
+              <p className="onboarding__hint onboarding__hint--warn">
+                That's a fine-grained token. It can only reach the repositories it was
+                issued for — connecting or filing issues on anyone else's repository
+                will fail, even for public ones. A classic token with <code>repo</code>,
+                or a GitHub CLI login, avoids that.
+              </p>
+            )}
             {patState === 'error' && patError && (
               <div className="onboarding__error" role="alert">{patError}</div>
             )}

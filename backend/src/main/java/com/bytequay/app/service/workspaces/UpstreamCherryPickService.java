@@ -20,7 +20,6 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.harness.HarnessBootstrapper;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -42,7 +41,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.ResultSet;
@@ -51,7 +49,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -77,8 +74,6 @@ import static java.util.Objects.requireNonNull;
 public class UpstreamCherryPickService
 {
     private static final int MAX_COMMITS = 500;
-    /** Repair turns per conflicted pick before the run parks for a human. */
-    private static final int MAX_REPAIR_ATTEMPTS = 5;
     private static final int HISTORY_LIMIT = 5_000;
     private static final Set<String> LIVE_STATUSES = Set.of("QUEUED", "RUNNING");
     private static final Logger log = LoggerFactory.getLogger(UpstreamCherryPickService.class);
@@ -91,8 +86,7 @@ public class UpstreamCherryPickService
     private final PullRequestRepository pullRequests;
     private final PRSyncService prSync;
     private final ObjectProvider<HarnessWatchHandoff> harnessHandoff;
-    private final CherryPickCompileGate gate;
-    /** Optional by design: with no advisor registered a red gate simply parks. */
+    /** Optional by design: with no agent registered a conflict simply parks. */
     private final ObjectProvider<ConflictRepairAdvisor> repairAdvisor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
 
@@ -105,7 +99,6 @@ public class UpstreamCherryPickService
             PullRequestRepository pullRequests,
             PRSyncService prSync,
             ObjectProvider<HarnessWatchHandoff> harnessHandoff,
-            CherryPickCompileGate gate,
             ObjectProvider<ConflictRepairAdvisor> repairAdvisor)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
@@ -116,7 +109,6 @@ public class UpstreamCherryPickService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.prSync = requireNonNull(prSync, "prSync is null");
         this.harnessHandoff = requireNonNull(harnessHandoff, "harnessHandoff is null");
-        this.gate = requireNonNull(gate, "gate is null");
         this.repairAdvisor = requireNonNull(repairAdvisor, "repairAdvisor is null");
     }
 
@@ -867,9 +859,6 @@ public class UpstreamCherryPickService
             List<String> applied = new ArrayList<>(row.appliedShas());
             List<String> skipped = new ArrayList<>(row.skippedShas());
             List<String> conflicted = new ArrayList<>(row.conflictedShas());
-            // Read once per worker pass: the module layout only changes if a pom
-            // in the range changes, and re-parsing it per commit buys nothing.
-            Map<String, String> modules = HarnessBootstrapper.mavenModuleMap(worktree);
             int index = row.nextCommitIndex();
             while (index < row.specs().size()) {
                 String stop = stopReason(id);
@@ -946,8 +935,7 @@ public class UpstreamCherryPickService
                 // holds a resolution nobody has judged, so that is where the gate goes.
                 if (conflictedPick
                         && !repairConflictedPick(
-                                id, worktree, index - 1, commit,
-                                outcome.conflictPaths(), modules)) {
+                                id, worktree, index - 1, commit, outcome.conflictPaths())) {
                     return;
                 }
                 row = requireRow(id);
@@ -1010,12 +998,15 @@ public class UpstreamCherryPickService
     }
 
     /**
-     * The per-commit gate. A conflicted pick is committed with git's own
-     * resolution, then compiled — scoped to the module it touched, tests
-     * skipped. Red means the resolution is wrong, so the agent proposes edits,
-     * this method applies them as that pick's single {@code fixup!} commit, and
-     * compiles again. After {@link #MAX_REPAIR_ATTEMPTS} the run parks and
-     * nothing is pushed.
+     * The per-commit handoff. A conflicted pick is committed with git's own
+     * resolution, markers and all; the agent then repairs it, commits the
+     * fixup and validates it. The program's part is starting that turn,
+     * recording what came back, and refusing to carry on over a worktree the
+     * next pick could not be applied to.
+     *
+     * <p>No attempt counter and no compile loop live here any more — both were
+     * the program deciding something the agent is better placed to decide. It
+     * retries as it sees fit within the budget and says when it is stuck.
      *
      * @return false when the run parked and the worker must stop
      */
@@ -1024,164 +1015,79 @@ public class UpstreamCherryPickService
             Path worktree,
             int index,
             CommitSpec commit,
-            List<String> conflictPaths,
-            Map<String, String> modules)
+            List<String> conflictPaths)
             throws IOException, InterruptedException
     {
         JobRow row = requireRow(id);
-        if (row.localGateUnavailable()) {
-            return true;
+        ConflictRepairAdvisor advisor = repairAdvisor.getIfAvailable();
+        if (advisor == null) {
+            return parked(id, index, commit, "no repair agent is configured");
         }
-        String module = moduleFor(worktree, commit.sha(), modules);
-        CherryPickCompileGate.Resolution resolution = CherryPickCompileGate.resolve(
-                row.compileScript(), null, module, Set.copyOf(modules.values()));
-        boolean fixupCommitted = false;
-        for (int attempt = 1; attempt <= MAX_REPAIR_ATTEMPTS + 1; attempt++) {
-            long startedAt = System.currentTimeMillis();
-            CherryPickCompileGate.Outcome compile = gate.run(worktree, resolution);
-            long tookMs = System.currentTimeMillis() - startedAt;
-            if (!compile.reproduced()) {
-                // Never send an agent after a defect that is not in the code: a
-                // command that cannot run is a missing toolchain, not a red gate.
-                markLocalGateUnavailable(id);
-                record(id, index, "note",
-                        "Local compile cannot run here — CI takes the verdict from now on",
-                        compile.outputTail(), null, null);
-                return true;
-            }
-            record(id, index, "command", String.join(" ", resolution.argv()),
-                    compile.outputTail(), compile.compiled() ? 0 : 1, tookMs);
-            if (compile.compiled()) {
-                record(id, index, "note",
-                        fixupCommitted
-                                ? "Repaired — the fixup compiles beside its pick"
-                                : "Compiles — git's resolution needed no repair",
-                        null, null, null);
-                return true;
-            }
-            if (attempt > MAX_REPAIR_ATTEMPTS) {
-                break;
-            }
-            ConflictRepairAdvisor advisor = repairAdvisor.getIfAvailable();
-            if (advisor == null) {
-                record(id, index, "note",
-                        "No repair agent is configured — parking for you", null, null, null);
-                break;
-            }
-            long remaining = row.budgetMilliUsd() - spentMilliUsd(id);
-            if (remaining <= 0) {
-                record(id, index, "note",
-                        "Repair budget spent — parking for you", null, null, null);
-                break;
-            }
-            ConflictRepairAdvisor.Repair repair;
-            try {
-                repair = advisor.propose(
-                        worktree, row.workspaceId(), commit.subject(),
-                        conflictPaths, compile.outputTail(), remaining,
-                        agentSessionId(id));
-            }
-            catch (RuntimeException e) {
-                // A malformed or unusable proposal costs one attempt, not the run.
-                record(id, index, "agent",
-                        "Proposal rejected — attempt " + attempt + " of " + MAX_REPAIR_ATTEMPTS,
-                        e.getMessage(), null, null);
-                continue;
-            }
-            addSpend(id, repair.costMilliUsd());
-            // One session for the whole run: later conflicts inherit what this
-            // one established about the fork.
-            rememberAgentSession(id, repair.sessionId());
-            record(id, index, "agent",
-                    repair.rationale() == null || repair.rationale().isBlank()
-                            ? "Agent proposed a repair"
-                            : repair.rationale(),
-                    "attempt " + attempt + " of " + MAX_REPAIR_ATTEMPTS, null, null);
-            if (repair.isEmpty()) {
-                record(id, index, "note",
-                        "The agent asked for a human — parking for you", null, null, null);
-                break;
-            }
-            applyEdits(worktree, repair.edits());
-            git.stageAll(worktree);
-            String fixupSha = fixupCommitted
-                    ? git.amendHead(worktree)
-                    : git.commit(worktree, "fixup! " + commit.subject()).orElse(null);
-            if (fixupSha == null) {
-                record(id, index, "note",
-                        "The proposed edits changed nothing — parking for you", null, null, null);
-                break;
-            }
-            fixupCommitted = true;
-            record(id, index, "fixup",
-                    "fixup! " + commit.subject(),
-                    repair.edits().size() + " file"
-                            + (repair.edits().size() == 1 ? "" : "s")
-                            + " · agent proposed · program applied and committed",
-                    null, null);
+        long remaining = row.budgetMilliUsd() - spentMilliUsd(id);
+        if (remaining <= 0) {
+            return parked(id, index, commit, "the repair budget is spent");
         }
-        parkForRepair(id, index, commit);
+        long startedAt = System.currentTimeMillis();
+        ConflictRepairAdvisor.Outcome outcome;
+        try {
+            outcome = advisor.repair(
+                    worktree, row.workspaceId(), commit.subject(), conflictPaths,
+                    row.compileScript(), remaining, agentSessionId(id));
+        }
+        catch (RuntimeException e) {
+            return parked(id, index, commit, e.getMessage() == null
+                    ? "the repair turn failed" : e.getMessage());
+        }
+        addSpend(id, outcome.costMilliUsd());
+        // One session for the whole run: later conflicts inherit what this one
+        // established about the fork.
+        rememberAgentSession(id, outcome.sessionId());
+        record(id, index, "agent", outcome.detail(),
+                outcome.validated()
+                        ? "agent resolved, committed and validated"
+                        : "agent resolved and committed; validation could not run here",
+                outcome.resolved() ? 0 : 1, System.currentTimeMillis() - startedAt);
+        if (!outcome.resolved()) {
+            return parked(id, index, commit, outcome.detail());
+        }
+        if (!outcome.validated()) {
+            // Sticky for the run log only. From here the range's verdict comes
+            // from CI, and the user needs to know that before trusting a green.
+            markLocalGateUnavailable(id);
+        }
+        // A pick can only be applied to a clean tree; anything left behind
+        // would surface as an unrelated failure on the next commit.
+        if (git.hasUncommittedChanges(worktree)) {
+            return parked(id, index, commit,
+                    "the repair left uncommitted changes in the worktree");
+        }
+        return true;
+    }
+
+    /** Parks and returns false, so a caller can {@code return} the call itself. */
+    private boolean parked(String id, int index, CommitSpec commit, String reason)
+    {
+        parkForRepair(id, index, commit, reason);
         return false;
     }
 
-    /** Applies exactly what validation accepted: unique anchors, nothing else. */
-    private static void applyEdits(Path worktree, List<ConflictRepairAdvisor.Edit> edits)
-            throws IOException
+    private void parkForRepair(String id, int index, CommitSpec commit, String reason)
     {
-        Path root = worktree.toAbsolutePath().normalize();
-        for (ConflictRepairAdvisor.Edit edit : edits) {
-            Path file = root.resolve(edit.path()).normalize();
-            if (!file.startsWith(root)) {
-                throw new IllegalStateException("edit escapes the worktree: " + edit.path());
-            }
-            String content = Files.readString(file, StandardCharsets.UTF_8);
-            int at = content.indexOf(edit.find());
-            if (at < 0 || content.indexOf(edit.find(), at + 1) >= 0) {
-                throw new IllegalStateException("edit anchor is not unique: " + edit.path());
-            }
-            Files.writeString(
-                    file,
-                    content.substring(0, at) + edit.replace()
-                            + content.substring(at + edit.find().length()),
-                    StandardCharsets.UTF_8);
-        }
-    }
-
-    /**
-     * The module a commit touched, so the gate compiles that instead of the
-     * whole project. Falls back to the whole project when the paths straddle
-     * modules or belong to none.
-     */
-    private String moduleFor(Path worktree, String sha, Map<String, String> modules)
-            throws IOException, InterruptedException
-    {
-        if (modules.isEmpty()) {
-            return null;
-        }
-        Set<String> touched = new LinkedHashSet<>();
-        for (GitRunner.CommitFileChange change : git.commitFiles(worktree, sha)) {
-            modules.entrySet().stream()
-                    .filter(entry -> change.path().startsWith(entry.getKey()))
-                    .map(Map.Entry::getValue)
-                    .findFirst()
-                    .ifPresent(touched::add);
-        }
-        return touched.size() == 1 ? touched.iterator().next() : null;
-    }
-
-    private void parkForRepair(String id, int index, CommitSpec commit)
-    {
+        String message = reason == null || reason.isBlank()
+                ? "the conflict repair could not be completed"
+                : reason.strip();
         jdbc.update("""
                 UPDATE upstream_cherry_pick_job
                 SET status = 'PAUSED_CONFLICT', repair_pending = 1,
                     conflict_paths_json = '[]',
-                    error_message = 'the conflict repair could not be verified',
+                    error_message = ?,
                     updated_at_ms = ?
                 WHERE id = ?
-                """, now(), id);
+                """, clampDetail(message), now(), id);
         record(id, index, "park",
-                "Parked — " + commit.subject() + " still does not compile",
-                "nothing is pushed; take over in the worktree and resume", null, null);
+                "Parked — " + commit.subject(),
+                message + "\n\nnothing is pushed; take over in the worktree and resume",
+                null, null);
     }
 
     private void markLocalGateUnavailable(String id)

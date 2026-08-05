@@ -15,19 +15,12 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -41,10 +34,9 @@ class TestConflictRepairAgent
 {
     private final WorkspaceEngineSettings engines = mock(WorkspaceEngineSettings.class);
     private final AiDefaultsService aiDefaults = mock(AiDefaultsService.class);
-    private final ConflictRepairAgent agent = new ConflictRepairAgent(
-            mock(TurnRunner.class), mock(ReviewProviderEndpoints.class),
-            mock(AppSettingsStore.class), new ObjectMapper(),
-            mock(CliReviewRunner.class), engines, aiDefaults);
+    private final CliReviewRunner cli = mock(CliReviewRunner.class);
+    private final ConflictRepairAgent agent =
+            new ConflictRepairAgent(cli, engines, aiDefaults);
 
     @Test
     void theWorkspacesOwnCiFixEngineWins()
@@ -100,67 +92,68 @@ class TestConflictRepairAgent
     }
 
     @Test
-    void aProposalIsParsedWithItsSessionSoTheNextTurnResumesIt()
+    void anApiEngineIsRefusedRatherThanSilentlyDoingNothing()
     {
-        ConflictRepairAdvisor.Repair repair = agent.parse("""
-                ```json
-                {"edits":[{"path":"A.java","find":"old","replace":"new"}],
-                 "rationale":"kept the fork's binding","needs_human":false}
-                ```
+        when(engines.forAudience("ws-1", SessionAudience.CI_FIX))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(
+                        new WorkModel(WorkModelKind.API, "anthropic", null, null), true)));
+
+        // An in-JVM turn has no shell and no editor, so it cannot do this job.
+        assertThatThrownBy(() -> agent.repair(
+                Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null))
+                .hasMessageContaining("needs a CLI agent");
+    }
+
+    @Test
+    void theVerdictIsTheLastLineAndCarriesItsSessionForward()
+    {
+        ConflictRepairAdvisor.Outcome outcome = agent.read("""
+                Looked at the conflict, kept the fork's config prefix.
+                Ran the module build; it passes.
+                RESOLVED: carried upstream's retry budget under the fork's prefix
                 """, 120, "session-9");
 
-        assertThat(repair.edits()).containsExactly(
-                new ConflictRepairAdvisor.Edit("A.java", "old", "new"));
-        assertThat(repair.rationale()).isEqualTo("kept the fork's binding");
-        assertThat(repair.sessionId()).isEqualTo("session-9");
-        assertThat(repair.costMilliUsd()).isEqualTo(120);
+        assertThat(outcome.resolved()).isTrue();
+        assertThat(outcome.validated()).isTrue();
+        assertThat(outcome.detail())
+                .isEqualTo("carried upstream's retry budget under the fork's prefix");
+        assertThat(outcome.sessionId()).isEqualTo("session-9");
+        assertThat(outcome.costMilliUsd()).isEqualTo(120);
     }
 
     @Test
-    void askingForAHumanIsAnEmptyProposalRatherThanAGuess()
+    void aRepairThatCouldNotBeCheckedIsResolvedButNotValidated()
     {
-        ConflictRepairAdvisor.Repair repair = agent.parse(
-                "{\"edits\":[],\"rationale\":\"this needs a decision\",\"needs_human\":true}",
+        ConflictRepairAdvisor.Outcome outcome = agent.read(
+                "RESOLVED-UNVALIDATED: no maven wrapper and the internal registry is unreachable",
                 80, null);
 
-        assertThat(repair.isEmpty()).isTrue();
-        assertThat(repair.rationale()).isEqualTo("this needs a decision");
+        assertThat(outcome.resolved()).isTrue();
+        // Not a failure — but the run log has to say the range was taken on trust.
+        assertThat(outcome.validated()).isFalse();
+        assertThat(outcome.detail()).startsWith("no maven wrapper");
     }
 
     @Test
-    void validationRefusesAnythingTheProgramCannotApplySafely(@TempDir Path worktree)
-            throws Exception
+    void askingForAHumanParks()
     {
-        Files.writeString(worktree.resolve("A.java"), "line\nrepeat\nrepeat\n",
-                StandardCharsets.UTF_8);
-        List<String> conflicted = List.of("A.java");
+        ConflictRepairAdvisor.Outcome outcome = agent.read(
+                "PARKED: upstream dropped the setter this fork still calls", 80, null);
 
-        // Not one of this pick's conflicted files.
-        assertThatThrownBy(() -> agent.validated(
-                repair(new ConflictRepairAdvisor.Edit("B.java", "line", "x")), worktree, conflicted))
-                .hasMessageContaining("outside the conflicted files");
-        // An anchor that matches twice would edit the wrong one.
-        assertThatThrownBy(() -> agent.validated(
-                repair(new ConflictRepairAdvisor.Edit("A.java", "repeat", "x")), worktree, conflicted))
-                .hasMessageContaining("not unique");
-        // An anchor that matches nothing.
-        assertThatThrownBy(() -> agent.validated(
-                repair(new ConflictRepairAdvisor.Edit("A.java", "absent", "x")), worktree, conflicted))
-                .hasMessageContaining("anchor is not in");
-        // A "repair" that leaves the markers behind.
-        assertThatThrownBy(() -> agent.validated(
-                repair(new ConflictRepairAdvisor.Edit("A.java", "line", "<<<<<<< HEAD")),
-                worktree, conflicted))
-                .hasMessageContaining("conflict markers");
-
-        assertThat(agent.validated(
-                repair(new ConflictRepairAdvisor.Edit("A.java", "line", "kept")),
-                worktree, conflicted).edits())
-                .hasSize(1);
+        assertThat(outcome.resolved()).isFalse();
+        assertThat(outcome.detail()).isEqualTo("upstream dropped the setter this fork still calls");
     }
 
-    private static ConflictRepairAdvisor.Repair repair(ConflictRepairAdvisor.Edit edit)
+    @Test
+    void aTurnThatEndsWithoutAVerdictIsAParkAndNeverAnAssumedSuccess()
     {
-        return new ConflictRepairAdvisor.Repair(List.of(edit), "why", 10, null);
+        // Out of budget, timed out, or simply wandered off. The program will
+        // not guess that a repair it cannot see the end of actually worked.
+        for (String ending : List.of("", "I'll start by reading the file.", "Done!")) {
+            ConflictRepairAdvisor.Outcome outcome = agent.read(ending, 10, null);
+
+            assertThat(outcome.resolved()).isFalse();
+            assertThat(outcome.detail()).contains("without a verdict");
+        }
     }
 }

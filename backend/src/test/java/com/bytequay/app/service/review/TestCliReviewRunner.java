@@ -87,6 +87,30 @@ class TestCliReviewRunner
     }
 
     @Test
+    void aWriteSeatCanChangeTheWorktreeAndEveryOtherSeatStillCannot()
+    {
+        // The cherry-pick repair lane: the agent edits, commits and builds.
+        assertThat(CliReviewRunner.buildArgv(
+                CliReviewRunner.Provider.CODEX, "codex", null, "/work", "repair this", null,
+                null, CliReviewRunner.Sandbox.WRITE))
+                .containsSequence("--sandbox", "workspace-write");
+        assertThat(CliReviewRunner.buildArgv(
+                CliReviewRunner.Provider.CLAUDE, "claude", null, "/work", null, null,
+                null, CliReviewRunner.Sandbox.WRITE))
+                .containsSequence("--allowedTools", CliReviewRunner.ALLOWED_WRITE_TOOLS);
+        assertThat(CliReviewRunner.ALLOWED_WRITE_TOOLS.split(",")).contains("Edit", "Bash");
+
+        // Every reviewer keeps the read-only default, including when it is not
+        // named — the write lane has to be asked for.
+        assertThat(CliReviewRunner.buildArgv(
+                CliReviewRunner.Provider.CODEX, "codex", null, "/work", "review this", null))
+                .containsSequence("--sandbox", "read-only");
+        assertThat(CliReviewRunner.buildArgv(
+                CliReviewRunner.Provider.CLAUDE, "claude", null, "/work", null, null))
+                .doesNotContain(CliReviewRunner.ALLOWED_WRITE_TOOLS);
+    }
+
+    @Test
     void assembleJoinsAssistantTextAndCapturesSessionAndCost()
     {
         // A stub parser maps canned stdout lines to events, so this tests the

@@ -21,7 +21,6 @@ import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -37,7 +36,6 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -49,7 +47,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -95,7 +92,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
                 "fork-ws",
@@ -210,7 +207,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         service.guide("fork-ws", "job-1", "prefer our fork's config names");
         service.resume("fork-ws", "job-1");
@@ -272,7 +269,7 @@ class TestUpstreamCherryPickService
                 jdbc, new ObjectMapper(), mock(WorkspaceRelationService.class),
                 mock(GitRunner.class), mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         assertThat(service.list("fork-ws", 20))
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickJobDto::jobId)
@@ -321,7 +318,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         assertThatThrownBy(() -> service.enqueue(
                 "fork-ws",
@@ -399,7 +396,6 @@ class TestUpstreamCherryPickService
                 pullRequests,
                 mock(PRSyncService.class),
                 handoff,
-                gate(),
                 mock(ObjectProvider.class));
         service.recover();
 
@@ -478,7 +474,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class),
-                mock(ObjectProvider.class), gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class), mock(ObjectProvider.class));
 
         assertThatThrownBy(() -> service.retry("other-ws", "job-1"))
                 .isInstanceOf(NoSuchElementException.class);
@@ -498,7 +494,7 @@ class TestUpstreamCherryPickService
 
     @Test
     @SuppressWarnings("unchecked")
-    void conflictIsCommittedAndCarriedOnRatherThanPaused(@TempDir Path root)
+    void aConflictWithNoRepairAgentIsCommittedThenParked(@TempDir Path root)
             throws Exception
     {
         Path target = Files.createDirectory(root.resolve("target"));
@@ -541,9 +537,9 @@ class TestUpstreamCherryPickService
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
         when(git.cherryPickInProgress(worktree)).thenReturn(false, true, false, false);
-        // A conflict git can finish is committed and the range carries on. Judging
-        // the resolution belongs to the harness watching the pull request, not to
-        // the picker, so nothing here pauses.
+        // git's own resolution is committed, markers and all — but a conflicted
+        // pick is never carried unjudged. With no repair agent registered there is
+        // nothing to judge it, so the run parks instead of pushing a guess.
         when(git.continueCherryPick(worktree)).thenReturn(
                 new GitRunner.CherryPickOutcome(true, 1, "commit-1", List.of(), null));
         when(git.listCommits(worktree, "base-sha..HEAD", 2))
@@ -563,18 +559,21 @@ class TestUpstreamCherryPickService
 
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, pats, pullRequests,
-                mock(PRSyncService.class), handoff, gate(), mock(ObjectProvider.class));
+                mock(PRSyncService.class), handoff, mock(ObjectProvider.class));
         service.recover();
 
-        UpstreamCherryPickService.UpstreamCherryPickJobDto job = awaitTerminal(service);
-        assertThat(job.status()).isEqualTo("COMPLETED");
+        UpstreamCherryPickService.UpstreamCherryPickJobDto job = awaitStatus(
+                service, "fork-ws", "job-1", Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+        assertThat(job.status()).isEqualTo("PAUSED_CONFLICT");
+        assertThat(job.errorMessage()).contains("no repair agent");
+        // The pick itself did land — git finished it; only the judging is missing.
         assertThat(job.appliedCount()).isEqualTo(1);
         assertThat(job.conflictPaths()).isEmpty();
         verify(git).continueCherryPick(worktree);
         assertThat(service.list("fork-ws", 1))
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickJobDto::jobId)
                 .containsExactly("job-1");
-        // This job asked for neither, so the completed range publishes nothing.
+        // Nothing is published from a parked run.
         verifyNoInteractions(handoff);
         verify(pullRequests, never()).createPullRequest(any(), any(), any());
     }
@@ -637,7 +636,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), prSync, provider,
-                gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class));
 
         service.recover();
         UpstreamCherryPickService.UpstreamCherryPickJobDto completed =
@@ -653,29 +652,27 @@ class TestUpstreamCherryPickService
 
     @Test
     @SuppressWarnings("unchecked")
-    void aConflictedPickIsRepairedAndCompiledBeforeTheNextOneStarts(@TempDir Path root)
+    void aConflictedPickIsRepairedByTheAgentBeforeTheNextOneStarts(@TempDir Path root)
             throws Exception
     {
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        CherryPickCompileGate gate = mock(CherryPickCompileGate.class);
-        // Markers do not parse, so the first compile is red; the repair fixes it.
-        when(gate.run(any(), any())).thenReturn(
-                new CherryPickCompileGate.Outcome(false, true, "conflict.txt:1: error"),
-                new CherryPickCompileGate.Outcome(true, true, "BUILD SUCCESS"));
         ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
-        when(advisor.propose(any(), any(), any(), any(), any(), anyLong(), any()))
+        // The agent owns the repair now: it edits, commits the fixup and
+        // validates. The program only reads the verdict off the end.
+        when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any()))
                 .thenAnswer(invocation -> {
                     Path worktree = invocation.getArgument(0);
-                    String current = Files.readString(worktree.resolve("conflict.txt"));
-                    return new ConflictRepairAdvisor.Repair(
-                            List.of(new ConflictRepairAdvisor.Edit(
-                                    "conflict.txt", current, "fork and upstream\n")),
-                            "kept the fork's line and upstream's change",
+                    String subject = invocation.getArgument(2);
+                    Files.writeString(worktree.resolve("conflict.txt"), "fork and upstream\n");
+                    run(worktree, "add", "conflict.txt");
+                    run(worktree, "commit", "-m", "fixup! " + subject);
+                    return new ConflictRepairAdvisor.Outcome(
+                            true, true, "kept the fork's line and upstream's change",
                             120, "session-1");
                 });
-        UpstreamCherryPickService service = service(jdbc, setup, gate, advisor);
+        UpstreamCherryPickService service = service(jdbc, setup, advisor);
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
                 "fork-ws",
@@ -686,97 +683,71 @@ class TestUpstreamCherryPickService
                 service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         assertThat(done.status()).isEqualTo("COMPLETED");
-        // The fixup sits beside its pick rather than inside it, and there is
-        // exactly one of them however many attempts it took.
+        // The fixup sits beside its pick rather than inside it.
         assertThat(output(setup.target(), "log", "--reverse", "--format=%s",
                 "main..repaired-pick").lines().toList())
                 .containsExactly("Change the shared line", "fixup! Change the shared line");
         String worktreeFile = Files.readString(
                 Path.of(done.worktreePath()).resolve("conflict.txt"));
         assertThat(worktreeFile).isEqualTo("fork and upstream\n").doesNotContain("<<<<<<<");
-        verify(advisor).propose(
+        // The agent is told which pick its fixup must name.
+        verify(advisor).repair(
                 any(), any(), eq("Change the shared line"), any(), any(), anyLong(), any());
 
-        // The log tells the story in order: conflict, resolution, red compile,
-        // proposal, fixup, green compile.
         assertThat(service.run("fork-ws", started.jobId(), 100).events())
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickEventDto::kind)
-                .containsSubsequence("command", "note", "command", "agent", "fixup", "command", "note");
+                .containsSubsequence("command", "note", "agent");
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void theCompileIsScopedToTheModuleThePickTouched(@TempDir Path root)
-            throws Exception
-    {
-        Path target = Files.createDirectory(root.resolve("target"));
-        Path upstream = Files.createDirectory(root.resolve("upstream"));
-        initialise(target);
-        initialise(upstream);
-        Files.createDirectories(target.resolve("core"));
-        Files.createDirectories(upstream.resolve("core"));
-        // A two-module project whose conflicted file lives in one of them.
-        commit(target, "pom.xml",
-                "<project><modules><module>core</module><module>server</module></modules></project>",
-                "Declare the modules");
-        commit(upstream, "core/conflict.txt", "base\n", "Shared base");
-        commit(upstream, "core/conflict.txt", "upstream\n", "Change the shared line");
-        String upstreamSha = output(upstream, "rev-parse", "HEAD");
-        commit(target, "core/conflict.txt", "fork\n", "Fork's own line");
-        Conflict setup = new Conflict(target, upstream, upstreamSha);
-
-        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
-        createTable(jdbc);
-        CherryPickCompileGate gate = mock(CherryPickCompileGate.class);
-        when(gate.run(any(), any())).thenReturn(
-                new CherryPickCompileGate.Outcome(true, true, "BUILD SUCCESS"));
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
-        UpstreamCherryPickService service = service(jdbc, setup, gate, advisor);
-
-        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
-                "fork-ws",
-                new UpstreamCherryPickService.StartRequest(
-                        "main", "scoped-pick", List.of(upstreamSha),
-                        null, null, null, null, null, false, false, null));
-        awaitStatus(service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
-
-        // The gate compiles the module the pick touched and its dependencies,
-        // not the whole project.
-        ArgumentCaptor<CherryPickCompileGate.Resolution> resolution =
-                ArgumentCaptor.forClass(CherryPickCompileGate.Resolution.class);
-        verify(gate).run(any(), resolution.capture());
-        assertThat(resolution.getValue().argv()).containsSequence("-pl", "core", "-am");
-        // git's resolution compiled, so no repair was needed.
-        verifyNoInteractions(advisor);
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void anUnrepairableConflictParksWithoutPushingAnything(@TempDir Path root)
+    void aRepairThatLeavesTheWorktreeDirtyParksRatherThanBreakTheNextPick(@TempDir Path root)
             throws Exception
     {
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        CherryPickCompileGate gate = mock(CherryPickCompileGate.class);
-        when(gate.run(any(), any())).thenReturn(
-                new CherryPickCompileGate.Outcome(false, true, "conflict.txt:1: error"));
         ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
-        AtomicInteger attempts = new AtomicInteger();
-        when(advisor.propose(any(), any(), any(), any(), any(), anyLong(), any()))
+        // Claims success but leaves uncommitted work behind. A cherry-pick can
+        // only be applied to a clean tree, so carrying on would fail later with
+        // an error pointing at the wrong commit.
+        when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any()))
                 .thenAnswer(invocation -> {
                     Path worktree = invocation.getArgument(0);
-                    String current = Files.readString(worktree.resolve("conflict.txt"));
-                    return new ConflictRepairAdvisor.Repair(
-                            List.of(new ConflictRepairAdvisor.Edit(
-                                    "conflict.txt", current,
-                                    "attempt " + attempts.incrementAndGet() + "\n")),
-                            "trying again",
-                            100, "session-1");
+                    Files.writeString(worktree.resolve("conflict.txt"), "half done\n");
+                    return new ConflictRepairAdvisor.Outcome(
+                            true, true, "resolved it", 100, "session-1");
                 });
+        UpstreamCherryPickService service = service(jdbc, setup, advisor);
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "dirty-pick", List.of(setup.upstreamSha()),
+                        null, null, null, null, null, false, false, null));
+        UpstreamCherryPickService.UpstreamCherryPickJobDto parked = awaitStatus(
+                service, "fork-ws", started.jobId(),
+                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+
+        assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
+        assertThat(parked.errorMessage()).contains("uncommitted changes");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anAgentThatParksStopsTheRunWithoutPushingAnything(@TempDir Path root)
+            throws Exception
+    {
+        Conflict setup = conflictingRepositories(root);
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any()))
+                .thenReturn(new ConflictRepairAdvisor.Outcome(
+                        false, false, "upstream dropped the setter this fork calls",
+                        500, "session-1"));
         PullRequestRepository pullRequests = mock(PullRequestRepository.class);
-        UpstreamCherryPickService service = service(jdbc, setup, gate, advisor, pullRequests);
+        UpstreamCherryPickService service = service(jdbc, setup, advisor, pullRequests);
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
                 "fork-ws",
@@ -788,18 +759,16 @@ class TestUpstreamCherryPickService
                 Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
-        assertThat(parked.errorMessage()).contains("could not be verified");
-        // Bounded, not endless — and nothing reaches the remote.
-        verify(advisor, times(5)).propose(any(), any(), any(), any(), any(), anyLong(), any());
-        // One session for the whole run: the first turn opened it, the rest resumed it.
-        verify(advisor).propose(any(), any(), any(), any(), any(), anyLong(), isNull());
-        verify(advisor, times(4)).propose(any(), any(), any(), any(), any(), anyLong(), eq("session-1"));
+        // The agent's own reason reaches the user, not a generic one.
+        assertThat(parked.errorMessage()).contains("upstream dropped the setter");
+        // The agent decides when it is stuck; the program does not retry it.
+        verify(advisor).repair(any(), any(), any(), any(), any(), anyLong(), isNull());
         verify(pullRequests, never()).createPullRequest(any(), any(), any());
         assertThat(parked.prNumber()).isNull();
         assertThat(service.run("fork-ws", started.jobId(), 100).events())
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickEventDto::kind)
                 .endsWith("park");
-        // Every repair turn is charged to the run's budget.
+        // The turn is charged to the run's budget whether or not it helped.
         assertThat(parked.spentMilliUsd()).isEqualTo(500);
     }
 
@@ -852,7 +821,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), mock(PRSyncService.class), provider,
-                gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class));
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto closed =
                 service.close("fork-ws", "job-1");
@@ -933,7 +902,7 @@ class TestUpstreamCherryPickService
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), prSync, provider,
-                gate(), mock(ObjectProvider.class));
+                mock(ObjectProvider.class));
 
         // Still open on the remote: the run keeps its worktree.
         when(prSync.syncExternalPR("acme/fork", 123)).thenReturn(Optional.of(externalPr(
@@ -1020,18 +989,16 @@ class TestUpstreamCherryPickService
     private static UpstreamCherryPickService service(
             JdbcTemplate jdbc,
             Conflict setup,
-            CherryPickCompileGate gate,
             ConflictRepairAdvisor advisor)
             throws Exception
     {
-        return service(jdbc, setup, gate, advisor, mock(PullRequestRepository.class));
+        return service(jdbc, setup, advisor, mock(PullRequestRepository.class));
     }
 
     @SuppressWarnings("unchecked")
     private static UpstreamCherryPickService service(
             JdbcTemplate jdbc,
             Conflict setup,
-            CherryPickCompileGate gate,
             ConflictRepairAdvisor advisor,
             PullRequestRepository pullRequests)
             throws Exception
@@ -1060,17 +1027,7 @@ class TestUpstreamCherryPickService
         return new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, new GitRunner(),
                 mock(PatResolver.class), pullRequests, mock(PRSyncService.class),
-                mock(ObjectProvider.class), gate, advisorProvider);
-    }
-
-    /** A gate that reports a clean compile: these tests are about picking. */
-    private static CherryPickCompileGate gate()
-            throws InterruptedException
-    {
-        CherryPickCompileGate gate = mock(CherryPickCompileGate.class);
-        when(gate.run(any(), any())).thenReturn(
-                new CherryPickCompileGate.Outcome(true, true, "BUILD SUCCESS"));
-        return gate;
+                mock(ObjectProvider.class), advisorProvider);
     }
 
     private static JdbcTemplate jdbc(Path database)

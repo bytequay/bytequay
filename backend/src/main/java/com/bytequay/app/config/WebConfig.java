@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.config;
 
+import com.bytequay.app.repository.github.GitHubOrgAccess;
+import com.bytequay.app.repository.github.GitHubOrgAccessInterceptor;
 import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import org.springframework.context.annotation.Bean;
@@ -78,7 +80,21 @@ public class WebConfig
     }
 
     @Bean
-    public RestClient gitHubRestClient(GitHubRateLimitInterceptor rateLimitInterceptor)
+    public GitHubOrgAccess gitHubOrgAccess()
+    {
+        return new GitHubOrgAccess();
+    }
+
+    @Bean
+    public GitHubOrgAccessInterceptor gitHubOrgAccessInterceptor(GitHubOrgAccess orgAccess)
+    {
+        return new GitHubOrgAccessInterceptor(orgAccess);
+    }
+
+    @Bean
+    public RestClient gitHubRestClient(
+            GitHubRateLimitInterceptor rateLimitInterceptor,
+            GitHubOrgAccessInterceptor orgAccessInterceptor)
     {
         return RestClient.builder()
                 .baseUrl(GITHUB_API_BASE_URL)
@@ -86,6 +102,7 @@ public class WebConfig
                 .defaultHeader("X-GitHub-Api-Version", GITHUB_API_VERSION)
                 .defaultHeader("User-Agent", USER_AGENT)
                 .requestInterceptor(rateLimitInterceptor)
+                .requestInterceptor(orgAccessInterceptor)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
                 .build();
     }
@@ -135,7 +152,9 @@ public class WebConfig
     }
 
     @Bean
-    public RestClient gitHubGraphQLRestClient(GitHubRateLimitInterceptor rateLimitInterceptor)
+    public RestClient gitHubGraphQLRestClient(
+            GitHubRateLimitInterceptor rateLimitInterceptor,
+            GitHubOrgAccessInterceptor orgAccessInterceptor)
     {
         // GitHub's GraphQL endpoint takes a single POST with
         // { query, variables }. We use it for review-thread resolution
@@ -149,6 +168,7 @@ public class WebConfig
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
                 .requestInterceptor(rateLimitInterceptor)
+                .requestInterceptor(orgAccessInterceptor)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT))
                 .build();
     }

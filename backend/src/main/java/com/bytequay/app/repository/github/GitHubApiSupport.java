@@ -70,6 +70,11 @@ final class GitHubApiSupport
         if (e.getStatusCode().value() == 404) {
             log.debug("GitHub API 404: {}", summarizeErrorBody(responseBody));
         }
+        else if (GitHubOrgAccess.isClassicPatDenial(responseBody)) {
+            // Permanent for this org+token, and GitHubOrgAccess already warned
+            // about it once — don't repeat it per call.
+            log.debug("GitHub API 403 (org blocks classic PATs): {}", summarizeErrorBody(responseBody));
+        }
         else {
             log.warn("GitHub API {} failed: {}", e.getStatusCode().value(), summarizeErrorBody(responseBody));
         }

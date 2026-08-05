@@ -1,0 +1,52 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import OnboardingScreen from './OnboardingScreen';
+
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+afterEach(() => cleanup());
+
+function bridge(available: boolean, importGh: () => Promise<{ login: string }>) {
+  window.bridge = {
+    getGitHubOAuthAuthorizeUrl: async () => ({ configured: false, url: null as string | null }),
+    getGitHubCliAvailable: async () => ({ available }),
+    importGitHubCliToken: importGh,
+    onGitHubOauthComplete: () => () => {},
+  } as unknown as typeof window.bridge;
+}
+
+it('tells a user without gh how to get one instead of hiding the option', async () => {
+  bridge(false, async () => ({ login: 'nobody' }));
+  render(<OnboardingScreen onSaved={vi.fn()} />);
+
+  expect(await screen.findByText('brew install gh && gh auth login')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Use my GitHub CLI login' })).toBeNull();
+});
+
+it('surfaces the login command when gh is installed but logged out', async () => {
+  bridge(true, async () => {
+    throw new Error('The GitHub CLI couldn\'t provide a token: please run: gh auth login');
+  });
+  render(<OnboardingScreen onSaved={vi.fn()} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Use my GitHub CLI login' }));
+  expect(await screen.findByText('gh auth login')).toBeTruthy();
+
+  const writeText = vi.fn(async () => {});
+  Object.assign(navigator, { clipboard: { writeText } });
+  fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith('gh auth login'));
+});

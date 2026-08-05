@@ -39,7 +39,9 @@ export default function OnboardingScreen({ onSaved }: Props) {
   const [patState, setPatState] = useState<'idle' | 'saving' | 'error'>('idle');
   const [patError, setPatError] = useState<string | null>(null);
 
-  const [ghAvailable, setGhAvailable] = useState(false);
+  // null until the probe answers — rendering the no-gh advice before then
+  // would flash it at every user who does have gh.
+  const [ghAvailable, setGhAvailable] = useState<boolean | null>(null);
   const [ghState, setGhState] = useState<'idle' | 'importing' | 'error'>('idle');
   const [ghError, setGhError] = useState<string | null>(null);
 
@@ -196,7 +198,7 @@ export default function OnboardingScreen({ onSaved }: Props) {
           </div>
         )}
 
-        {ghAvailable && (
+        {ghAvailable === true && (
           <div className="onboarding__oauth">
             <button
               type="button"
@@ -211,8 +213,32 @@ export default function OnboardingScreen({ onSaved }: Props) {
               blocks personal access tokens but allows the GitHub CLI.
             </p>
             {ghState === 'error' && ghError && (
-              <div className="onboarding__error" role="alert">{ghError}</div>
+              <>
+                <div className="onboarding__error" role="alert">{ghError}</div>
+                {/* gh's own message says to run this, but it can't be run for
+                    them: `gh auth login` is interactive and needs a terminal. */}
+                <CommandToRun command="gh auth login" />
+                <p className="onboarding__hint">
+                  Run it in a terminal, then use the button above again.
+                </p>
+              </>
             )}
+          </div>
+        )}
+
+        {ghAvailable === false && (
+          <div className="onboarding__oauth">
+            <p className="onboarding__hint">
+              ByteQuay can reuse a GitHub CLI login instead of a token — install it
+              with <code>brew install gh</code>, run <code>gh auth login</code>, then
+              reopen this screen.
+            </p>
+            <CommandToRun command="brew install gh && gh auth login" />
+            <p className="onboarding__hint">
+              Prefer a token? Use a <strong>classic</strong> one below. Fine-grained
+              tokens can't fork or open issues on repositories you don't own, which
+              blocks connecting most repos.
+            </p>
           </div>
         )}
 
@@ -249,6 +275,24 @@ export default function OnboardingScreen({ onSaved }: Props) {
           </form>
         )}
       </main>
+    </div>
+  );
+}
+
+/** A shell command the user has to run themselves, with one-click copy. */
+function CommandToRun({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(command);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+  return (
+    <div className="onboarding__cmd">
+      <code>{command}</code>
+      <button type="button" onClick={() => { void copy(); }}>
+        {copied ? 'Copied' : 'Copy'}
+      </button>
     </div>
   );
 }

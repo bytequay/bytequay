@@ -20,7 +20,6 @@ import {
   ChevronIcon,
   PullRequestBranchIcon,
   SidebarRow,
-  TrunkLineIcon,
   WorkspaceSwitcherCard,
 } from '../ui/workspace/WorkspacePageChrome';
 import { taskLabel } from '../threads/taskLabel';
@@ -202,9 +201,6 @@ export function TrunkWorkspaceSidebar({
                   <FolderIcon open={open} />
                 </span>
                 <span className="trunk-page-v2-nav__trunk-name">{thread.title}</span>
-                <span className={`trunk-page-v2-nav__trunk-icon${thread.status === 'RUNNING' ? ' is-running' : ''}`}>
-                  <TrunkLineIcon />
-                </span>
                 {!open && thread.unread === true && <i title="Needs you" />}
               </button>
               {open && (

@@ -119,15 +119,6 @@
   opacity: 1;
 }
 
-.workspace-redesign .trunk-page-v2-nav__trunk-icon {
-  display: inline-flex;
-  flex-shrink: 0;
-  color: #8b949e;
-}
-
-.workspace-redesign .trunk-page-v2-nav__trunk-icon.is-running { color: #0969da; }
-.workspace-redesign .trunk-page-v2-nav__trunk > button.is-active .trunk-page-v2-nav__trunk-icon { color: var(--accent); }
-
 .workspace-redesign .trunk-page-v2-nav__trunk-name {
   min-width: 0;
   overflow: hidden;

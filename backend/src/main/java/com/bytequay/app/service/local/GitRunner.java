@@ -1128,14 +1128,20 @@ public class GitRunner
             throws IOException, InterruptedException
     {
         requireNonNull(remote, "remote is null");
+        // Full refnames, not %(refname:short): git shortens
+        // refs/remotes/<remote>/HEAD to bare "<remote>" on some versions
+        // and to "<remote>/HEAD" on others, so the alias can only be
+        // filtered out reliably before shortening.
+        String prefix = "refs/remotes/";
         GitResult result = run(
-                List.of("git", "for-each-ref", "--format=%(refname:short)",
-                        "refs/remotes/" + remote),
+                List.of("git", "for-each-ref", "--format=%(refname)",
+                        prefix + remote),
                 workingDir);
         result.requireSuccess();
         return result.stdout().lines()
                 .map(String::strip)
-                .filter(name -> !name.isEmpty() && !name.equals(remote + "/HEAD"))
+                .filter(name -> name.startsWith(prefix) && !name.equals(prefix + remote + "/HEAD"))
+                .map(name -> name.substring(prefix.length()))
                 .toList();
     }
 

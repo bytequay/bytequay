@@ -83,8 +83,7 @@ export default function WorkspaceCommitsPage({
   const [upstream, setUpstream] = useState<UpstreamCommitsDto | null>(null);
   /** Branch selected in the linked upstream workspace; null reads its default. */
   const [upstreamRevision, setUpstreamRevision] = useState<string | null>(null);
-  const [upstreamWorkspaceBranches, setUpstreamWorkspaceBranches] =
-    useState<WorkspaceBranchDto[]>([]);
+  const [upstreamWorkspaceBranches, setUpstreamWorkspaceBranches] = useState<string[]>([]);
   const [upstreamLoading, setUpstreamLoading] = useState(false);
   const [upstreamRange, setUpstreamRange] = useState<[number, number] | null>(null);
   const [rangeExpanded, setRangeExpanded] = useState(false);
@@ -152,8 +151,8 @@ export default function WorkspaceCommitsPage({
     return () => { cancelled = true; };
   }, [source, workspaceId, upstreamRevision]);
 
-  // The linked upstream is its own workspace, so its branches come from
-  // the same endpoint this workspace uses for its own.
+  // Every branch the upstream clone carries, so a release line can be read
+  // and cherry-picked from — not just whatever it happens to have checked out.
   useEffect(() => {
     const linkedId = relation?.upstreamWorkspaceId;
     if (linkedId === undefined || linkedId === null) {
@@ -162,13 +161,13 @@ export default function WorkspaceCommitsPage({
     }
     let cancelled = false;
     setUpstreamRevision(null);
-    void workspaceApi.branches(linkedId)
+    void workspaceApi.relationBranches(workspaceId)
       .then(next => {
         if (!cancelled) setUpstreamWorkspaceBranches(Array.isArray(next) ? next : []);
       })
       .catch(() => { if (!cancelled) setUpstreamWorkspaceBranches([]); });
     return () => { cancelled = true; };
-  }, [relation?.upstreamWorkspaceId]);
+  }, [relation?.upstreamWorkspaceId, workspaceId]);
 
   const upstreamLinked = relation !== null && relation.commitsEnabled;
   const isFork = (upstreamRefs?.remote ?? null) !== null;
@@ -213,8 +212,9 @@ export default function WorkspaceCommitsPage({
             onPick={next => { setBranchPicked(true); setBranch(next); }} />
         ) : (
           <CommitBranchPicker branch={upstream?.revision ?? 'default'}
-            branches={upstreamWorkspaceBranches} currentBranch={null}
-            onPick={setUpstreamRevision} />
+            branches={[]} upstreamBranches={upstreamWorkspaceBranches}
+            upstreamLabel={relation?.upstreamRepoFullName}
+            currentBranch={null} onPick={setUpstreamRevision} />
         )}
         {source === 'fork' && (
           <CommitAuthorPicker author={author} authors={authors}

@@ -941,6 +941,11 @@ export const workspaceApi = {
     window.bridge.workspaceApi<UpstreamRefsDto>({
       path: `/api/workspaces/${enc(workspaceId)}/branches/upstream`,
     }),
+  /** Branches of the linked upstream workspace, unqualified. */
+  relationBranches: (workspaceId: string) =>
+    window.bridge.workspaceApi<string[]>({
+      path: `/api/workspaces/${enc(workspaceId)}/relation/branches`,
+    }),
   compareBranch: (workspaceId: string, branch: string, base?: string) =>
     window.bridge.workspaceApi<BranchComparisonDto>({
       path: `/api/workspaces/${enc(workspaceId)}/branches/comparison?branch=${enc(branch)}${

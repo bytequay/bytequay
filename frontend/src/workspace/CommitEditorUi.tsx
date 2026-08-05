@@ -127,45 +127,70 @@ export function CommitBranchPicker({
   onPick: (branch: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState('');
   const shell = useDismissOnOutside<HTMLSpanElement>(open, () => setOpen(false));
+  const needle = filter.trim().toLowerCase();
   // Remote-only rows are PR head refs with no local checkout; switching
   // the Commits list to one would show an empty, uneditable history.
-  const local = branches.filter(candidate => !candidate.remoteOnly);
+  const local = branches.filter(candidate => !candidate.remoteOnly
+    && candidate.name.toLowerCase().includes(needle));
+  const remote = upstreamBranches.filter(name => name.toLowerCase().includes(needle));
+  const pick = (next: string) => {
+    onPick(next);
+    setFilter('');
+    setOpen(false);
+  };
   return (
     <span className="wu-ce-authorpick wu-ce-branchpick" ref={shell}>
       <button type="button" aria-expanded={open} aria-label={`Branch: ${branch}`}
-        onClick={() => setOpen(value => !value)}>
+        onClick={() => { setFilter(''); setOpen(value => !value); }}>
         <BranchGlyph />{branch}<ChevronIcon />
       </button>
       {open && (
         <div className="wu-ce-authormenu" role="menu">
+          {/* A repo with hundreds of refs is unusable as a flat list, and a ref
+              this clone hasn't fetched under that name can still be typed. */}
+          <input className="wu-ce-menu-filter" autoFocus value={filter}
+            aria-label="Filter or type a branch" placeholder="Filter or type a branch…"
+            onChange={event => setFilter(event.target.value)}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || filter.trim().length === 0) return;
+              event.preventDefault();
+              pick(filter.trim());
+            }} />
           {local.map(candidate => (
             <button type="button" role="menuitem" key={candidate.name}
               className={candidate.name === branch ? 'is-on' : ''}
-              onClick={() => { onPick(candidate.name); setOpen(false); }}>
+              onClick={() => pick(candidate.name)}>
               <BranchGlyph />
               <span className="wu-ce-branchname">{candidate.name}</span>
               {candidate.name === currentBranch && <i>checked out</i>}
             </button>
           ))}
-          {local.length === 0 && upstreamBranches.length === 0 && (
+          {needle.length === 0 && local.length === 0 && upstreamBranches.length === 0 && (
             <span className="wu-ce-menu-empty" role="status">
               No local branches yet — check one out to see it here.
             </span>
           )}
-          {upstreamBranches.length > 0 && (
+          {remote.length > 0 && (
             <span className="wu-ce-menu-group" role="presentation">
               {upstreamLabel ?? 'Upstream'}
             </span>
           )}
-          {upstreamBranches.map(name => (
+          {remote.map(name => (
             <button type="button" role="menuitem" key={name}
               className={name === branch ? 'is-on' : ''}
-              onClick={() => { onPick(name); setOpen(false); }}>
+              onClick={() => pick(name)}>
               <BranchGlyph />
               <span className="wu-ce-branchname">{name}</span>
             </button>
           ))}
+          {needle.length > 0 && local.length === 0 && remote.length === 0 && (
+            <button type="button" role="menuitem" onClick={() => pick(filter.trim())}>
+              <BranchGlyph />
+              <span className="wu-ce-branchname">Use “{filter.trim()}”</span>
+            </button>
+          )}
         </div>
       )}
     </span>

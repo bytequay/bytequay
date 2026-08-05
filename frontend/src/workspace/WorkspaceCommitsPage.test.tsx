@@ -43,6 +43,9 @@ function installBridge(relation: WorkspaceRelationDto | null) {
       current = linked;
       return current;
     }
+    if (request.path === '/api/workspaces/fork/relation/branches') {
+      return ['master', 'release-475', 'release-476'];
+    }
     if (request.path === '/api/workspaces/fork/relation/candidates') {
       return [{ workspaceId: 'upstream', name: 'Trino', repoFullName: 'trinodb/trino', suggested: true }];
     }
@@ -111,6 +114,30 @@ describe('WorkspaceCommitsPage', () => {
 
     expect(await screen.findByText('1 uncommitted file')).toBeTruthy();
     expect(screen.getByTitle('frontend/src/App.tsx')).toBeTruthy();
+  });
+
+  it('offers the upstream branches, and any ref typed in, as a cherry-pick source', async () => {
+    const workspaceApi = installBridge(linked);
+    render(<WorkspaceCommitsPage workspaceId="fork" repo={repo} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Trino/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Branch:/ }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByText('release-475')).toBeTruthy();
+
+    fireEvent.click(within(menu).getByText('release-476'));
+    await waitFor(() => expect(workspaceApi.mock.calls.some(([request]) =>
+      (request as WorkspaceApiRequest).path
+        === '/api/workspaces/fork/upstream/commits?revision=release-476&limit=200')).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: /^Branch:/ }));
+    const reopened = await screen.findByRole('menu');
+    fireEvent.change(within(reopened).getByLabelText('Filter or type a branch'),
+      { target: { value: 'never-fetched' } });
+    fireEvent.click(within(reopened).getByText(/Use /));
+    await waitFor(() => expect(workspaceApi.mock.calls.some(([request]) =>
+      (request as WorkspaceApiRequest).path
+        === '/api/workspaces/fork/upstream/commits?revision=never-fetched&limit=200')).toBe(true));
   });
 
   it('sends relation management to workspace settings', async () => {

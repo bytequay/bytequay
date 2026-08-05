@@ -124,6 +124,26 @@ public class CliReviewRunner
         }
     }
 
+    /**
+     * Whether the seat may change the worktree it runs in.
+     *
+     * <p>{@code READ_ONLY} is every reviewer: the seat reads and reports, and
+     * the program does any writing. {@code WRITE} is the cherry-pick repair
+     * lane, where the agent itself resolves conflicts, commits and runs the
+     * project's build.
+     *
+     * <p>The two providers contain a write seat differently, and the weaker one
+     * decides what this is worth: Codex's {@code workspace-write} is a real
+     * filesystem sandbox rooted at the working directory, while Claude's
+     * pre-allowed tool list is an allowlist with no jail behind it — for a
+     * Claude seat, only the prompt and the cwd keep it inside the app-owned
+     * worktree.
+     */
+    public enum Sandbox
+    {
+        READ_ONLY, WRITE
+    }
+
     /** Outcome of one CLI review turn. {@code sessionId} is null when the
      *  provider didn't announce one (then the next turn starts fresh). */
     public record Result(
@@ -157,19 +177,30 @@ public class CliReviewRunner
     public Result run(
             Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
     {
-        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null);
+        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null, Sandbox.READ_ONLY);
     }
 
     public Result run(
             Provider provider, String prompt, String resumeSessionId, Path workingDir,
             McpEndpoint mcp, int costCapCents)
     {
-        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, costCapCents);
+        return runOnce(
+                provider, prompt, resumeSessionId, workingDir, mcp, costCapCents, Sandbox.READ_ONLY);
+    }
+
+    /** As {@link #run(Provider, String, String, Path, McpEndpoint, int)}, but lets the
+     *  seat change {@code workingDir}. Only the cherry-pick repair lane passes
+     *  {@link Sandbox#WRITE}; read the enum before adding a second caller. */
+    public Result run(
+            Provider provider, String prompt, String resumeSessionId, Path workingDir,
+            McpEndpoint mcp, int costCapCents, Sandbox sandbox)
+    {
+        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, costCapCents, sandbox);
     }
 
     private Result runOnce(
             Provider provider, String prompt, String resumeSessionId, Path workingDir,
-            McpEndpoint mcp, Integer costCapCents)
+            McpEndpoint mcp, Integer costCapCents, Sandbox sandbox)
     {
         String binary = provider.binary();
         // Codex takes the prompt as a trailing argv arg; Claude reads it
@@ -179,7 +210,7 @@ public class CliReviewRunner
         Path mcpConfig = (provider == Provider.CLAUDE && mcp != null) ? writeMcpConfig(mcp) : null;
         List<String> argv = buildArgv(
                 provider, binary, resumeSessionId, workingDir.toString(), argvPrompt,
-                mcpConfig, costCapCents);
+                mcpConfig, costCapCents, sandbox);
 
         ProcessBuilder pb = new ProcessBuilder(argv);
         pb.directory(workingDir.toFile());
@@ -263,6 +294,12 @@ public class CliReviewRunner
             + "mcp__bytequay__record_evidence,mcp__bytequay__record_finding,"
             + "mcp__bytequay__record_verification";
 
+    /** The built-in tools a {@link Sandbox#WRITE} seat needs, pre-allowed so
+     *  {@code claude -p} never stops for a permission prompt. Broad on purpose —
+     *  the repair lane edits files, runs git and runs the project's build — and
+     *  unlike Codex's sandbox it confines nothing; see {@link Sandbox}. */
+    static final String ALLOWED_WRITE_TOOLS = "Read,Edit,Write,Bash,Glob,Grep";
+
     /** The review MCP endpoint URL for a {@code (passId, participantId)}
      *  seat. Pure — unit-tested. */
     static String mcpServerUrl(McpEndpoint mcp)
@@ -308,6 +345,15 @@ public class CliReviewRunner
             Provider provider, String binary, String resumeSessionId, String workingDir,
             String argvPrompt, Path mcpConfig, Integer costCapCents)
     {
+        return buildArgv(
+                provider, binary, resumeSessionId, workingDir, argvPrompt, mcpConfig,
+                costCapCents, Sandbox.READ_ONLY);
+    }
+
+    static List<String> buildArgv(
+            Provider provider, String binary, String resumeSessionId, String workingDir,
+            String argvPrompt, Path mcpConfig, Integer costCapCents, Sandbox sandbox)
+    {
         boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
         if (provider == Provider.CLAUDE) {
             // The prompt arrives on stdin. With an MCP config the seat gets
@@ -328,6 +374,9 @@ public class CliReviewRunner
             if (mcpConfig != null) {
                 argv.add("--mcp-config", mcpConfig.toString());
                 argv.add("--allowedTools", ALLOWED_REVIEW_TOOLS);
+            }
+            if (sandbox == Sandbox.WRITE) {
+                argv.add("--allowedTools", ALLOWED_WRITE_TOOLS);
             }
             if (resuming) {
                 argv.add("--resume", resumeSessionId);
@@ -350,7 +399,7 @@ public class CliReviewRunner
         else {
             argv.add("--json")
                     .add("--skip-git-repo-check")
-                    .add("--sandbox", "read-only")
+                    .add("--sandbox", sandbox == Sandbox.WRITE ? "workspace-write" : "read-only")
                     .add("-C", workingDir);
         }
         if (argvPrompt != null) {

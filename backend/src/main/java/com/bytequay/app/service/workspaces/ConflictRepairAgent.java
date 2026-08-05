@@ -15,90 +15,58 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.service.agents.ToolCall;
-import com.bytequay.app.service.agents.ToolExecutor;
-import com.bytequay.app.service.agents.TurnHooks;
-import com.bytequay.app.service.agents.TurnResult;
-import com.bytequay.app.service.agents.TurnRunner;
-import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.Locale;
 
-import static com.bytequay.app.repository.AppSettingsStore.Key.LLM_PROVIDER;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Repairs one conflicted cherry-pick. The agent reads the conflicted files and
- * the compile output and <em>proposes</em> find/replace edits; this class never
- * writes to the worktree — {@link UpstreamCherryPickService} applies what
- * survives validation and commits it as that pick's fixup.
+ * Repairs one conflicted cherry-pick. The agent reads the conflicted files,
+ * resolves them, commits the fixup and validates it — this class only starts
+ * the turn and reads the verdict off the end of it.
  *
- * <p>The engine is the workspace's own pick for CI-fix work, falling back to the
- * account default (a CLI agent, so nothing bills an API key unless the user
- * asked for one). A CLI engine runs through {@link CliReviewRunner} and keeps
- * one session for the whole run, resumed by id, so a conflict late in a range
- * still knows what the fork decided about the ones before it.
+ * <p>That is the inversion decided 2026-08-05: the program used to run the
+ * compile, ask for find/replace edits, validate the anchors, apply them and
+ * retry a fixed number of times. Every one of those was the program deciding
+ * something the agent is better placed to decide. See "The upstream sync run"
+ * in {@code docs/intermediate/ci-autofix-design.md}.
  *
- * <p>Deliberately tool-free: the evidence a conflict needs — the conflicted
- * files as they stand and the compiler's complaint — is small enough to hand
- * over in the prompt, and a turn with no tools cannot wander. If a repair needs
- * to read a file nobody put in front of it, the attempt fails, the next attempt
- * gets the new compile output, and after the bound the run parks for a human.
- * (ponytail: add read-only tools here when a real conflict proves it needs them.)
+ * <p>The engine is the workspace's own pick for CI-fix work, falling back to
+ * the account default (a CLI agent, so nothing bills an API key unless the user
+ * asked for one). It runs through {@link CliReviewRunner} in
+ * {@link CliReviewRunner.Sandbox#WRITE}, keeping one session for the whole run
+ * and resuming it by id, so a conflict late in a range still knows what the
+ * fork decided about the ones before it.
  */
 @Component
 public class ConflictRepairAgent
         implements ConflictRepairAdvisor
 {
-    private static final Logger log = LoggerFactory.getLogger(ConflictRepairAgent.class);
-    private static final int MAX_OUTPUT_TOKENS = 8_192;
-    private static final int MAX_EDITS = 20;
-    private static final int MAX_FILE_CHARS = 24_000;
-    private static final int MAX_EVIDENCE_CHARS = 90_000;
-    private static final int MAX_COMPILE_TAIL = 8_000;
+    /** The agent ends its turn with one of these on the last line. */
+    private static final String RESOLVED = "RESOLVED:";
+    private static final String UNVALIDATED = "RESOLVED-UNVALIDATED:";
+    private static final String PARKED = "PARKED:";
+    private static final int MAX_DETAIL = 500;
 
-    private final TurnRunner runner;
-    private final ReviewProviderEndpoints endpoints;
-    private final AppSettingsStore settings;
-    private final ObjectMapper mapper;
     private final CliReviewRunner cli;
     private final WorkspaceEngineSettings engines;
     private final AiDefaultsService aiDefaults;
 
     public ConflictRepairAgent(
-            TurnRunner runner,
-            ReviewProviderEndpoints endpoints,
-            AppSettingsStore settings,
-            ObjectMapper mapper,
             CliReviewRunner cli,
             WorkspaceEngineSettings engines,
             AiDefaultsService aiDefaults)
     {
-        this.runner = requireNonNull(runner, "runner is null");
-        this.endpoints = requireNonNull(endpoints, "endpoints is null");
-        this.settings = requireNonNull(settings, "settings is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
         this.cli = requireNonNull(cli, "cli is null");
         this.engines = requireNonNull(engines, "engines is null");
         this.aiDefaults = requireNonNull(aiDefaults, "aiDefaults is null");
@@ -127,275 +95,146 @@ public class ConflictRepairAgent
     }
 
     @Override
-    public Repair propose(
+    public Outcome repair(
             Path worktree,
             String workspaceId,
             String targetSubject,
             List<String> conflictPaths,
-            String compileOutput,
+            String validateHint,
             long budgetMilliUsd,
             String resumeSessionId)
     {
         requireNonNull(worktree, "worktree is null");
-        List<String> paths = conflictPaths == null ? List.of() : conflictPaths;
         WorkModel engine = engineFor(workspaceId);
-        if (engine.kind() == WorkModelKind.CLI) {
-            return proposeThroughCli(
-                    engine, worktree, targetSubject, paths, compileOutput,
-                    budgetMilliUsd, resumeSessionId);
+        if (engine.kind() != WorkModelKind.CLI) {
+            // An in-JVM API turn has no shell and no editor, so it cannot do
+            // this job at all. Say so rather than silently doing nothing.
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "conflict repair needs a CLI agent; this workspace's CI-fix engine is "
+                            + engine.agentOrProvider());
         }
-        return proposeThroughApi(
-                engine, worktree, targetSubject, paths, compileOutput, budgetMilliUsd);
-    }
-
-    /**
-     * The CLI lane: one subprocess per attempt, the run's session resumed by id
-     * so the agent keeps everything it learned earlier in the range.
-     */
-    private Repair proposeThroughCli(
-            WorkModel engine,
-            Path worktree,
-            String targetSubject,
-            List<String> conflictPaths,
-            String compileOutput,
-            long budgetMilliUsd,
-            String resumeSessionId)
-    {
-        CliReviewRunner.Provider provider = cliProvider(engine.agentOrProvider());
-        // A resumed session already carries the rules; repeating them each turn
-        // only crowds out the evidence.
         String prompt = (resumeSessionId == null ? systemPrompt() + "\n\n" : "")
-                + userPrompt(worktree, targetSubject, conflictPaths, compileOutput);
+                + userPrompt(targetSubject, conflictPaths, validateHint);
         CliReviewRunner.Result result = cli.run(
-                provider, prompt, resumeSessionId, worktree, null,
-                toIntExact(Math.max(1, budgetMilliUsd / 10)));
-        Repair parsed = parse(result.text(), result.costUsdMilli(), result.sessionId());
-        return validated(parsed, worktree, conflictPaths);
-    }
-
-    private Repair proposeThroughApi(
-            WorkModel engine,
-            Path worktree,
-            String targetSubject,
-            List<String> conflictPaths,
-            String compileOutput,
-            long budgetMilliUsd)
-    {
-        List<String> paths = conflictPaths;
-        String provider = engine.agentOrProvider() == null
-                ? settings.get(LLM_PROVIDER).orElse("anthropic")
-                : engine.agentOrProvider();
-        ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(provider);
-        String system = systemPrompt();
-        String prompt = userPrompt(worktree, targetSubject, paths, compileOutput);
-        ArrayNode messages = mapper.createArrayNode();
-        if (endpoint.transport() == TurnSpec.Transport.OPENAI_COMPAT) {
-            messages.add(message("system", system));
-        }
-        messages.add(message("user", prompt));
-        TurnHooks hooks = new TurnHooks()
-        {
-            @Override
-            public boolean abortTurn(long costSoFarMilliUsd)
-            {
-                return costSoFarMilliUsd >= budgetMilliUsd;
-            }
-        };
-        TurnResult result = runner.runTurn(
-                new TurnSpec(
-                        endpoint.transport(), endpoint.url(), endpoint.authToken(),
-                        endpoint.modelId(),
-                        endpoint.transport() == TurnSpec.Transport.ANTHROPIC ? system : null,
-                        messages, mapper.createArrayNode(), MAX_OUTPUT_TOKENS, 1),
-                refusingExecutor(),
-                hooks);
-        // The API lane is stateless: every turn re-sends the evidence, so there
-        // is no session for the caller to resume.
-        Repair repair = parse(result.finalText(), result.costMilliUsd(), null);
-        return validated(repair, worktree, paths);
-    }
-
-    /** No tools are offered, so a tool call is a protocol error, not a request. */
-    private static ToolExecutor refusingExecutor()
-    {
-        return (ToolCall call) -> ToolExecutor.ToolCallResult.error(
-                "no tools are available; answer with the JSON object only");
-    }
-
-    Repair parse(String raw, long costMilliUsd, String sessionId)
-    {
-        JsonNode json;
-        try {
-            json = mapper.readTree(stripFence(raw));
-        }
-        catch (IOException e) {
-            throw new IllegalArgumentException("conflict repair is not valid JSON", e);
-        }
-        if (json == null || !json.isObject()) {
-            throw new IllegalArgumentException("conflict repair must be one JSON object");
-        }
-        String rationale = text(json, "rationale");
-        if (json.path("needs_human").asBoolean(false)) {
-            return new Repair(List.of(), rationale, costMilliUsd, sessionId);
-        }
-        JsonNode editNodes = json.path("edits");
-        if (!editNodes.isArray() || editNodes.size() > MAX_EDITS) {
-            throw new IllegalArgumentException(
-                    "conflict repair edits must be an array of at most " + MAX_EDITS + " items");
-        }
-        List<Edit> edits = new ArrayList<>();
-        for (JsonNode node : editNodes) {
-            String path = text(node, "path");
-            String find = text(node, "find");
-            if (path.isBlank() || find.isBlank()) {
-                throw new IllegalArgumentException("every edit needs a path and a find anchor");
-            }
-            edits.add(new Edit(path, find, node.path("replace").asText("")));
-        }
-        return new Repair(List.copyOf(edits), rationale, costMilliUsd, sessionId);
+                cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
+                toIntExact(Math.max(1, budgetMilliUsd / 10)),
+                CliReviewRunner.Sandbox.WRITE);
+        return read(result.text(), result.costUsdMilli(), result.sessionId());
     }
 
     /**
-     * The program's half of the contract. An edit is applied only if it names a
-     * file this pick actually conflicted in or touched, its anchor appears
-     * exactly once, and the replacement carries no conflict markers of its own.
+     * The verdict is the last non-blank line. A turn that ends any other way —
+     * out of budget, timed out, wandered off — is a park: the program will not
+     * guess that a repair it cannot see the end of actually worked.
      */
-    Repair validated(Repair repair, Path worktree, List<String> conflictPaths)
+    Outcome read(String raw, long costMilliUsd, String sessionId)
     {
-        if (repair.isEmpty()) {
-            return repair;
+        String last = lastLine(raw);
+        String upper = last.toUpperCase(Locale.ROOT);
+        if (upper.startsWith(RESOLVED)) {
+            return new Outcome(true, true, detail(last, RESOLVED), costMilliUsd, sessionId);
         }
-        Set<String> allowed = new LinkedHashSet<>(conflictPaths);
-        Path root = worktree.toAbsolutePath().normalize();
-        for (Edit edit : repair.edits()) {
-            if (!allowed.contains(edit.path())) {
-                throw new IllegalArgumentException(
-                        "edit outside the conflicted files: " + edit.path());
-            }
-            Path file = root.resolve(edit.path()).normalize();
-            if (!file.startsWith(root) || !Files.isRegularFile(file)) {
-                throw new IllegalArgumentException("edit names a file that is not there: " + edit.path());
-            }
-            String content = read(file);
-            int first = content.indexOf(edit.find());
-            if (first < 0) {
-                throw new IllegalArgumentException("edit anchor is not in " + edit.path());
-            }
-            if (content.indexOf(edit.find(), first + 1) >= 0) {
-                throw new IllegalArgumentException("edit anchor is not unique in " + edit.path());
-            }
-            if (hasConflictMarkers(edit.replace())) {
-                throw new IllegalArgumentException(
-                        "replacement still carries conflict markers: " + edit.path());
-            }
+        if (upper.startsWith(UNVALIDATED)) {
+            return new Outcome(true, false, detail(last, UNVALIDATED), costMilliUsd, sessionId);
         }
-        return repair;
+        if (upper.startsWith(PARKED)) {
+            return new Outcome(false, false, detail(last, PARKED), costMilliUsd, sessionId);
+        }
+        return new Outcome(
+                false, false,
+                last.isBlank()
+                        ? "the repair turn ended without a verdict"
+                        : "the repair turn ended without a verdict: " + clamp(last),
+                costMilliUsd, sessionId);
     }
 
-    static boolean hasConflictMarkers(String value)
+    private static String lastLine(String raw)
     {
-        return value != null
-                && (value.contains("<<<<<<<") || value.contains(">>>>>>>") || value.contains("======="));
+        if (raw == null) {
+            return "";
+        }
+        return raw.lines()
+                .map(String::strip)
+                .filter(line -> !line.isBlank())
+                .reduce((first, second) -> second)
+                .orElse("");
     }
 
-    private String userPrompt(
-            Path worktree, String targetSubject, List<String> conflictPaths, String compileOutput)
+    private static String detail(String line, String marker)
+    {
+        return clamp(line.substring(marker.length()).strip());
+    }
+
+    private static String clamp(String value)
+    {
+        return value.length() <= MAX_DETAIL ? value : value.substring(0, MAX_DETAIL) + "…";
+    }
+
+    private static String userPrompt(
+            String targetSubject, List<String> conflictPaths, String validateHint)
     {
         StringBuilder prompt = new StringBuilder(1_024);
-        prompt.append("A cherry-pick from the upstream project conflicted on this fork.\n")
-                .append("Git's own three-way resolution is already committed, so the files below")
-                .append(" are exactly what is on disk right now — conflict markers and all.\n\n")
+        prompt.append("A cherry-pick from the upstream project conflicted on this fork.\n\n")
                 .append("Cherry-picked commit: ").append(targetSubject).append('\n');
-        if (compileOutput != null && !compileOutput.isBlank()) {
-            prompt.append("\nThe module-scoped compile of that commit failed:\n<compile>\n")
-                    .append(tail(compileOutput, MAX_COMPILE_TAIL))
-                    .append("\n</compile>\n");
-        }
-        int budget = MAX_EVIDENCE_CHARS;
-        for (String path : conflictPaths) {
-            Path file = worktree.resolve(path);
-            if (!Files.isRegularFile(file) || budget <= 0) {
-                continue;
+        if (conflictPaths != null && !conflictPaths.isEmpty()) {
+            prompt.append("Files git reported as conflicted:\n");
+            for (String path : conflictPaths) {
+                prompt.append("  ").append(path).append('\n');
             }
-            String content = read(file);
-            String shown = content.length() <= Math.min(budget, MAX_FILE_CHARS)
-                    ? content
-                    : content.substring(0, Math.min(budget, MAX_FILE_CHARS)) + "\n… truncated\n";
-            budget -= shown.length();
-            prompt.append("\n<file path=\"").append(path).append("\">\n")
-                    .append(shown).append("\n</file>\n");
         }
-        prompt.append("\nPropose the edits that resolve this conflict the way this fork wants it.");
+        if (validateHint != null && !validateHint.isBlank()) {
+            prompt.append("\nThe run was configured with this validation command:\n  ")
+                    .append(validateHint.strip())
+                    .append("\nPrefer it over one you find yourself, and scope it to what you"
+                            + " changed if the build supports that.\n");
+        }
+        prompt.append("\nHEAD is that pick with git's own three-way resolution already"
+                + " committed — conflict markers and all. Repair it.");
         return prompt.toString();
     }
 
     private static String systemPrompt()
     {
         return """
-                You repair one conflicted cherry-pick in a fork that tracks an upstream project.
+                You repair conflicted cherry-picks in a fork that tracks an upstream project.
+                You work directly in the checkout you are running in. One session covers the
+                whole range, so what you decide now should stay consistent for later picks.
 
-                You propose edits; a program applies, compiles and commits them. You never edit
-                files yourself and you have no tools — answer from the evidence you were given.
+                For each conflict you are asked about:
 
-                Rules:
-                - Remove every conflict marker (<<<<<<<, =======, >>>>>>>) you touch.
-                - Keep the fork's own behaviour where upstream did not intend to change it, and
-                  keep upstream's change where it did. When those genuinely conflict, prefer the
-                  fork's configuration names, bindings and defaults.
-                - Do not reformat, do not fix unrelated code, do not delete tests.
-                - Each edit's "find" must appear exactly once in that file. Include enough
-                  surrounding context to make it unique.
-                - If the evidence is not enough to be sure, say so instead of guessing.
+                1. Resolve it. Remove every conflict marker (<<<<<<<, =======, >>>>>>>) you
+                   touch. Keep the fork's own behaviour where upstream did not intend to
+                   change it, and upstream's change where it did. When those genuinely
+                   conflict, prefer the fork's configuration names, bindings and defaults.
+                   Do not reformat, do not fix unrelated code, do not delete tests.
 
-                Answer with one JSON object and nothing else:
-                {"edits":[{"path":"...","find":"...","replace":"..."}],
-                 "rationale":"one or two sentences",
-                 "needs_human":false}
+                2. Commit it as that pick's fixup, and nothing else:
+                     git add -- <only the files you changed>
+                     git commit -m "fixup! <the exact cherry-picked commit subject>"
+                   If HEAD is already a fixup for this same pick, amend it instead
+                   (git commit --amend --no-edit) so a pick never carries two fixups.
+                   Never commit with -a or add paths you did not change. Never rebase,
+                   never push, never touch any branch.
 
-                Set needs_human to true with an empty edits array when a human has to decide.
+                3. Validate it. Find how this project builds — its README, CONTRIBUTING,
+                   or its CI config — and run that, scoped to the module you touched if
+                   the build supports it. Tests are not your job here; compiling is.
+                   Iterate until it passes. If the build cannot run in this environment at
+                   all (no toolchain, unreachable registry, missing credentials), stop
+                   trying: that is not a defect in the code, and CI will judge the range
+                   later.
+
+                Leave the worktree clean — everything you changed committed, nothing
+                staged, no stray files.
+
+                End your turn with exactly one of these as the final line:
+                  RESOLVED: <one sentence on what you did>
+                  RESOLVED-UNVALIDATED: <what you did, and why the build could not run>
+                  PARKED: <why a human has to decide this one>
+
+                Park rather than guess. A wrong resolution that compiles is worse than a
+                stop, because nothing downstream will catch it.
                 """;
-    }
-
-    private String read(Path file)
-    {
-        try {
-            return Files.readString(file, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            log.warn("unable to read conflicted file {}: {}", file, e.getMessage());
-            return "";
-        }
-    }
-
-    private static String tail(String value, int max)
-    {
-        String stripped = value.strip();
-        return stripped.length() <= max ? stripped : stripped.substring(stripped.length() - max);
-    }
-
-    private ObjectNode message(String role, String content)
-    {
-        ObjectNode node = mapper.createObjectNode();
-        node.put("role", role);
-        node.put("content", content);
-        return node;
-    }
-
-    private static String text(JsonNode node, String field)
-    {
-        return node.path(field).asText("");
-    }
-
-    private static String stripFence(String raw)
-    {
-        String value = raw == null ? "" : raw.strip();
-        if (value.startsWith("```")) {
-            int firstNewline = value.indexOf('\n');
-            int closing = value.lastIndexOf("```");
-            if (firstNewline >= 0 && closing > firstNewline) {
-                return value.substring(firstNewline + 1, closing).strip();
-            }
-        }
-        return value;
     }
 }

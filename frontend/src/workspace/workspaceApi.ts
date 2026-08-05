@@ -1149,6 +1149,15 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/retry`,
       method: 'POST',
     }),
+  // The other answer to a park: carry on with a higher ceiling, same session.
+  raiseUpstreamCherryPickBudget: (
+    workspaceId: string, jobId: string, additionalMilliUsd: number,
+  ) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/budget`,
+      method: 'POST',
+      body: { additionalMilliUsd },
+    }),
   upstreamCherryPickRun: (workspaceId: string, jobId: string, events = 400) =>
     window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
       path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${

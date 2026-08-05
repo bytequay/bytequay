@@ -129,6 +129,32 @@ class TestHarnessService
     }
 
     @Test
+    void raisingTheBudgetLiftsTheCeilingRatherThanEndingTheRun()
+    {
+        Watch watch = liveWatch();
+        when(store.findWatch("watch")).thenReturn(Optional.of(watch));
+
+        service.raiseBudget("ws", "watch", 5_000);
+
+        // The budget is the only hard stop on an agent that bounds itself, so a
+        // park offers to lift it. Nothing about the run's session is reset.
+        verify(store).addWatchBudget(eq("watch"), eq(5_000L), anyLong());
+        verify(store, never()).updateWatchAgentSession(any(), any(), anyLong());
+    }
+
+    @Test
+    void anImplausibleBudgetRaiseIsRefused()
+    {
+        when(store.findWatch("watch")).thenReturn(Optional.of(liveWatch()));
+
+        assertThatThrownBy(() -> service.raiseBudget("ws", "watch", 0))
+                .hasMessageContaining("additionalMilliUsd");
+        assertThatThrownBy(() -> service.raiseBudget("ws", "watch", 10_000_000))
+                .hasMessageContaining("additionalMilliUsd");
+        verify(store, never()).addWatchBudget(any(), anyLong(), anyLong());
+    }
+
+    @Test
     void resolvingTheLastEscalationReturnsTheWatchToWatching()
     {
         Watch watch = liveWatch();

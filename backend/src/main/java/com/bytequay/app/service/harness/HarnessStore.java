@@ -201,6 +201,19 @@ public class HarnessStore
                 """, localPrId, nowMs, id);
     }
 
+    /**
+     * Lifts the run's ceiling. The budget is the one hard stop on an agent that
+     * sets its own bounds, so exhausting it parks rather than fails — and a park
+     * the user can lift on the spot is a checkpoint, not a wall.
+     */
+    public void addWatchBudget(String id, long milliUsd, long nowMs)
+    {
+        jdbc.update("""
+                UPDATE ci_harness_watch SET budget_milli_usd = budget_milli_usd + ?,
+                    updated_at_ms = ? WHERE id = ?
+                """, milliUsd, nowMs, id);
+    }
+
     public void addWatchCost(String id, long milliUsd, long nowMs)
     {
         jdbc.update("""

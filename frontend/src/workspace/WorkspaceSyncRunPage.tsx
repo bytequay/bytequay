@@ -107,6 +107,11 @@ export default function WorkspaceSyncRunPage({
   const parked = !closed && job.status === 'PAUSED_CONFLICT';
   const failed = !closed && job.status === 'FAILED';
   const running = isLiveSync(job);
+  // The agent bounds itself now, so the budget is the only hard stop — and one a
+  // park offers to lift rather than one that ends the run. Raising by what the
+  // run started with keeps the step proportional to what the user chose.
+  const outOfBudget = parked && job.spentMilliUsd >= job.budgetMilliUsd;
+  const budgetStep = Math.max(100, job.budgetMilliUsd);
 
   return (
     <div className="sr-page">
@@ -129,8 +134,19 @@ export default function WorkspaceSyncRunPage({
               {job.pauseRequested ? 'Pausing…' : 'Pause after this pick'}
             </button>
           )}
-          {parked && (
+          {parked && outOfBudget && (
             <button type="button" className="sr-topbar__action is-primary" disabled={busy}
+              title="Raise the ceiling and carry on in the same agent session"
+              onClick={() => act(() => workspaceApi.raiseUpstreamCherryPickBudget(
+                workspaceId, jobId, budgetStep))}>
+              <PlayIcon />Add {money(budgetStep)} and resume
+            </button>
+          )}
+          {parked && (
+            <button
+              type="button"
+              className={`sr-topbar__action${outOfBudget ? '' : ' is-primary'}`}
+              disabled={busy}
               onClick={() => act(() => workspaceApi.resumeUpstreamCherryPick(workspaceId, jobId))}>
               <PlayIcon />Resume
             </button>
@@ -181,7 +197,10 @@ export default function WorkspaceSyncRunPage({
                     ? 'Closed · the worktree is gone; the branch and this log are kept'
                     : running
                       ? 'Session live · guidance applies from the next action'
-                      : parked ? 'Parked · nothing is pushed until you resume'
+                      : outOfBudget
+                        ? `Parked · ${money(job.spentMilliUsd)} of ${
+                          money(job.budgetMilliUsd)} spent — raise it to carry on`
+                        : parked ? 'Parked · nothing is pushed until you resume'
                         : failed ? 'Stopped · durable progress is kept'
                           : 'Run complete · parked for your review'}
                 </span>

@@ -415,7 +415,7 @@ public class WorkspaceRelationService
                 commit.subject(),
                 commit.authorName(),
                 commit.authorEmail(),
-                Instant.parse(commit.authoredAt()),
+                Instant.parse(commit.committedAt()),
                 tagsEnabled ? commit.tags() : List.of(),
                 pickedSubjects.contains(normalizeSubject(commit.subject())));
     }
@@ -567,7 +567,8 @@ public class WorkspaceRelationService
             String subject,
             String authorName,
             String authorEmail,
-            Instant authoredAt,
+            /** When the commit landed on the branch, not when it was written. */
+            Instant committedAt,
             List<String> tags,
             boolean picked) {}
 

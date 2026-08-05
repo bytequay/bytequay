@@ -67,6 +67,27 @@ class TestGitRunnerUpstreamCommits
     }
 
     @Test
+    void datesRebasedHistoryByWhenItLandedNotWhenItWasWritten(@TempDir Path root)
+            throws Exception
+    {
+        Path upstream = root.resolve("upstream");
+        Files.createDirectory(upstream);
+        initialise(upstream);
+        // --date sets only the author date, exactly like a maintainer
+        // rebasing a contribution written days earlier.
+        Files.writeString(upstream.resolve("a.txt"), "a");
+        run(upstream, "add", "a.txt");
+        run(upstream, "commit", "--date=2020-01-02T03:04:05Z", "-m", "Old patch, landed today");
+
+        GitRunner.DecoratedCommitEntry entry =
+                git.listDecoratedCommits(upstream, "main", 1).get(0);
+
+        assertThat(entry.committedAt())
+                .isEqualTo(output(upstream, "log", "-1", "--format=%cI"))
+                .doesNotStartWith("2020-01-02");
+    }
+
+    @Test
     void plainCherryPickLeavesNoProvenanceLine(@TempDir Path root)
             throws Exception
     {

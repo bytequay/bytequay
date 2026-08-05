@@ -13,6 +13,8 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ThreadDto, ThreadTurnDto, WorkspaceCardDto } from '../types';
+import { SyncTodayCard } from './WorkspaceSyncCards';
+import { useUpstreamSyncs } from './useUpstreamSyncs';
 import {
   workspaceApi,
   type WorkspaceOnboardingDto,
@@ -22,6 +24,7 @@ type Props = {
   workspace: WorkspaceCardDto;
   threads: ThreadDto[];
   onOpenThread?: (threadId: string) => void;
+  onOpenSync?: (jobId: string) => void;
   onNewThread: () => void;
   onOpenInsights: () => void;
   onOpenMemory: () => void;
@@ -32,10 +35,11 @@ type Props = {
  * scheduler data; no second "today" model is persisted.
  */
 export default function WorkspaceTodayPage({
-  workspace, threads, onOpenThread, onNewThread, onOpenInsights, onOpenMemory,
+  workspace, threads, onOpenThread, onOpenSync, onNewThread, onOpenInsights, onOpenMemory,
 }: Props) {
   const [turns, setTurns] = useState<ThreadTurnDto[]>([]);
   const [onboarding, setOnboarding] = useState<WorkspaceOnboardingDto | null>(null);
+  const syncs = useUpstreamSyncs(workspace.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +82,15 @@ export default function WorkspaceTodayPage({
     thread.status === 'RUNNING' || liveTurns.some(turn => turn.threadId === thread.id));
   const landed = publicThreads.filter(thread =>
     (thread.status === 'COMPLETED' || thread.status === 'ARCHIVED') && isToday(thread.updatedAt));
+  // A sync run is task-like: it needs you, it is running, or it landed. It sits
+  // in the same three sections rather than a fourth list of its own.
+  const openSyncs = syncs.filter(job => job.closedAt === null);
+  const syncsNeedingYou = openSyncs.filter(job =>
+    job.status === 'PAUSED_CONFLICT' || job.status === 'FAILED');
+  const syncsRunning = openSyncs.filter(job =>
+    job.status === 'QUEUED' || job.status === 'RUNNING');
+  const syncsLanded = openSyncs.filter(job =>
+    job.status === 'COMPLETED' && isToday(job.updatedAt));
   const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
   const firstSyncRunning = onboarding !== null && onboarding.syncState !== 'ready';
 
@@ -108,7 +121,11 @@ export default function WorkspaceTodayPage({
               />
             )}
           {!firstSyncRunning && <TodaySection label="Needs you" tone="attention">
-            {needsYou.length === 0 ? (
+            {syncsNeedingYou.map(job => (
+              <SyncTodayCard key={job.jobId} job={job} tone="attention"
+                onOpen={() => onOpenSync?.(job.jobId)} />
+            ))}
+            {needsYou.length === 0 && syncsNeedingYou.length === 0 ? (
               <QuietEmpty>Nothing needs your attention.</QuietEmpty>
             ) : needsYou.map(thread => (
               <TodayAction
@@ -125,7 +142,11 @@ export default function WorkspaceTodayPage({
           </TodaySection>}
 
           {!firstSyncRunning && <TodaySection label="Running" tone="running">
-            {running.length === 0 ? (
+            {syncsRunning.map(job => (
+              <SyncTodayCard key={job.jobId} job={job} tone="running"
+                onOpen={() => onOpenSync?.(job.jobId)} />
+            ))}
+            {running.length === 0 && syncsRunning.length === 0 ? (
               <QuietEmpty>No sessions are running.</QuietEmpty>
             ) : running.map(thread => {
               const turn = liveTurns.find(row => row.threadId === thread.id);
@@ -145,7 +166,11 @@ export default function WorkspaceTodayPage({
           </TodaySection>}
 
           {!firstSyncRunning && <TodaySection label="Landed today">
-            {landed.length === 0 ? (
+            {syncsLanded.map(job => (
+              <SyncTodayCard key={job.jobId} job={job} tone="done"
+                onOpen={() => onOpenSync?.(job.jobId)} />
+            ))}
+            {landed.length === 0 && syncsLanded.length === 0 ? (
               <QuietEmpty>No work has landed today.</QuietEmpty>
             ) : (
               <div className="wu-landed-list">
@@ -175,8 +200,11 @@ export default function WorkspaceTodayPage({
           {!firstSyncRunning && <div className="wu-today__stats">
             <span>
               Today: <b>{formatSpend(workspace.spendTodayMilliUsd)}</b> spend ·{' '}
-              <b>{landed.length}</b> tasks shipped · <b>{workspace.activeThreadCount}</b>{' '}
-              {visualFrame === '2b' ? 'threads' : 'trunks'} active
+              <b>{landed.length}</b> tasks shipped ·{' '}
+              {syncsRunning.length > 0
+                ? <><b>{syncsRunning.length}</b> sync{syncsRunning.length === 1 ? '' : 's'} running</>
+                : <><b>{workspace.activeThreadCount}</b>{' '}
+                  {visualFrame === '2b' ? 'threads' : 'trunks'} active</>}
             </span>
             <span className="wu-today__stats-spacer" />
             <a

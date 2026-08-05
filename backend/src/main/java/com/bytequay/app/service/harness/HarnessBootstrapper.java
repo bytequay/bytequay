@@ -307,6 +307,18 @@ public class HarnessBootstrapper
         return "build";
     }
 
+    /**
+     * The repository's Maven modules as {@code "<path>/" -> "<module>"}, for
+     * callers that need to scope a build to the module a commit touched without
+     * provisioning a whole bootstrap worktree.
+     */
+    public static Map<String, String> mavenModuleMap(Path root)
+    {
+        return Files.isRegularFile(root.resolve("pom.xml"))
+                ? readMavenModules(root, new ArrayList<>())
+                : Map.of();
+    }
+
     private static Map<String, String> readMavenModules(Path root, List<String> warnings)
     {
         Map<String, String> modules = new LinkedHashMap<>();

@@ -36,6 +36,7 @@ export type WorkspaceRoute =
   | { kind: 'branches'; workspaceId: string; name?: string }
   | { kind: 'commits'; workspaceId: string }
   | { kind: 'ci-harness'; workspaceId: string; watchId?: string }
+  | { kind: 'sync'; workspaceId: string; jobId?: string }
   | { kind: 'memory'; workspaceId: string }
   | { kind: 'insights'; workspaceId: string }
   | { kind: 'notifications'; workspaceId: string }
@@ -130,6 +131,12 @@ export function parseWorkspaceRoute(value: string): WorkspaceRoute {
         workspaceId,
         watchId: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
       };
+    case 'syncs':
+      return {
+        kind: 'sync',
+        workspaceId,
+        jobId: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
+      };
     case 'memory': return { kind: 'memory', workspaceId };
     case 'insights': return { kind: 'insights', workspaceId };
     case 'notifications': return { kind: 'notifications', workspaceId };
@@ -178,6 +185,9 @@ export function workspaceRouteHash(route: WorkspaceRoute): string {
     case 'ci-harness':
       return `#/workspace/${encoded(route.workspaceId)}/ci-harness${
         route.watchId === undefined ? '' : `/${encoded(route.watchId)}`}`;
+    case 'sync':
+      return `#/workspace/${encoded(route.workspaceId)}/syncs${
+        route.jobId === undefined ? '' : `/${encoded(route.jobId)}`}`;
     case 'memory': return `#/workspace/${encoded(route.workspaceId)}/memory`;
     case 'insights': return `#/workspace/${encoded(route.workspaceId)}/insights`;
     case 'notifications': return `#/workspace/${encoded(route.workspaceId)}/notifications`;

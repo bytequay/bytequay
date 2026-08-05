@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useState, type ReactNode } from 'react';
+import Avatar from '../Avatar';
+import { githubHandle } from './CommitEditorUi';
 import {
   workspaceApi,
   type CherryPickPlanDto,
@@ -51,7 +53,7 @@ export function UpstreamCommitHistory({ rows, query, loading, range, rangeExpand
             </button>
           );
         }
-        const day = commit.groupLabel ?? commitDay(commit.authoredAt);
+        const day = commit.groupLabel ?? commitDay(commit.committedAt);
         const showDay = day !== previousDay;
         previousDay = day;
         const checked = range !== null && index >= range[0] && index <= range[1];
@@ -69,8 +71,11 @@ export function UpstreamCommitHistory({ rows, query, loading, range, rangeExpand
               <code>{commit.shortSha}</code>
               <strong>{commit.subject}</strong>
               {commit.picked && <i title="Matched by Upstream-PR trailer">✓ in fork</i>}
-              <span>{commit.authorName}</span>
-              <time>{commit.authoredAt === null ? '' : relative(commit.authoredAt)}</time>
+              <span className="wu-upstream-author">
+                <Avatar login={githubHandle(commit.authorName, commit.authorEmail)} size={16} />
+                {commit.authorName}
+              </span>
+              <time>{commit.committedAt === null ? '' : relative(commit.committedAt)}</time>
             </label>
           </div>
         );

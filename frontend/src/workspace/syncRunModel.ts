@@ -1,0 +1,183 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import type {
+  UpstreamCherryPickCommitDto,
+  UpstreamCherryPickEventDto,
+  UpstreamCherryPickJobDto,
+} from './workspaceApi';
+
+/** Consecutive log lines that belong to the same pick, in run order. */
+export type SyncLogGroup = {
+  key: string;
+  /** null for run-level lines (push, PR opened, parked, failed). */
+  pickIndex: number | null;
+  events: UpstreamCherryPickEventDto[];
+};
+
+export type SyncQueue = {
+  done: UpstreamCherryPickCommitDto[];
+  current: UpstreamCherryPickCommitDto | null;
+  next: UpstreamCherryPickCommitDto[];
+  /** Waiting commits beyond the visible window. */
+  moreCount: number;
+  last: UpstreamCherryPickCommitDto | null;
+  cleanCount: number;
+  carriedCount: number;
+};
+
+export const isLiveSync = (job: UpstreamCherryPickJobDto): boolean =>
+  job.closedAt === null && (job.status === 'QUEUED' || job.status === 'RUNNING');
+
+/** A closed run is terminal whatever its status said when the user closed it. */
+export const isClosedSync = (job: UpstreamCherryPickJobDto): boolean =>
+  job.closedAt !== null;
+
+/** The label the run carries everywhere — sidebar, Today, and its own header. */
+export function syncTitle(job: UpstreamCherryPickJobDto): string {
+  return `Sync run — ${job.resultBranch}`;
+}
+
+/**
+ * Phase 1 picks and pushes; phase 2 is the harness driving the pull request
+ * green. The watch is what marks the boundary, so the pill follows it.
+ */
+export function syncPhase(job: UpstreamCherryPickJobDto): string {
+  if (job.closedAt !== null) return 'CLOSED';
+  if (job.status === 'FAILED') return 'FAILED';
+  if (job.status === 'PAUSED_CONFLICT') return 'PHASE 1 · PARKED';
+  if (job.harnessWatchId !== null) {
+    return job.status === 'COMPLETED' ? 'PHASE 2 · CI HARNESS' : 'PHASE 1 · PICKING';
+  }
+  if (job.status === 'COMPLETED') return 'PHASE 1 · COMPLETE';
+  return job.pauseRequested ? 'PHASE 1 · PAUSING' : 'PHASE 1 · PICKING';
+}
+
+export function syncProgress(job: UpstreamCherryPickJobDto): {
+  done: number;
+  total: number;
+  percent: number;
+} {
+  const total = Math.max(job.requestedCount, 0);
+  const done = Math.min(job.appliedCount + job.skippedCount, total);
+  return {
+    done: job.appliedCount,
+    total,
+    percent: total === 0 ? 0 : Math.round((done / total) * 100),
+  };
+}
+
+/**
+ * The queue the left column renders. "done" keeps its natural run order so a
+ * reviewer reads the series the way git wrote it; "next" is windowed because a
+ * range can be hundreds of commits long.
+ */
+export function syncQueue(
+  commits: UpstreamCherryPickCommitDto[],
+  nextWindow = 10,
+): SyncQueue {
+  const done = commits.filter(commit => commit.state === 'applied'
+    || commit.state === 'conflicted' || commit.state === 'skipped');
+  const waiting = commits.filter(commit => commit.state === 'waiting');
+  return {
+    done,
+    current: commits.find(commit => commit.state === 'current') ?? null,
+    next: waiting.slice(0, nextWindow),
+    moreCount: Math.max(0, waiting.length - nextWindow),
+    last: commits.at(-1) ?? null,
+    cleanCount: commits.filter(commit => commit.state === 'applied').length,
+    carriedCount: commits.filter(commit => commit.state === 'conflicted').length,
+  };
+}
+
+/** Groups the log by the pick each line belongs to, preserving run order. */
+export function syncLogGroups(events: UpstreamCherryPickEventDto[]): SyncLogGroup[] {
+  const groups: SyncLogGroup[] = [];
+  for (const event of events) {
+    const pickIndex = event.pickIndex ?? null;
+    const open = groups.at(-1);
+    if (open !== undefined && open.pickIndex === pickIndex) {
+      open.events.push(event);
+      continue;
+    }
+    groups.push({ key: event.id, pickIndex, events: [event] });
+  }
+  return groups;
+}
+
+/** What the run is doing right now, in words rather than a spinner. */
+export function syncNowLine(
+  job: UpstreamCherryPickJobDto,
+  queue: SyncQueue,
+): string {
+  if (job.closedAt !== null) {
+    return 'Run closed — the worktree was removed; the branch and this log are kept';
+  }
+  if (job.status === 'FAILED') return job.errorMessage ?? 'Run failed';
+  if (job.status === 'PAUSED_CONFLICT') {
+    return job.pauseRequested || job.conflictPaths.length === 0
+      ? 'Parked — nothing is pushed until you resume'
+      : `Parked on a conflict git cannot finish — ${job.conflictPaths.length} file${
+        job.conflictPaths.length === 1 ? '' : 's'}`;
+  }
+  if (job.status === 'COMPLETED') {
+    return job.prNumber === null
+      ? `Range complete — ${job.appliedCount} picked on ${job.resultBranch}`
+      : `Range complete — draft PR #${job.prNumber} parked for your review`;
+  }
+  if (job.pauseRequested) return 'Pausing — stopping after the pick in flight';
+  if (queue.current === null) return 'Opening the pull request and starting the watch';
+  return `Picking ${queue.current.subject} — pick ${queue.current.index + 1} of ${
+    job.requestedCount}`;
+}
+
+export function elapsedLabel(fromIso: string, toIso?: string): string {
+  const from = Date.parse(fromIso);
+  const to = toIso === undefined ? Date.now() : Date.parse(toIso);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '';
+  const seconds = Math.max(0, Math.round((to - from) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
+
+/** Command durations read like a terminal: sub-minute in seconds. */
+export function durationLabel(milliseconds: number | null): string {
+  if (milliseconds === null || !Number.isFinite(milliseconds)) return '';
+  if (milliseconds < 10_000) return `${(milliseconds / 1000).toFixed(1)}s`;
+  if (milliseconds < 60_000) return `${Math.round(milliseconds / 1000)}s`;
+  const minutes = Math.floor(milliseconds / 60_000);
+  const seconds = Math.round((milliseconds % 60_000) / 1000);
+  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
+export function clockLabel(iso: string): string {
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return '';
+  return new Date(parsed).toLocaleTimeString(undefined, {
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+}
+
+/** `…/worktrees/upstream-cherry-pick/<id>` → `…cherry-pick/1a2b3c4`. */
+export function worktreeLabel(path: string | null): string {
+  if (path === null || path.length === 0) return '';
+  const parts = path.split('/').filter(part => part.length > 0);
+  return parts.length <= 2 ? path : `…/${parts.slice(-2).join('/')}`;
+}
+
+export function money(milliUsd: number): string {
+  return `$${(milliUsd / 1000).toFixed(2)}`;
+}

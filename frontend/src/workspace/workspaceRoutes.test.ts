@@ -37,6 +37,8 @@ describe('workspaceRoutes', () => {
     { kind: 'commits', workspaceId: 'w1' },
     { kind: 'ci-harness', workspaceId: 'w1' },
     { kind: 'ci-harness', workspaceId: 'w1', watchId: 'watch/482' },
+    { kind: 'sync', workspaceId: 'w1' },
+    { kind: 'sync', workspaceId: 'w1', jobId: 'job/2 31' },
     { kind: 'memory', workspaceId: 'w1' },
     { kind: 'insights', workspaceId: 'w1' },
     { kind: 'notifications', workspaceId: 'w1' },

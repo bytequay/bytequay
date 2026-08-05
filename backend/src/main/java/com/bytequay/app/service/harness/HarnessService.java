@@ -247,6 +247,12 @@ public class HarnessService
         return dashboard.watchId();
     }
 
+    @Override
+    public void stopWatch(String workspaceId, String watchId)
+    {
+        stop(workspaceId, watchId);
+    }
+
     public List<WatchSummary> list(String workspaceId)
     {
         workspaceRepos.resolve(workspaceId);

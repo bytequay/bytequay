@@ -456,6 +456,61 @@ public class WorkspaceRepositoryController
         return upstreamCherryPicks.require(workspaceId, jobId);
     }
 
+    /** Everything the sync-run view renders: the commit queue and the run log. */
+    @GetMapping("/upstream/cherry-picks/{jobId}/run")
+    public UpstreamCherryPickService.UpstreamCherryPickRunDto upstreamCherryPickRun(
+            @PathVariable String workspaceId,
+            @PathVariable String jobId,
+            @RequestParam(defaultValue = "400") int events)
+    {
+        return upstreamCherryPicks.run(workspaceId, jobId, events);
+    }
+
+    /** Stops the run at the next commit boundary; nothing is pushed. */
+    @PostMapping("/upstream/cherry-picks/{jobId}/pause")
+    public UpstreamCherryPickService.UpstreamCherryPickJobDto pauseUpstreamCherryPick(
+            @PathVariable String workspaceId,
+            @PathVariable String jobId)
+    {
+        return upstreamCherryPicks.pause(workspaceId, jobId);
+    }
+
+    /** Drops the commit a parked run is stopped on and carries on. */
+    @PostMapping("/upstream/cherry-picks/{jobId}/skip")
+    public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
+            skipUpstreamCherryPickCommit(
+                    @PathVariable String workspaceId,
+                    @PathVariable String jobId)
+    {
+        return ResponseEntity.accepted().body(
+                interrupted(() -> upstreamCherryPicks.skipCurrent(workspaceId, jobId)));
+    }
+
+    /**
+     * Ends the run: stops the picker, stops the harness watch it created, and
+     * removes its isolated worktree. Committed work and the log are kept.
+     */
+    @PostMapping("/upstream/cherry-picks/{jobId}/close")
+    public UpstreamCherryPickService.UpstreamCherryPickJobDto closeUpstreamCherryPick(
+            @PathVariable String workspaceId,
+            @PathVariable String jobId)
+    {
+        return upstreamCherryPicks.close(workspaceId, jobId);
+    }
+
+    /** Records a steering note on the run, shown in its log. */
+    @PostMapping("/upstream/cherry-picks/{jobId}/guidance")
+    public UpstreamCherryPickService.UpstreamCherryPickJobDto guideUpstreamCherryPick(
+            @PathVariable String workspaceId,
+            @PathVariable String jobId,
+            @RequestBody GuidanceRequest body)
+    {
+        return upstreamCherryPicks.guide(
+                workspaceId, jobId, body == null ? null : body.text());
+    }
+
+    public record GuidanceRequest(String text) {}
+
     @PostMapping("/upstream/cherry-picks/{jobId}/resume")
     public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
             resumeUpstreamCherryPick(

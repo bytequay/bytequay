@@ -360,7 +360,12 @@ export type WorkspaceRelationCandidateDto = {
   ineligibleReason?: string | null;
 };
 
-export type UpstreamCommitDto = LocalCommitDto & {
+/** The upstream mirror is read-only history someone else rebased before
+ *  pushing, so it is dated by when the commit landed (committer date) —
+ *  the same field github.com's commit list shows — not by when its author
+ *  first wrote it. */
+export type UpstreamCommitDto = Omit<LocalCommitDto, 'authoredAt'> & {
+  committedAt: string | null;
   tags: string[];
   picked: boolean;
 };
@@ -400,19 +405,69 @@ export type CherryPickPlanDto = {
   skipCount: number;
 };
 
+export type UpstreamCherryPickStatus =
+  'QUEUED' | 'RUNNING' | 'PAUSED_CONFLICT' | 'COMPLETED' | 'FAILED';
+
 export type UpstreamCherryPickJobDto = {
   jobId: string;
-  status: 'QUEUED' | 'RUNNING' | 'PAUSED_CONFLICT' | 'COMPLETED' | 'FAILED';
+  status: UpstreamCherryPickStatus;
+  sourceBranch: string;
   resultBranch: string;
+  baseRef: string;
   requestedCount: number;
   appliedCount: number;
   skippedCount: number;
+  /** Applied picks whose conflict was carried forward with git's resolution. */
+  conflictedCount: number;
+  /** A stop was asked for and takes effect at the next commit boundary. */
+  pauseRequested: boolean;
+  budgetMilliUsd: number;
+  spentMilliUsd: number;
+  /** The local compile could not run, so CI carries the verdict from here on. */
+  localGateUnavailable: boolean;
   conflictPaths: string[];
   worktreePath: string | null;
   prNumber: number | null;
   prUrl: string | null;
   harnessWatchId: string | null;
   errorMessage: string | null;
+  /** Set once the user closed the run; every action but reading is refused after. */
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UpstreamCherryPickCommitState =
+  'applied' | 'conflicted' | 'skipped' | 'current' | 'waiting';
+
+export type UpstreamCherryPickCommitDto = {
+  index: number;
+  sha: string;
+  shortSha: string;
+  subject: string;
+  state: UpstreamCherryPickCommitState;
+};
+
+/** One line of the run log — a command the run executed, or a note about it. */
+export type UpstreamCherryPickEventDto = {
+  id: string;
+  ordinal: number;
+  /** The pick this line belongs under; null for run-level lines. */
+  pickIndex: number | null;
+  kind: 'start' | 'command' | 'note' | 'skip' | 'park' | 'guidance' | 'agent'
+    | 'fixup' | 'push' | 'pr' | 'watch' | 'done' | 'error' | 'closed';
+  title: string;
+  detail: string | null;
+  exitCode: number | null;
+  durationMs: number | null;
+  at: string;
+};
+
+export type UpstreamCherryPickRunDto = {
+  job: UpstreamCherryPickJobDto;
+  baseBranch: string;
+  commits: UpstreamCherryPickCommitDto[];
+  events: UpstreamCherryPickEventDto[];
 };
 
 export type CiHarnessStatus =
@@ -1093,6 +1148,32 @@ export const workspaceApi = {
     window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
       path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/retry`,
       method: 'POST',
+    }),
+  upstreamCherryPickRun: (workspaceId: string, jobId: string, events = 400) =>
+    window.bridge.workspaceApi<UpstreamCherryPickRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${
+        enc(jobId)}/run?events=${events}`,
+    }),
+  pauseUpstreamCherryPick: (workspaceId: string, jobId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/pause`,
+      method: 'POST',
+    }),
+  skipUpstreamCherryPickCommit: (workspaceId: string, jobId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/skip`,
+      method: 'POST',
+    }),
+  closeUpstreamCherryPick: (workspaceId: string, jobId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/close`,
+      method: 'POST',
+    }),
+  guideUpstreamCherryPick: (workspaceId: string, jobId: string, text: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/guidance`,
+      method: 'POST',
+      body: { text },
     }),
   harnessWatches: (workspaceId: string) =>
     window.bridge.workspaceApi<CiHarnessWatchDto[]>({

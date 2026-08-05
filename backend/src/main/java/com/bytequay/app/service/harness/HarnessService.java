@@ -266,6 +266,30 @@ public class HarnessService
         return dashboard(requireWatch(workspaceId, watchId));
     }
 
+    /**
+     * Raises a parked run's ceiling. Every park offers the same two answers —
+     * stop here, or carry on with more budget — and carrying on resumes the run's
+     * existing agent session, so nothing it worked out is thrown away.
+     */
+    public HarnessDashboard raiseBudget(String workspaceId, String watchId, long additional)
+    {
+        Watch watch = requireWatch(workspaceId, watchId);
+        if (additional < 100 || additional > MAX_BUDGET_MILLI_USD) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "additionalMilliUsd must be between 100 and " + MAX_BUDGET_MILLI_USD);
+        }
+        if (watch.status() == WatchStatus.STOPPED) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "this watch has been stopped");
+        }
+        long now = now();
+        store.addWatchBudget(watch.id(), additional, now);
+        store.appendEvent(watch.id(), null, Phase.DONE, "budget_raised",
+                "Budget raised by " + additional + " milli-USD", null, now);
+        return dashboard(requireWatch(workspaceId, watchId));
+    }
+
     public HarnessDashboard stop(String workspaceId, String watchId)
     {
         Watch watch = requireWatch(workspaceId, watchId);

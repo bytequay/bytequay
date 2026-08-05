@@ -93,6 +93,23 @@ public class HarnessController
         return harness.stop(workspaceId, watchId);
     }
 
+    /** The other answer to a park: carry on with a higher ceiling. */
+    @PostMapping("/watches/{watchId}/budget")
+    public HarnessDashboard raiseBudget(
+            @PathVariable String workspaceId,
+            @PathVariable String watchId,
+            @RequestBody RaiseBudgetBody body)
+    {
+        requireNonNull(body, "body is null");
+        HarnessDashboard raised = harness.raiseBudget(
+                workspaceId, watchId, body.additionalMilliUsd());
+        // Resuming is the point of raising it — the run picks its session back up.
+        orchestrator.requestRun(watchId, "budget_raised");
+        return raised;
+    }
+
+    public record RaiseBudgetBody(long additionalMilliUsd) {}
+
     @GetMapping("/watches/{watchId}/cycles/{cycleId}")
     public CycleDetail cycle(
             @PathVariable String workspaceId,

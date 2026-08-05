@@ -740,6 +740,35 @@ public class UpstreamCherryPickService
         return require(workspaceId, id);
     }
 
+    /**
+     * Raises a parked run's ceiling and carries on. The agent sets its own bounds
+     * now — no attempt counter, no retry limit — so the budget is the only hard
+     * stop, and it is deliberately one the user can lift rather than one that ends
+     * the run. Resuming reuses the run's existing agent session.
+     */
+    public UpstreamCherryPickJobDto raiseBudget(
+            String workspaceId, String id, long additionalMilliUsd)
+            throws IOException, InterruptedException
+    {
+        JobRow row = requireOpen(workspaceId, id);
+        if (additionalMilliUsd < 100 || additionalMilliUsd > 1_000_000) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "additionalMilliUsd must be between 100 and 1000000");
+        }
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET budget_milli_usd = budget_milli_usd + ?, updated_at_ms = ?
+                WHERE id = ?
+                """, additionalMilliUsd, now(), id);
+        record(id, currentPickIndex(row), "note",
+                "Budget raised by " + additionalMilliUsd + " milli-USD", null, null, null);
+        if ("PAUSED_CONFLICT".equals(row.status())) {
+            return resume(workspaceId, id);
+        }
+        return require(workspaceId, id);
+    }
+
     /** Explicitly retries a failed job without discarding durable progress. */
     public UpstreamCherryPickJobDto retry(String workspaceId, String id)
     {

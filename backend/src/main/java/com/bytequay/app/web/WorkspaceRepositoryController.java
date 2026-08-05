@@ -522,6 +522,23 @@ public class WorkspaceRepositoryController
         return ResponseEntity.accepted().body(job);
     }
 
+    /** The other answer to a park: carry on with a higher ceiling. */
+    @PostMapping("/upstream/cherry-picks/{jobId}/budget")
+    public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
+            raiseUpstreamCherryPickBudget(
+                    @PathVariable String workspaceId,
+                    @PathVariable String jobId,
+                    @RequestBody RaiseBudgetBody body)
+    {
+        requireNonNull(body, "body is null");
+        UpstreamCherryPickService.UpstreamCherryPickJobDto job = interrupted(
+                () -> upstreamCherryPicks.raiseBudget(
+                        workspaceId, jobId, body.additionalMilliUsd()));
+        return ResponseEntity.accepted().body(job);
+    }
+
+    public record RaiseBudgetBody(long additionalMilliUsd) {}
+
     @PostMapping("/upstream/cherry-picks/{jobId}/retry")
     public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
             retryUpstreamCherryPick(

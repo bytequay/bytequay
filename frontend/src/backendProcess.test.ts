@@ -52,9 +52,21 @@ describe('loginShellPath', () => {
 });
 
 describe('javaMajorVersion', () => {
-  it('reads the major version from a working JDK', () => {
-    const home = execFileSync('/usr/libexec/java_home', ['-v', '21+'], { encoding: 'utf8' }).trim();
-    expect(javaMajorVersion(`${home}/bin/java`)).toBeGreaterThanOrEqual(21);
+  // JAVA_HOME first so this runs on CI's Linux boxes, where the macOS-only
+  // /usr/libexec/java_home doesn't exist; null on a machine with no JDK.
+  const jdkHome = (): string | null => {
+    if (process.env.JAVA_HOME) return process.env.JAVA_HOME;
+    try {
+      return execFileSync('/usr/libexec/java_home', ['-v', '17+'], { encoding: 'utf8' }).trim();
+    } catch {
+      return null;
+    }
+  };
+
+  // The assertion is about parsing a real `java -version`, so it sits below
+  // the app's own minimum — whatever JDK the machine happens to have does.
+  it.skipIf(jdkHome() === null)('reads the major version from a working JDK', () => {
+    expect(javaMajorVersion(`${jdkHome()}/bin/java`)).toBeGreaterThanOrEqual(17);
   });
 
   it('returns null when the binary is missing or not a JDK', () => {

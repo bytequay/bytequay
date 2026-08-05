@@ -31,6 +31,9 @@ public interface ConflictRepairAdvisor
      * @param targetSubject subject of the commit whose conflict is being repaired
      * @param conflictPaths files git reported as conflicted
      * @param compileOutput tail of the failing compile, the evidence for the repair
+     * @param resumeSessionId the run's live agent session, or null to start one.
+     *        One session spans the whole run so a later conflict still knows what
+     *        the fork decided about an earlier one.
      * @return a proposal, or empty when the agent declines or is not confident
      */
     Repair propose(
@@ -39,13 +42,16 @@ public interface ConflictRepairAdvisor
             String targetSubject,
             List<String> conflictPaths,
             String compileOutput,
-            long budgetMilliUsd);
+            long budgetMilliUsd,
+            String resumeSessionId);
 
     /**
      * @param edits unique-anchor find/replace edits; empty means "no proposal"
      * @param costMilliUsd what the turn spent, charged whether or not it helped
+     * @param sessionId the session to resume next time, null when the engine
+     *        announced none (the next turn then starts fresh)
      */
-    record Repair(List<Edit> edits, String rationale, long costMilliUsd)
+    record Repair(List<Edit> edits, String rationale, long costMilliUsd, String sessionId)
     {
         public boolean isEmpty()
         {

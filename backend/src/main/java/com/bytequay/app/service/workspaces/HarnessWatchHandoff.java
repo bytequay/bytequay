@@ -24,4 +24,11 @@ public interface HarnessWatchHandoff
             String branchName,
             String worktreePath,
             long budgetMilliUsd);
+
+    /**
+     * Stops a watch this handoff created. Closing the sync run that owns the
+     * watch has to end the agent side of it too, or the harness keeps looping
+     * on a pull request nobody is watching any more.
+     */
+    void stopWatch(String workspaceId, String watchId);
 }

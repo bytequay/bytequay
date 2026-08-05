@@ -489,7 +489,7 @@ class TestHarnessOrchestrator
                 any(), eq("base"), eq("origin"), eq("feature"), any(), any()))
                 .thenReturn(batch);
         GitSafetyProof proof = proof();
-        when(batch.finish()).thenReturn(new SafetyResult("backup", "original", proof));
+        when(batch.finishWithoutSquash()).thenReturn(new SafetyResult("backup", "original", proof));
         when(store.upsertCandidate(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(store.finishHandoff(
                 eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
@@ -503,7 +503,8 @@ class TestHarnessOrchestrator
         order.verify(verifier).verify(any(), eq(secondFix), any(), eq("two"));
         order.verify(verifier).verify(any(), eq(thirdFix), any(), eq("three"));
         order.verify(batch).commitFixup(thirdFix.filesChanged(), thirdFix.targetSubject());
-        order.verify(batch).finish();
+        order.verify(batch).finishWithoutSquash();
+        verify(batch, never()).finish();
         order.verify(store).finishHandoff(
                 eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
                 eq("build: failure"), any(), anyLong());
@@ -573,7 +574,7 @@ class TestHarnessOrchestrator
         when(gitSafety.beginFixupBatch(
                 any(), eq("base"), eq("origin"), eq("feature"), any(), any()))
                 .thenReturn(batch);
-        when(batch.finish()).thenReturn(new SafetyResult("backup", "original", proof()));
+        when(batch.finishWithoutSquash()).thenReturn(new SafetyResult("backup", "original", proof()));
         when(store.upsertCandidate(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(store.finishHandoff(
                 eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
@@ -583,7 +584,9 @@ class TestHarnessOrchestrator
 
         // The verified fixup survives and the cycle still hands off cleanly.
         verify(batch).commitFixup(firstFix.filesChanged(), firstFix.targetSubject());
-        verify(batch).finish();
+        verify(batch).finishWithoutSquash();
+        // Nothing is squashed into a commit the human has not reviewed.
+        verify(batch, never()).finish();
         verify(batch, never()).abort();
         verify(store).finishHandoff(
                 eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
@@ -632,7 +635,7 @@ class TestHarnessOrchestrator
         when(gitSafety.beginFixupBatch(
                 any(), eq("base"), eq("origin"), eq("feature"), any(), any()))
                 .thenReturn(batch);
-        when(batch.finish()).thenReturn(new SafetyResult("backup", "original", proof()));
+        when(batch.finishWithoutSquash()).thenReturn(new SafetyResult("backup", "original", proof()));
         // Bookkeeping is not in the commit critical path.
         when(store.upsertCandidate(any()))
                 .thenThrow(new IllegalStateException("candidate identity collided"));
@@ -643,7 +646,9 @@ class TestHarnessOrchestrator
         orchestrator.runCycle(cycle.id());
 
         verify(batch).commitFixup(fix.filesChanged(), fix.targetSubject());
-        verify(batch).finish();
+        verify(batch).finishWithoutSquash();
+        // Nothing is squashed into a commit the human has not reviewed.
+        verify(batch, never()).finish();
         verify(batch, never()).abort();
         verify(gitSafety, never()).discardTrackedProposal(any(), any());
         verify(store).finishHandoff(
@@ -698,7 +703,7 @@ class TestHarnessOrchestrator
         when(gitSafety.beginFixupBatch(
                 any(), eq("base"), eq("origin"), eq("feature"), any(), any()))
                 .thenReturn(batch);
-        when(batch.finish()).thenReturn(new SafetyResult("backup", "original", proof()));
+        when(batch.finishWithoutSquash()).thenReturn(new SafetyResult("backup", "original", proof()));
         when(store.finishHandoff(
                 eq(cycle.id()), eq(watch.id()), anyLong(), eq("backup"), any(),
                 eq("build: failure"), any(), anyLong())).thenReturn(true);
@@ -709,7 +714,9 @@ class TestHarnessOrchestrator
         verify(applier, never()).apply(any(), any());
         verify(applier).applyRecipe(any(), eq(recipe));
         verify(batch).commitFixup(fix.filesChanged(), fix.targetSubject());
-        verify(batch).finish();
+        verify(batch).finishWithoutSquash();
+        // Nothing is squashed into a commit the human has not reviewed.
+        verify(batch, never()).finish();
         verify(store, never()).upsertCandidate(any());
     }
 

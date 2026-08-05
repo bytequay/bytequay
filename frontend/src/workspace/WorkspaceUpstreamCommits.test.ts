@@ -28,7 +28,7 @@ describe('upstream commit range selection', () => {
   it('uses live tag names for the selected range label', () => {
     const commit = (sha: string, tags: string[]): UpstreamCommitDto => ({
       sha, shortSha: sha, subject: sha, authorName: 'A', authorEmail: 'a@example.com',
-      authoredAt: null, tags, picked: false,
+      committedAt: null, tags, picked: false,
     });
     expect(rangeLabel([commit('c', ['v482']), commit('b', []), commit('a', ['v476'])]))
       .toBe('v476 → v482');

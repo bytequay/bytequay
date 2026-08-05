@@ -32,6 +32,7 @@ import { useWorkspaceNav } from './pages/useWorkspaceNav';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import WorkspaceCreationToasts from './workspace/WorkspaceCreationToasts';
 import WorkspaceHarnessPage from './workspace/WorkspaceHarnessPage';
+import WorkspaceSyncRunPage from './workspace/WorkspaceSyncRunPage';
 import {
   parseWorkspaceRoute, workspaceRouteHash, type WorkspaceRoute,
 } from './workspace/workspaceRoutes';
@@ -87,6 +88,10 @@ export type Nav =
    *  view stage chip or a brain-agent response's drill-in chip. */
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
   | { view: 'ci-harness'; watchId?: string }
+  /** One upstream sync run's cockpit — the commit queue, its command log,
+   *  and the pull request it ends at. Owns the whole window: its left
+   *  column is the queue, not the workspace rail. */
+  | { view: 'sync-run'; jobId: string }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -265,6 +270,13 @@ function publicNavigation(route: WorkspaceRoute): PublicNavigation {
         nav: { view: 'ci-harness', watchId: route.watchId },
         workspaceId: route.workspaceId,
       };
+    case 'sync':
+      return route.jobId === undefined
+        ? { nav: { view: 'workspace', section: 'commits' }, workspaceId: route.workspaceId }
+        : {
+            nav: { view: 'sync-run', jobId: route.jobId },
+            workspaceId: route.workspaceId,
+          };
     case 'settings':
       return {
         nav: { view: 'workspace', section: 'settings', settingsSection: route.section ?? 'agents' },
@@ -330,6 +342,10 @@ function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | nul
     case 'ci-harness':
       return workspaceId === null ? null : {
         kind: 'ci-harness', workspaceId, watchId: nav.watchId,
+      };
+    case 'sync-run':
+      return workspaceId === null ? null : {
+        kind: 'sync', workspaceId, jobId: nav.jobId,
       };
     case 'repos': return { kind: 'legacy-repo' };
     case 'repository':
@@ -846,7 +862,8 @@ function App() {
   // change the hook count between renders and crash the whole app.
   const inWorkspaceFlow = nav.view === 'workspace'
     || nav.view === 'thread-detail' || nav.view === 'task-brain'
-    || nav.view === 'stage-detail' || nav.view === 'ci-harness';
+    || nav.view === 'stage-detail' || nav.view === 'ci-harness'
+    || nav.view === 'sync-run';
   // The viewed thread's own workspace wins once resolved (e.g. by
   // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
   // linked-task chip, footprint resume) shows ITS workspace's rail instead
@@ -909,6 +926,7 @@ function App() {
       case 'workspace': return workspaceSectionNav(nav.section ?? 'today');
       case 'thread-detail': case 'task-brain': case 'stage-detail': return 'trunks';
       case 'ci-harness': return 'ci-harness';
+      case 'sync-run': return 'commits';
       case 'pulls': return 'pulls';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
@@ -923,7 +941,8 @@ function App() {
   // selected task's live plan.
   const ownsTaskSidebar = (nav.view as string) === 'task-brain'
     || (nav.view as string) === 'stage-detail'
-    || (nav.view as string) === 'ci-harness';
+    || (nav.view as string) === 'ci-harness'
+    || (nav.view as string) === 'sync-run';
   const usesSharedCollapsedRail = railCollapsed
     && (nav.view === 'task-brain' || nav.view === 'stage-detail');
 
@@ -979,7 +998,8 @@ function App() {
     || nav.view === 'thread-detail'
     || nav.view === 'task-brain'
     || nav.view === 'stage-detail'
-    || nav.view === 'ci-harness';
+    || nav.view === 'ci-harness'
+    || nav.view === 'sync-run';
   const resolvingLegacyRepo = nav.view === 'repos' || nav.view === 'repo'
     || nav.view === 'repository' || nav.view === 'local-repo';
 
@@ -997,6 +1017,8 @@ function App() {
           tasks={inWorkspaceFlow ? threadTasks : []}
           selectedTaskId={navTaskId}
           activeNav={sidebarActiveNav}
+          onOpenSync={jobId => setNav({ view: 'sync-run', jobId })}
+          onNewSync={() => setNav({ view: 'workspace', section: 'commits' })}
           notificationCount={unreadNotificationCount}
           collapsed={railCollapsed}
           onToggleCollapse={() => setRailCollapsed(c => !c)}
@@ -1196,6 +1218,14 @@ function App() {
             onSwitchWorkspace={openSidebarWorkspaceToday}
           />
         )}
+        {nav.view === 'sync-run' && activeWorkspaceId && (
+          <WorkspaceSyncRunPage
+            workspaceId={activeWorkspaceId}
+            jobId={nav.jobId}
+            onBack={openSidebarWorkspaceToday}
+            onOpenHarness={watchId => setNav({ view: 'ci-harness', watchId })}
+          />
+        )}
         {nav.view === 'notifications' && (
           <NotificationsScreen
             onOpenThread={openThread}
@@ -1239,6 +1269,7 @@ function App() {
             backlogKey={nav.backlogKey}
             settingsSection={nav.settingsSection}
             onOpenHarness={watchId => setNav({ view: 'ci-harness', watchId })}
+            onOpenSync={jobId => setNav({ view: 'sync-run', jobId })}
             onSelectSettingsSection={settingsSection => setNav({
               view: 'workspace', section: 'settings', settingsSection,
             })}

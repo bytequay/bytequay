@@ -73,6 +73,62 @@ final class CiJobScriptReader
         }
     }
 
+    /**
+     * The build command CI itself runs, with no job named: the first plain
+     * build invocation in any workflow, files in name order.
+     *
+     * <p>This is how the run learns to compile. It stays a parser rather than a
+     * question for the model for the same reason {@link #buildScript} does — the
+     * answer is executed, so it must be read out of the repository rather than
+     * generated. A pipeline, a wrapper script or anything with shell syntax is
+     * skipped, and the caller falls back to a plain compile.
+     */
+    static Optional<String> anyBuildScript(Path repoRoot)
+    {
+        Path dir = repoRoot.resolve(WORKFLOWS);
+        if (!Files.isDirectory(dir)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            return files
+                    .filter(file -> {
+                        String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                        return name.endsWith(".yml") || name.endsWith(".yaml");
+                    })
+                    .sorted()
+                    .map(CiJobScriptReader::firstBuildCommand)
+                    .flatMap(Optional::stream)
+                    .findFirst();
+        }
+        catch (IOException e) {
+            log.warn("unable to read CI workflows under {}", dir, e);
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<String> firstBuildCommand(Path workflow)
+    {
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(workflow, StandardCharsets.UTF_8);
+        }
+        catch (IOException e) {
+            return Optional.empty();
+        }
+        for (int i = 0; i < lines.size(); i++) {
+            String trimmed = lines.get(i).strip();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
+            Optional<String> found = runCommand(
+                    lines, i, trimmed, indentation(lines.get(i)));
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
     private static Optional<String> scriptIn(Path workflow, String jobName)
     {
         List<String> lines;

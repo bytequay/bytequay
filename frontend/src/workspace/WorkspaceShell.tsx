@@ -89,6 +89,8 @@ type Props = {
   branchName?: string;
   onOpenBranch?: (branchName: string) => void;
   onOpenHarness?: (watchId?: string) => void;
+  /** Open one upstream sync run's cockpit from the Today page. */
+  onOpenSync?: (jobId: string) => void;
   sessionId?: string;
   onOpenSession?: (sessionId: string) => void;
   onOpenReview?: (target: WorkspaceReviewSessionTarget) => void;
@@ -119,7 +121,7 @@ function WorkspaceShell({
   onOpenIssue, prNumber, prId, agentColumn, issueNumber, branchName, onOpenBranch,
   sessionId, onOpenSession, onOpenReview,
   backlogKey, onOpenBacklog,
-  settingsSection, onSelectSettingsSection, onOpenHarness,
+  settingsSection, onSelectSettingsSection, onOpenHarness, onOpenSync,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingBacklogStartKey, setPendingBacklogStartKey] = useState<string | null>(null);
@@ -140,6 +142,7 @@ function WorkspaceShell({
             workspace={activeWorkspace}
             threads={rawThreads}
             onOpenThread={onOpenThread}
+            onOpenSync={onOpenSync}
             onNewThread={() => setNewThreadOpen(true)}
             onOpenInsights={() => onSelectSection('insights')}
             onOpenMemory={() => onSelectSection('memory')}

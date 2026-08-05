@@ -29,9 +29,13 @@ afterEach(() => {
 });
 
 const running: UpstreamCherryPickJobDto = {
-  jobId: 'job-1', status: 'RUNNING', resultBranch: 'upstream-9-9', requestedCount: 1,
-  appliedCount: 0, skippedCount: 0, conflictPaths: [], worktreePath: '/tmp/job-1',
+  jobId: 'job-1', status: 'RUNNING', sourceBranch: 'master',
+  resultBranch: 'upstream-9-9', baseRef: 'b'.repeat(40), requestedCount: 1,
+  appliedCount: 0, skippedCount: 0, conflictedCount: 0, pauseRequested: false,
+  budgetMilliUsd: 5_000, spentMilliUsd: 0, localGateUnavailable: false, conflictPaths: [], worktreePath: '/tmp/job-1',
   prNumber: null, prUrl: null, harnessWatchId: null, errorMessage: null,
+  closedAt: null,
+  createdAt: '2026-08-05T09:00:00Z', updatedAt: '2026-08-05T09:10:00Z',
 };
 
 const failed: UpstreamCherryPickJobDto = {
@@ -59,7 +63,7 @@ const repository: WorkspaceRepositoryDto = {
 
 const commit: UpstreamCommitDto = {
   sha: 'a'.repeat(40), shortSha: 'aaaaaaa', subject: 'Update dependency',
-  authorName: 'A', authorEmail: 'a@example.com', authoredAt: null,
+  authorName: 'A', authorEmail: 'a@example.com', committedAt: null,
   tags: ['v9.9'], picked: false,
 };
 

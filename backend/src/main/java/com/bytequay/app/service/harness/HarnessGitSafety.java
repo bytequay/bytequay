@@ -61,6 +61,7 @@ public class HarnessGitSafety
         this.commands = requireNonNull(commands, "commands is null");
     }
 
+    /** Explicit, reviewed squash of one fixup into the commit it repairs. */
     public SafetyResult commitFixupAndAutosquash(
             Path root,
             List<String> files,
@@ -192,6 +193,62 @@ public class HarnessGitSafety
             }
         }
 
+        /**
+         * Closes the batch without touching history: the verified fixups stay
+         * as their own commits, and the branch is exactly what the fixup
+         * commits made it.
+         *
+         * <p>This is the unattended path. Folding a fixup into the commit it
+         * repairs rewrites commits a human has not read yet, so that waits for
+         * a review and an explicit ask — {@link #finish()} is what performs it
+         * then, with the full net-neutral proof.
+         */
+        public SafetyResult finishWithoutSquash()
+        {
+            if (finished || restored) {
+                throw new IllegalStateException("fixup batch is already closed");
+            }
+            if (fixups.isEmpty()) {
+                throw new IllegalStateException("fixup batch has no verified fixes");
+            }
+            try {
+                run(root, List.of("git", "fetch", "--no-tags", remote, branch), 300);
+                String remoteHead = run(root, List.of(
+                        "git", "rev-parse", "--verify", "FETCH_HEAD"), 30).strip();
+                if (!originalHead.equals(remoteHead)) {
+                    throw new SafetyException(
+                            "remote branch changed during the fixup batch; local branch restored");
+                }
+                assertActive(active);
+                String head = git.headSha(root);
+                finished = true;
+                // Nothing was rewritten, so the proof records the one fact that
+                // matters: head moved forward by the fixups and by nothing else.
+                GitSafetyProof proof = new GitSafetyProof(
+                        head, head, tree(root, head), tree(root, head),
+                        true, true, true, "not squashed; fixups kept for review");
+                return new SafetyResult(backupRef, originalHead, proof);
+            }
+            catch (IOException | InterruptedException e) {
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                SafetyException failure = new SafetyException(
+                        "closing the fixup batch failed: " + e.getMessage(), e);
+                rollback(failure);
+                throw failure;
+            }
+            catch (RuntimeException failure) {
+                rollback(failure);
+                throw failure;
+            }
+        }
+
+        /**
+         * Folds every verified fixup into the commit it repairs and proves the
+         * rewrite changed nothing but attribution. Only ever on an explicit
+         * human ask, after review.
+         */
         public SafetyResult finish()
         {
             if (finished || restored) {

@@ -23,7 +23,10 @@ import {
   WorkspaceSwitcherCard,
 } from '../ui/workspace/WorkspacePageChrome';
 import { taskLabel } from '../threads/taskLabel';
-import type { WorkspaceRelationDto } from '../workspace/workspaceApi';
+import { SyncNavRow } from '../workspace/WorkspaceSyncCards';
+import type {
+  UpstreamCherryPickJobDto, WorkspaceRelationDto,
+} from '../workspace/workspaceApi';
 
 const EXPANSION_KEY = 'byq.trunkExpanded.v1';
 
@@ -38,6 +41,7 @@ export function TrunkWorkspaceSidebar({
   repository,
   relation,
   threads,
+  syncs = [],
   selectedThreadId,
   selectedTasks,
   counts,
@@ -52,6 +56,8 @@ export function TrunkWorkspaceSidebar({
   onNavigate,
   onOpenThread,
   onOpenTask,
+  onOpenSync,
+  onNewSync,
   onSwitchWorkspace,
   onNewThread,
   onOpenRelation,
@@ -60,6 +66,8 @@ export function TrunkWorkspaceSidebar({
   repository: string;
   relation?: WorkspaceRelationDto | null;
   threads: ThreadDto[];
+  /** Upstream sync runs, newest first. Their own nav section. */
+  syncs?: UpstreamCherryPickJobDto[];
   selectedThreadId?: string;
   selectedTasks: TaskNavRow[];
   counts?: {
@@ -81,6 +89,9 @@ export function TrunkWorkspaceSidebar({
   onNavigate?: (key: WsNavKey) => void;
   onOpenThread?: (id: string) => void;
   onOpenTask?: (threadId: string, taskId: string) => void;
+  onOpenSync?: (jobId: string) => void;
+  /** Start a sync run — the range picker lives on the Commits page. */
+  onNewSync?: () => void;
   onSwitchWorkspace?: () => void;
   onNewThread?: () => void;
   onOpenRelation?: () => void;
@@ -133,6 +144,12 @@ export function TrunkWorkspaceSidebar({
     // A stable string avoids restarting the poll when the parent replaces the
     // thread array with an equivalent response on each workspace refresh.
   }, [taskIdsKey]);
+
+  // A finished run leaves the nav — it lives on Today's "landed" list from
+  // then on, and the section is for what still has work in it.
+  const openSyncs = syncs
+    .filter(job => job.closedAt === null && job.status !== 'COMPLETED')
+    .slice(0, 4);
 
   const toggleThread = (thread: ThreadDto, hasTasks: boolean) => {
     if (thread.id !== selectedThreadId) onOpenThread?.(thread.id);
@@ -218,6 +235,21 @@ export function TrunkWorkspaceSidebar({
           );
         })}
       </div>
+
+      {(openSyncs.length > 0 || onNewSync !== undefined) && (
+        <>
+          <div className="sync-nav__head">
+            <strong>Syncs</strong>
+            <button type="button" title="New sync run — pick an upstream range"
+              aria-label="New sync run" onClick={onNewSync}>
+              <PlusIcon />
+            </button>
+          </div>
+          {openSyncs.map(job => (
+            <SyncNavRow key={job.jobId} job={job} onOpen={() => onOpenSync?.(job.jobId)} />
+          ))}
+        </>
+      )}
 
       <div className="trunk-page-v2-nav__workspace">
         <button type="button" className="trunk-page-v2-nav__workspace-toggle"

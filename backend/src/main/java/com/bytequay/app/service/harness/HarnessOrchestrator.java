@@ -531,8 +531,11 @@ public class HarnessOrchestrator
                 return;
             }
             phase(watch, cycle, Phase.REBASE,
-                    "Autosquashing all verified fixups inside the PR-owned range");
-            safety = requireNonNull(batch, "verified fixup batch is null").finish();
+                    "Closing the fixup batch — fixups stay as their own commits for review");
+            // Never fold a fixup into a commit the human has not read. The
+            // squash is a reviewed, explicitly-asked-for step.
+            safety = requireNonNull(batch, "verified fixup batch is null")
+                    .finishWithoutSquash();
             ensureActive(watch, cycle);
 
             String proof = json(safety.proof());

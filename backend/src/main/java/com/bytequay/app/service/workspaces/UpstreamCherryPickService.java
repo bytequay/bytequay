@@ -15,10 +15,12 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.harness.HarnessBootstrapper;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -29,9 +31,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -47,7 +51,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,14 +65,20 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Durable, user-started upstream cherry-pick setup. This operation may push
- * once to open the requested draft PR; the harness handoff it creates has no
- * push capability. Conflicts are retained for a human and never enqueue an
- * agent turn.
+ * once to open the requested draft PR.
+ *
+ * <p>Conflicts are expected, not exceptional: a range off an upstream a fork has
+ * drifted from produces them by the dozen. A conflicted pick is therefore staged,
+ * committed and carried into the pull request rather than blocked on locally, and
+ * the CI harness watching that pull request is what judges and repairs it. The
+ * job only pauses when git itself cannot finish the pick.
  */
 @Service
 public class UpstreamCherryPickService
 {
     private static final int MAX_COMMITS = 500;
+    /** Repair turns per conflicted pick before the run parks for a human. */
+    private static final int MAX_REPAIR_ATTEMPTS = 5;
     private static final int HISTORY_LIMIT = 5_000;
     private static final Set<String> LIVE_STATUSES = Set.of("QUEUED", "RUNNING");
     private static final Logger log = LoggerFactory.getLogger(UpstreamCherryPickService.class);
@@ -81,7 +91,8 @@ public class UpstreamCherryPickService
     private final PullRequestRepository pullRequests;
     private final PRSyncService prSync;
     private final ObjectProvider<HarnessWatchHandoff> harnessHandoff;
-    private final CherryPickCompileGate compileGate;
+    private final CherryPickCompileGate gate;
+    /** Optional by design: with no advisor registered a red gate simply parks. */
     private final ObjectProvider<ConflictRepairAdvisor> repairAdvisor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
 
@@ -94,7 +105,7 @@ public class UpstreamCherryPickService
             PullRequestRepository pullRequests,
             PRSyncService prSync,
             ObjectProvider<HarnessWatchHandoff> harnessHandoff,
-            CherryPickCompileGate compileGate,
+            CherryPickCompileGate gate,
             ObjectProvider<ConflictRepairAdvisor> repairAdvisor)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
@@ -105,7 +116,7 @@ public class UpstreamCherryPickService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.prSync = requireNonNull(prSync, "prSync is null");
         this.harnessHandoff = requireNonNull(harnessHandoff, "harnessHandoff is null");
-        this.compileGate = requireNonNull(compileGate, "compileGate is null");
+        this.gate = requireNonNull(gate, "gate is null");
         this.repairAdvisor = requireNonNull(repairAdvisor, "repairAdvisor is null");
     }
 
@@ -183,7 +194,6 @@ public class UpstreamCherryPickService
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     "choose between 1 and " + MAX_COMMITS + " commits, or a from/to range");
         }
-        CherryPickCompileGate.validateScript(request.compileScript());
         requireText(request.targetBranch(), "targetBranch");
         if (!git.isValidBranchName(request.targetBranch())) {
             throw new ResponseStatusException(
@@ -269,10 +279,10 @@ public class UpstreamCherryPickService
                     applied_shas_json, skipped_shas_json,
                     next_commit_index, conflict_paths_json, worktree_path,
                     open_draft_pr, create_harness_watch, budget_milli_usd,
-                    pr_description, skip_filters_json, compile_script, ci_job_name,
+                    pr_description, skip_filters_json, compile_script,
                     created_at_ms, updated_at_ms)
                 VALUES (?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?,
-                    '[]', '[]', 0, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    '[]', '[]', 0, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 workspaceId,
@@ -289,21 +299,377 @@ public class UpstreamCherryPickService
                 budget,
                 normalizedDescription(request.prDescription()),
                 json(filters),
-                blankToNull(request.compileScript()),
-                blankToNull(request.ciJobName()),
+                // How this project compiles, read out of its own CI config. A
+                // parser rather than a question for the model: the answer is
+                // executed, so it must come from the repository.
+                CiJobScriptReader.anyBuildScript(relation.targetClone()).orElse(null),
                 now,
                 now);
+        record(id, null, "start",
+                "Sync run started — " + specs.size() + " commits from "
+                        + sourceBranch + " onto " + request.targetBranch(),
+                "worktree " + worktree, null, null);
         launchAfterCommit(id);
         return require(workspaceId, id);
     }
 
     public UpstreamCherryPickJobDto require(String workspaceId, String id)
     {
+        return requireOwned(workspaceId, id).dto();
+    }
+
+    /**
+     * Everything the run view renders: the commit queue with each pick's state,
+     * and the command log behind it. The log is windowed to the most recent
+     * {@code eventLimit} entries — a range can be hundreds of commits long and
+     * the view only scrolls back so far.
+     */
+    public UpstreamCherryPickRunDto run(String workspaceId, String id, int eventLimit)
+    {
+        JobRow row = requireOwned(workspaceId, id);
+        return new UpstreamCherryPickRunDto(
+                row.dto(),
+                row.baseBranch(),
+                commitQueue(row),
+                events(id, eventLimit));
+    }
+
+    /**
+     * Stops the run before the next pick. A pick is a single git command, so
+     * there is no safe point inside one: both "pause after this pick" and
+     * "park now" land here and take effect at the next commit boundary.
+     */
+    public UpstreamCherryPickJobDto pause(String workspaceId, String id)
+    {
+        JobRow row = requireOpen(workspaceId, id);
+        if (!LIVE_STATUSES.contains(row.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "only a running upstream cherry-pick can be paused");
+        }
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET pause_requested = 1, updated_at_ms = ?
+                WHERE id = ?
+                """, now(), id);
+        record(id, null, "note", "Pause requested — stopping after this pick",
+                null, null, null);
+        return require(workspaceId, id);
+    }
+
+    /**
+     * Drops the commit the run is stopped on and carries on with the next one.
+     * Only offered while parked: skipping a commit the worker is mid-way
+     * through would race it.
+     */
+    public UpstreamCherryPickJobDto skipCurrent(String workspaceId, String id)
+            throws IOException, InterruptedException
+    {
+        JobRow row = requireOpen(workspaceId, id);
+        if (!"PAUSED_CONFLICT".equals(row.status())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "only a parked upstream cherry-pick can skip its commit");
+        }
+        if (row.nextCommitIndex() >= row.specs().size()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "the parked run has no current commit");
+        }
+        CommitSpec current = row.specs().get(row.nextCommitIndex());
+        Path worktree = Path.of(row.worktreePath());
+        if (git.cherryPickInProgress(worktree)) {
+            git.abortInProgressOperationForRepair(worktree);
+        }
+        record(id, row.nextCommitIndex(), "skip",
+                "Skipped " + current.subject(), "dropped at your request", null, null);
+        progress(
+                id,
+                row.appliedShas(),
+                append(row.skippedShas(), current.sha()),
+                row.nextCommitIndex() + 1);
+        clearPauseRequest(id);
+        queue(id);
+        launch(id);
+        return require(workspaceId, id);
+    }
+
+    /**
+     * Ends the run for good: the picker stops at the next commit boundary, the
+     * harness watch it created is stopped, and its isolated worktree is removed.
+     * Nothing that was committed is touched — the result branch and this run's
+     * log both survive, so a closed run stays readable.
+     *
+     * <p>The worktree is only removed here when no worker owns it; a run closed
+     * mid-pick has its worktree removed by that worker as it exits, because
+     * pulling the directory out from under a running {@code git cherry-pick} is
+     * exactly the kind of damage the isolated worktree exists to prevent.
+     */
+    public UpstreamCherryPickJobDto close(String workspaceId, String id)
+    {
+        closeRun(requireOwned(workspaceId, id), "at your request");
+        return require(workspaceId, id);
+    }
+
+    /**
+     * A run closes for exactly two reasons: the user closed it, or the pull
+     * request it produced was merged or closed on the remote. Either way the
+     * picker stops, the watch stops, and the worktree goes.
+     */
+    private void closeRun(JobRow row, String reason)
+    {
+        if (row.closedAt() != null) {
+            return;
+        }
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET closed_at_ms = ?, pause_requested = 0, updated_at_ms = ?
+                WHERE id = ? AND closed_at_ms IS NULL
+                """, now(), now(), row.id());
+        record(row.id(), null, "closed",
+                "Run closed " + reason + (row.harnessWatchId() == null
+                        ? " — worktree removed"
+                        : " — watch stopped and worktree removed"),
+                "the result branch and this log are kept", null, null);
+        stopWatch(row);
+        if (!activeJobs.contains(row.id())) {
+            removeWorktree(requireRow(row.id()));
+        }
+    }
+
+    /**
+     * The second way a run closes: its pull request reached a terminal state on
+     * the remote, so neither the run nor the worktree it holds has anything left
+     * to do. Polled on a background cadence — never on a user's turn.
+     */
+    @Scheduled(fixedDelay = 300_000, initialDelay = 120_000)
+    public void closeRunsWhosePullRequestEnded()
+    {
+        for (JobRow row : jdbc.query("""
+                SELECT * FROM upstream_cherry_pick_job
+                WHERE closed_at_ms IS NULL AND pr_number IS NOT NULL
+                """, this::mapRow)) {
+            try {
+                WorkspaceRelationService.ResolvedRelation relation =
+                        relations.requireResolved(row.workspaceId());
+                prSync.syncExternalPR(relation.target().fullName(), row.prNumber())
+                        .map(PR::status)
+                        .filter(status -> PR.STATUS_MERGED.equals(status)
+                                || PR.STATUS_CLOSED.equals(status))
+                        .ifPresent(status -> closeRun(
+                                requireRow(row.id()),
+                                "— pull request #" + row.prNumber() + " was "
+                                        + (PR.STATUS_MERGED.equals(status)
+                                                ? "merged" : "closed")));
+            }
+            catch (RuntimeException e) {
+                log.warn("checking pull request state for sync run {} failed: {}",
+                        row.id(), e.getMessage());
+            }
+        }
+    }
+
+    private void stopWatch(JobRow row)
+    {
+        if (row.harnessWatchId() == null) {
+            return;
+        }
+        HarnessWatchHandoff handoff = harnessHandoff.getIfAvailable();
+        if (handoff == null) {
+            return;
+        }
+        try {
+            handoff.stopWatch(row.workspaceId(), row.harnessWatchId());
+        }
+        catch (RuntimeException e) {
+            // The run is closed either way; a watch that cannot be stopped is
+            // worth a log line, not a failed close the user cannot retry.
+            log.warn("stopping harness watch {} failed: {}",
+                    row.harnessWatchId(), e.getMessage());
+        }
+    }
+
+    private void removeWorktree(JobRow row)
+    {
+        Path worktree = Path.of(row.worktreePath());
+        try {
+            WorkspaceRelationService.ResolvedRelation relation =
+                    relations.requireResolved(row.workspaceId());
+            if (Files.isDirectory(worktree)) {
+                git.worktreeRemove(relation.targetClone(), worktree);
+            }
+            git.worktreePrune(relation.targetClone());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("removing sync worktree {} was interrupted", worktree);
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("removing sync worktree {} failed: {}", worktree, e.getMessage());
+        }
+    }
+
+    /**
+     * Records the user's steering note on the run. It lands in the log the run
+     * view renders, next to the picks it was written about.
+     */
+    public UpstreamCherryPickJobDto guide(String workspaceId, String id, String text)
+    {
+        JobRow row = requireOpen(workspaceId, id);
+        String note = text == null ? "" : text.strip();
+        if (note.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY, "guidance text is required");
+        }
+        if (note.length() > 4_000) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "guidance must be at most 4000 characters");
+        }
+        // ponytail: stored, not consumed — the conflict-repair agent that will
+        // read it does not exist yet, so guidance is a durable note for now.
+        record(id, currentPickIndex(row), "guidance", note, null, null, null);
+        return row.dto();
+    }
+
+    private JobRow requireOwned(String workspaceId, String id)
+    {
         JobRow row = requireRow(id);
         if (!workspaceId.equals(row.workspaceId())) {
             throw new NoSuchElementException("no upstream cherry-pick job: " + id);
         }
-        return row.dto();
+        return row;
+    }
+
+    /** Every action but {@link #close} and reading is refused once closed. */
+    private JobRow requireOpen(String workspaceId, String id)
+    {
+        JobRow row = requireOwned(workspaceId, id);
+        if (row.closedAt() != null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "this upstream sync run is closed");
+        }
+        return row;
+    }
+
+    private static Integer currentPickIndex(JobRow row)
+    {
+        return row.nextCommitIndex() < row.specs().size()
+                ? row.nextCommitIndex() : null;
+    }
+
+    /** Queue rows, oldest pick first — the order the run applies them in. */
+    private static List<UpstreamCherryPickCommitDto> commitQueue(JobRow row)
+    {
+        Set<String> applied = Set.copyOf(row.appliedShas());
+        Set<String> skipped = Set.copyOf(row.skippedShas());
+        Set<String> conflicted = Set.copyOf(row.conflictedShas());
+        boolean stopped = "COMPLETED".equals(row.status()) || "FAILED".equals(row.status());
+        List<UpstreamCherryPickCommitDto> rows = new ArrayList<>();
+        for (int index = 0; index < row.specs().size(); index++) {
+            CommitSpec spec = row.specs().get(index);
+            String state;
+            if (skipped.contains(spec.sha())) {
+                state = "skipped";
+            }
+            else if (applied.contains(spec.sha())) {
+                state = conflicted.contains(spec.sha()) ? "conflicted" : "applied";
+            }
+            else if (index == row.nextCommitIndex() && !stopped) {
+                state = "current";
+            }
+            else {
+                state = "waiting";
+            }
+            rows.add(new UpstreamCherryPickCommitDto(
+                    index, spec.sha(), shortSha(spec.sha()), spec.subject(), state));
+        }
+        return List.copyOf(rows);
+    }
+
+    private List<UpstreamCherryPickEventDto> events(String jobId, int requestedLimit)
+    {
+        int limit = Math.min(Math.max(requestedLimit, 1), 2_000);
+        List<UpstreamCherryPickEventDto> newestFirst = jdbc.query("""
+                SELECT * FROM upstream_cherry_pick_event
+                WHERE job_id = ?
+                ORDER BY ordinal DESC
+                LIMIT ?
+                """, (rs, ignored) -> {
+            int pick = rs.getInt("pick_index");
+            Integer pickIndex = rs.wasNull() ? null : pick;
+            int exit = rs.getInt("exit_code");
+            Integer exitCode = rs.wasNull() ? null : exit;
+            long duration = rs.getLong("duration_ms");
+            Long durationMs = rs.wasNull() ? null : duration;
+            return new UpstreamCherryPickEventDto(
+                    rs.getString("id"),
+                    rs.getInt("ordinal"),
+                    pickIndex,
+                    rs.getString("kind"),
+                    rs.getString("title"),
+                    rs.getString("detail"),
+                    exitCode,
+                    durationMs,
+                    Instant.ofEpochMilli(rs.getLong("created_at_ms")));
+        }, jobId, limit);
+        return newestFirst.reversed();
+    }
+
+    private static final int MAX_EVENT_DETAIL = 8_000;
+
+    /**
+     * Appends one line to the run log. The log is what the view renders, never
+     * something the run depends on, so a failed write is logged and swallowed
+     * rather than failing the pick that produced it.
+     */
+    private void record(
+            String jobId,
+            Integer pickIndex,
+            String kind,
+            String title,
+            String detail,
+            Integer exitCode,
+            Long durationMs)
+    {
+        try {
+            jdbc.update("""
+                    INSERT INTO upstream_cherry_pick_event (
+                        id, job_id, ordinal, pick_index, kind, title, detail,
+                        exit_code, duration_ms, created_at_ms)
+                    VALUES (?, ?, (SELECT COALESCE(MAX(ordinal), 0) + 1
+                        FROM upstream_cherry_pick_event WHERE job_id = ?),
+                        ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    UUID.randomUUID().toString(),
+                    jobId,
+                    jobId,
+                    pickIndex,
+                    kind,
+                    title,
+                    clampDetail(detail),
+                    exitCode,
+                    durationMs,
+                    now());
+        }
+        catch (DataAccessException e) {
+            log.warn("recording upstream cherry-pick event failed: {}", e.getMessage());
+        }
+    }
+
+    private static String clampDetail(String detail)
+    {
+        if (detail == null || detail.isBlank()) {
+            return null;
+        }
+        String trimmed = detail.strip();
+        return trimmed.length() <= MAX_EVENT_DETAIL
+                ? trimmed
+                : trimmed.substring(0, MAX_EVENT_DETAIL) + "\n…";
+    }
+
+    private static String shortSha(String sha)
+    {
+        return sha.length() <= 7 ? sha : sha.substring(0, 7);
     }
 
     /** Durable newest-first discovery for restoring the dialog after reload. */
@@ -329,35 +695,27 @@ public class UpstreamCherryPickService
     public UpstreamCherryPickJobDto resume(String workspaceId, String id)
             throws IOException, InterruptedException
     {
-        JobRow row = requireRow(id);
-        if (!workspaceId.equals(row.workspaceId())) {
-            throw new NoSuchElementException("no upstream cherry-pick job: " + id);
-        }
+        JobRow row = requireOpen(workspaceId, id);
         if (!"PAUSED_CONFLICT".equals(row.status())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "upstream cherry-pick is not paused for a conflict");
+        }
+        if (row.pauseRequested() || row.repairPending()) {
+            // Both parks happen at a commit boundary — one requested, one after a
+            // repair could not be verified. Either way the current commit was
+            // never started, so there is nothing to continue or reconcile.
+            clearPauseRequest(id);
+            record(id, currentPickIndex(row), "note", "Resumed", null, null, null);
+            queue(id);
+            launch(id);
+            return require(workspaceId, id);
         }
         if (row.nextCommitIndex() >= row.specs().size()) {
             throw new IllegalStateException("paused job has no current commit");
         }
         Path worktree = Path.of(row.worktreePath());
         CommitSpec current = row.specs().get(row.nextCommitIndex());
-        if (row.repairPending()) {
-            // The pick already landed; the gate stayed red and a human took over.
-            // Carrying on from the next commit is the only correct move — there is
-            // no cherry-pick in progress to continue, and HEAD is their repair.
-            jdbc.update("""
-                    UPDATE upstream_cherry_pick_job
-                    SET repair_pending = 0, error_message = NULL, updated_at_ms = ?
-                    WHERE id = ?
-                    """, now(), row.id());
-            progress(row.id(), append(row.appliedShas(), current.sha()),
-                    row.skippedShas(), row.nextCommitIndex() + 1);
-            queue(row.id());
-            launch(row.id());
-            return require(workspaceId, id);
-        }
         if (git.cherryPickInProgress(worktree)) {
             GitRunner.CherryPickOutcome continued = git.continueCherryPick(worktree);
             if (!continued.complete()) {
@@ -377,7 +735,14 @@ public class UpstreamCherryPickService
             }
         }
         List<String> applied = append(row.appliedShas(), current.sha());
-        progress(row.id(), applied, row.skippedShas(), row.nextCommitIndex() + 1);
+        record(row.id(), row.nextCommitIndex(), "note",
+                "Resumed after your resolution", current.subject(), null, null);
+        progress(
+                row.id(),
+                applied,
+                row.skippedShas(),
+                append(row.conflictedShas(), current.sha()),
+                row.nextCommitIndex() + 1);
         queue(row.id());
         launch(row.id());
         return require(workspaceId, id);
@@ -386,10 +751,7 @@ public class UpstreamCherryPickService
     /** Explicitly retries a failed job without discarding durable progress. */
     public UpstreamCherryPickJobDto retry(String workspaceId, String id)
     {
-        JobRow row = requireRow(id);
-        if (!workspaceId.equals(row.workspaceId())) {
-            throw new NoSuchElementException("no upstream cherry-pick job: " + id);
-        }
+        requireOpen(workspaceId, id);
         int updated;
         try {
             updated = jdbc.update("""
@@ -419,7 +781,7 @@ public class UpstreamCherryPickService
     {
         jdbc.queryForList("""
                 SELECT id FROM upstream_cherry_pick_job
-                WHERE status IN ('QUEUED', 'RUNNING')
+                WHERE status IN ('QUEUED', 'RUNNING') AND closed_at_ms IS NULL
                 """, String.class).forEach(this::launch);
     }
 
@@ -431,6 +793,10 @@ public class UpstreamCherryPickService
         Thread.startVirtualThread(() -> {
             try {
                 execute(id);
+                JobRow finished = requireRow(id);
+                if (finished.closedAt() != null) {
+                    removeWorktree(finished);
+                }
             }
             finally {
                 activeJobs.remove(id);
@@ -469,7 +835,7 @@ public class UpstreamCherryPickService
     private void execute(String id)
     {
         JobRow row = requireRow(id);
-        if (!LIVE_STATUSES.contains(row.status())) {
+        if (!LIVE_STATUSES.contains(row.status()) || row.closedAt() != null) {
             return;
         }
         running(id);
@@ -500,53 +866,102 @@ public class UpstreamCherryPickService
                     relations.pickedCommitSubjects(relation, row.baseRef()));
             List<String> applied = new ArrayList<>(row.appliedShas());
             List<String> skipped = new ArrayList<>(row.skippedShas());
+            List<String> conflicted = new ArrayList<>(row.conflictedShas());
+            // Read once per worker pass: the module layout only changes if a pom
+            // in the range changes, and re-parsing it per commit buys nothing.
+            Map<String, String> modules = HarnessBootstrapper.mavenModuleMap(worktree);
             int index = row.nextCommitIndex();
             while (index < row.specs().size()) {
+                String stop = stopReason(id);
+                if ("closed".equals(stop)) {
+                    // close() already wrote the log line; the worktree is
+                    // removed by this worker's exit path.
+                    return;
+                }
+                if ("paused".equals(stop)) {
+                    parkOnRequest(id, index);
+                    return;
+                }
                 CommitSpec commit = row.specs().get(index);
                 // Same two skip reasons the preview reported, re-evaluated here
                 // because the worker resumes across restarts and the fork may
                 // have gained commits since the range was planned.
-                if (picked.contains(WorkspaceRelationService.normalizeSubject(commit.subject()))
-                        || row.skipFilters().skipReason(commit.subject()) != null) {
+                String skipReason = picked.contains(
+                        WorkspaceRelationService.normalizeSubject(commit.subject()))
+                        ? "already in the fork"
+                        : row.skipFilters().skipReason(commit.subject());
+                if (skipReason != null) {
                     skipped.add(commit.sha());
+                    record(id, index, "skip",
+                            "Skipped " + commit.subject(), skipReason, null, null);
                     index++;
-                    progress(id, applied, skipped, index);
+                    progress(id, applied, skipped, conflicted, index);
                     continue;
                 }
+                long startedAt = System.currentTimeMillis();
                 GitRunner.CherryPickOutcome outcome =
                         git.cherryPick(worktree, List.of(commit.sha()), true);
-                if (!outcome.complete()) {
+                long tookMs = System.currentTimeMillis() - startedAt;
+                boolean conflictedPick = !outcome.complete();
+                if (conflictedPick) {
+                    record(id, index, "command",
+                            "git cherry-pick -x " + shortSha(commit.sha()),
+                            outcome.message(), 1, tookMs);
                     if (!git.cherryPickInProgress(worktree)) {
                         throw new IllegalStateException(outcome.message() == null
                                 ? "upstream cherry-pick failed"
                                 : outcome.message());
                     }
-                    // Commit the conflicted tree so the compile gate has something to
-                    // judge, then repair it behind that gate. Markers cannot parse, so
-                    // the gate is exactly what forces them out.
-                    List<String> conflicts = outcome.conflictPaths();
+                    // Commit git's own three-way resolution first — markers and all —
+                    // so the repair that follows is an ordinary fixup on top of a real
+                    // commit rather than an edit to a half-finished pick.
                     git.stageAll(worktree);
                     GitRunner.CherryPickOutcome continued = git.continueCherryPick(worktree);
                     if (!continued.complete()) {
                         pause(id, continued.conflictPaths(), continued.message());
+                        record(id, index, "park",
+                                "Parked — git cannot finish this pick",
+                                continued.message(), null, null);
                         return;
                     }
-                    if (!repairUntilItCompiles(id, row, worktree, commit, conflicts)) {
-                        // Parked. Returning here is what keeps a marker-bearing commit
-                        // off GitHub: the push and draft PR happen after this loop.
-                        return;
-                    }
+                    conflicted.add(commit.sha());
+                    record(id, index, "note",
+                            "Committed git's three-way resolution",
+                            outcome.conflictPaths().isEmpty()
+                                    ? "conflicts carried forward for repair"
+                                    : String.join("\n", outcome.conflictPaths()),
+                            null, null);
+                }
+                else {
+                    record(id, index, "command",
+                            "git cherry-pick -x " + shortSha(commit.sha()),
+                            outcome.message(), 0, tookMs);
                 }
                 applied.add(commit.sha());
                 picked.add(WorkspaceRelationService.normalizeSubject(commit.subject()));
                 index++;
-                progress(id, applied, skipped, index);
+                progress(id, applied, skipped, conflicted, index);
+
+                // A clean pick applied what upstream already compiled; a conflicted one
+                // holds a resolution nobody has judged, so that is where the gate goes.
+                if (conflictedPick
+                        && !repairConflictedPick(
+                                id, worktree, index - 1, commit,
+                                outcome.conflictPaths(), modules)) {
+                    return;
+                }
+                row = requireRow(id);
             }
 
             row = requireRow(id);
             if (row.openDraftPr() && row.prNumber() == null) {
                 PullRequest pr = openOrAdoptDraft(row, relation, worktree);
                 storePullRequest(id, pr);
+                record(id, null, "push",
+                        "git push origin " + row.resultBranch(),
+                        "the picked range is now on the remote", 0, null);
+                record(id, null, "pr",
+                        "Opened draft pull request #" + pr.number(), pr.htmlUrl(), null, null);
                 row = requireRow(id);
             }
             if (row.createHarnessWatch() && row.harnessWatchId() == null) {
@@ -572,7 +987,14 @@ public class UpstreamCherryPickService
                         SET harness_watch_id = ?, updated_at_ms = ?
                         WHERE id = ?
                         """, watchId, now(), id);
+                record(id, null, "watch",
+                        "CI Harness watch created — phase 2 drives the pull request green",
+                        null, null, null);
             }
+            record(id, null, "done",
+                    "Range complete — " + row.appliedShas().size() + " picked, "
+                            + row.skippedShas().size() + " skipped",
+                    null, null, null);
             complete(id);
         }
         catch (InterruptedException e) {
@@ -585,6 +1007,229 @@ public class UpstreamCherryPickService
                     ? "upstream cherry-pick failed"
                     : e.getMessage());
         }
+    }
+
+    /**
+     * The per-commit gate. A conflicted pick is committed with git's own
+     * resolution, then compiled — scoped to the module it touched, tests
+     * skipped. Red means the resolution is wrong, so the agent proposes edits,
+     * this method applies them as that pick's single {@code fixup!} commit, and
+     * compiles again. After {@link #MAX_REPAIR_ATTEMPTS} the run parks and
+     * nothing is pushed.
+     *
+     * @return false when the run parked and the worker must stop
+     */
+    private boolean repairConflictedPick(
+            String id,
+            Path worktree,
+            int index,
+            CommitSpec commit,
+            List<String> conflictPaths,
+            Map<String, String> modules)
+            throws IOException, InterruptedException
+    {
+        JobRow row = requireRow(id);
+        if (row.localGateUnavailable()) {
+            return true;
+        }
+        String module = moduleFor(worktree, commit.sha(), modules);
+        CherryPickCompileGate.Resolution resolution = CherryPickCompileGate.resolve(
+                row.compileScript(), null, module, Set.copyOf(modules.values()));
+        boolean fixupCommitted = false;
+        for (int attempt = 1; attempt <= MAX_REPAIR_ATTEMPTS + 1; attempt++) {
+            long startedAt = System.currentTimeMillis();
+            CherryPickCompileGate.Outcome compile = gate.run(worktree, resolution);
+            long tookMs = System.currentTimeMillis() - startedAt;
+            if (!compile.reproduced()) {
+                // Never send an agent after a defect that is not in the code: a
+                // command that cannot run is a missing toolchain, not a red gate.
+                markLocalGateUnavailable(id);
+                record(id, index, "note",
+                        "Local compile cannot run here — CI takes the verdict from now on",
+                        compile.outputTail(), null, null);
+                return true;
+            }
+            record(id, index, "command", String.join(" ", resolution.argv()),
+                    compile.outputTail(), compile.compiled() ? 0 : 1, tookMs);
+            if (compile.compiled()) {
+                record(id, index, "note",
+                        fixupCommitted
+                                ? "Repaired — the fixup compiles beside its pick"
+                                : "Compiles — git's resolution needed no repair",
+                        null, null, null);
+                return true;
+            }
+            if (attempt > MAX_REPAIR_ATTEMPTS) {
+                break;
+            }
+            ConflictRepairAdvisor advisor = repairAdvisor.getIfAvailable();
+            if (advisor == null) {
+                record(id, index, "note",
+                        "No repair agent is configured — parking for you", null, null, null);
+                break;
+            }
+            long remaining = row.budgetMilliUsd() - spentMilliUsd(id);
+            if (remaining <= 0) {
+                record(id, index, "note",
+                        "Repair budget spent — parking for you", null, null, null);
+                break;
+            }
+            ConflictRepairAdvisor.Repair repair;
+            try {
+                repair = advisor.propose(
+                        worktree, row.workspaceId(), commit.subject(),
+                        conflictPaths, compile.outputTail(), remaining,
+                        agentSessionId(id));
+            }
+            catch (RuntimeException e) {
+                // A malformed or unusable proposal costs one attempt, not the run.
+                record(id, index, "agent",
+                        "Proposal rejected — attempt " + attempt + " of " + MAX_REPAIR_ATTEMPTS,
+                        e.getMessage(), null, null);
+                continue;
+            }
+            addSpend(id, repair.costMilliUsd());
+            // One session for the whole run: later conflicts inherit what this
+            // one established about the fork.
+            rememberAgentSession(id, repair.sessionId());
+            record(id, index, "agent",
+                    repair.rationale() == null || repair.rationale().isBlank()
+                            ? "Agent proposed a repair"
+                            : repair.rationale(),
+                    "attempt " + attempt + " of " + MAX_REPAIR_ATTEMPTS, null, null);
+            if (repair.isEmpty()) {
+                record(id, index, "note",
+                        "The agent asked for a human — parking for you", null, null, null);
+                break;
+            }
+            applyEdits(worktree, repair.edits());
+            git.stageAll(worktree);
+            String fixupSha = fixupCommitted
+                    ? git.amendHead(worktree)
+                    : git.commit(worktree, "fixup! " + commit.subject()).orElse(null);
+            if (fixupSha == null) {
+                record(id, index, "note",
+                        "The proposed edits changed nothing — parking for you", null, null, null);
+                break;
+            }
+            fixupCommitted = true;
+            record(id, index, "fixup",
+                    "fixup! " + commit.subject(),
+                    repair.edits().size() + " file"
+                            + (repair.edits().size() == 1 ? "" : "s")
+                            + " · agent proposed · program applied and committed",
+                    null, null);
+        }
+        parkForRepair(id, index, commit);
+        return false;
+    }
+
+    /** Applies exactly what validation accepted: unique anchors, nothing else. */
+    private static void applyEdits(Path worktree, List<ConflictRepairAdvisor.Edit> edits)
+            throws IOException
+    {
+        Path root = worktree.toAbsolutePath().normalize();
+        for (ConflictRepairAdvisor.Edit edit : edits) {
+            Path file = root.resolve(edit.path()).normalize();
+            if (!file.startsWith(root)) {
+                throw new IllegalStateException("edit escapes the worktree: " + edit.path());
+            }
+            String content = Files.readString(file, StandardCharsets.UTF_8);
+            int at = content.indexOf(edit.find());
+            if (at < 0 || content.indexOf(edit.find(), at + 1) >= 0) {
+                throw new IllegalStateException("edit anchor is not unique: " + edit.path());
+            }
+            Files.writeString(
+                    file,
+                    content.substring(0, at) + edit.replace()
+                            + content.substring(at + edit.find().length()),
+                    StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * The module a commit touched, so the gate compiles that instead of the
+     * whole project. Falls back to the whole project when the paths straddle
+     * modules or belong to none.
+     */
+    private String moduleFor(Path worktree, String sha, Map<String, String> modules)
+            throws IOException, InterruptedException
+    {
+        if (modules.isEmpty()) {
+            return null;
+        }
+        Set<String> touched = new LinkedHashSet<>();
+        for (GitRunner.CommitFileChange change : git.commitFiles(worktree, sha)) {
+            modules.entrySet().stream()
+                    .filter(entry -> change.path().startsWith(entry.getKey()))
+                    .map(Map.Entry::getValue)
+                    .findFirst()
+                    .ifPresent(touched::add);
+        }
+        return touched.size() == 1 ? touched.iterator().next() : null;
+    }
+
+    private void parkForRepair(String id, int index, CommitSpec commit)
+    {
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET status = 'PAUSED_CONFLICT', repair_pending = 1,
+                    conflict_paths_json = '[]',
+                    error_message = 'the conflict repair could not be verified',
+                    updated_at_ms = ?
+                WHERE id = ?
+                """, now(), id);
+        record(id, index, "park",
+                "Parked — " + commit.subject() + " still does not compile",
+                "nothing is pushed; take over in the worktree and resume", null, null);
+    }
+
+    private void markLocalGateUnavailable(String id)
+    {
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET local_gate_unavailable = 1, updated_at_ms = ?
+                WHERE id = ?
+                """, now(), id);
+    }
+
+    private String agentSessionId(String id)
+    {
+        return jdbc.queryForObject("""
+                SELECT agent_session_id FROM upstream_cherry_pick_job WHERE id = ?
+                """, String.class, id);
+    }
+
+    private void rememberAgentSession(String id, String sessionId)
+    {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET agent_session_id = ?, updated_at_ms = ?
+                WHERE id = ?
+                """, sessionId, now(), id);
+    }
+
+    private long spentMilliUsd(String id)
+    {
+        Long spent = jdbc.queryForObject("""
+                SELECT spent_milli_usd FROM upstream_cherry_pick_job WHERE id = ?
+                """, Long.class, id);
+        return spent == null ? 0L : spent;
+    }
+
+    private void addSpend(String id, long costMilliUsd)
+    {
+        if (costMilliUsd <= 0) {
+            return;
+        }
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET spent_milli_usd = spent_milli_usd + ?, updated_at_ms = ?
+                WHERE id = ?
+                """, costMilliUsd, now(), id);
     }
 
     private Path ensureWorktree(
@@ -1001,6 +1646,7 @@ public class UpstreamCherryPickService
                 read(rs.getString("commit_specs_json"), new TypeReference<>() {}),
                 read(rs.getString("applied_shas_json"), new TypeReference<>() {}),
                 read(rs.getString("skipped_shas_json"), new TypeReference<>() {}),
+                read(rs.getString("conflicted_shas_json"), new TypeReference<>() {}),
                 rs.getInt("next_commit_index"),
                 read(rs.getString("conflict_paths_json"), new TypeReference<>() {}),
                 rs.getString("worktree_path"),
@@ -1010,14 +1656,24 @@ public class UpstreamCherryPickService
                 rs.getString("pr_description"),
                 readFilters(rs.getString("skip_filters_json")),
                 rs.getString("compile_script"),
-                rs.getString("ci_job_name"),
+                rs.getInt("pause_requested") != 0,
                 rs.getInt("repair_pending") != 0,
+                rs.getInt("local_gate_unavailable") != 0,
+                rs.getLong("spent_milli_usd"),
                 prNumber,
                 rs.getString("pr_url"),
                 rs.getString("harness_watch_id"),
                 rs.getString("error_message"),
+                closedAt(rs),
                 Instant.ofEpochMilli(rs.getLong("created_at_ms")),
                 Instant.ofEpochMilli(rs.getLong("updated_at_ms")));
+    }
+
+    private static Instant closedAt(ResultSet rs)
+            throws SQLException
+    {
+        long closed = rs.getLong("closed_at_ms");
+        return rs.wasNull() ? null : Instant.ofEpochMilli(closed);
     }
 
     private void running(String id)
@@ -1044,127 +1700,60 @@ public class UpstreamCherryPickService
                 """, json(applied), json(skipped), nextIndex, now(), id);
     }
 
-    /** Repairs are bounded; {@code LocalCiFixExecutor} sets the precedent at five. */
-    private static final int MAX_REPAIR_ATTEMPTS = 5;
-
-    /**
-     * Drives the conflicted commit to a compiling state. Returns false when the job
-     * has been parked, in which case the caller must return without pushing.
-     */
-    private boolean repairUntilItCompiles(
+    private void progress(
             String id,
-            JobRow row,
-            Path worktree,
-            CommitSpec commit,
-            List<String> conflictPaths)
-            throws IOException, InterruptedException
-    {
-        CherryPickCompileGate.Resolution resolution = CherryPickCompileGate.resolve(
-                row.compileScript(),
-                CiJobScriptReader.buildScript(worktree, row.ciJobName()).orElse(null),
-                null,
-                Set.of());
-        for (int attempt = 0; attempt <= MAX_REPAIR_ATTEMPTS; attempt++) {
-            CherryPickCompileGate.Outcome gate = compileGate.run(worktree, resolution);
-            if (gate.compiled()) {
-                return true;
-            }
-            if (!gate.reproduced()) {
-                // The toolchain is unavailable. That is not a defect in the commit,
-                // so an agent must not be sent after it.
-                parkForRepair(id, conflictPaths,
-                        "Cannot run the compile gate locally: " + gate.outputTail());
-                return false;
-            }
-            if (attempt == MAX_REPAIR_ATTEMPTS) {
-                break;
-            }
-            ConflictRepairAdvisor advisor = repairAdvisor.getIfAvailable();
-            if (advisor == null) {
-                parkForRepair(id, conflictPaths,
-                        "Conflict resolved into a commit that does not compile, and no "
-                                + "repair advisor is available");
-                return false;
-            }
-            ConflictRepairAdvisor.Repair repair = advisor.propose(
-                    worktree, row.workspaceId(), commit.subject(),
-                    conflictPaths, gate.outputTail(), row.budgetMilliUsd());
-            if (repair == null || repair.isEmpty()) {
-                parkForRepair(id, conflictPaths,
-                        "The repair agent did not propose a change for "
-                                + commit.subject());
-                return false;
-            }
-            try {
-                applyRepair(worktree, repair.edits());
-            }
-            catch (RuntimeException rejected) {
-                parkForRepair(id, conflictPaths,
-                        "Proposed repair could not be applied: " + rejected.getMessage());
-                return false;
-            }
-            git.stageAll(worktree);
-            // A fixup! commit so the series still autosquashes to one commit per pick.
-            git.commit(worktree, "fixup! " + commit.subject());
-        }
-        parkForRepair(id, conflictPaths,
-                "Gave up after " + MAX_REPAIR_ATTEMPTS
-                        + " repair attempts; the commit still does not compile");
-        return false;
-    }
-
-    /**
-     * Unique-anchor, all-or-nothing edits. Kept here rather than shared with the
-     * harness applier so this package needs no dependency on it; the rule is the
-     * same one the agent contract states — a non-unique anchor is refused, never
-     * guessed at.
-     */
-    private static void applyRepair(Path worktree, List<ConflictRepairAdvisor.Edit> edits)
-            throws IOException
-    {
-        Path root = worktree.toRealPath();
-        Map<Path, String> planned = new LinkedHashMap<>();
-        for (ConflictRepairAdvisor.Edit edit : edits) {
-            if (edit.path() == null || edit.find() == null || edit.find().isEmpty()
-                    || edit.replace() == null || Path.of(edit.path()).isAbsolute()) {
-                throw new IllegalArgumentException("every edit needs a relative path and anchor");
-            }
-            Path target = root.resolve(edit.path()).normalize();
-            if (!target.startsWith(root) || !Files.isRegularFile(target)) {
-                throw new IllegalArgumentException("edit path is not in the worktree: " + edit.path());
-            }
-            String current = planned.computeIfAbsent(target, key -> readOrThrow(key));
-            int first = current.indexOf(edit.find());
-            if (first < 0 || current.indexOf(edit.find(), first + edit.find().length()) >= 0) {
-                throw new IllegalArgumentException(
-                        "edit anchor must occur exactly once: " + edit.path());
-            }
-            planned.put(target, current.replace(edit.find(), edit.replace()));
-        }
-        for (Map.Entry<Path, String> entry : planned.entrySet()) {
-            Files.writeString(entry.getKey(), entry.getValue(), StandardCharsets.UTF_8);
-        }
-    }
-
-    private static String readOrThrow(Path path)
-    {
-        try {
-            return Files.readString(path, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new IllegalStateException("unable to read " + path, e);
-        }
-    }
-
-    private void parkForRepair(String id, List<String> conflictPaths, String reason)
+            List<String> applied,
+            List<String> skipped,
+            List<String> conflicted,
+            int nextIndex)
     {
         jdbc.update("""
                 UPDATE upstream_cherry_pick_job
-                SET status = 'PAUSED_CONFLICT', repair_pending = 1,
-                    conflict_paths_json = ?, error_message = ?, updated_at_ms = ?
+                SET applied_shas_json = ?, skipped_shas_json = ?,
+                    conflicted_shas_json = ?,
+                    next_commit_index = ?, conflict_paths_json = '[]',
+                    error_message = NULL, updated_at_ms = ?
                 WHERE id = ?
-                """, json(conflictPaths), reason, now(), id);
-        log.info("upstream cherry-pick {} parked for human repair: {}", id, reason);
+                """, json(applied), json(skipped), json(conflicted), nextIndex, now(), id);
+    }
+
+    /** "closed" | "paused" | null when the run should carry on. */
+    private String stopReason(String id)
+    {
+        List<String> reasons = jdbc.query("""
+                SELECT pause_requested, closed_at_ms
+                FROM upstream_cherry_pick_job WHERE id = ?
+                """, (rs, ignored) -> {
+            rs.getLong("closed_at_ms");
+            if (!rs.wasNull()) {
+                return "closed";
+            }
+            return rs.getInt("pause_requested") != 0 ? "paused" : null;
+        }, id);
+        // A row that vanished under the worker is as good as closed.
+        return reasons.isEmpty() ? "closed" : reasons.getFirst();
+    }
+
+    /** The requested stop, taken at a commit boundary with nothing half-applied. */
+    private void parkOnRequest(String id, int index)
+    {
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET status = 'PAUSED_CONFLICT', conflict_paths_json = '[]',
+                    error_message = 'paused at your request', updated_at_ms = ?
+                WHERE id = ?
+                """, now(), id);
+        record(id, index, "park", "Parked at your request — nothing is pushed",
+                "resume when you are ready", null, null);
+    }
+
+    private void clearPauseRequest(String id)
+    {
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET pause_requested = 0, repair_pending = 0, updated_at_ms = ?
+                WHERE id = ?
+                """, now(), id);
     }
 
     private void pause(String id, List<String> conflictPaths, String message)
@@ -1198,10 +1787,12 @@ public class UpstreamCherryPickService
 
     private void complete(String id)
     {
+        // A pause requested while the last pick ran has nothing left to stop, so
+        // it is cleared here rather than left to read as "pausing" forever.
         jdbc.update("""
                 UPDATE upstream_cherry_pick_job
                 SET status = 'COMPLETED', conflict_paths_json = '[]',
-                    error_message = NULL, updated_at_ms = ?
+                    pause_requested = 0, error_message = NULL, updated_at_ms = ?
                 WHERE id = ?
                 """, now(), id);
     }
@@ -1213,6 +1804,7 @@ public class UpstreamCherryPickService
                 SET status = 'FAILED', error_message = ?, updated_at_ms = ?
                 WHERE id = ?
                 """, message, now(), id);
+        record(id, null, "error", "Run failed", message, null, null);
     }
 
     private String json(Object value)
@@ -1267,8 +1859,6 @@ public class UpstreamCherryPickService
             String prDescription,
             List<String> skipStartsWith,
             List<String> skipContains,
-            String compileScript,
-            String ciJobName,
             boolean openDraftPr,
             boolean createHarnessWatch,
             Long budgetMilliUsd) {}
@@ -1292,14 +1882,50 @@ public class UpstreamCherryPickService
             int requestedCount,
             int appliedCount,
             int skippedCount,
+            int conflictedCount,
+            boolean pauseRequested,
+            long budgetMilliUsd,
+            long spentMilliUsd,
+            /** The local compile could not run, so CI carries the verdict. */
+            boolean localGateUnavailable,
             List<String> conflictPaths,
             String worktreePath,
             Integer prNumber,
             String prUrl,
             String harnessWatchId,
             String errorMessage,
+            /** Set once the user closed the run; every action but reading is refused after. */
+            Instant closedAt,
             Instant createdAt,
             Instant updatedAt) {}
+
+    /** One row of the run view's commit queue. */
+    public record UpstreamCherryPickCommitDto(
+            int index,
+            String sha,
+            String shortSha,
+            String subject,
+            /** applied | conflicted | skipped | current | waiting */
+            String state) {}
+
+    /** One line of the run log — a command it ran, or a note about the run. */
+    public record UpstreamCherryPickEventDto(
+            String id,
+            int ordinal,
+            Integer pickIndex,
+            /** start | command | note | skip | park | guidance | push | pr | watch | done | error */
+            String kind,
+            String title,
+            String detail,
+            Integer exitCode,
+            Long durationMs,
+            Instant at) {}
+
+    public record UpstreamCherryPickRunDto(
+            UpstreamCherryPickJobDto job,
+            String baseBranch,
+            List<UpstreamCherryPickCommitDto> commits,
+            List<UpstreamCherryPickEventDto> events) {}
 
     private record CommitSpec(String sha, String subject) {}
 
@@ -1316,6 +1942,7 @@ public class UpstreamCherryPickService
             List<CommitSpec> specs,
             List<String> appliedShas,
             List<String> skippedShas,
+            List<String> conflictedShas,
             int nextCommitIndex,
             List<String> conflictPaths,
             String worktreePath,
@@ -1325,12 +1952,15 @@ public class UpstreamCherryPickService
             String prDescription,
             SkipFilters skipFilters,
             String compileScript,
-            String ciJobName,
+            boolean pauseRequested,
             boolean repairPending,
+            boolean localGateUnavailable,
+            long spentMilliUsd,
             Integer prNumber,
             String prUrl,
             String harnessWatchId,
             String errorMessage,
+            Instant closedAt,
             Instant createdAt,
             Instant updatedAt)
     {
@@ -1347,12 +1977,18 @@ public class UpstreamCherryPickService
                     specs.size(),
                     appliedShas.size(),
                     skippedShas.size(),
+                    conflictedShas.size(),
+                    pauseRequested,
+                    budgetMilliUsd,
+                    spentMilliUsd,
+                    localGateUnavailable,
                     conflictPaths,
                     worktreePath,
                     prNumber,
                     prUrl,
                     harnessWatchId,
                     errorMessage,
+                    closedAt,
                     createdAt,
                     updatedAt);
         }

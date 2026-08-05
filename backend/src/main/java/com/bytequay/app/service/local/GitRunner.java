@@ -196,6 +196,20 @@ public class GitRunner
     }
 
     /**
+     * {@code git commit --amend --no-edit} — folds what is staged into HEAD
+     * without touching its message. Lets a pick that took several repair
+     * attempts keep exactly one fixup commit instead of a chain of them.
+     */
+    public String amendHead(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        run(List.of("git", "commit", "--amend", "--no-edit"), workingDir).requireSuccess();
+        GitResult head = run(List.of("git", "rev-parse", "HEAD"), workingDir);
+        head.requireSuccess();
+        return head.stdout().strip();
+    }
+
+    /**
      * Creates an empty commit ({@code git commit --allow-empty}) and
      * returns its SHA. Used to re-trigger a push-driven CI run (e.g. to
      * shake out a flaky failure) without changing any files.
@@ -789,6 +803,7 @@ public class GitRunner
     {
         requireNonNull(commits, "commits is null");
         int applied = 0;
+        String lastOutput = null;
         for (String commit : commits) {
             requireNonNull(commit, "commit is null");
             List<String> argv = recordOrigin
@@ -798,6 +813,7 @@ public class GitRunner
                     argv,
                     workingDir,
                     300);
+            lastOutput = result.stdout().strip();
             if (result.exitCode() != 0) {
                 GitResult unresolved = run(
                         List.of("git", "diff", "--name-only",
@@ -817,8 +833,11 @@ public class GitRunner
             }
             applied++;
         }
+        // On success the message carries git's own summary line — the branch,
+        // the new sha, and the file counts the run view shows under the command.
         return new CherryPickOutcome(
-                true, applied, null, List.of(), null);
+                true, applied, null, List.of(),
+                lastOutput == null || lastOutput.isBlank() ? null : lastOutput);
     }
 
     /** True when this worktree contains a stopped cherry-pick. */
@@ -2163,7 +2182,15 @@ public class GitRunner
             String authoredAt,
             String subject) {}
 
-    /** Commit-list projection with exact tag decorations. */
+    /**
+     * Commit-list projection with exact tag decorations. Carries the
+     * COMMITTER date (%cI), not the author date: this drives the read-only
+     * upstream mirror, where a maintainer rebases contributions before
+     * pushing, so the author date is when the contributor first wrote the
+     * patch — often days earlier — and the committer date is when it
+     * landed on the branch. github.com's own commit list reads the same
+     * field, so the two agree.
+     */
     public List<DecoratedCommitEntry> listDecoratedCommits(
             Path workingDir,
             String revision,
@@ -2174,7 +2201,7 @@ public class GitRunner
             return List.of();
         }
         String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
-                + "%ae" + US_SEP + "%aI" + US_SEP + "%s" + US_SEP
+                + "%ae" + US_SEP + "%cI" + US_SEP + "%s" + US_SEP
                 + "%D";
         List<String> args = new ArrayList<>(List.of(
                 "git", "log", "--max-count=" + limit, "-z",
@@ -2210,7 +2237,7 @@ public class GitRunner
             String shortSha,
             String authorName,
             String authorEmail,
-            String authoredAt,
+            String committedAt,
             String subject,
             List<String> tags) {}
 

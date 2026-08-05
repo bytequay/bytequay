@@ -959,6 +959,37 @@ samp {
   gap: var(--space-2);
   margin-bottom: 18px;
 }
+.onboarding__cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 8px 7px 11px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.onboarding__cmd code {
+  flex: 1;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+  text-align: left;
+}
+.onboarding__cmd button {
+  appearance: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 9px;
+  font-size: var(--font-size-xs);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.onboarding__cmd button:hover {
+  color: var(--text-1);
+}
 .onboarding__altlink {
   appearance: none;
   background: none;

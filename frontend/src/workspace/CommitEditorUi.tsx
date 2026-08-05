@@ -15,7 +15,7 @@ import { useState } from 'react';
 import Avatar from '../Avatar';
 import type { EditableCommit } from './commitRewrite';
 import type { WorkspaceBranchDto } from './workspaceApi';
-import { isToday, prInitials } from './WorkspaceRepoUi';
+import { isToday, useDismissOnOutside } from './WorkspaceRepoUi';
 
 /** Colour per selected commit, reused by the selection chips and the
  *  per-file "which commits touched this" markers so the two read as one
@@ -48,6 +48,14 @@ export function shortPath(path: string): string {
  * rather than in the list, so the two filters read as one control — the
  * count-and-chips bar below only appears once one of them is on.
  */
+/** One author's share of the loaded history. */
+export type CommitAuthorTally = {
+  name: string;
+  /** GitHub handle for the avatar; see {@link githubHandle}. */
+  handle: string;
+  count: number;
+};
+
 export function CommitAuthorPicker({
   author,
   authors,
@@ -55,15 +63,16 @@ export function CommitAuthorPicker({
   onPick,
 }: {
   author: string;
-  /** [name, commit count], most prolific first. */
-  authors: Array<[string, number]>;
+  /** Most prolific first. */
+  authors: CommitAuthorTally[];
   total: number;
   onPick: (author: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const shell = useDismissOnOutside<HTMLSpanElement>(open, () => setOpen(false));
   const choose = (next: string) => { onPick(next); setOpen(false); };
   return (
-    <span className="wu-ce-authorpick">
+    <span className="wu-ce-authorpick" ref={shell}>
       <button type="button" className={author === 'all' ? '' : 'is-on'}
         aria-expanded={open} onClick={() => setOpen(value => !value)}>
         <PersonIcon />{author === 'all' ? 'All authors' : author}
@@ -76,11 +85,12 @@ export function CommitAuthorPicker({
             <span className="wu-author-avatar" aria-hidden>∗</span>
             All authors<i>{total}</i>
           </button>
-          {authors.map(([name, count]) => (
-            <button type="button" role="menuitem" key={name}
-              className={author === name ? 'is-on' : ''} onClick={() => choose(name)}>
-              <span className="wu-author-avatar" aria-hidden>{prInitials(name)}</span>
-              {name}<i>{count}</i>
+          {authors.map(tally => (
+            <button type="button" role="menuitem" key={tally.name}
+              className={author === tally.name ? 'is-on' : ''}
+              onClick={() => choose(tally.name)}>
+              <Avatar login={tally.handle} size={18} className="wu-ce-avatar" />
+              {tally.name}<i>{tally.count}</i>
             </button>
           ))}
         </div>
@@ -90,28 +100,39 @@ export function CommitAuthorPicker({
 }
 
 /**
- * Local-branch picker. Replaces an invisible native <select> overlay:
- * that showed one entry and gave no hint whether more existed, and the
- * design calls for a button here anyway.
+ * Branch picker for the Commits list. Replaces an invisible native
+ * <select> overlay: that showed one entry and gave no hint whether more
+ * existed, and the design calls for a button here anyway.
+ *
+ * On a fork the upstream's refs are listed under their own heading, so
+ * the same picker walks both repos — reading `upstream/master` is how you
+ * find the commits worth cherry-picking down into the fork.
  */
 export function CommitBranchPicker({
   branch,
   branches,
+  upstreamBranches = [],
+  upstreamLabel,
   currentBranch,
   onPick,
 }: {
   branch: string;
   branches: WorkspaceBranchDto[];
+  /** Qualified `upstream/*` refs; empty for a direct clone. */
+  upstreamBranches?: string[];
+  /** Heading for the upstream group — the upstream repo's full name. */
+  upstreamLabel?: string;
   /** The checked-out branch — the only one history can be rewritten on. */
   currentBranch: string | null;
   onPick: (branch: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const shell = useDismissOnOutside<HTMLSpanElement>(open, () => setOpen(false));
   // Remote-only rows are PR head refs with no local checkout; switching
   // the Commits list to one would show an empty, uneditable history.
   const local = branches.filter(candidate => !candidate.remoteOnly);
   return (
-    <span className="wu-ce-authorpick wu-ce-branchpick">
+    <span className="wu-ce-authorpick wu-ce-branchpick" ref={shell}>
       <button type="button" aria-expanded={open} aria-label={`Branch: ${branch}`}
         onClick={() => setOpen(value => !value)}>
         <BranchGlyph />{branch}<ChevronIcon />
@@ -127,11 +148,24 @@ export function CommitBranchPicker({
               {candidate.name === currentBranch && <i>checked out</i>}
             </button>
           ))}
-          {local.length === 0 && (
+          {local.length === 0 && upstreamBranches.length === 0 && (
             <span className="wu-ce-menu-empty" role="status">
               No local branches yet — check one out to see it here.
             </span>
           )}
+          {upstreamBranches.length > 0 && (
+            <span className="wu-ce-menu-group" role="presentation">
+              {upstreamLabel ?? 'Upstream'}
+            </span>
+          )}
+          {upstreamBranches.map(name => (
+            <button type="button" role="menuitem" key={name}
+              className={name === branch ? 'is-on' : ''}
+              onClick={() => { onPick(name); setOpen(false); }}>
+              <BranchGlyph />
+              <span className="wu-ce-branchname">{name}</span>
+            </button>
+          ))}
         </div>
       )}
     </span>

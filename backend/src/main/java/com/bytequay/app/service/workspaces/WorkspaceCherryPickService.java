@@ -19,6 +19,7 @@ import com.bytequay.app.service.local.GitRunner;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -35,6 +37,9 @@ public class WorkspaceCherryPickService
 {
     private static final int HISTORY_LIMIT = 5_000;
     private static final int MAX_COMMITS = 100;
+    private static final String RESULT_BRANCH_PREFIX = "cherry-pick/";
+    private static final Pattern OPERATION_ID = Pattern.compile(
+            "[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");
 
     private final WorkspaceRepositoryResolver resolver;
     private final WatchedRepoStore watchedRepos;
@@ -64,18 +69,7 @@ public class WorkspaceCherryPickService
             throw new IllegalArgumentException(
                     "choose between 1 and " + MAX_COMMITS + " commits");
         }
-        WorkspaceRepositoryResolver.RepositoryIdentity repo =
-                resolver.resolve(workspaceId);
-        WatchedRepo watched = watchedRepos.find(repo.owner(), repo.repo())
-                .orElseThrow(() -> new IllegalStateException(
-                        "workspace repository is not watched"));
-        if (watched.localClonePath() == null
-                || watched.localClonePath().isBlank()) {
-            throw new IllegalStateException(
-                    "workspace repository has no local clone");
-        }
-        Path main = Path.of(watched.localClonePath())
-                .toAbsolutePath().normalize();
+        Path main = clonePath(workspaceId);
         String sourceRef = resolveRef(main, sourceBranch);
         String targetRef = resolveRef(main, targetBranch);
         List<String> ordered = contiguousOldestFirst(
@@ -84,11 +78,7 @@ public class WorkspaceCherryPickService
         String operationId = UUID.randomUUID().toString();
         String resultBranch = uniqueResultBranch(
                 main, targetBranch, operationId);
-        Path worktree = main.resolveSibling(
-                        main.getFileName() + ".bytequay-worktrees")
-                .resolve("cherry-pick")
-                .resolve(operationId)
-                .toAbsolutePath().normalize();
+        Path worktree = worktreePath(main, operationId);
         git.worktreeAdd(main, worktree, resultBranch, targetRef);
 
         GitRunner.CherryPickOutcome outcome =
@@ -119,8 +109,8 @@ public class WorkspaceCherryPickService
                     note);
         }
 
-        String message = "Cherry-pick has conflicts. Resolve or abort it "
-                + "manually in the retained worktree: " + worktree;
+        String message = "Cherry-pick has conflicts. Abort to undo it, or "
+                + "resolve it yourself in the retained worktree: " + worktree;
         return new CherryPickResult(
                 operationId,
                 "conflicted",
@@ -134,6 +124,79 @@ public class WorkspaceCherryPickService
                 null,
                 null,
                 message);
+    }
+
+    /**
+     * Undoes a conflicted cherry-pick: aborts the in-progress sequencer,
+     * drops the isolated worktree, and deletes the throwaway branch it was
+     * building. Nothing outside the worktree was ever touched, so this
+     * leaves the clone exactly as it was before the pick.
+     *
+     * <p>The worktree is rebuilt from {@code operationId} rather than taken
+     * from the caller, and the branch is read out of the worktree's own
+     * HEAD — a client-supplied path or branch name would be a way to make
+     * this delete something it doesn't own.
+     */
+    public CherryPickResult abort(String workspaceId, String operationId)
+            throws IOException, InterruptedException
+    {
+        requireText(operationId, "operationId");
+        // Rejects any traversal or shell-ish component before it reaches a path.
+        if (!OPERATION_ID.matcher(operationId).matches()) {
+            throw new IllegalArgumentException("operationId is not a cherry-pick id");
+        }
+        Path main = clonePath(workspaceId);
+        Path worktree = worktreePath(main, operationId);
+        if (!Files.isDirectory(worktree)) {
+            throw new IllegalArgumentException(
+                    "no retained cherry-pick worktree for " + operationId);
+        }
+        String branch = git.currentBranch(worktree);
+        git.abortInProgressOperationForRepair(worktree);
+        git.worktreeRemove(main, worktree);
+        // Result branches are always namespaced; anything else means we are
+        // not looking at a branch this service created, so leave it alone.
+        boolean branchRemoved = branch != null && branch.startsWith(RESULT_BRANCH_PREFIX);
+        if (branchRemoved) {
+            git.deleteBranches(main, List.of(branch));
+        }
+        return new CherryPickResult(
+                operationId,
+                "aborted",
+                branchRemoved ? branch : null,
+                null,
+                List.of(),
+                0,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                "Cherry-pick aborted. The worktree was removed and the clone "
+                        + "is unchanged.");
+    }
+
+    private Path clonePath(String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        WatchedRepo watched = watchedRepos.find(repo.owner(), repo.repo())
+                .orElseThrow(() -> new IllegalStateException(
+                        "workspace repository is not watched"));
+        if (watched.localClonePath() == null
+                || watched.localClonePath().isBlank()) {
+            throw new IllegalStateException(
+                    "workspace repository has no local clone");
+        }
+        return Path.of(watched.localClonePath()).toAbsolutePath().normalize();
+    }
+
+    private static Path worktreePath(Path main, String operationId)
+    {
+        return main.resolveSibling(main.getFileName() + ".bytequay-worktrees")
+                .resolve("cherry-pick")
+                .resolve(operationId)
+                .toAbsolutePath().normalize();
     }
 
     private List<String> contiguousOldestFirst(

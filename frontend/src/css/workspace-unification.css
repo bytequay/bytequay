@@ -340,6 +340,13 @@
   font-size: 10.5px;
 }
 
+/* Fork marker — the repo named beside it is the upstream, not origin. */
+.workspace-redesign .workspace-landing-card__fork {
+  margin-right: 4px;
+  color: var(--bq-accent, #8250df);
+  font-family: inherit;
+}
+
 .workspace-redesign .workspace-landing-card__status {
   display: flex;
   align-items: center;
@@ -5979,20 +5986,29 @@ button.workspace-redesign .wu-table-row,
   font-weight: 600;
 }
 
+.workspace-redesign .wu-compare-pick {
+  position: relative;
+  display: inline-flex;
+}
+
 .workspace-redesign .wu-compare-menu {
   position: absolute;
   z-index: 25;
-  top: 45px;
-  right: 138px;
+  top: calc(100% + 8px);
+  right: 0;
   display: flex;
   min-width: 190px;
+  max-height: min(360px, 60vh);
   padding: 7px;
   flex-direction: column;
+  overflow-y: auto;
   border: 1px solid rgba(0, 0, 0, .13);
   border-radius: 9px;
   background: #fff;
   box-shadow: 0 12px 30px rgba(31, 35, 40, .14);
 }
+
+.workspace-redesign .wu-compare-menu > span { position: sticky; top: -7px; background: #fff; }
 
 .workspace-redesign .wu-compare-menu span {
   padding: 5px 8px;
@@ -6196,6 +6212,14 @@ button.workspace-redesign .wu-table-row,
   border-color: rgba(207, 34, 46, .35);
   background: #ffebe9;
   color: #cf222e;
+}
+
+/* Aborted is neither success nor failure — the clone is simply back to
+   where it started, so it reads neutral. */
+.workspace-redesign .wu-cherry-result.aborted {
+  border-color: var(--bq-line);
+  background: var(--bq-hover);
+  color: var(--bq-text-2);
 }
 
 .workspace-redesign .wu-cherry-result button {
@@ -10504,9 +10528,14 @@ button.workspace-redesign .wu-table-row,
   right: 0;
   display: flex;
   width: 220px;
+  /* A fork's upstream can carry hundreds of refs; without this the menu
+     runs off the bottom of the window with no way to reach the rest. */
+  max-height: min(420px, 60vh);
   padding: 5px;
   flex-direction: column;
   gap: 1px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--bq-line);
   border-radius: 10px;
   background: #fff;
@@ -10603,6 +10632,21 @@ button.workspace-redesign .wu-table-row,
   cursor: pointer;
 }
 
+.workspace-redesign .wu-ce-selbar .wu-cherry-label {
+  color: var(--bq-text-2);
+  font-size: 11.5px;
+}
+
+.workspace-redesign .wu-ce-selbar select {
+  padding: 4px 8px;
+  border: 1px solid var(--bq-line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--bq-text-1);
+  max-width: 200px;
+}
+
 .workspace-redesign .wu-ce-squash-btn {
   display: inline-flex;
   align-items: center;
@@ -10681,7 +10725,10 @@ button.workspace-redesign .wu-table-row,
 .workspace-redesign .wu-ce-row {
   display: grid;
   padding: 8px 10px;
-  grid-template-columns: 18px 14px 62px minmax(0, 1fr) auto;
+  /* The sha column sizes to its content: git abbreviates to whatever is
+     unambiguous for the repo (7 chars on a small one, 11+ on trino), and a
+     fixed width let the longer form run under the title. */
+  grid-template-columns: 18px 14px auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   border: 1px solid transparent;
@@ -10732,11 +10779,13 @@ button.workspace-redesign .wu-table-row,
 .workspace-redesign .wu-ce-row > code {
   font-family: var(--mono);
   font-size: 11.5px;
-  color: var(--bq-text-4);
+  color: var(--bq-blue);
   white-space: nowrap;
 }
 
-.workspace-redesign .wu-ce-row > code.is-local { color: var(--bq-blue); }
+/* Unpushed commits already have their own LOCAL section heading, so the
+   weight is enough to tell them apart now that every sha reads blue. */
+.workspace-redesign .wu-ce-row > code.is-local { font-weight: 600; }
 
 .workspace-redesign .wu-ce-title {
   display: flex;
@@ -11031,7 +11080,9 @@ button.workspace-redesign .wu-table-row,
   outline: none;
 }
 
-.workspace-redesign .wu-ce-message input { font-size: 15px; font-weight: 600; }
+/* The subject is one line of a commit message, not a page heading — it
+   sits next to the rendered body and shouldn't outweigh it. */
+.workspace-redesign .wu-ce-message input { font-size: 13px; font-weight: 400; }
 .workspace-redesign .wu-ce-message textarea {
   margin-top: 7px;
   font-size: 12.5px;
@@ -11039,8 +11090,40 @@ button.workspace-redesign .wu-table-row,
   resize: vertical;
 }
 
+/* Rendered body — same box as the textarea it swaps with, so clicking to
+   edit doesn't shift the layout under the pointer. */
+.workspace-redesign .wu-ce-body {
+  display: block;
+  width: 100%;
+  min-height: 62px;
+  max-height: 340px;
+  margin-top: 7px;
+  padding: 8px 11px;
+  overflow-y: auto;
+  border: 1px solid var(--bq-line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--bq-text);
+  font-size: 12.5px;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.workspace-redesign .wu-ce-body[role="button"] { cursor: text; }
+.workspace-redesign .wu-ce-body[role="button"]:hover { border-color: #c8ced4; }
+.workspace-redesign .wu-ce-body__empty { color: var(--bq-text-4); }
+
+/* Issue chips resolve to the workspace's Issues surface here, so they get
+   the affordance. Scoped: elsewhere `#N` is still a plain chip with no
+   handler, and a pointer cursor would promise a click that does nothing. */
+.workspace-redesign .wu-ce-body .md-ref-issue[data-issue-number] { cursor: pointer; }
+.workspace-redesign .wu-ce-body .md-ref-issue[data-issue-number]:hover {
+  text-decoration: underline;
+}
+
 .workspace-redesign .wu-ce-message input.is-dirty,
-.workspace-redesign .wu-ce-message textarea.is-dirty { border-color: #f0dfa8; }
+.workspace-redesign .wu-ce-message textarea.is-dirty,
+.workspace-redesign .wu-ce-body.is-dirty { border-color: #f0dfa8; }
 .workspace-redesign .wu-ce-message input:focus,
 .workspace-redesign .wu-ce-message textarea:focus {
   border-color: var(--bq-blue);
@@ -11481,6 +11564,26 @@ button.workspace-redesign .wu-table-row,
   color: var(--bq-green-dark);
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* Heading above the upstream refs in the branch picker, so `upstream/master`
+   reads as another repo's branch rather than an oddly named local one. */
+.workspace-redesign .wu-ce-menu-group {
+  display: block;
+  /* Sticky so you still know which repo you're scrolling through once the
+     local branches have scrolled past. */
+  position: sticky;
+  top: -5px;
+  background: #fff;
+  padding: 8px 9px 3px;
+  border-top: 1px solid var(--bq-line);
+  margin-top: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--bq-text-3);
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 
 .workspace-redesign .wu-ce-menu-empty {

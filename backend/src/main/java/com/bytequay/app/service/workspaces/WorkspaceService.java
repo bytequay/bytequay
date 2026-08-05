@@ -433,6 +433,14 @@ public class WorkspaceService
      * bound. Task creation is deliberately database-only, so the Workspace
      * must persist this bare branch name rather than asking a detached
      * planning checkout which branch it is on later.
+     *
+     * <p>For a fork-based clone the merge target is the <em>upstream's</em>
+     * default branch, not the fork's: work opened from this workspace lands
+     * upstream, and a fork's own default can drift (renamed, or left behind
+     * when upstream moves master to main). Direct clones read origin, which
+     * is the watched repo itself. Mirrors {@code
+     * WorktreeService.resolveBaseBranchName}, which picks the same branch
+     * for the worktree a task is cut in.
      */
     private String resolveDefaultBaseBranch(String repoFullName)
     {
@@ -445,8 +453,19 @@ public class WorkspaceService
                         repoFullName.substring(slash + 1))
                 .filter(repo -> localCloneExists(repo.localClonePath()))
                 .orElseThrow(() -> unresolvedBaseBranch(repoFullName, null));
+        Path clone = Path.of(watched.localClonePath());
+        String upstreamRemote = watched.upstreamRemoteName();
         try {
-            return git.defaultBranch(Path.of(watched.localClonePath()), "origin")
+            if (upstreamRemote != null && !upstreamRemote.isBlank()) {
+                Optional<String> upstreamDefault = git.defaultBranch(clone, upstreamRemote)
+                        .filter(branch -> !branch.isBlank());
+                if (upstreamDefault.isPresent()) {
+                    return upstreamDefault.orElseThrow();
+                }
+                // A never-fetched upstream has no recorded HEAD; origin is
+                // still a better answer than failing the whole binding.
+            }
+            return git.defaultBranch(clone, "origin")
                     .filter(branch -> !branch.isBlank())
                     .orElseThrow(() -> unresolvedBaseBranch(repoFullName, null));
         }

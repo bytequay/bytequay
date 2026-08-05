@@ -1119,6 +1119,27 @@ public class GitRunner
                              String upstreamTrack, boolean isCurrent) {}
 
     /**
+     * Short names of every remote-tracking branch of {@code remote} —
+     * {@code upstream/master}, {@code upstream/release-1}, and so on.
+     * The remote's symbolic {@code HEAD} is excluded: it is an alias for
+     * one of the branches already listed, not a branch of its own.
+     */
+    public List<String> listRemoteBranches(Path workingDir, String remote)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
+        GitResult result = run(
+                List.of("git", "for-each-ref", "--format=%(refname:short)",
+                        "refs/remotes/" + remote),
+                workingDir);
+        result.requireSuccess();
+        return result.stdout().lines()
+                .map(String::strip)
+                .filter(name -> !name.isEmpty() && !name.equals(remote + "/HEAD"))
+                .toList();
+    }
+
+    /**
      * Returns the local clone's idea of the upstream's default branch,
      * read from {@code refs/remotes/origin/HEAD}. Returns
      * {@link Optional#empty()} when origin/HEAD isn't set — happens

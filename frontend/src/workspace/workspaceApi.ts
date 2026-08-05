@@ -303,6 +303,15 @@ export type RewriteResultDto = {
   pushError: string | null;
 };
 
+/** A fork clone's `upstream/*` remote-tracking refs. `remote` is null for
+ *  a direct clone, which has no upstream remote and so no rows. */
+export type UpstreamRefsDto = {
+  remote: string | null;
+  /** Qualified ref (`upstream/master`), not a bare branch name. */
+  defaultBranch: string | null;
+  branches: string[];
+};
+
 export type WorkspaceBranchDto = LocalBranchDto & {
   taskId: string | null;
   taskTitle: string | null;
@@ -312,8 +321,9 @@ export type WorkspaceBranchDto = LocalBranchDto & {
 
 export type CherryPickResultDto = {
   operationId: string;
-  status: 'done' | 'conflicted';
-  resultBranch: string;
+  status: 'done' | 'conflicted' | 'aborted';
+  /** Null on abort — the branch was deleted along with the worktree. */
+  resultBranch: string | null;
   targetRef: string;
   commits: string[];
   appliedCount: number;
@@ -927,6 +937,10 @@ export const workspaceApi = {
     window.bridge.workspaceApi<WorkspaceBranchDto[]>({
       path: `/api/workspaces/${enc(workspaceId)}/branches`,
     }),
+  upstreamBranches: (workspaceId: string) =>
+    window.bridge.workspaceApi<UpstreamRefsDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/branches/upstream`,
+    }),
   compareBranch: (workspaceId: string, branch: string, base?: string) =>
     window.bridge.workspaceApi<BranchComparisonDto>({
       path: `/api/workspaces/${enc(workspaceId)}/branches/comparison?branch=${enc(branch)}${
@@ -948,6 +962,12 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/commits/cherry-pick`,
       method: 'POST',
       body: { sourceBranch, targetBranch, shas },
+    }),
+  abortCherryPick: (workspaceId: string, operationId: string) =>
+    window.bridge.workspaceApi<CherryPickResultDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/commits/cherry-pick/${
+        enc(operationId)}/abort`,
+      method: 'POST',
     }),
   commits: (workspaceId: string, revision?: string, limit = 100) =>
     window.bridge.workspaceApi<LocalCommitDto[]>({

@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
@@ -156,10 +158,77 @@ class TestWorkspaceCherryPickService
         assertThat(result.taskId()).isNull();
         assertThat(result.sessionId()).isNull();
         assertThat(result.message())
-                .contains("Resolve or abort it manually")
+                .contains("Abort to undo it")
                 .contains(result.worktreePath());
         verify(git, never()).worktreeRemove(
                 eq(main), any(Path.class));
+    }
+
+    @Test
+    void abortUndoesTheConflictAndTakesTheThrowawayBranchWithIt()
+            throws Exception
+    {
+        Path main = prepareRepository();
+        String operationId = "8981198a-776b-4181-bf96-0f1bdc396989";
+        Path worktree = retainedWorktree(main, operationId);
+        when(git.currentBranch(worktree)).thenReturn("cherry-pick/main-8981198a");
+
+        WorkspaceCherryPickService.CherryPickResult result =
+                service.abort(WORKSPACE_ID, operationId);
+
+        assertThat(result.status()).isEqualTo("aborted");
+        assertThat(result.resultBranch()).isEqualTo("cherry-pick/main-8981198a");
+        verify(git).abortInProgressOperationForRepair(worktree);
+        verify(git).worktreeRemove(main, worktree);
+        verify(git).deleteBranches(main, List.of("cherry-pick/main-8981198a"));
+    }
+
+    @Test
+    void abortNeverDeletesABranchItDidNotCreate()
+            throws Exception
+    {
+        Path main = prepareRepository();
+        String operationId = "8981198a-776b-4181-bf96-0f1bdc396989";
+        Path worktree = retainedWorktree(main, operationId);
+        // A worktree that somehow has a real branch checked out: drop the
+        // worktree, but deleting master is never this operation's business.
+        when(git.currentBranch(worktree)).thenReturn("master");
+
+        WorkspaceCherryPickService.CherryPickResult result =
+                service.abort(WORKSPACE_ID, operationId);
+
+        assertThat(result.resultBranch()).isNull();
+        verify(git).worktreeRemove(main, worktree);
+        verify(git, never()).deleteBranches(eq(main), anyList());
+    }
+
+    @Test
+    void abortRejectsAnOperationIdThatIsNotAnId()
+    {
+        prepareRepository();
+
+        assertThatThrownBy(() -> service.abort(WORKSPACE_ID, "../../../etc"))
+                .hasMessageContaining("not a cherry-pick id");
+    }
+
+    @Test
+    void abortReportsWhenNothingWasRetained()
+    {
+        prepareRepository();
+
+        assertThatThrownBy(() -> service.abort(
+                WORKSPACE_ID, "8981198a-776b-4181-bf96-0f1bdc396989"))
+                .hasMessageContaining("no retained cherry-pick worktree");
+    }
+
+    private static Path retainedWorktree(Path main, String operationId)
+            throws Exception
+    {
+        Path worktree = main.resolveSibling(main.getFileName() + ".bytequay-worktrees")
+                .resolve("cherry-pick")
+                .resolve(operationId);
+        Files.createDirectories(worktree);
+        return worktree.toAbsolutePath().normalize();
     }
 
     private Path prepareRepository()

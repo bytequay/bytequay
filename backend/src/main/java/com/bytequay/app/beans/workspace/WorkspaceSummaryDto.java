@@ -60,13 +60,19 @@ public record WorkspaceSummaryDto(
                 syncState);
     }
 
+    /**
+     * @param forked true when the clone is fork-based — origin is the
+     *        user's fork and a separate remote points at {@code fullName}.
+     *        Drives the fork marker on the workspace card.
+     */
     public record RepositoryDto(
             String owner,
             String repo,
             String fullName,
             String defaultBaseBranch,
             String clonePath,
-            boolean verified)
+            boolean verified,
+            boolean forked)
     {
     }
 

@@ -255,7 +255,10 @@ public class WorkspaceOverviewService
                 fullName,
                 row.defaultBaseBranch(),
                 clonePath,
-                directory(clonePath));
+                directory(clonePath),
+                watched != null
+                        && watched.upstreamRemoteName() != null
+                        && !watched.upstreamRemoteName().isBlank());
     }
 
     private List<Thread> publicTrunks(String workspaceId)

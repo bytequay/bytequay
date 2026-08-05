@@ -15,6 +15,7 @@ import {
   useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { LocalCommitFileDto } from '../types';
+import type { MarkdownRepoContext } from '../markdown';
 import {
   buildRewritePlan,
   firstPushedIndex,
@@ -29,10 +30,21 @@ import {
 } from './commitRewrite';
 import CommitEditorDetail from './CommitEditorDetail';
 import CommitEditorList from './CommitEditorList';
-import { CheckIcon, UndoIcon, UpArrowIcon, WarnIcon } from './CommitEditorUi';
+import {
+  CheckIcon,
+  UndoIcon,
+  UpArrowIcon,
+  WarnIcon,
+  githubHandle,
+  type CommitAuthorTally,
+} from './CommitEditorUi';
 import CommitSquashDialog, { type SquashRequest } from './CommitSquashDialog';
-import { workspaceApi, type RewritableCommitDto } from './workspaceApi';
-import { BodyMessage, message } from './WorkspaceRepoUi';
+import {
+  workspaceApi,
+  type CherryPickResultDto,
+  type RewritableCommitDto,
+} from './workspaceApi';
+import { BodyMessage, cherryResultTitle, message } from './WorkspaceRepoUi';
 
 /** One entry of the Undo stack. Ops are staged, so undo is a snapshot
  *  swap rather than an inverse operation — cheap, and correct for
@@ -51,10 +63,17 @@ type Props = {
   query: string;
   /** Author name, or 'all'. Both filters live in the page header. */
   author: string;
-  /** Reports [name, count] pairs so the header's picker can list them. */
-  onAuthorsChange: (authors: Array<[string, number]>) => void;
+  /** Reports the author tallies so the header's picker can list them. */
+  onAuthorsChange: (authors: CommitAuthorTally[]) => void;
   onClearQuery: () => void;
   onClearAuthor: () => void;
+  /** Branches the selection can be cherry-picked onto. Cherry-picking is
+   *  offered only when this is non-empty — which is what keeps it off the
+   *  checked-out branch, where a rewrite is the right tool instead. */
+  cherryPickTargets?: string[];
+  /** Repo the history belongs to, so a `#N` in a commit body resolves. */
+  repoContext?: MarkdownRepoContext;
+  onOpenIssue?: (issueNumber: number) => void;
 };
 
 export default function WorkspaceCommitEditor({
@@ -65,6 +84,9 @@ export default function WorkspaceCommitEditor({
   onAuthorsChange,
   onClearQuery,
   onClearAuthor,
+  cherryPickTargets = [],
+  repoContext,
+  onOpenIssue,
 }: Props) {
   const [original, setOriginal] = useState<RewritableCommitDto[]>([]);
   const [commits, setCommits] = useState<EditableCommit[]>([]);
@@ -86,6 +108,10 @@ export default function WorkspaceCommitEditor({
   const [ops, setOps] = useState<PendingOp[]>([]);
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
   const [squash, setSquash] = useState<SquashRequest | null>(null);
+  const [pickTarget, setPickTarget] = useState('');
+  const [picking, setPicking] = useState(false);
+  const [aborting, setAborting] = useState(false);
+  const [pickResult, setPickResult] = useState<CherryPickResultDto | null>(null);
   const [applying, setApplying] = useState(false);
   const [listWidth, setListWidth] = useState(660);
   const [files, setFiles] = useState<LocalCommitFileDto[][]>([]);
@@ -170,6 +196,17 @@ export default function WorkspaceCommitEditor({
     return () => { cancelled = true; };
   }, [fileKey, workspaceId]);
 
+  // Cherry-picking copies commits onto a *different* branch, so it is only
+  // offered while reading one you aren't on — on the checked-out branch the
+  // commits are already there and a rewrite is the right tool.
+  const canCherryPick = cherryPickTargets.length > 0 && !editable;
+  useEffect(() => {
+    setPickTarget(current => (cherryPickTargets.includes(current)
+      ? current
+      : cherryPickTargets[0] ?? ''));
+  }, [cherryPickTargets]);
+  useEffect(() => { setPickResult(null); }, [branch]);
+
   const snapshot = (): Snapshot => ({ commits, ops, selected });
 
   const stage = (
@@ -199,10 +236,23 @@ export default function WorkspaceCommitEditor({
   const localCount = firstPushedIndex(commits);
   const forcePush = needsForcePush(commits);
   const staged = hasStagedEdits(original, commits);
+  // The handle rides along so the picker can show the same GitHub avatar
+  // the rows do — it is only derivable from the commit's email, which the
+  // header never sees otherwise.
   const authors = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const c of commits) counts.set(c.authorName, (counts.get(c.authorName) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const counts = new Map<string, CommitAuthorTally>();
+    for (const c of commits) {
+      const tally = counts.get(c.authorName);
+      if (tally === undefined) {
+        counts.set(c.authorName, {
+          name: c.authorName,
+          handle: githubHandle(c.authorName, c.authorEmail),
+          count: 1,
+        });
+      }
+      else tally.count += 1;
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count);
   }, [commits]);
   useEffect(() => { onAuthorsChange(authors); }, [authors, onAuthorsChange]);
 
@@ -314,19 +364,65 @@ export default function WorkspaceCommitEditor({
 
       <div className="wu-ce-panes">
         <div className="wu-ce-listpane" style={{ flexBasis: listWidth }}>
-          {selected.length > 1 && (
+          {(selected.length > 1 || (selected.length === 1 && canCherryPick)) && (
             <div className="wu-ce-selbar">
-              <strong>{selected.length} commits selected</strong>
+              <strong>{selected.length} commit{selected.length === 1 ? '' : 's'} selected</strong>
               <code>{selectedCommits[0]?.shortSha} … {
                 selectedCommits[selectedCommits.length - 1]?.shortSha}</code>
               <span className="wu-row-spacer" />
-              {editable && (
+              {editable && selected.length > 1 && (
                 <button type="button" className="wu-ce-squash-btn"
                   onClick={() => openSquashFor(selected, selectedCommits[selectedCommits.length - 1].id)}>
                   Squash into one
                 </button>
               )}
+              {canCherryPick && (
+                <>
+                  <span className="wu-cherry-label">Cherry-pick onto</span>
+                  <select aria-label="Cherry-pick target branch" value={pickTarget}
+                    onChange={event => setPickTarget(event.target.value)}>
+                    {cherryPickTargets.map(name => (
+                      <option value={name} key={name}>{name}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="wu-ce-squash-btn" disabled={picking}
+                    onClick={() => {
+                      setPicking(true);
+                      setError(null);
+                      setPickResult(null);
+                      void workspaceApi.cherryPick(
+                        workspaceId,
+                        resolvedBranch,
+                        pickTarget,
+                        selectedCommits.flatMap(c => c.picks),
+                      ).then(setPickResult)
+                        .catch(reason => setError(message(reason)))
+                        .finally(() => setPicking(false));
+                    }}>{picking ? 'Cherry-picking…' : 'Cherry-pick'}</button>
+                </>
+              )}
               <button type="button" onClick={() => setSelected([])}>Clear</button>
+            </div>
+          )}
+          {pickResult !== null && (
+            <div className={`wu-cherry-result ${pickResult.status}`}>
+              <strong>{cherryResultTitle(pickResult)}</strong>
+              <span>{pickResult.status === 'done'
+                ? 'No remote was changed or pushed.'
+                : (pickResult.message
+                  ?? 'Resolve it in the retained worktree, or abort to undo it.')}</span>
+              {pickResult.status === 'conflicted' && (
+                <button type="button" disabled={aborting}
+                  onClick={() => {
+                    setAborting(true);
+                    setError(null);
+                    void workspaceApi.abortCherryPick(workspaceId, pickResult.operationId)
+                      .then(setPickResult)
+                      .catch(reason => setError(message(reason)))
+                      .finally(() => setAborting(false));
+                  }}>{aborting ? 'Aborting…' : 'Abort'}</button>
+              )}
+              <button type="button" onClick={() => setPickResult(null)}>Dismiss</button>
             </div>
           )}
           <CommitEditorList
@@ -375,6 +471,8 @@ export default function WorkspaceCommitEditor({
           isLocal={selectedCommits.length === 1
             && commits.indexOf(selectedCommits[0]) < localCount}
           editable={editable}
+          repoContext={repoContext}
+          onOpenIssue={onOpenIssue}
           draftSubject={draftSubject}
           draftBody={draftBody}
           onDraftSubject={setDraftSubject}

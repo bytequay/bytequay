@@ -11,15 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   workspaceApi,
   type UpstreamCommitsDto,
+  type UpstreamRefsDto,
   type WorkspaceBranchDto,
   type WorkspaceRelationDto,
   type WorkspaceRepositoryDto,
 } from './workspaceApi';
-import { CommitAuthorPicker, CommitBranchPicker } from './CommitEditorUi';
+import {
+  CommitAuthorPicker,
+  CommitBranchPicker,
+  type CommitAuthorTally,
+} from './CommitEditorUi';
 import WorkspaceCommitEditor from './WorkspaceCommitEditor';
 import WorkspaceWorkingTree from './WorkspaceWorkingTree';
 import { LinkUpstreamDialog, WORKSPACE_RELATION_CHANGED } from './WorkspaceRelationsSettings';
@@ -30,7 +35,6 @@ import {
   UpstreamCommitHistory,
 } from './WorkspaceUpstreamCommits';
 import {
-  BranchIcon,
   PageHeader,
   SearchIcon,
   message,
@@ -42,6 +46,7 @@ type Props = {
   repo: WorkspaceRepositoryDto;
   onOpenTrunk?: (trunkId: string) => void;
   onOpenHarness?: (watchId?: string) => void;
+  onOpenIssue?: (issueNumber: number) => void;
 };
 
 export default function WorkspaceCommitsPage({
@@ -49,6 +54,7 @@ export default function WorkspaceCommitsPage({
   repo,
   onOpenTrunk,
   onOpenHarness,
+  onOpenIssue,
 }: Props) {
   const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
   const visualCommitStudy = visualFrame === '3g' || visualFrame === '4a';
@@ -60,17 +66,25 @@ export default function WorkspaceCommitsPage({
     ?? repo.local.defaultBranch?.replace(/^origin\//, '')
     ?? repo.defaultBaseBranch?.replace(/^origin\//, '')
     ?? 'HEAD');
+  const [upstreamRefs, setUpstreamRefs] = useState<UpstreamRefsDto | null>(null);
+  /** Set once the user picks a branch, so the fork default below can never
+   *  yank the list out from under them. */
+  const [branchPicked, setBranchPicked] = useState(false);
   const [query, setQuery] = useState('');
   // The commit editor's two filters both live in this header, next to
   // each other; the editor reports the author list it can offer.
   const [author, setAuthor] = useState('all');
-  const [authors, setAuthors] = useState<Array<[string, number]>>([]);
+  const [authors, setAuthors] = useState<CommitAuthorTally[]>([]);
   const [tab, setTab] = useState<'commits' | 'uncommitted'>('commits');
   const [uncommitted, setUncommitted] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<'fork' | 'upstream'>('fork');
   const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
   const [upstream, setUpstream] = useState<UpstreamCommitsDto | null>(null);
+  /** Branch selected in the linked upstream workspace; null reads its default. */
+  const [upstreamRevision, setUpstreamRevision] = useState<string | null>(null);
+  const [upstreamWorkspaceBranches, setUpstreamWorkspaceBranches] =
+    useState<WorkspaceBranchDto[]>([]);
   const [upstreamLoading, setUpstreamLoading] = useState(false);
   const [upstreamRange, setUpstreamRange] = useState<[number, number] | null>(null);
   const [rangeExpanded, setRangeExpanded] = useState(false);
@@ -105,12 +119,29 @@ export default function WorkspaceCommitsPage({
   }, [workspaceId]);
 
   useEffect(() => {
+    let cancelled = false;
+    void workspaceApi.upstreamBranches(workspaceId)
+      .then(next => { if (!cancelled) setUpstreamRefs(next); })
+      .catch(() => { /* Direct clones simply have no upstream group to show. */ });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  // On a fork the interesting history is the upstream's, not the fork's:
+  // that is what you read to decide what to cherry-pick down. The fork's
+  // own branches stay one click away in the same picker.
+  useEffect(() => {
+    const head = upstreamRefs?.defaultBranch;
+    if (head === null || head === undefined || branchPicked || visualCommitStudy) return;
+    setBranch(head);
+  }, [upstreamRefs, branchPicked, visualCommitStudy]);
+
+  useEffect(() => {
     if (source !== 'upstream') return undefined;
     let cancelled = false;
     setUpstreamLoading(true);
     setUpstreamRange(null);
     setRangeExpanded(false);
-    void workspaceApi.upstreamCommits(workspaceId)
+    void workspaceApi.upstreamCommits(workspaceId, upstreamRevision ?? undefined)
       .then(next => {
         if (cancelled) return;
         setUpstream(next);
@@ -119,16 +150,50 @@ export default function WorkspaceCommitsPage({
       .catch(reason => { if (!cancelled) setError(message(reason)); })
       .finally(() => { if (!cancelled) setUpstreamLoading(false); });
     return () => { cancelled = true; };
-  }, [source, workspaceId]);
+  }, [source, workspaceId, upstreamRevision]);
+
+  // The linked upstream is its own workspace, so its branches come from
+  // the same endpoint this workspace uses for its own.
+  useEffect(() => {
+    const linkedId = relation?.upstreamWorkspaceId;
+    if (linkedId === undefined || linkedId === null) {
+      setUpstreamWorkspaceBranches([]);
+      return undefined;
+    }
+    let cancelled = false;
+    setUpstreamRevision(null);
+    void workspaceApi.branches(linkedId)
+      .then(next => {
+        if (!cancelled) setUpstreamWorkspaceBranches(Array.isArray(next) ? next : []);
+      })
+      .catch(() => { if (!cancelled) setUpstreamWorkspaceBranches([]); });
+    return () => { cancelled = true; };
+  }, [relation?.upstreamWorkspaceId]);
 
   const upstreamLinked = relation !== null && relation.commitsEnabled;
+  const isFork = (upstreamRefs?.remote ?? null) !== null;
+  // Local branches the viewed history can be copied onto, base branch first
+  // since landing upstream work on it is the common case. Memoized because
+  // the editor keys its target default off identity.
+  const cherryPickTargets = useMemo(() => {
+    const base = repo.defaultBaseBranch?.replace(/^origin\//, '') ?? null;
+    const names = branches
+      .filter(candidate => !candidate.remoteOnly && candidate.name !== branch)
+      .map(candidate => candidate.name);
+    return base !== null && names.includes(base)
+      ? [base, ...names.filter(name => name !== base)]
+      : names;
+  }, [branches, branch, repo.defaultBaseBranch]);
 
   return (
     <section className="wu-page wu-commits wu-commit-history">
       <PageHeader title="Commits">
         <span className="wu-commit-source" role="group" aria-label="Commit source">
           <button type="button" className={source === 'fork' ? 'active' : ''}
-            onClick={() => setSource('fork')}>{repo.repo}</button>
+            title={isFork ? `Fork of ${repo.fullName}` : undefined}
+            onClick={() => setSource('fork')}>
+            {isFork && <span aria-hidden>⑂</span>}{repo.repo}
+          </button>
           <button type="button" className={source === 'upstream' ? 'active' : ''}
             title={upstreamLinked ? undefined : 'Link an upstream workspace to browse its history'}
             onClick={() => {
@@ -142,15 +207,18 @@ export default function WorkspaceCommitsPage({
         </span>
         {source === 'fork' ? (
           <CommitBranchPicker branch={branch} branches={branches}
-            currentBranch={repo.local.currentBranch ?? null} onPick={setBranch} />
+            upstreamBranches={upstreamRefs?.branches ?? []}
+            upstreamLabel={repo.fullName}
+            currentBranch={repo.local.currentBranch ?? null}
+            onPick={next => { setBranchPicked(true); setBranch(next); }} />
         ) : (
-          <span className="wu-branch-select is-static"><BranchIcon />
-            <span>{upstream?.revision ?? 'default'}</span>
-          </span>
+          <CommitBranchPicker branch={upstream?.revision ?? 'default'}
+            branches={upstreamWorkspaceBranches} currentBranch={null}
+            onPick={setUpstreamRevision} />
         )}
         {source === 'fork' && (
           <CommitAuthorPicker author={author} authors={authors}
-            total={authors.reduce((sum, [, count]) => sum + count, 0)}
+            total={authors.reduce((sum, tally) => sum + tally.count, 0)}
             onPick={setAuthor} />
         )}
         <label className="wu-search">
@@ -221,6 +289,9 @@ export default function WorkspaceCommitsPage({
         ) : (
           <WorkspaceCommitEditor workspaceId={workspaceId} branch={branch}
             query={query} author={author} onAuthorsChange={setAuthors}
+            cherryPickTargets={cherryPickTargets}
+            repoContext={{ owner: repo.owner, repo: repo.repo }}
+            onOpenIssue={onOpenIssue}
             onClearQuery={() => setQuery('')} onClearAuthor={() => setAuthor('all')} />
         )
       )}

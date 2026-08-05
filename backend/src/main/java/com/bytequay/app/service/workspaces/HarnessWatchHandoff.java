@@ -16,6 +16,11 @@ package com.bytequay.app.service.workspaces;
 /** Narrow seam from cherry-pick setup into the independently-owned harness. */
 public interface HarnessWatchHandoff
 {
+    /**
+     * @param agentSessionId the session the picks ran in. Phase 2 resumes it rather
+     *         than opening its own, so a compile failure in the pull request is read
+     *         by the session that made the conflict resolution behind it.
+     */
     String create(
             String workspaceId,
             String repoFullName,
@@ -23,7 +28,8 @@ public interface HarnessWatchHandoff
             String localPrId,
             String branchName,
             String worktreePath,
-            long budgetMilliUsd);
+            long budgetMilliUsd,
+            String agentSessionId);
 
     /**
      * Stops a watch this handoff created. Closing the sync run that owns the

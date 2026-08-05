@@ -632,7 +632,7 @@ class TestUpstreamCherryPickService
         when(provider.getIfAvailable()).thenReturn(handoff);
         when(handoff.create(
                 "fork-ws", "acme/fork", 123, "local-pr-1", "pick-release",
-                worktree.toString(), 5_000L)).thenReturn("watch-1");
+                worktree.toString(), 5_000L, null)).thenReturn("watch-1");
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
                 mock(PullRequestRepository.class), prSync, provider,
@@ -647,7 +647,7 @@ class TestUpstreamCherryPickService
         verify(prSync).syncExternalPR("acme/fork", 123);
         verify(handoff).create(
                 "fork-ws", "acme/fork", 123, "local-pr-1", "pick-release",
-                worktree.toString(), 5_000L);
+                worktree.toString(), 5_000L, null);
     }
 
     @Test

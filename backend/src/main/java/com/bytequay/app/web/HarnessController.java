@@ -57,9 +57,11 @@ public class HarnessController
             @RequestBody CreateWatchBody body)
     {
         requireNonNull(body, "body is null");
+        // A watch created by hand has no picks behind it, so it opens its own
+        // session on the first round.
         return harness.create(workspaceId, new CreateWatchCommand(
                 body.owner(), body.repo(), body.prNumber(), body.localPrId(), body.localPath(),
-                body.branch(), body.title(), body.budgetMilliUsd()));
+                body.branch(), body.title(), body.budgetMilliUsd(), null));
     }
 
     @GetMapping("/watches/{watchId}")

@@ -142,7 +142,8 @@ public class HarnessService
                 UUID.randomUUID().toString(), workspaceId, command.owner(), command.repo(),
                 command.prNumber(), blankToNull(command.localPrId()), blankToNull(command.localPath()),
                 blankToNull(command.branch()), blankToNull(command.title()), WatchStatus.BOOTSTRAP,
-                null, "pending", "{}", budget, 0, null, now, now, null, null);
+                null, "pending", "{}", budget, 0, null, now, now, null, null,
+                blankToNull(command.agentSessionId()));
         try {
             store.insertWatch(watch);
         }
@@ -235,7 +236,8 @@ public class HarnessService
             String localPrId,
             String branchName,
             String worktreePath,
-            long budgetMilliUsd)
+            long budgetMilliUsd,
+            String agentSessionId)
     {
         int slash = repoFullName == null ? -1 : repoFullName.indexOf('/');
         if (slash <= 0 || slash == repoFullName.length() - 1) {
@@ -243,7 +245,7 @@ public class HarnessService
         }
         HarnessDashboard dashboard = create(workspaceId, new CreateWatchCommand(
                 repoFullName.substring(0, slash), repoFullName.substring(slash + 1), prNumber,
-                localPrId, worktreePath, branchName, null, budgetMilliUsd));
+                localPrId, worktreePath, branchName, null, budgetMilliUsd, agentSessionId));
         return dashboard.watchId();
     }
 
@@ -629,5 +631,7 @@ public class HarnessService
             String localPath,
             String branch,
             String title,
-            Long budgetMilliUsd) {}
+            Long budgetMilliUsd,
+            /** The picks' agent session, so phase 2 resumes it instead of starting fresh. */
+            String agentSessionId) {}
 }

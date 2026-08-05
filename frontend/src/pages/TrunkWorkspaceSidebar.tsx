@@ -245,7 +245,7 @@ export function TrunkWorkspaceSidebar({
             <WorkspaceItem icon={<BranchIcon />} label="Branches" disabled
               onClick={() => onNavigate?.('branches')} />
             <WorkspaceItem icon={<CommitIcon />} label="Commits" onClick={() => onNavigate?.('commits')} />
-            <WorkspaceItem icon={<HarnessIcon />} label="CI Harness"
+            <WorkspaceItem icon={<HarnessIcon />} label="CI Harness" disabled
               onClick={() => onNavigate?.('ci-harness')} />
             <WorkspaceItem icon={<SessionIcon />} label="Sessions" disabled
               onClick={() => onNavigate?.('sessions')} />

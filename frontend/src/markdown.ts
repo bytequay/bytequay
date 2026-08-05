@@ -269,13 +269,14 @@ function decorateNode(node: Node, repoContext?: MarkdownRepoContext): void {
     const isIssue = !m[0].startsWith('@');
     span.className = isIssue ? 'md-ref-issue' : 'md-ref-mention';
     span.textContent = m[0];
-    // Stamp the originating repo on issue chips so a future click
-    // delegate can resolve `#N` without re-parsing the URL the comment
-    // came from. Mentions don't need the context (a `@user` reference
-    // is global on GitHub).
+    // Stamp the originating repo and number on issue chips so a click
+    // handler can resolve `#N` without re-parsing the URL the comment came
+    // from or scraping the chip's own text. Mentions don't need the context
+    // (a `@user` reference is global on GitHub).
     if (isIssue && repoContext) {
       span.dataset.repoOwner = repoContext.owner;
       span.dataset.repoName = repoContext.repo;
+      span.dataset.issueNumber = m[0].slice(1);
     }
     frag.appendChild(span);
     pos = end;

@@ -100,6 +100,10 @@ function WorkspaceCard({ card, isCurrent, onEnter, onDelete }: Props) {
             )}
           </div>
           <div className="workspace-landing-card__meta">
+            {card.repository?.forked === true && (
+              <span className="workspace-landing-card__fork"
+                title={`Fork — work branches off ${card.repository.fullName}`}>⑂</span>
+            )}
             {card.repository?.fullName ?? card.repos[0] ?? card.name}
           </div>
         </div>

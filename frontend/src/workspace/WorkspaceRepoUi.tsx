@@ -11,7 +11,56 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import type { CherryPickResultDto } from './workspaceApi';
+
+/** Headline for a cherry-pick outcome. Shared so the Commits tab and the
+ *  branch detail page describe the same result the same way. */
+export function cherryResultTitle(result: CherryPickResultDto): string {
+  if (result.status === 'done') return `Created local branch ${result.resultBranch}`;
+  if (result.status === 'aborted') return 'Cherry-pick aborted';
+  const count = result.conflictPaths.length;
+  return `Conflict in ${count} file${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Dismisses an open popup when the pointer goes down outside it, or on
+ * Escape. Attach the returned ref to the element that wraps *both* the
+ * trigger and the menu, so clicking the trigger again toggles rather than
+ * closing and reopening in the same gesture.
+ *
+ * These menus are absolutely-positioned divs, not `<dialog>`/`<select>`,
+ * so nothing dismisses them for free — without this the only way out is
+ * picking an item.
+ */
+export function useDismissOnOutside<T extends HTMLElement>(
+  open: boolean,
+  close: () => void,
+) {
+  const ref = useRef<T>(null);
+  // Held in a ref so an inline `() => setOpen(false)` doesn't resubscribe
+  // the listeners on every render.
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      if (ref.current !== null && !ref.current.contains(event.target as Node)) {
+        closeRef.current();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeRef.current();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+  return ref;
+}
 
 export function PageHeader({
   title,

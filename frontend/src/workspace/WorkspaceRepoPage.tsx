@@ -37,6 +37,7 @@ import WorkspaceCommitsPage from './WorkspaceCommitsPage';
 import {
   BodyMessage,
   BranchCheckIcon,
+  cherryResultTitle,
   BranchIcon,
   ChevronDownIcon,
   ExternalIcon,
@@ -46,6 +47,7 @@ import {
   message,
   prInitials,
   relative,
+  useDismissOnOutside,
 } from './WorkspaceRepoUi';
 
 export type WorkspaceRepoSection = 'pull-requests' | 'issues' | 'branches' | 'commits';
@@ -140,7 +142,7 @@ export default function WorkspaceRepoPage({
     );
   }
   return <WorkspaceCommitsPage workspaceId={workspaceId} repo={repo} onOpenTrunk={onOpenTrunk}
-    onOpenHarness={onOpenHarness} />;
+    onOpenHarness={onOpenHarness} onOpenIssue={onOpenIssue} />;
 }
 
 function PullRequestsPage({
@@ -1101,8 +1103,11 @@ function BranchDetailPage({
   const [comparison, setComparison] = useState<BranchComparisonDto | null>(null);
   const [selected, setSelected] = useState<[number, number] | null>(null);
   const [compareMenu, setCompareMenu] = useState(false);
+  const compareShell = useDismissOnOutside<HTMLSpanElement>(
+    compareMenu, () => setCompareMenu(false));
   const [target, setTarget] = useState('');
   const [picking, setPicking] = useState(false);
+  const [aborting, setAborting] = useState(false);
   const [result, setResult] = useState<CherryPickResultDto | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -1171,8 +1176,28 @@ function BranchDetailPage({
         <span className="wu-row-spacer" />
         <button type="button" className="wu-icon-button"
           onClick={() => { void onRefresh(); }}><BranchRefreshIcon /> Refresh · 2m</button>
-        <button type="button" className="wu-icon-button"
-          onClick={() => setCompareMenu(open => !open)}><CompareIcon />Compare ▾</button>
+        <span className="wu-compare-pick" ref={compareShell}>
+          <button type="button" className="wu-icon-button"
+            onClick={() => setCompareMenu(open => !open)}><CompareIcon />Compare ▾</button>
+          {compareMenu && (
+            <div className="wu-compare-menu">
+              <span>Compare against</span>
+              {branches.filter(candidate => candidate.name !== branch.name).map(candidate => (
+                <button type="button" key={candidate.name}
+                  onClick={() => {
+                    setCompareMenu(false);
+                    setLocalError(null);
+                    void workspaceApi.compareBranch(workspaceId, branch.name, candidate.name)
+                      .then(value => {
+                        setComparison(value);
+                        setSelected(value.commits.length === 0 ? null : [0, 0]);
+                      })
+                      .catch(reason => setLocalError(message(reason)));
+                  }}>{candidate.name}</button>
+              ))}
+            </div>
+          )}
+        </span>
         {branch.linkedPrNumber !== null && (
           <button type="button" className="wu-dark-button"
             onClick={() => onOpenPr(branch.linkedPrNumber as number)}>
@@ -1180,24 +1205,6 @@ function BranchDetailPage({
           </button>
         )}
       </header>
-      {compareMenu && (
-        <div className="wu-compare-menu">
-          <span>Compare against</span>
-          {branches.filter(candidate => candidate.name !== branch.name).map(candidate => (
-            <button type="button" key={candidate.name}
-              onClick={() => {
-                setCompareMenu(false);
-                setLocalError(null);
-                void workspaceApi.compareBranch(workspaceId, branch.name, candidate.name)
-                  .then(value => {
-                    setComparison(value);
-                    setSelected(value.commits.length === 0 ? null : [0, 0]);
-                  })
-                  .catch(reason => setLocalError(message(reason)));
-              }}>{candidate.name}</button>
-          ))}
-        </div>
-      )}
       {localError !== null && <div className="wu-inline-error">{localError}</div>}
       <main className="wu-branch-detail__body">
         <div className="wu-branch-summary">
@@ -1262,16 +1269,25 @@ function BranchDetailPage({
         )}
         {result !== null && (
           <div className={`wu-cherry-result ${result.status}`}>
-            <strong>{result.status === 'done'
-              ? `Created local branch ${result.resultBranch}`
-              : `Conflict in ${result.conflictPaths.length} file${result.conflictPaths.length === 1 ? '' : 's'}`}</strong>
+            <strong>{cherryResultTitle(result)}</strong>
             <span>{result.status === 'done'
               ? 'No remote was changed or pushed.'
-              : (result.message ?? 'Resolve or abort the cherry-pick manually in the retained worktree.')}</span>
+              : (result.message ?? 'Resolve it in the retained worktree, or abort to undo it.')}</span>
             {result.trunkId !== null && (
               <button type="button" onClick={() => onOpenTrunk?.(result.trunkId as string)}>
                 Open fix session
               </button>
+            )}
+            {result.status === 'conflicted' && (
+              <button type="button" disabled={aborting}
+                onClick={() => {
+                  setAborting(true);
+                  setLocalError(null);
+                  void workspaceApi.abortCherryPick(workspaceId, result.operationId)
+                    .then(setResult)
+                    .catch(reason => setLocalError(message(reason)))
+                    .finally(() => setAborting(false));
+                }}>{aborting ? 'Aborting…' : 'Abort'}</button>
             )}
           </div>
         )}

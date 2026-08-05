@@ -318,6 +318,48 @@ class TestWorkspaceService
     }
 
     @Test
+    void forkCloneTakesItsBaseBranchFromUpstreamNotTheFork()
+            throws Exception
+    {
+        // The fork's own default drifted to main; work from this workspace
+        // still lands on the upstream's master.
+        WatchedRepo watched = new WatchedRepo(1, "acme", "widgets", 0,
+                System.getProperty("java.io.tmpdir"), "upstream", null);
+        when(watchedRepos.find("acme", "widgets")).thenReturn(Optional.of(watched));
+        when(git.defaultBranch(any(Path.class), eq("upstream")))
+                .thenReturn(Optional.of("master"));
+        when(store.listWorkspaces()).thenReturn(List.of());
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        service.ensureForVerifiedClone("acme", "widgets");
+
+        ArgumentCaptor<WorkspaceRepo> repo = ArgumentCaptor.forClass(WorkspaceRepo.class);
+        verify(store).addRepo(repo.capture());
+        assertThat(repo.getValue().defaultBaseBranch()).isEqualTo("master");
+    }
+
+    @Test
+    void forkCloneFallsBackToOriginWhenUpstreamWasNeverFetched()
+            throws Exception
+    {
+        WatchedRepo watched = new WatchedRepo(1, "acme", "widgets", 0,
+                System.getProperty("java.io.tmpdir"), "upstream", null);
+        when(watchedRepos.find("acme", "widgets")).thenReturn(Optional.of(watched));
+        when(git.defaultBranch(any(Path.class), eq("upstream")))
+                .thenReturn(Optional.empty());
+        when(store.listWorkspaces()).thenReturn(List.of());
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        service.ensureForVerifiedClone("acme", "widgets");
+
+        ArgumentCaptor<WorkspaceRepo> repo = ArgumentCaptor.forClass(WorkspaceRepo.class);
+        verify(store).addRepo(repo.capture());
+        assertThat(repo.getValue().defaultBaseBranch())
+                .as("a missing upstream HEAD must not fail the whole binding")
+                .isEqualTo("main");
+    }
+
+    @Test
     void startupRepairsOnlyMissingBaseBranchesFromVerifiedClones()
             throws Exception
     {

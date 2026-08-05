@@ -969,6 +969,47 @@ public class LocalRepoService
     }
 
     /**
+     * The fork's upstream remote-tracking branches, as
+     * {@code upstream/<name>} refs the Commits tab can select and log
+     * directly. Empty for a direct clone, which has no upstream remote.
+     *
+     * <p>Kept out of {@link #listBranches} on purpose: that list drives
+     * the branches kanban, where a few hundred read-only upstream refs
+     * would be noise, and every row there pays for ahead/behind counts.
+     */
+    public UpstreamRefs upstreamRefs(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        WatchedRepo watched = refreshWatchedRepo(owner, repo);
+        String remote = watched.upstreamRemoteName();
+        if (remote == null || remote.isBlank() || watched.localClonePath() == null) {
+            return new UpstreamRefs(null, null, List.of());
+        }
+        Path path = Path.of(watched.localClonePath());
+        List<String> branches = gitRunner.listRemoteBranches(path, remote);
+        String head = gitRunner.defaultBranch(path, remote)
+                .map(branch -> remote + "/" + branch)
+                .filter(branches::contains)
+                .orElseGet(() -> Stream.of(remote + "/main", remote + "/master")
+                        .filter(branches::contains)
+                        .findFirst()
+                        .orElse(null));
+        return new UpstreamRefs(remote, head, branches);
+    }
+
+    /**
+     * @param remote upstream remote name, or null when this clone is not
+     *        fork-based.
+     * @param defaultBranch the upstream's default branch as a qualified
+     *        {@code <remote>/<name>} ref, or null when the remote has no
+     *        recorded HEAD and neither main nor master exists.
+     */
+    public record UpstreamRefs(
+            String remote,
+            String defaultBranch,
+            List<String> branches) {}
+
+    /**
      * Returns the most recent commits on {@code revision} (or HEAD
      * when null/blank) of the watched repo's local clone. The cap
      * mirrors what the Commits tab renders without paging — small

@@ -1986,6 +1986,8 @@ export type WorkspaceCardDto = {
     defaultBaseBranch: string | null;
     clonePath: string | null;
     verified: boolean;
+    /** Fork-based clone: origin is the user's fork, `fullName` is upstream. */
+    forked?: boolean;
   } | null;
   /** Two newest trunk events, already scoped and deep-linked server-side. */
   recentActivity?: Array<{

@@ -315,6 +315,19 @@ public class WorkspaceRepositoryController
                 .toList());
     }
 
+    /**
+     * The fork's {@code upstream/*} refs, so the Commits tab can browse
+     * and cherry-pick from the upstream repo without checking anything
+     * out. Empty remote for a direct clone.
+     */
+    @GetMapping("/branches/upstream")
+    public LocalRepoService.UpstreamRefs upstreamBranches(@PathVariable String workspaceId)
+    {
+        WorkspaceRepositoryResolver.RepositoryIdentity repo =
+                resolver.resolve(workspaceId);
+        return interrupted(() -> local.upstreamRefs(repo.owner(), repo.repo()));
+    }
+
     @GetMapping("/branches/comparison")
     public LocalRepoService.BranchComparison compareBranch(
             @PathVariable String workspaceId,
@@ -576,6 +589,15 @@ public class WorkspaceRepositoryController
                 body.sourceBranch(),
                 body.targetBranch(),
                 body.shas()));
+    }
+
+    /** Undoes a conflicted cherry-pick and removes its retained worktree. */
+    @PostMapping("/commits/cherry-pick/{operationId}/abort")
+    public WorkspaceCherryPickService.CherryPickResult abortCherryPick(
+            @PathVariable String workspaceId,
+            @PathVariable String operationId)
+    {
+        return interrupted(() -> cherryPicks.abort(workspaceId, operationId));
     }
 
     @PostMapping("/refresh")

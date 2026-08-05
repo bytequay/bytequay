@@ -236,6 +236,65 @@ class TestLocalRepoServiceManagedClone
                 .containsExactly(new FetchedRemote(destination, "upstream"));
     }
 
+    @Test
+    void directCloneOffersNoUpstreamRefs()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.gitHub.viewerCanWrite = true;
+        f.gitRunner.remoteBranches = List.of("upstream/master");
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.DIRECT));
+
+        LocalRepoService.UpstreamRefs refs = f.service.upstreamRefs("trinodb", "trino");
+
+        assertThat(refs.remote()).isNull();
+        assertThat(refs.defaultBranch()).isNull();
+        assertThat(refs.branches()).isEmpty();
+    }
+
+    @Test
+    void forkCloneQualifiesTheUpstreamDefaultBranch()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.gitHub.profile = profile("jack");
+        f.gitRunner.remotes = List.of(new GitRunner.Remote(
+                "origin", "https://github.com/jack/trino.git"));
+        Files.createDirectories(managedPath(home, "trinodb", "trino"));
+        f.gitRunner.remoteBranches = List.of("upstream/master", "upstream/release-1");
+        f.gitRunner.remoteDefaultBranch = Optional.of("master");
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.FORK));
+
+        LocalRepoService.UpstreamRefs refs = f.service.upstreamRefs("trinodb", "trino");
+
+        assertThat(refs.remote()).isEqualTo("upstream");
+        // Qualified, not bare: the Commits tab logs this ref directly, and a
+        // bare "master" would resolve to the fork's own stale copy.
+        assertThat(refs.defaultBranch()).isEqualTo("upstream/master");
+        assertThat(refs.branches())
+                .containsExactly("upstream/master", "upstream/release-1");
+    }
+
+    @Test
+    void forkCloneFallsBackToMainWhenTheRemoteHasNoRecordedHead()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.gitHub.profile = profile("jack");
+        f.gitRunner.remotes = List.of(new GitRunner.Remote(
+                "origin", "https://github.com/jack/trino.git"));
+        Files.createDirectories(managedPath(home, "trinodb", "trino"));
+        f.gitRunner.remoteBranches = List.of("upstream/topic", "upstream/main");
+        f.gitRunner.remoteDefaultBranch = Optional.empty();
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.FORK));
+
+        assertThat(f.service.upstreamRefs("trinodb", "trino").defaultBranch())
+                .isEqualTo("upstream/main");
+    }
+
     private static UserProfile profile(String login)
     {
         return new UserProfile(login, login, null, "https://github.com/" + login,
@@ -318,6 +377,8 @@ class TestLocalRepoServiceManagedClone
         String clonedUrl;
         Path clonedDestination;
         List<GitRunner.Remote> remotes = List.of();
+        List<String> remoteBranches = List.of();
+        Optional<String> remoteDefaultBranch = Optional.empty();
         final List<AddedRemote> addedRemotes = new ArrayList<>();
         final List<FetchedRemote> fetchedRemotes = new ArrayList<>();
 
@@ -373,6 +434,18 @@ class TestLocalRepoServiceManagedClone
         public Optional<String> defaultBranch(Path workingDir)
         {
             return Optional.of("main");
+        }
+
+        @Override
+        public Optional<String> defaultBranch(Path workingDir, String remote)
+        {
+            return "origin".equals(remote) ? Optional.of("main") : remoteDefaultBranch;
+        }
+
+        @Override
+        public List<String> listRemoteBranches(Path workingDir, String remote)
+        {
+            return remoteBranches;
         }
     }
 

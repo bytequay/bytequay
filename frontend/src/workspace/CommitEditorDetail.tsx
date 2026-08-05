@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import CommitFileCard from './CommitFileCard';
 import type { LocalCommitFileDto } from '../types';
 import type { EditableCommit } from './commitRewrite';
 import { CheckIcon, CommitAuthorAvatar, SquashIcon, selectionColour } from './CommitEditorUi';
+import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 import { workspaceApi } from './workspaceApi';
 import { relative } from './WorkspaceRepoUi';
 
@@ -40,6 +41,10 @@ type Props = {
   onRevertMessage: () => void;
   onSelectUpToHead: () => void;
   onOpenSquash: () => void;
+  /** Repo the commit messages were written against, so a `#N` in a body
+   *  becomes a reference to the right repo's issue. */
+  repoContext?: MarkdownRepoContext;
+  onOpenIssue?: (issueNumber: number) => void;
 };
 
 export default function CommitEditorDetail({
@@ -57,8 +62,11 @@ export default function CommitEditorDetail({
   onRevertMessage,
   onSelectUpToHead,
   onOpenSquash,
+  repoContext,
+  onOpenIssue,
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [bodyEditing, setBodyEditing] = useState(false);
   const head = selected.length === 1 ? selected[0] : null;
   const dirty = head !== null
     && (draftSubject !== head.subject || draftBody !== head.body);
@@ -80,6 +88,25 @@ export default function CommitEditorDetail({
   // and carrying them over would leave unrelated files open.
   const selectionKey = selected.map(c => c.id).join(',');
   useEffect(() => { setOpen({}); }, [selectionKey]);
+
+  // Grow the message box to the body it holds. A fixed three rows hid most
+  // of a real commit message behind a scrollbar, and the whole point of
+  // this pane is reading the message before rewording it. Measured rather
+  // than counting "\n" so soft-wrapped long lines are covered too.
+  const bodyBox = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const box = bodyBox.current;
+    if (box === null) return;
+    box.style.height = 'auto';
+    // The cap keeps a pathological message from pushing the file list off
+    // screen; past it the textarea scrolls as before.
+    box.style.height = `${Math.min(Math.max(box.scrollHeight, 62), 340)}px`;
+  }, [draftBody, selectionKey, bodyEditing]);
+
+  // The body reads as rendered markdown and only becomes a textarea once
+  // you go to change it — commit messages are markdown on GitHub, and the
+  // raw source is only interesting while you are editing it.
+  useEffect(() => { setBodyEditing(false); }, [selectionKey]);
 
   const totalAdds = merged.reduce((n, m) => n + Math.max(m.file.additions, 0), 0);
   const totalDels = merged.reduce((n, m) => n + Math.max(m.file.deletions, 0), 0);
@@ -124,10 +151,43 @@ export default function CommitEditorDetail({
           <input value={draftSubject} aria-label="Commit title" placeholder="Commit title"
             className={dirty ? 'is-dirty' : ''} disabled={!editable}
             onChange={event => onDraftSubject(event.target.value)} />
-          <textarea value={draftBody} rows={3} aria-label="Extended description"
-            placeholder="Extended description (optional)"
-            className={dirty ? 'is-dirty' : ''} disabled={!editable}
-            onChange={event => onDraftBody(event.target.value)} />
+          {bodyEditing ? (
+            <textarea ref={bodyBox} value={draftBody} rows={3} autoFocus
+              aria-label="Extended description"
+              placeholder="Extended description (optional)"
+              className={dirty ? 'is-dirty' : ''}
+              onChange={event => onDraftBody(event.target.value)}
+              onBlur={() => setBodyEditing(false)} />
+          ) : (
+            <div
+              className={`wu-ce-body wu-markdown${dirty ? ' is-dirty' : ''}`}
+              role={editable ? 'button' : undefined}
+              tabIndex={editable ? 0 : undefined}
+              aria-label={editable ? 'Extended description — click to edit' : 'Extended description'}
+              title={editable ? 'Click to edit' : undefined}
+              onClick={event => {
+                // An issue chip wins over "start editing" — clicking `#123`
+                // is a navigation, not a mis-aimed click into the text.
+                const issue = (event.target as HTMLElement)
+                  .closest<HTMLElement>('[data-issue-number]');
+                const number = Number(issue?.dataset.issueNumber);
+                if (Number.isFinite(number) && number > 0) {
+                  onOpenIssue?.(number);
+                  return;
+                }
+                if (editable) setBodyEditing(true);
+              }}
+              onKeyDown={editable
+                ? event => { if (event.key === 'Enter') setBodyEditing(true); }
+                : undefined}
+              dangerouslySetInnerHTML={draftBody.trim().length === 0
+                ? undefined
+                : { __html: renderMarkdown(draftBody, repoContext) }}>
+              {draftBody.trim().length === 0
+                ? <span className="wu-ce-body__empty">No extended description.</span>
+                : undefined}
+            </div>
+          )}
           <div className="wu-ce-message__foot">
             <small>Reword lands as an empty commit squashed into {head.shortSha} —
               history stays linear.</small>

@@ -149,30 +149,12 @@ describe('HarnessDashboard', () => {
     expect(screen.queryByText('Bootstrap trust profile')).toBeNull();
   });
 
-  it('renders completed bootstrap evidence before the first cycle and approves a candidate rule', () => {
-    const onApproveRule = vi.fn();
-    render(dashboard({ rules: [candidate], actions: actions({ onApproveRule }) }));
+  it('renders completed bootstrap evidence before the first cycle', () => {
+    render(dashboard({ rules: [candidate] }));
 
     expect(screen.getByText('Bootstrap trust profile')).toBeTruthy();
     expect(screen.getByText(/\.\/mvnw spotless:check/)).toBeTruthy();
     expect(screen.getByText('No failures recorded')).toBeTruthy();
-    expect(screen.getByText('2 evidence hits')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(onApproveRule).toHaveBeenCalledWith('rule-1');
-  });
-
-  it('filters the knowledge base by status and retires an active rule', () => {
-    const onRetireRule = vi.fn();
-    render(dashboard({ rules: [candidate, active], actions: actions({ onRetireRule }) }));
-
-    expect(screen.getByText('cannot find symbol')).toBeTruthy();
-    expect(screen.queryByText('plan mismatch')).toBeNull();
-
-    fireEvent.click(screen.getByRole('tab', { name: /Active/ }));
-    expect(screen.getByText('plan mismatch')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Retire' }));
-    expect(onRetireRule).toHaveBeenCalledWith('rule-2');
   });
 
   it('queues every escalation with a resolve and a resolve-and-run action', () => {
@@ -184,7 +166,7 @@ describe('HarnessDashboard', () => {
     }));
 
     expect(screen.getByRole('heading', { name: 'Needs you' })).toBeTruthy();
-    expect(screen.getByText('A fork-only consumer was missed')).toBeTruthy();
+    expect(screen.getAllByText('cannot find symbol').length).toBeGreaterThan(0);
     expect(screen.getByText(/Verification failed: verify failed twice/)).toBeTruthy();
     expect(screen.getByText('1 escalated')).toBeTruthy();
 
@@ -196,18 +178,6 @@ describe('HarnessDashboard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Resolve & run cycle' }));
     expect(onRetry).toHaveBeenCalledWith('failure-1', 'the SPI change is intentional');
-  });
-
-  it('opens a failure drawer with the proposal, its edits, and the verification commands', () => {
-    render(dashboard({ snapshot: snapshot('needs_attention') }));
-
-    expect(screen.queryByRole('heading', { name: 'Proposal' })).toBeNull();
-    fireEvent.click(screen.getByRole('row', { name: /cannot find symbol/ }));
-
-    expect(screen.getByRole('heading', { name: 'Proposal' })).toBeTruthy();
-    expect(screen.getByText('core/Spi.java')).toBeTruthy();
-    expect(screen.getByText('./mvnw -pl core test')).toBeTruthy();
-    expect(screen.getByText('0.41')).toBeTruthy();
   });
 
   it('shows a copy-only handoff proof', () => {
@@ -225,7 +195,7 @@ describe('HarnessDashboard', () => {
     render(dashboard({ snapshot: { ...snapshot('needs_attention'), status: 'running' as const } }));
 
     expect(screen.getByText('Needs you', { selector: 'strong' })).toBeTruthy();
-    expect(screen.getByText('A fork-only consumer was missed')).toBeTruthy();
+    expect(screen.getAllByText('cannot find symbol').length).toBeGreaterThan(0);
   });
 
   it('renders the dedicated green completion state', () => {

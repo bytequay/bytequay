@@ -18,7 +18,6 @@ import {
   isEscalated,
   type FailureActions,
 } from './WorkspaceHarnessFailures';
-import { KnowledgeBase } from './WorkspaceHarnessKnowledge';
 import type {
   CiHarnessBootstrapProfileDto,
   CiHarnessCycleDetailDto,
@@ -66,8 +65,6 @@ export function HarnessDashboard({ snapshot, rules, actions, cycleDetail, onClos
       {snapshot.status === 'handoff' && <HandoffProofCard snapshot={snapshot} />}
       {snapshot.status === 'green' && <GreenCompletionCard />}
       {snapshot.failures.length > 0 && <FailureTable rows={snapshot.failures} actions={actions} />}
-      <KnowledgeBase rules={rules} busy={actions.busy}
-        onApprove={actions.onApproveRule} onRetire={actions.onRetireRule} />
       <MilestoneFeed milestones={snapshot.milestones} />
       {(snapshot.runStatusTail ?? '').length > 0 && (
         <details className="ci-harness-run-tail"><summary>Latest run status</summary><pre>{snapshot.runStatusTail}</pre></details>
@@ -133,13 +130,14 @@ function HarnessBanner({ snapshot, hasEscalation }: {
       <span>The harness paused instead of guessing. Resolve the escalations below.</span></section>
   );
   if (snapshot.status === 'handoff') return (
-    <section className="ci-harness-banner is-handoff"><strong>Ready for handoff · nothing was pushed</strong>
+    <section className="ci-harness-banner is-handoff"><strong>Round pushed · waiting for CI</strong>
+      <span>The agent's fixes are on the branch. The next CI run judges them.</span>
       {snapshot.handoffCommand !== null && <CopyCommand command={snapshot.handoffCommand} />}
     </section>
   );
   if (snapshot.status === 'green') return (
     <section className="ci-harness-banner is-green"><strong>All checks are green</strong>
-      <span>The watch is complete. The local branch is ready for your review and push.</span></section>
+      <span>Parked for your review. Merge it yourself — the harness never does.</span></section>
   );
   return null;
 }

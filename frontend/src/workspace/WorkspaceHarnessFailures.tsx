@@ -57,12 +57,6 @@ function EscalationRow({ failure, actions }: {
           {open ? 'Hide detail' : 'Open escalation'}
         </button>
       </header>
-      {failure.diagnosis !== null && (
-        <p className="ci-harness-escalation__cause">
-          {failure.diagnosis.rootCause}
-          <i> · confidence {failure.diagnosis.confidence.toFixed(2)}</i>
-        </p>
-      )}
       {failure.verification !== null && !failure.verification.passed
         && failure.verification.reason !== null && (
         <p className="ci-harness-escalation__cause">Verification failed: {failure.verification.reason}</p>
@@ -134,32 +128,9 @@ export function FailureTable({ rows, actions, heading = 'Failures' }: {
 }
 
 function FailureDetail({ failure }: { failure: CiHarnessFailureDto }) {
-  const diagnosis = failure.diagnosis;
   const verification = failure.verification;
   return (
     <div className="ci-harness-failure-detail">
-      {diagnosis !== null && (
-        <section>
-          <h3>Proposal</h3>
-          <p>{diagnosis.rootCause}</p>
-          <dl>
-            <div><dt>Semantic owner</dt><dd><code>{diagnosis.targetSubject ?? '—'}</code></dd></div>
-            <div><dt>Routing</dt><dd><code>{diagnosis.binding}</code></dd></div>
-            <div><dt>Confidence</dt><dd>{diagnosis.confidence.toFixed(2)}</dd></div>
-            <div><dt>Learned matcher</dt><dd><code>{diagnosis.signaturePattern}</code></dd></div>
-          </dl>
-          {diagnosis.edits.length > 0 && (
-            <ul className="ci-harness-failure-detail__edits">
-              {diagnosis.edits.map((edit, index) => (
-                <li key={`${edit.path}-${index}`}><code>{edit.path}</code>
-                  <pre>{edit.find}</pre><span aria-hidden>→</span>
-                  <pre>{edit.replace ?? ''}</pre></li>
-              ))}
-            </ul>
-          )}
-          <small>The agent proposed this; the program applied and verified it.</small>
-        </section>
-      )}
       {failure.fix !== null && failure.fix.filesChanged.length > 0 && (
         <section>
           <h3>Files the program changed</h3>

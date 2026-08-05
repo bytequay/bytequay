@@ -24,6 +24,7 @@ import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.slf4j.Logger;
@@ -176,7 +177,7 @@ final class PullRequestDetailFetcher
             return gitHub.fetchReviewThreadResolution(pat, ref);
         }
         catch (RuntimeException e) {
-            log.warn("GraphQL review-thread resolution fetch failed: {}", e.getMessage());
+            logBestEffortFailure("GraphQL review-thread resolution fetch failed", e);
             return ImmutableList.of();
         }
     }
@@ -188,8 +189,20 @@ final class PullRequestDetailFetcher
             return gitHub.fetchMergeQueueInfo(pat, ref);
         }
         catch (RuntimeException e) {
-            log.warn("GraphQL merge-queue info fetch failed: {}", e.getMessage());
+            logBestEffortFailure("GraphQL merge-queue info fetch failed", e);
             return new PullRequestRepository.MergeQueueInfo(false, null);
+        }
+    }
+
+    /** Warns, except for the org-blocks-classic-PATs denial — that one is
+     *  permanent and already reported once by {@link GitHubOrgAccess}. */
+    private static void logBestEffortFailure(String what, RuntimeException e)
+    {
+        if (GitHubOrgAccess.isClassicPatDenial(e.getMessage())) {
+            log.debug("{}: {}", what, e.getMessage());
+        }
+        else {
+            log.warn("{}: {}", what, e.getMessage());
         }
     }
 
@@ -290,7 +303,14 @@ final class PullRequestDetailFetcher
             }
             catch (RuntimeException e) {
                 long ms = (System.nanoTime() - t) / 1_000_000;
-                log.warn("{}({}#{}) failed in {}ms: {}", name, repoFullName(ref), ref.number(), ms, e.toString());
+                // An org that blocks classic PATs fails every sub-fetch of every
+                // PR on every sync cycle; GitHubOrgAccess reports it once.
+                if (GitHubOrgAccess.isClassicPatDenial(e.getMessage())) {
+                    log.debug("{}({}#{}) denied in {}ms: {}", name, repoFullName(ref), ref.number(), ms, e.toString());
+                }
+                else {
+                    log.warn("{}({}#{}) failed in {}ms: {}", name, repoFullName(ref), ref.number(), ms, e.toString());
+                }
                 throw e;
             }
         }, ioExecutor);

@@ -28,6 +28,7 @@ import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewService;
@@ -385,7 +386,14 @@ public class PRSyncService
             detail = pullRequests.refreshPullRequestDetail(pr.repo(), pr.remotePrNumber(), 0);
         }
         catch (RuntimeException e) {
-            log.info("dashboard detail sync for PR {} failed: {}", pr.id(), e.getMessage());
+            // The org-blocks-classic-PATs denial repeats for every PR of that
+            // org on every cycle; GitHubOrgAccess reports it once.
+            if (GitHubOrgAccess.isClassicPatDenial(e.getMessage())) {
+                log.debug("dashboard detail sync for PR {} denied: {}", pr.id(), e.getMessage());
+            }
+            else {
+                log.info("dashboard detail sync for PR {} failed: {}", pr.id(), e.getMessage());
+            }
             return;
         }
         // Branch backfill, commit/check sync, and the diff/CI snapshot

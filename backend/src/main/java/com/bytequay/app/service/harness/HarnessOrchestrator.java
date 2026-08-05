@@ -18,24 +18,16 @@ import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.service.harness.GitHubActionsProbe.FailedJob;
 import com.bytequay.app.service.harness.GitHubActionsProbe.ProbeResult;
 import com.bytequay.app.service.harness.HarnessClassifier.Classification;
-import com.bytequay.app.service.harness.HarnessDiagnosisService.DiagnosisOutcome;
-import com.bytequay.app.service.harness.HarnessGitSafety.FixupBatch;
-import com.bytequay.app.service.harness.HarnessGitSafety.SafetyResult;
 import com.bytequay.app.service.harness.HarnessLogParser.ParsedFailure;
 import com.bytequay.app.service.harness.HarnessModels.BootstrapProfile;
 import com.bytequay.app.service.harness.HarnessModels.Bucket;
 import com.bytequay.app.service.harness.HarnessModels.Cycle;
 import com.bytequay.app.service.harness.HarnessModels.CycleStatus;
-import com.bytequay.app.service.harness.HarnessModels.Diagnosis;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
-import com.bytequay.app.service.harness.HarnessModels.FixResult;
 import com.bytequay.app.service.harness.HarnessModels.HandoffDto;
 import com.bytequay.app.service.harness.HarnessModels.Phase;
 import com.bytequay.app.service.harness.HarnessModels.Rule;
-import com.bytequay.app.service.harness.HarnessModels.RuleStatus;
-import com.bytequay.app.service.harness.HarnessModels.VerificationResult;
-import com.bytequay.app.service.harness.HarnessModels.VerifiedFix;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
@@ -75,16 +67,13 @@ import static java.util.Objects.requireNonNull;
 public class HarnessOrchestrator
 {
     private static final Logger log = LoggerFactory.getLogger(HarnessOrchestrator.class);
-    private static final double CONFIDENCE_THRESHOLD = 0.75;
 
     private final HarnessStore store;
     private final HarnessService service;
     private final GitHubActionsProbe probe;
     private final HarnessLogParser parser;
     private final HarnessClassifier classifier;
-    private final HarnessDiagnosisService diagnosis;
-    private final HarnessFixApplier applier;
-    private final HarnessVerifier verifier;
+    private final HarnessRepairAgent agent;
     private final HarnessGitSafety gitSafety;
     private final GitRunner git;
     private final PRStore prs;
@@ -99,9 +88,7 @@ public class HarnessOrchestrator
             GitHubActionsProbe probe,
             HarnessLogParser parser,
             HarnessClassifier classifier,
-            HarnessDiagnosisService diagnosis,
-            HarnessFixApplier applier,
-            HarnessVerifier verifier,
+            HarnessRepairAgent agent,
             HarnessGitSafety gitSafety,
             GitRunner git,
             PRStore prs,
@@ -114,9 +101,7 @@ public class HarnessOrchestrator
         this.probe = requireNonNull(probe, "probe is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.classifier = requireNonNull(classifier, "classifier is null");
-        this.diagnosis = requireNonNull(diagnosis, "diagnosis is null");
-        this.applier = requireNonNull(applier, "applier is null");
-        this.verifier = requireNonNull(verifier, "verifier is null");
+        this.agent = requireNonNull(agent, "agent is null");
         this.gitSafety = requireNonNull(gitSafety, "gitSafety is null");
         this.git = requireNonNull(git, "git is null");
         this.prs = requireNonNull(prs, "prs is null");
@@ -279,7 +264,7 @@ public class HarnessOrchestrator
                         "All observed failures were deferred or need human classification");
                 return;
             }
-            handleActionable(watch, cycle, result, profile, failures, actionable);
+            runRound(watch, cycle, result, actionable);
         }
         catch (CycleCancelledException cancelled) {
             log.info("CI harness cycle {} observed cancellation", cycle.id());
@@ -321,17 +306,16 @@ public class HarnessOrchestrator
                         FailureStatus.DEFERRED, null, null, null, null, now());
                 continue;
             }
+            // The classifier is a hint now, not a route: its bucket rides along
+            // in the agent's prompt and the agent decides what is worth its time,
+            // including what is infrastructure or a flake.
             Classification result = classifier.classify(
                     watch.workspaceId(), watch.owner(), watch.repo(), failure.module(),
                     failure.signature(), failure.logExcerpt(), now());
             Rule rule = result.rule();
-            FailureStatus status = result.bucket() == Bucket.INFRA
-                    || result.bucket() == Bucket.FLAKE
-                    || (rule != null && "defer".equals(rule.binding()))
-                    ? FailureStatus.DEFERRED : FailureStatus.OBSERVED;
+            FailureStatus status = FailureStatus.OBSERVED;
             String bucketLabel = rule == null ? result.bucket().wire() : rule.bucketLabel();
-            if (status != FailureStatus.DEFERRED
-                    && !actionableSignatures.add(signatureKey(failure.signature()))) {
+            if (!actionableSignatures.add(signatureKey(failure.signature()))) {
                 // Matrix jobs frequently report the same root failure. Keep
                 // every observed row, but execute the signature only once.
                 status = FailureStatus.DEFERRED;
@@ -352,224 +336,113 @@ public class HarnessOrchestrator
                 .toList();
     }
 
-    private void handleActionable(
-            Watch watch, Cycle cycle, ProbeResult probeResult, BootstrapProfile profile,
-            List<Failure> allFailures, List<Failure> actionable)
+    /**
+     * One round: hand the agent everything that is red, let it decide what to
+     * take on, then push what it committed and wait for CI to judge it.
+     *
+     * <p>There is no confidence gate, no verification step and no fixup batch
+     * here any more. The agent validates its own work and CI is the authority;
+     * the program's remaining job is the budget, the push, and refusing to
+     * publish a worktree its author never called finished.
+     */
+    private void runRound(
+            Watch watch, Cycle cycle, ProbeResult probeResult, List<Failure> failures)
     {
         Path root = Path.of(requireNonNull(watch.localPath(), "watch local path is null"));
+        if (!isAppOwnedWorktree(watch.localPath())) {
+            handoff(watch, cycle, null, null, null,
+                    "Automatic fixes require an app-owned worktree");
+            return;
+        }
+        long spent = store.findWatch(watch.id())
+                .map(Watch::spentMilliUsd)
+                .orElse(watch.spentMilliUsd());
+        long remaining = Math.max(0, watch.budgetMilliUsd() - spent);
+        if (remaining < 100) {
+            // A park, not a failure: the budget is the one hard stop, and it is
+            // one the user can raise to carry on.
+            handoff(watch, cycle, null, null, null,
+                    "The run's budget is spent. Raise it to carry on, or stop here.");
+            return;
+        }
+        ensureClean(root);
         phase(watch, cycle, Phase.FIX,
-                "Preparing " + actionable.size() + " bounded fix proposal(s)");
-        FixupBatch batch = null;
-        FixResult uncommitted = null;
-        SafetyResult safety = null;
-        boolean handoffPersisted = false;
-        List<String> candidateIds = new ArrayList<>();
-        List<String> escalatedIds = new ArrayList<>();
-        List<String> escalationReasons = new ArrayList<>();
-        int completed = 0;
+                "Handing " + failures.size() + " failure(s) to the agent");
+        HarnessRepairAgent.Outcome outcome = agent.fix(
+                root, watch.workspaceId(), failures, remaining,
+                watch.agentSessionId(), cycle.steeringText());
+        store.addWatchCost(watch.id(), outcome.costMilliUsd(), now());
+        store.addCycleCost(cycle.id(), outcome.costMilliUsd(), now());
+        // One session for the whole run — the next round resumes this one.
+        store.updateWatchAgentSession(watch.id(), outcome.sessionId(), now());
+        store.appendEvent(watch.id(), cycle.id(), Phase.FIX,
+                outcome.committed() ? "agent_committed" : "agent_finished",
+                outcome.detail(), null, now());
+
+        if (!outcome.committed()) {
+            handoff(watch, cycle, null, null, null, outcome.nothing()
+                    ? "The agent judged nothing in this round to be its work: " + outcome.detail()
+                    : outcome.detail());
+            return;
+        }
         try {
-            for (Failure observed : actionable) {
-                Failure failure = observed;
-                Rule rule = failure.ruleId() == null
-                        ? null : store.findRule(failure.ruleId()).orElse(null);
-                Diagnosis proposed;
-                boolean learned = rule == null || rule.status() != RuleStatus.ACTIVE;
-                if (rule != null && rule.binding().startsWith("recipe:")) {
-                    try {
-                        proposed = validatedRecipe(rule);
-                    }
-                    catch (RuntimeException invalidRecipe) {
-                        String reason = "Approved learned recipe is missing or invalid: "
-                                + invalidRecipe.getMessage();
-                        recordEscalation(watch, cycle, failure, reason);
-                        escalatedIds.add(failure.id());
-                        escalationReasons.add(reason);
-                        continue;
-                    }
-                }
-                else {
-                    long spent = store.findWatch(watch.id())
-                            .map(Watch::spentMilliUsd)
-                            .orElse(watch.spentMilliUsd());
-                    long remaining = Math.max(0, watch.budgetMilliUsd() - spent);
-                    if (remaining < 100) {
-                        String reason = "Watch budget is too low for diagnosis";
-                        recordEscalation(watch, cycle, failure, reason);
-                        escalatedIds.add(failure.id());
-                        escalationReasons.add(reason);
-                        continue;
-                    }
-                    List<String> unrelated = unrelatedSignatures(allFailures, failure);
-                    store.updateFailure(failure.id(), failure.bucketLabel(), failure.ruleId(),
-                            FailureStatus.DIAGNOSING, null, null, null, null, now());
-                    DiagnosisOutcome outcome;
-                    try {
-                        outcome = diagnosis.diagnose(
-                                failure, root, probeResult.baseSha(), unrelated, remaining,
-                                watch.workspaceId(), cycle.steeringText());
-                    }
-                    catch (CycleCancelledException cancelled) {
-                        throw cancelled;
-                    }
-                    catch (RuntimeException rejected) {
-                        // A rejected or unusable diagnosis escalates this failure only.
-                        // It must never unwind the batch: fixups already committed in
-                        // this cycle were each independently verified.
-                        String reason = "Diagnosis was rejected: "
-                                + Optional.ofNullable(rejected.getMessage())
-                                        .orElse(rejected.getClass().getSimpleName());
-                        log.info("CI harness cycle {} could not use a diagnosis for {}: {}",
-                                cycle.id(), failure.signature(), reason);
-                        recordEscalation(watch, cycle, failure, reason);
-                        escalatedIds.add(failure.id());
-                        escalationReasons.add(reason);
-                        continue;
-                    }
-                    store.addWatchCost(watch.id(), outcome.costMilliUsd(), now());
-                    store.addCycleCost(cycle.id(), outcome.costMilliUsd(), now());
-                    proposed = outcome.diagnosis();
-                    store.updateFailure(failure.id(), proposed.bucketLabel(), failure.ruleId(),
-                            FailureStatus.PROPOSED, proposed.targetSubject(),
-                            json(proposed), null, null, now());
-                }
-
-                if (proposed.needsHuman() || proposed.confidence() < CONFIDENCE_THRESHOLD) {
-                    String reason = "Diagnosis confidence did not meet the 0.75 application gate: "
-                            + proposed.rationale();
-                    recordEscalation(watch, cycle, failure, reason);
-                    escalatedIds.add(failure.id());
-                    escalationReasons.add(reason);
-                    continue;
-                }
-                if (!isAppOwnedWorktree(watch.localPath())) {
-                    String reason = "Diagnosis is ready, but automatic edits require an app-owned worktree";
-                    recordEscalation(watch, cycle, failure, reason);
-                    escalatedIds.add(failure.id());
-                    escalationReasons.add(reason);
-                    continue;
-                }
-                ensureClean(root);
-                ensureActive(watch, cycle);
-                uncommitted = proposed.binding().startsWith("recipe:")
-                        ? applier.applyRecipe(root, proposed)
-                        : applier.apply(root, proposed);
-                store.updateFailure(failure.id(), proposed.bucketLabel(), failure.ruleId(),
-                        FailureStatus.FIXED, proposed.targetSubject(),
-                        json(proposed), json(uncommitted), null, now());
-                phase(watch, cycle, Phase.VERIFY,
-                        "Running CI-derived verification for " + failure.signature());
-                VerifiedFix verified = verifier.verify(
-                        root, uncommitted, profile, failure.module());
-                uncommitted = verified.fix();
-                VerificationResult verification = verified.verification();
-                store.updateFailure(failure.id(), proposed.bucketLabel(), failure.ruleId(),
-                        verification.passed() ? FailureStatus.VERIFIED : FailureStatus.FAILED,
-                        proposed.targetSubject(), json(proposed), json(uncommitted),
-                        json(verification), now());
-                if (!verification.passed()) {
-                    if (!uncommitted.filesChanged().isEmpty()) {
-                        gitSafety.discardTrackedProposal(root, uncommitted.filesChanged());
-                    }
-                    uncommitted = null;
-                    recordEscalation(watch, cycle, failure, verification.reason());
-                    escalatedIds.add(failure.id());
-                    escalationReasons.add(verification.reason());
-                    continue;
-                }
-                timeline(watch, Phase.VERIFY, "verified",
-                        "CI-derived local verification passed for " + failure.signature(),
-                        probeResult.headSha());
-
-                if (batch == null) {
-                    batch = gitSafety.beginFixupBatch(
-                            root, probeResult.baseSha(), "origin",
-                            requireNonNull(probeResult.branch(), "PR head branch is null"),
-                            () -> store.isCycleActive(watch.id(), cycle.id()),
-                            (backupRef, originalHead) -> {
-                                if (!store.recordCycleBackupIfLive(
-                                        cycle.id(), backupRef, originalHead, now())) {
-                                    throw new CycleCancelledException();
-                                }
-                            });
-                }
-                phase(watch, cycle, Phase.COMMIT,
-                        "Creating a path-scoped fixup for " + proposed.targetSubject());
-                batch.commitFixup(uncommitted.filesChanged(), proposed.targetSubject());
-                uncommitted = null;
-                ensureActive(watch, cycle);
-
-                if (learned) {
-                    long candidateAt = now();
-                    String recipeJson = proposed.binding().startsWith("recipe:")
-                            ? json(proposed) : null;
-                    try {
-                        Rule candidate = store.upsertCandidate(new Rule(
-                                UUID.randomUUID().toString(), watch.workspaceId(), watch.owner(), watch.repo(),
-                                proposed.signaturePattern(), failure.module(), proposed.bucketLabel(),
-                                proposed.binding(), recipeJson, RuleStatus.CANDIDATE, "agent", 100,
-                                json(List.of(failure.id())), 1, candidateAt, candidateAt, null));
-                        candidateIds.add(candidate.id());
-                    }
-                    catch (RuntimeException notLearned) {
-                        // Knowledge-base bookkeeping is not in the commit critical path.
-                        // The fixup above is already verified and committed; failing to
-                        // record what it taught us costs a future shortcut, nothing more.
-                        log.warn("CI harness cycle {} could not record a candidate rule for {}",
-                                cycle.id(), failure.signature(), notLearned);
-                    }
-                }
-                completed++;
-            }
-
-            if (batch == null) {
-                String reason = escalationReasons.isEmpty()
-                        ? "No failure produced a verified local fix"
-                        : String.join("; ", escalationReasons);
-                handoff(watch, cycle,
-                        escalatedIds.isEmpty() ? null : escalatedIds.getFirst(),
-                        null, null, reason);
+            if (git.hasUncommittedChanges(root)) {
+                handoff(watch, cycle, null, null, null,
+                        "The agent reported it was finished but left uncommitted changes");
                 return;
             }
-            phase(watch, cycle, Phase.REBASE,
-                    "Closing the fixup batch — fixups stay as their own commits for review");
-            // Never fold a fixup into a commit the human has not read. The
-            // squash is a reviewed, explicitly-asked-for step.
-            safety = requireNonNull(batch, "verified fixup batch is null")
-                    .finishWithoutSquash();
-            ensureActive(watch, cycle);
+        }
+        catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            throw new IllegalStateException("unable to inspect harness worktree", e);
+        }
+        ensureActive(watch, cycle);
+        pushRound(watch, cycle, probeResult, root, outcome);
+    }
 
-            String proof = json(safety.proof());
-            long cost = store.findCycle(cycle.id()).map(Cycle::costMilliUsd).orElse(0L);
-            String command = handoffCommand(root, probeResult.branch());
-            HandoffDto handoff = new HandoffDto(
-                    escalatedIds.isEmpty()
-                            ? "verified_local_fix" : "verified_local_fix_with_escalations",
-                    escalatedIds.isEmpty() ? null : escalatedIds.getFirst(), command,
-                    completed + " local fixup(s) passed verification and one net-neutral history proof. "
-                            + escalatedIds.size() + " failure(s) need human attention. "
-                            + "The harness did not push.");
-            if (!store.finishHandoff(
-                    cycle.id(), watch.id(), cost, safety.backupRef(), proof,
-                    probeResult.runStatusTail(), json(handoff), now())) {
-                throw new CycleCancelledException();
-            }
-            handoffPersisted = true;
-            store.appendEvent(watch.id(), cycle.id(), Phase.DONE, "handoff_ready",
-                    "Verified local fixups are ready for human push", json(Map.of(
-                            "backupRef", safety.backupRef(),
-                            "candidateRuleIds", candidateIds,
-                            "fixedFailures", completed,
-                            "escalatedFailures", escalatedIds)), now());
-            timeline(watch, Phase.DONE, "handoff",
-                    "Verified fixes are ready for human push", safety.proof().afterHead());
-            service.notifyComplete(store.findWatch(watch.id()).orElse(watch), handoff.detail());
+    /**
+     * The one irreversible step in the loop, so the program owns it rather than
+     * the agent: an explicit named lease against the head CI just ran on, and
+     * only ever the pull request's own branch.
+     */
+    private void pushRound(
+            Watch watch, Cycle cycle, ProbeResult probeResult, Path root,
+            HarnessRepairAgent.Outcome outcome)
+    {
+        String branch = requireNonNull(probeResult.branch(), "PR head branch is null");
+        phase(watch, cycle, Phase.COMMIT, "Publishing the round to " + branch);
+        GitRunner.GitResult push;
+        try {
+            push = git.pushRewrittenBranch(root, branch, probeResult.headSha());
         }
-        catch (RuntimeException failureAfterEdit) {
-            if (!handoffPersisted) {
-                rollbackBatch(root, uncommitted, batch, failureAfterEdit);
+        catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
             }
-            throw failureAfterEdit;
+            throw new IllegalStateException("unable to publish the harness round", e);
         }
+        if (push.exitCode() != 0) {
+            // A refused lease means the branch moved under us — someone else
+            // pushed. Never retry past a lease; that is what it is there for.
+            handoff(watch, cycle, null, null, null,
+                    "Publishing the round was refused: " + push.stderr().strip());
+            return;
+        }
+        long cost = store.findCycle(cycle.id()).map(Cycle::costMilliUsd).orElse(0L);
+        HandoffDto handoff = new HandoffDto(
+                "pushed_waiting_for_ci", null, null,
+                outcome.detail() + " — pushed to " + branch + "; waiting for CI to judge it.");
+        if (!store.finishHandoff(
+                cycle.id(), watch.id(), cost, null, null,
+                probeResult.runStatusTail(), json(handoff), now())) {
+            throw new CycleCancelledException();
+        }
+        store.appendEvent(watch.id(), cycle.id(), Phase.DONE, "pushed",
+                "Pushed the round; waiting for the next CI run", null, now());
+        timeline(watch, Phase.DONE, "pushed",
+                "Pushed the round; waiting for the next CI run", probeResult.headSha());
     }
 
     private void ensureClean(Path root)
@@ -585,54 +458,6 @@ public class HarnessOrchestrator
                 Thread.currentThread().interrupt();
             }
             throw new IllegalStateException("unable to inspect harness worktree", e);
-        }
-    }
-
-    private Diagnosis validatedRecipe(Rule rule)
-    {
-        if (rule.recipeJson() == null || rule.recipeJson().isBlank()) {
-            throw new IllegalStateException("recipe description is missing");
-        }
-        Diagnosis recipe = decode(rule.recipeJson(), Diagnosis.class);
-        if (!rule.binding().equals(recipe.binding())
-                || !rule.matcherPattern().equals(recipe.signaturePattern())
-                || !rule.bucketLabel().equals(recipe.bucketLabel())
-                || recipe.needsHuman()
-                || recipe.confidence() < CONFIDENCE_THRESHOLD
-                || recipe.targetSubject() == null || recipe.targetSubject().isBlank()
-                || recipe.edits() == null
-                || recipe.verifyHint() == null
-                || recipe.edits().size() > 20
-                || (recipe.edits().isEmpty()
-                        && recipe.verifyHint().stream()
-                                .map(HarnessModels::verifyVerb)
-                                .noneMatch("regen"::equals))) {
-            throw new IllegalStateException("recipe description does not match its approved rule");
-        }
-        return recipe;
-    }
-
-    private static void abortBatch(FixupBatch batch)
-    {
-        if (batch != null) {
-            batch.abort();
-        }
-    }
-
-    private void rollbackBatch(
-            Path root, FixResult uncommitted, FixupBatch batch, RuntimeException original)
-    {
-        try {
-            if (uncommitted != null) {
-                if (!uncommitted.filesChanged().isEmpty()) {
-                    gitSafety.discardTrackedProposal(root, uncommitted.filesChanged());
-                }
-            }
-            abortBatch(batch);
-        }
-        catch (RuntimeException cleanupFailure) {
-            cleanupFailure.addSuppressed(original);
-            throw cleanupFailure;
         }
     }
 

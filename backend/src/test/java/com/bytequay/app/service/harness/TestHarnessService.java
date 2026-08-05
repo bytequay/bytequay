@@ -78,7 +78,7 @@ class TestHarnessService
     void createReturnsPendingBeforeBootstrapRunsAndDoesNotStartACycle()
     {
         HarnessDashboard pending = service.create("ws", new HarnessService.CreateWatchCommand(
-                "acme", "widget", 7, null, "/repo/widget", "feature", "PR", null));
+                "acme", "widget", 7, null, "/repo/widget", "feature", "PR", null, null));
 
         assertThat(pending.status()).isEqualTo("bootstrap");
         assertThat(pending.bootstrapStatus()).isEqualTo("pending");
@@ -242,7 +242,7 @@ class TestHarnessService
     {
         return new Watch("watch", "ws", "acme", "widget", 7, null,
                 "/repo/widget", "feature", "PR", WatchStatus.NEEDS_ATTENTION, "sha",
-                "ready", "{}", 10_000, 0, null, 1, 1, null, null);
+                "ready", "{}", 10_000, 0, null, 1, 1, null, null, null);
     }
 
     private static Cycle cycle()
@@ -262,6 +262,6 @@ class TestHarnessService
     {
         return new Watch("watch", "ws", "acme", "widget", 7, null,
                 "/repo/widget", "feature", "PR", WatchStatus.BOOTSTRAP, null,
-                "pending", "{}", 10_000, 0, null, 1, 1, null, null);
+                "pending", "{}", 10_000, 0, null, 1, 1, null, null, null);
     }
 }

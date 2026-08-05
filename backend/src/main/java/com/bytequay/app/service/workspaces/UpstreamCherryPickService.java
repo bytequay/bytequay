@@ -969,7 +969,8 @@ public class UpstreamCherryPickService
                         requireLocalPrId(row, relation),
                         row.resultBranch(),
                         row.worktreePath(),
-                        row.budgetMilliUsd());
+                        row.budgetMilliUsd(),
+                        agentSessionId(id));
                 jdbc.update("""
                         UPDATE upstream_cherry_pick_job
                         SET harness_watch_id = ?, updated_at_ms = ?

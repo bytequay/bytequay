@@ -57,13 +57,27 @@ public class HarnessStore
                     id, workspace_id, owner, repo, pr_number, local_pr_id, local_path,
                     branch, title, status, head_sha, bootstrap_status,
                     bootstrap_profile_json, budget_milli_usd, spent_milli_usd,
-                    handoff_json, created_at_ms, updated_at_ms, last_polled_at_ms, stopped_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    handoff_json, created_at_ms, updated_at_ms, last_polled_at_ms, stopped_at_ms,
+                    agent_session_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, watch.id(), watch.workspaceId(), watch.owner(), watch.repo(), watch.prNumber(),
                 watch.localPrId(), watch.localPath(), watch.branch(), watch.title(), watch.status().wire(),
                 watch.headSha(), watch.bootstrapStatus(), watch.bootstrapProfileJson(),
                 watch.budgetMilliUsd(), watch.spentMilliUsd(), watch.handoffJson(),
-                watch.createdAtMs(), watch.updatedAtMs(), watch.lastPolledAtMs(), watch.stoppedAtMs());
+                watch.createdAtMs(), watch.updatedAtMs(), watch.lastPolledAtMs(), watch.stoppedAtMs(),
+                watch.agentSessionId());
+    }
+
+    /** Carries the run's session forward, so the next round resumes rather than restarts. */
+    public void updateWatchAgentSession(String watchId, String sessionId, long now)
+    {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        jdbc.update("""
+                UPDATE ci_harness_watch SET agent_session_id = ?, updated_at_ms = ?
+                WHERE id = ?
+                """, sessionId, now, watchId);
     }
 
     public Optional<Watch> findWatch(String id)
@@ -641,7 +655,8 @@ public class HarnessStore
             rs.getString("bootstrap_status"), rs.getString("bootstrap_profile_json"),
             rs.getLong("budget_milli_usd"), rs.getLong("spent_milli_usd"),
             rs.getString("handoff_json"), rs.getLong("created_at_ms"), rs.getLong("updated_at_ms"),
-            nullableLong(rs, "last_polled_at_ms"), nullableLong(rs, "stopped_at_ms"));
+            nullableLong(rs, "last_polled_at_ms"), nullableLong(rs, "stopped_at_ms"),
+            rs.getString("agent_session_id"));
 
     private static final RowMapper<Cycle> CYCLE_MAPPER = (rs, rowNum) -> new Cycle(
             rs.getString("id"), rs.getString("watch_id"), rs.getInt("ordinal"),

@@ -371,13 +371,13 @@ class TestHarnessStore
     {
         return new Watch("watch", "ws", "acme", "widget", 7, null,
                 "/tmp/widget", "main", "PR", WatchStatus.WATCHING, "head",
-                "ready", "{}", 10_000, 0, null, 1, 1, null, null);
+                "ready", "{}", 10_000, 0, null, 1, 1, null, null, null);
     }
 
     private static Watch pendingWatch(String id, int prNumber)
     {
         return new Watch(id, "ws", "acme", "widget", prNumber, null,
                 "/tmp/widget", "feature", "PR", WatchStatus.BOOTSTRAP, null,
-                "pending", "{}", 10_000, 0, null, 1, 1, null, null);
+                "pending", "{}", 10_000, 0, null, 1, 1, null, null, null);
     }
 }

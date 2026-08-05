@@ -168,7 +168,9 @@ public final class HarnessModels
             long createdAtMs,
             long updatedAtMs,
             Long lastPolledAtMs,
-            Long stoppedAtMs) {}
+            Long stoppedAtMs,
+            /** The run's one agent session, opened by the picks and resumed every round. */
+            String agentSessionId) {}
 
     public record Cycle(
             String id,

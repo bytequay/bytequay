@@ -54,6 +54,29 @@ it('submits a product issue without consulting watched repositories', async () =
     .toContain('Issue #19 opened in bytequay/bytequay');
 });
 
+it('falls back to GitHub\'s prefilled form when the token cannot file the issue', async () => {
+  const openInAppBrowser = vi.fn();
+  window.bridge = {
+    reportByteQuayIssue: vi.fn(async () => {
+      throw new Error('Resource not accessible by personal access token');
+    }),
+    openInAppBrowser,
+  } as unknown as typeof window.bridge;
+  render(<HelpPage />);
+
+  fireEvent.change(screen.getByLabelText('Short title'), { target: { value: 'Toolbar freezes' } });
+  fireEvent.change(screen.getByLabelText('What happened?'), { target: { value: 'It stops responding.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Submit issue' }));
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Open on GitHub instead ↗' }));
+  await waitFor(() => expect(openInAppBrowser).toHaveBeenCalled());
+  const url = String(openInAppBrowser.mock.calls[0][0]);
+  expect(url).toContain('https://github.com/bytequay/bytequay/issues/new?title=Toolbar%20freezes');
+  expect(url).toContain('It%20stops%20responding.');
+  // the draft survives the failure so the fallback has something to carry
+  expect((screen.getByLabelText('Short title') as HTMLInputElement).value).toBe('Toolbar freezes');
+});
+
 it('captures pasted screenshots and never silently drops them on submit', async () => {
   const reportByteQuayIssue = vi.fn();
   window.bridge = {

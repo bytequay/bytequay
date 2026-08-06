@@ -17,11 +17,11 @@ import {
   LocalBuildIcon, ParkIcon, PauseIcon, PlayIcon, PullRequestIcon,
   SendIcon, ShieldIcon, SkipIcon,
 } from './WorkspaceSyncIcons';
-import WorkspaceSyncRunLog from './WorkspaceSyncRunLog';
+import WorkspaceSyncRunLog, { TranscriptTool } from './WorkspaceSyncRunLog';
 import WorkspaceSyncRunQueue from './WorkspaceSyncRunQueue';
 import {
   elapsedLabel, isClosedSync, isLiveSync, money, syncNowLine, syncPhase, syncQueue,
-  transcriptEntries, worktreeLabel, type TranscriptEntry,
+  sessionTranscriptPath, transcriptEntries, worktreeLabel, type TranscriptEntry,
 } from './syncRunModel';
 import { workspaceApi, type UpstreamCherryPickRunDto } from './workspaceApi';
 
@@ -136,6 +136,7 @@ export default function WorkspaceSyncRunPage({
   // run started with keeps the step proportional to what the user chose.
   const outOfBudget = parked && job.spentMilliUsd >= job.budgetMilliUsd;
   const budgetStep = Math.max(100, job.budgetMilliUsd);
+  const transcriptPath = sessionTranscriptPath(job.worktreePath, job.agentSessionId);
 
   return (
     <div className="sr-page">
@@ -190,6 +191,22 @@ export default function WorkspaceSyncRunPage({
           )}
         </header>
 
+        {job.agentSessionId !== null && (
+          // The session the whole run shares. `claude --resume` continues a
+          // conversation rather than attaching to a live one, so the way to
+          // watch from a terminal is to tail the session's own transcript.
+          <div className="sr-session">
+            <span>AGENT SESSION</span>
+            <code title={job.agentSessionId}>{job.agentSessionId}</code>
+            {transcriptPath !== null && (
+              <button type="button" className="sr-session__copy"
+                onClick={() => { void navigator.clipboard.writeText(`tail -f ${transcriptPath}`); }}>
+                Copy tail command
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="sr-body">
           <div className="sr-stream">
             <div className={`sr-now${parked || failed || closed ? ' is-parked' : ''}`}>
@@ -225,11 +242,7 @@ export default function WorkspaceSyncRunPage({
                       return <p key={index} className="sr-transcript__say">{entry.text}</p>;
                     }
                     if (entry.kind === 'tool') {
-                      return (
-                        <div key={index} className="sr-transcript__tool">
-                          <b>{entry.name}</b><code>{entry.summary}</code>
-                        </div>
-                      );
+                      return <TranscriptTool key={index} entry={entry} />;
                     }
                     return (
                       <p key={index}

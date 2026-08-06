@@ -34,7 +34,7 @@ export function syncRun(): UpstreamCherryPickRunDto {
       pauseRequested: false,
       budgetMilliUsd: 5_000,
       spentMilliUsd: 240,
-      localGateUnavailable: false,
+      localGateUnavailable: false, agentSessionId: null,
       conflictPaths: [],
       worktreePath: '/repos/trino.bytequay-worktrees/upstream-cherry-pick/job-1',
       prNumber: null,

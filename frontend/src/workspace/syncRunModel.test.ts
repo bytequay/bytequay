@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   durationLabel, syncLogGroups, syncNowLine, syncPhase, syncQueue, worktreeLabel,
   parseTranscript,
+  sessionTranscriptPath,
 } from './syncRunModel';
 import type {
   UpstreamCherryPickCommitDto,
@@ -26,7 +27,7 @@ const job: UpstreamCherryPickJobDto = {
   jobId: 'job-1', status: 'RUNNING', sourceBranch: 'master',
   resultBranch: 'trino-2-31', baseRef: 'b'.repeat(40), requestedCount: 5,
   appliedCount: 2, skippedCount: 1, conflictedCount: 1, pauseRequested: false,
-  budgetMilliUsd: 5_000, spentMilliUsd: 0, localGateUnavailable: false, conflictPaths: [], worktreePath: '/repos/fork.bytequay-worktrees/upstream-cherry-pick/job-1',
+  budgetMilliUsd: 5_000, spentMilliUsd: 0, localGateUnavailable: false, agentSessionId: null, conflictPaths: [], worktreePath: '/repos/fork.bytequay-worktrees/upstream-cherry-pick/job-1',
   prNumber: null, prUrl: null, harnessWatchId: null, errorMessage: null,
   closedAt: null,
   createdAt: '2026-08-05T09:00:00Z', updatedAt: '2026-08-05T09:30:00Z',
@@ -127,7 +128,12 @@ describe('agent transcript', () => {
 
     expect(parseTranscript(raw)).toEqual([
       { kind: 'say', text: 'Now validate the pom parses and resolves.' },
-      { kind: 'tool', name: 'Bash', summary: 'cd /w && ./mvnw -pl core install' },
+      // The cd-into-the-worktree prefix is stripped: it is ~120 characters of
+      // app data path on every single row, and it is never the interesting part.
+      {
+        kind: 'tool', name: 'Bash', summary: './mvnw -pl core install',
+        full: 'cd /w && ./mvnw -pl core install',
+      },
       { kind: 'result', failed: false, costUsdMilli: 567, turns: 15 },
     ]);
   });
@@ -140,7 +146,9 @@ describe('agent transcript', () => {
 
     const [entry] = parseTranscript(raw);
 
-    expect(entry).toEqual({ kind: 'tool', name: 'Write', summary: 'pom.xml' });
+    expect(entry).toEqual({
+      kind: 'tool', name: 'Write', summary: 'pom.xml', full: 'pom.xml',
+    });
   });
 
   it('survives the truncated tail of a capped transcript', () => {
@@ -157,5 +165,19 @@ describe('agent transcript', () => {
   it('is empty rather than throwing when there is nothing to read', () => {
     expect(parseTranscript(null)).toEqual([]);
     expect(parseTranscript('   ')).toEqual([]);
+  });
+});
+
+describe('session transcript path', () => {
+  it('derives where Claude Code keeps this session on disk', () => {
+    // `--resume` continues a conversation rather than attaching to a running
+    // one, so tailing this file is the only way to watch from a terminal.
+    expect(sessionTranscriptPath('/Users/j/Library/App Support/w.bytequay-worktrees/x', 'abc-123'))
+      .toBe('~/.claude/projects/-Users-j-Library-App Support-w-bytequay-worktrees-x/abc-123.jsonl');
+  });
+
+  it('has nothing to offer before the first turn opens a session', () => {
+    expect(sessionTranscriptPath('/tmp/w', null)).toBeNull();
+    expect(sessionTranscriptPath(null, 'abc-123')).toBeNull();
   });
 });

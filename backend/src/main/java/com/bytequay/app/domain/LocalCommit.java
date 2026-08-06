@@ -16,11 +16,13 @@ package com.bytequay.app.domain;
 import java.time.Instant;
 
 /**
- * One commit on the Commits tab. Authored timestamp is preferred over
- * committed because rebases and amends update committer date but
- * preserve authorship — author is what the user thinks of as "when I
- * wrote this." Body and parent shas are deferred to a Commit details
- * drill-in slice.
+ * One commit on the Commits tab. Both timestamps are carried because
+ * they answer different questions: {@code authoredAt} is when the patch
+ * was written, preserved across rebases and amends, and
+ * {@code committedAt} is when it landed on this branch. A history list
+ * shows the latter — matching github.com — since a maintainer rebasing
+ * a contribution lands it today under an author date from days ago.
+ * Body and parent shas are deferred to a Commit details drill-in slice.
  */
 public record LocalCommit(
         String sha,
@@ -28,4 +30,5 @@ public record LocalCommit(
         String subject,
         String authorName,
         String authorEmail,
-        Instant authoredAt) {}
+        Instant authoredAt,
+        Instant committedAt) {}

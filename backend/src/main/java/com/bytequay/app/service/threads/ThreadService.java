@@ -1461,8 +1461,10 @@ public class ThreadService
         String shortSha = sha.length() >= 7 ? sha.substring(0, 7) : sha;
         String subject = c.message() == null ? "" : c.message().split("\n", 2)[0];
         String authoredAt = c.authoredAt() == null ? null : c.authoredAt().toString();
+        String committedAt = c.committedAt() == null ? authoredAt : c.committedAt().toString();
         String author = c.authorName() != null ? c.authorName() : c.authorLogin();
-        return new GitRunner.CommitEntry(sha, shortSha, author, null, authoredAt, subject);
+        return new GitRunner.CommitEntry(
+                sha, shortSha, author, null, authoredAt, committedAt, subject);
     }
 
     private static List<String> splitLines(String text)

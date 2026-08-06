@@ -266,6 +266,7 @@ class TestWorkspaceCherryPickService
                 "Agent",
                 "agent@example.test",
                 "2026-07-17T00:00:00Z",
+                "2026-07-17T00:00:00Z",
                 "Commit " + sha);
     }
 }

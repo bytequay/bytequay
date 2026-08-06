@@ -140,7 +140,9 @@ class TestReviewPassResolver
         when(reviewStore.listFindingsForPass("pass-1")).thenReturn(List.of(
                 finding("f1", ReviewFindingStatus.AGREED)));
         when(git.listCommits(any(), eq("build-branch"), anyInt())).thenReturn(List.of(
-                new GitRunner.CommitEntry("sha", "sh", "me", "me@x", "2026", "Address #finding-f1 per @claude")));
+                new GitRunner.CommitEntry(
+                        "sha", "sh", "me", "me@x", "2026", "2026",
+                        "Address #finding-f1 per @claude")));
 
         int flipped = resolver.onPublishApproved("bt", "ship_task", null);
 

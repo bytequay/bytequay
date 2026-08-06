@@ -62,6 +62,16 @@ public class GitRunner
     private static final String NUL_SEP = String.valueOf((char) 0);
     private static final String US_SEP = String.valueOf((char) 0x1F);
     private static final String RS_SEP = String.valueOf((char) 0x1E);
+    /**
+     * The {@link CommitEntry} projection: %H full sha, %h abbreviated,
+     * %an/%ae author, %aI authored and %cI committed timestamps (both
+     * ISO-8601 strict), %s subject. Bodies are fetched separately by the
+     * callers that need them.
+     */
+    private static final String COMMIT_ENTRY_FORMAT =
+            "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP + "%ae"
+                    + US_SEP + "%aI" + US_SEP + "%cI" + US_SEP + "%s";
+    private static final int COMMIT_ENTRY_FIELDS = 7;
 
     /**
      * Returns true iff `git --version` succeeded — used as a startup
@@ -2137,49 +2147,59 @@ public class GitRunner
         if (limit <= 0) {
             return List.of();
         }
-        // %H full sha, %h abbreviated, %an/%ae author, %aI ISO-8601
-        // strict authored timestamp, %s subject. Body deferred until
-        // a "Commit details" drill-in lands.
-        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
-                + "%ae" + US_SEP + "%aI" + US_SEP + "%s";
         List<String> args = new ArrayList<>(List.of(
                 "git", "log",
                 "--max-count=" + limit,
                 "--skip=" + Math.max(skip, 0),
                 "-z",
-                "--pretty=format:" + fmt));
+                "--pretty=format:" + COMMIT_ENTRY_FORMAT));
         if (revision != null && !revision.isBlank()) {
             args.add(revision);
         }
         GitResult result = run(args, workingDir);
         result.requireSuccess();
-        String stdout = result.stdout();
+        return parseCommitEntries(result.stdout());
+    }
+
+    /** Splits {@link #COMMIT_ENTRY_FORMAT} output. {@code -z} emits records
+     *  separated by a single NUL with no trailing NUL on the final one. */
+    private static List<CommitEntry> parseCommitEntries(String stdout)
+    {
         if (stdout.isEmpty()) {
             return List.of();
         }
         List<CommitEntry> entries = new ArrayList<>();
-        // -z emits records separated by a single NUL with no trailing
-        // NUL on the final record.
         for (String record : stdout.split(NUL_SEP, -1)) {
             if (record.isEmpty()) {
                 continue;
             }
             String[] parts = record.split(US_SEP, -1);
-            if (parts.length < 6) {
+            if (parts.length < COMMIT_ENTRY_FIELDS) {
                 continue;
             }
             entries.add(new CommitEntry(
-                    parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]));
+                    parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]));
         }
         return List.copyOf(entries);
     }
 
+    /**
+     * @param authoredAt when the patch was written. Preserved verbatim
+     *        across a rebase or amend, so this is what a rewrite proof
+     *        compares to prove it changed nothing.
+     * @param committedAt when the commit landed on this branch. What a
+     *        history LIST should show — github.com's commit list reads the
+     *        same field — because a maintainer rebasing a contribution
+     *        gives it a commit that landed today and an author date from
+     *        whenever the contributor first wrote it, often days earlier.
+     */
     public record CommitEntry(
             String sha,
             String shortSha,
             String authorName,
             String authorEmail,
             String authoredAt,
+            String committedAt,
             String subject) {}
 
     /**
@@ -2269,33 +2289,15 @@ public class GitRunner
             return List.of();
         }
         requireNonNull(since, "since is null");
-        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
-                + "%ae" + US_SEP + "%aI" + US_SEP + "%s";
         List<String> args = new ArrayList<>(List.of(
                 "git", "log",
                 "--max-count=" + limit,
                 "--since=" + since.toString(),
                 "-z",
-                "--pretty=format:" + fmt));
+                "--pretty=format:" + COMMIT_ENTRY_FORMAT));
         GitResult result = run(args, workingDir);
         result.requireSuccess();
-        String stdout = result.stdout();
-        if (stdout.isEmpty()) {
-            return List.of();
-        }
-        List<CommitEntry> entries = new ArrayList<>();
-        for (String record : stdout.split(NUL_SEP, -1)) {
-            if (record.isEmpty()) {
-                continue;
-            }
-            String[] parts = record.split(US_SEP, -1);
-            if (parts.length < 6) {
-                continue;
-            }
-            entries.add(new CommitEntry(
-                    parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]));
-        }
-        return List.copyOf(entries);
+        return parseCommitEntries(result.stdout());
     }
 
     /**
@@ -2315,37 +2317,19 @@ public class GitRunner
         if (limit <= 0 || base == null || base.isBlank()) {
             return List.of();
         }
-        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
-                + "%ae" + US_SEP + "%aI" + US_SEP + "%s";
         List<String> args = new ArrayList<>(List.of(
                 "git", "log",
                 "--max-count=" + limit,
                 base.trim() + "..HEAD",
                 "-z",
-                "--pretty=format:" + fmt));
+                "--pretty=format:" + COMMIT_ENTRY_FORMAT));
         GitResult result = run(args, workingDir);
         if (result.exitCode() != 0) {
             // An unresolvable base (deleted ref, detached state) shouldn't
             // 500 the Commits panel — just show nothing task-specific.
             return List.of();
         }
-        String stdout = result.stdout();
-        if (stdout.isEmpty()) {
-            return List.of();
-        }
-        List<CommitEntry> entries = new ArrayList<>();
-        for (String record : stdout.split(NUL_SEP, -1)) {
-            if (record.isEmpty()) {
-                continue;
-            }
-            String[] parts = record.split(US_SEP, -1);
-            if (parts.length < 6) {
-                continue;
-            }
-            entries.add(new CommitEntry(
-                    parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]));
-        }
-        return List.copyOf(entries);
+        return parseCommitEntries(result.stdout());
     }
 
     /**

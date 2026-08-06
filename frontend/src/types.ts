@@ -1618,9 +1618,14 @@ export type LocalCommitDto = {
   authorName: string;
   authorEmail: string;
   /** ISO 8601 strict authored timestamp, or null when git couldn't
-   *  parse it. Author (not committer) so rebases/amends preserve
-   *  the time the user thinks of as "when I wrote this." */
+   *  parse it. Preserved across rebases and amends — the time the user
+   *  thinks of as "when I wrote this." */
   authoredAt: string | null;
+  /** ISO 8601 strict committed timestamp — when the commit landed on
+   *  this branch. What a history LIST shows, matching github.com: a
+   *  maintainer rebasing a contribution lands it now under an author
+   *  date from whenever it was first written. */
+  committedAt: string | null;
   /** Workspace façade enrichment. Legacy local-repo responses omit these. */
   ciStatus?: 'passed' | 'failed' | 'unknown';
   agentOwned?: boolean;

@@ -65,7 +65,8 @@ class TestHarnessDiagnosisService
         when(git.listCommits(root, BASE + "..HEAD", 1_000)).thenReturn(List.of(
                 new GitRunner.CommitEntry(
                         "1234567890123456789012345678901234567890", "1234567",
-                        "Dev", "dev@example.com", "2026-07-24", "Update plan")));
+                        "Dev", "dev@example.com", "2026-07-24", "2026-07-24",
+                        "Update plan")));
     }
 
     @Test

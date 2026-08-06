@@ -1085,6 +1085,9 @@ public class LocalRepoService
             String authorName,
             String authorEmail,
             Instant authoredAt,
+            /** When the commit landed here — what the list shows. See
+             *  {@link LocalCommit} for why it isn't the author date. */
+            Instant committedAt,
             int additions,
             int deletions,
             /** False for anything the tracking ref already contains — the
@@ -1156,6 +1159,7 @@ public class LocalRepoService
                             entry.authorName(),
                             entry.authorEmail(),
                             parseIsoOrNull(entry.authoredAt()),
+                            parseIsoOrNull(entry.committedAt()),
                             line.additions(),
                             line.deletions(),
                             !unpushed.contains(entry.sha()));
@@ -1277,7 +1281,8 @@ public class LocalRepoService
                 e.subject(),
                 e.authorName(),
                 e.authorEmail(),
-                parseIsoOrNull(e.authoredAt()));
+                parseIsoOrNull(e.authoredAt()),
+                parseIsoOrNull(e.committedAt()));
     }
 
     /**

@@ -33,6 +33,10 @@ export type EditableCommit = {
    *  commit reliably names the account behind it — see githubHandle. */
   authorEmail: string;
   authoredAt: string | null;
+  /** When the commit landed on this branch. The list is dated by this,
+   *  not by authoredAt — a rebased contribution keeps an author date
+   *  from days before it was pushed here. */
+  committedAt: string | null;
   additions: number;
   deletions: number;
   /** The remote already has this commit — rewriting it needs a force push. */
@@ -63,6 +67,7 @@ export function toEditable(dto: RewritableCommitDto): EditableCommit {
     authorName: dto.authorName,
     authorEmail: dto.authorEmail,
     authoredAt: dto.authoredAt,
+    committedAt: dto.committedAt,
     additions: dto.additions,
     deletions: dto.deletions,
     pushed: dto.pushed,
@@ -167,6 +172,7 @@ export function squashCommits(
     authorName: anchor.authorName,
     authorEmail: anchor.authorEmail,
     authoredAt: anchor.authoredAt,
+    committedAt: anchor.committedAt,
     additions: parts.reduce((n, c) => n + c.additions, 0),
     deletions: parts.reduce((n, c) => n + c.deletions, 0),
     pushed: parts.some(c => c.pushed),

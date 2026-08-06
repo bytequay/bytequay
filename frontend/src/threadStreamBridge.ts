@@ -32,7 +32,7 @@ type Subscription = {
 };
 
 const subscriptions = new Map<string, Subscription>();
-type StreamTarget = { scope: 'thread' | 'stage' | 'sync'; id: string };
+type StreamTarget = { scope: 'thread' | 'stage' | 'sync' | 'harness'; id: string };
 
 function targetKey(target: StreamTarget): string {
   return `${target.scope}:${target.id}`;
@@ -76,7 +76,8 @@ export function registerTaskStreamIpc(getMainWindow: () => BrowserWindow | null)
 
 function requireTarget(value: unknown): StreamTarget {
   const target = value as Partial<StreamTarget> | null;
-  if ((target?.scope !== 'thread' && target?.scope !== 'stage' && target?.scope !== 'sync')
+  if ((target?.scope !== 'thread' && target?.scope !== 'stage' && target?.scope !== 'sync'
+      && target?.scope !== 'harness')
       || typeof target.id !== 'string' || target.id.trim().length === 0) {
     throw new Error('stream target must contain a valid scope and id');
   }
@@ -90,7 +91,9 @@ async function runStream(
 ): Promise<void> {
   const resource = target.scope === 'thread' ? 'threads'
     : target.scope === 'stage' ? 'stages'
-    // A sync run streams its agent's raw JSONL, one line per event.
+    // Phase 2's turns run under the watch, phase 1's under the job; both
+    // stream the agent's raw JSONL, one line per event.
+    : target.scope === 'harness' ? 'ci-harness/watches'
     : 'upstream-cherry-picks';
   const url = `${BACKEND_BASE}/api/${resource}/${encodeURIComponent(target.id)}/stream`;
   let reason = 'closed';

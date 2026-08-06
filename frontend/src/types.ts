@@ -4409,6 +4409,12 @@ export type Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => () => void;
+  /** The same, for phase 2 — its turns run under the harness watch. */
+  subscribeHarnessStream: (
+    watchId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => () => void;
 
   // ── Brain agent (per-task read-only conversational surface) ──────
   /** Full brain-view payload for a task: aggregate strip, stages,

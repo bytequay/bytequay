@@ -120,8 +120,9 @@ export default function WorkspaceSyncRunPage({
     return () => window.clearInterval(timer);
   }, [moving, live, load]);
 
-  // What phase 2 is doing. Its own cadence is a cycle every 90 seconds, so this
-  // is deliberately slower than the run poll — the status word is all it feeds.
+  // What phase 2 is doing. Its own cadence is a cycle every five minutes, so
+  // this is deliberately slower than the run poll — the status word is all it
+  // feeds, and the live stream carries anything happening between cycles.
   useEffect(() => {
     if (watchId === null) {
       setHarness(null);
@@ -143,10 +144,7 @@ export default function WorkspaceSyncRunPage({
   // The turn in flight. The run log only gains a line when a turn ends, so
   // without this a pick that compiles for minutes looks like a stalled run.
   useEffect(() => {
-    if (!live) {
-      setAgentLive([]);
-      return undefined;
-    }
+    if (!live) return undefined;
     return window.bridge.subscribeSyncRunStream(jobId, event => {
       const entries = transcriptEntries(event.data);
       if (entries.length === 0) return;
@@ -159,6 +157,26 @@ export default function WorkspaceSyncRunPage({
       setAgentLive(current => [...current, ...entries].slice(-MAX_LIVE_ENTRIES));
     });
   }, [live, jobId]);
+
+  // The same, for a harness round. Its turns are the ones a reader has had no
+  // way to watch: the round used to say "handing over" and then nothing.
+  useEffect(() => {
+    if (watchId === null) return undefined;
+    return window.bridge.subscribeHarnessStream(watchId, event => {
+      const entries = transcriptEntries(event.data);
+      if (entries.length === 0) return;
+      if (entries.some(entry => entry.kind === 'result')) {
+        setAgentLive([]);
+        return;
+      }
+      setAgentLive(current => [...current, ...entries].slice(-MAX_LIVE_ENTRIES));
+    });
+  }, [watchId]);
+
+  // Nothing is running under either key, so the panel has nothing to show.
+  useEffect(() => {
+    if (!live && watchId === null) setAgentLive([]);
+  }, [live, watchId]);
 
   // Follow the log only while the reader is already at the end, so scrolling
   // back through a three-hour run is not yanked forward by the next command.
@@ -301,7 +319,8 @@ export default function WorkspaceSyncRunPage({
                 atBottomRef.current = element.scrollHeight - element.scrollTop
                   - element.clientHeight < 40;
               }}>
-              <WorkspaceSyncRunLog events={run.events} commits={run.commits} />
+              <WorkspaceSyncRunLog events={run.events} commits={run.commits}
+                harness={harness?.milestones} />
               {agentLive.length > 0 && (
                 // The turn in flight. Without this a pick that compiles for
                 // minutes reads as a stalled run — the log's next line only
@@ -366,7 +385,11 @@ export default function WorkspaceSyncRunPage({
                   const text = guidance.trim();
                   if (text.length === 0) return;
                   setGuidance('');
-                  act(() => workspaceApi.guideUpstreamCherryPick(workspaceId, jobId, text)
+                  // Phase 2's agent takes steering through its own round; the
+                  // job's guidance field is only read while the picks run.
+                  act(() => (watchId === null
+                    ? workspaceApi.guideUpstreamCherryPick(workspaceId, jobId, text)
+                    : workspaceApi.runHarnessWatch(workspaceId, watchId, true, text))
                     .catch(reason => {
                       setGuidance(text);
                       throw reason;

@@ -150,4 +150,46 @@ describe('WorkspaceCommitsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Manage relation' }));
     expect(window.location.hash).toBe('#/workspace/fork/settings/relations');
   });
+
+  it('never appends the same upstream commit twice while paging', async () => {
+    // The in-flight guard used to be state, so every closure created before the
+    // re-render still saw "not paging" and fired again for the same offset.
+    // A repeated sha collides on React's key and points the range selection at
+    // two different rows.
+    const rows = Array.from({ length: 3 }, (_, index) => ({
+      sha: `${index}`.repeat(40), shortSha: `${index}`.repeat(7), subject: `Commit ${index}`,
+      authorName: 'Dain', authorEmail: 'd@example.com',
+      committedAt: '2026-08-01T00:00:00Z', tags: [] as string[], picked: false,
+    }));
+    const workspaceApi = installBridge(linked);
+    workspaceApi.mockImplementation(async (request: WorkspaceApiRequest): Promise<unknown> => {
+      if (request.path === '/api/workspaces/fork/relation') return linked;
+      if (request.path === '/api/workspaces/fork/relation/branches') return ['master'];
+      if (request.path.startsWith('/api/workspaces/fork/branches')) {
+        return [{ name: 'master', remoteOnly: false }];
+      }
+      if (request.path.startsWith('/api/workspaces/fork/upstream/commits')) {
+        // A backend that answers the same rows for a second page must not be
+        // able to double the list.
+        return {
+          upstreamWorkspaceId: 'upstream', upstreamWorkspaceName: 'Trino',
+          upstreamRepoFullName: 'trinodb/trino', revision: 'master', lastFetchedAt: null,
+          indexedCommitCount: 3, notInForkCount: 3, commits: rows, offset: 0, hasMore: true,
+        };
+      }
+      if (request.path.startsWith('/api/workspaces/fork/commits')) return [];
+      return null;
+    });
+
+    render(<WorkspaceCommitsPage workspaceId="fork" repo={repo} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /Trino/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /Trino/i }));
+    await waitFor(() => expect(screen.getByText('Commit 1')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more commits' }));
+    await waitFor(() => expect(workspaceApi.mock.calls.some(([request]) =>
+      (request as WorkspaceApiRequest).path.includes('offset=3'))).toBe(true));
+
+    expect(screen.getAllByText('Commit 1')).toHaveLength(1);
+  });
 });

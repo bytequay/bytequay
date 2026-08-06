@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   workspaceApi,
   type UpstreamCommitsDto,
@@ -86,6 +86,7 @@ export default function WorkspaceCommitsPage({
   const [upstreamWorkspaceBranches, setUpstreamWorkspaceBranches] = useState<string[]>([]);
   const [upstreamLoading, setUpstreamLoading] = useState(false);
   const [upstreamPaging, setUpstreamPaging] = useState(false);
+  const pagingRef = useRef(false);
   const [upstreamRange, setUpstreamRange] = useState<[number, number] | null>(null);
   const [rangeExpanded, setRangeExpanded] = useState(false);
   const [upstreamCherryOpen, setUpstreamCherryOpen] = useState(false);
@@ -158,18 +159,32 @@ export default function WorkspaceCommitsPage({
    * user's selection onto different commits.
    */
   const loadMoreUpstream = useCallback(() => {
-    if (upstream === null || !upstream.hasMore || upstreamPaging) return;
+    // The guard is a ref, not state: scroll fires many times per tick, and a
+    // state flag is still false in every closure created before the re-render,
+    // so several requests went out for the same offset and appended the same
+    // rows more than once.
+    if (upstream === null || !upstream.hasMore || pagingRef.current) return;
+    pagingRef.current = true;
     setUpstreamPaging(true);
     void workspaceApi.upstreamCommits(
       workspaceId, upstreamRevision ?? undefined, 200, upstream.commits.length,
     )
-      .then(next => setUpstream(current => (current === null ? next : {
-        ...next,
-        commits: [...current.commits, ...next.commits],
-      })))
+      .then(next => setUpstream(current => {
+        if (current === null) return next;
+        // Belt and braces: a repeated sha would collide on React's key and
+        // leave the range selection pointing at two different rows.
+        const seen = new Set(current.commits.map(commit => commit.sha));
+        return {
+          ...next,
+          commits: [...current.commits, ...next.commits.filter(c => !seen.has(c.sha))],
+        };
+      }))
       .catch(reason => setError(message(reason)))
-      .finally(() => setUpstreamPaging(false));
-  }, [upstream, upstreamPaging, upstreamRevision, workspaceId]);
+      .finally(() => {
+        pagingRef.current = false;
+        setUpstreamPaging(false);
+      });
+  }, [upstream, upstreamRevision, workspaceId]);
 
   // Every branch the upstream clone carries, so a release line can be read
   // and cherry-picked from — not just whatever it happens to have checked out.

@@ -17,7 +17,6 @@ import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.service.harness.GitHubActionsProbe.FailedJob;
 import com.bytequay.app.service.harness.GitHubActionsProbe.ProbeResult;
-import com.bytequay.app.service.harness.HarnessClassifier.Classification;
 import com.bytequay.app.service.harness.HarnessLogParser.ParsedFailure;
 import com.bytequay.app.service.harness.HarnessModels.BootstrapProfile;
 import com.bytequay.app.service.harness.HarnessModels.Bucket;
@@ -27,7 +26,6 @@ import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
 import com.bytequay.app.service.harness.HarnessModels.HandoffDto;
 import com.bytequay.app.service.harness.HarnessModels.Phase;
-import com.bytequay.app.service.harness.HarnessModels.Rule;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
@@ -73,7 +71,6 @@ public class HarnessOrchestrator
     private final HarnessService service;
     private final GitHubActionsProbe probe;
     private final HarnessLogParser parser;
-    private final HarnessClassifier classifier;
     private final HarnessRepairAgent agent;
     private final WorkspaceKnowledgeService knowledge;
     private final HarnessGitSafety gitSafety;
@@ -89,7 +86,6 @@ public class HarnessOrchestrator
             HarnessService service,
             GitHubActionsProbe probe,
             HarnessLogParser parser,
-            HarnessClassifier classifier,
             HarnessRepairAgent agent,
             WorkspaceKnowledgeService knowledge,
             HarnessGitSafety gitSafety,
@@ -103,7 +99,6 @@ public class HarnessOrchestrator
         this.service = requireNonNull(service, "service is null");
         this.probe = requireNonNull(probe, "probe is null");
         this.parser = requireNonNull(parser, "parser is null");
-        this.classifier = requireNonNull(classifier, "classifier is null");
         this.agent = requireNonNull(agent, "agent is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
         this.gitSafety = requireNonNull(gitSafety, "gitSafety is null");
@@ -269,8 +264,8 @@ public class HarnessOrchestrator
 
             phase(watch, cycle, Phase.PARSE, "Parsing failed job logs into stable fingerprints");
             List<Failure> failures = persistFailures(cycle, result, profile);
-            phase(watch, cycle, Phase.CLASSIFY, "Classifying failures against approved rules");
-            List<Failure> actionable = classify(watch, failures);
+            phase(watch, cycle, Phase.CLASSIFY, "Setting aside infrastructure and duplicates");
+            List<Failure> actionable = triage(failures);
             if (actionable.isEmpty()) {
                 handoff(watch, cycle, null, null, null,
                         "All observed failures were deferred or need human classification");
@@ -305,47 +300,31 @@ public class HarnessOrchestrator
         return List.copyOf(failures);
     }
 
-    private List<Failure> classify(Watch watch, List<Failure> failures)
+    /**
+     * Deferral and de-duplication, which is all that is left of triage: an
+     * infrastructure job is not the agent's to fix, and matrix jobs report one
+     * root failure many times over. Everything else goes to the agent as it is —
+     * there is no rule table to match against and no bucket to route on, because
+     * reading the log is the agent's job now.
+     */
+    private List<Failure> triage(List<Failure> failures)
     {
         if (failures.isEmpty()) {
             return List.of();
         }
-        List<String> actionableIds = new ArrayList<>();
-        Set<String> actionableSignatures = new HashSet<>();
+        List<Failure> actionable = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (Failure failure : failures) {
-            if (failure.bucket() == Bucket.INFRA) {
-                store.updateFailure(failure.id(), failure.bucketLabel(), null,
-                        FailureStatus.DEFERRED, null, null, null, null, now());
-                continue;
-            }
-            // The classifier is a hint now, not a route: its bucket rides along
-            // in the agent's prompt and the agent decides what is worth its time,
-            // including what is infrastructure or a flake.
-            Classification result = classifier.classify(
-                    watch.workspaceId(), watch.owner(), watch.repo(), failure.module(),
-                    failure.signature(), failure.logExcerpt(), now());
-            Rule rule = result.rule();
-            FailureStatus status = FailureStatus.OBSERVED;
-            String bucketLabel = rule == null ? result.bucket().wire() : rule.bucketLabel();
-            if (!actionableSignatures.add(signatureKey(failure.signature()))) {
-                // Matrix jobs frequently report the same root failure. Keep
-                // every observed row, but execute the signature only once.
-                status = FailureStatus.DEFERRED;
-            }
-            store.updateFailure(failure.id(), bucketLabel, rule == null ? null : rule.id(),
-                    status, null, null, null, null, now());
-            if (status != FailureStatus.DEFERRED) {
-                actionableIds.add(failure.id());
+            boolean deferred = failure.bucket() == Bucket.INFRA
+                    || !seen.add(signatureKey(failure.signature()));
+            store.updateFailure(failure.id(), failure.bucketLabel(), null,
+                    deferred ? FailureStatus.DEFERRED : FailureStatus.OBSERVED,
+                    null, null, null, null, now());
+            if (!deferred) {
+                actionable.add(failure);
             }
         }
-        List<Failure> persisted = store.listFailuresForCycle(failures.getFirst().cycleId());
-        return failures.stream()
-                .filter(failure -> actionableIds.contains(failure.id()))
-                .map(failure -> persisted.stream()
-                        .filter(value -> value.id().equals(failure.id()))
-                        .findFirst()
-                        .orElse(failure))
-                .toList();
+        return List.copyOf(actionable);
     }
 
     /**

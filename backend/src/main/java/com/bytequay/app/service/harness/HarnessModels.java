@@ -136,18 +136,6 @@ public final class HarnessModels
         }
     }
 
-    public enum RuleStatus
-    {
-        CANDIDATE,
-        ACTIVE,
-        RETIRED;
-
-        public String wire()
-        {
-            return name().toLowerCase(Locale.ROOT);
-        }
-    }
-
     public record Watch(
             String id,
             String workspaceId,
@@ -214,37 +202,6 @@ public final class HarnessModels
             long updatedAtMs)
     {
         public Failure
-        {
-            bucketLabel = normalizeBucketLabel(bucketLabel);
-        }
-
-        @JsonIgnore
-        public Bucket bucket()
-        {
-            return baseBucket(bucketLabel);
-        }
-    }
-
-    public record Rule(
-            String id,
-            String workspaceId,
-            String owner,
-            String repo,
-            String matcherPattern,
-            String scope,
-            String bucketLabel,
-            String binding,
-            String recipeJson,
-            RuleStatus status,
-            String origin,
-            int priority,
-            String evidenceJson,
-            int hits,
-            long createdAtMs,
-            long updatedAtMs,
-            Long approvedAtMs)
-    {
-        public Rule
         {
             bucketLabel = normalizeBucketLabel(bucketLabel);
         }
@@ -406,8 +363,6 @@ public final class HarnessModels
 
     public record StatsDto(
             Map<String, Long> failuresByState,
-            int activeRules,
-            int candidateRules,
             long cycleCostMilliUsd,
             long watchCostMilliUsd) {}
 
@@ -425,18 +380,6 @@ public final class HarnessModels
             long budgetMilliUsd,
             long costMilliUsd,
             long updatedAtMs) {}
-
-    public record RuleDto(
-            String id,
-            String matcherPattern,
-            String scope,
-            String bucket,
-            String binding,
-            String status,
-            String origin,
-            int priority,
-            int hits,
-            Long approvedAtMs) {}
 
     public record HarnessDashboard(
             String watchId,

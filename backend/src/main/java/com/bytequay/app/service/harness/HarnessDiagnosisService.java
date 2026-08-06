@@ -21,7 +21,6 @@ import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.harness.HarnessModels.Diagnosis;
-import com.bytequay.app.service.harness.HarnessModels.Edit;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
@@ -45,7 +44,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 
 import static com.bytequay.app.repository.AppSettingsStore.Key.LLM_PROVIDER;
@@ -82,55 +80,6 @@ public class HarnessDiagnosisService
         this.git = requireNonNull(git, "git is null");
         this.relations = requireNonNull(relations, "relations is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
-    }
-
-    public DiagnosisOutcome diagnose(
-            Failure failure, Path root, String baseSha,
-            List<String> unrelatedSignatures, long costCapMilliUsd)
-    {
-        return diagnose(failure, root, baseSha, unrelatedSignatures, costCapMilliUsd, null);
-    }
-
-    public DiagnosisOutcome diagnose(
-            Failure failure, Path root, String baseSha,
-            List<String> unrelatedSignatures, long costCapMilliUsd,
-            String steeringText)
-    {
-        return diagnose(
-                failure, root, baseSha, unrelatedSignatures, costCapMilliUsd, null, steeringText);
-    }
-
-    public DiagnosisOutcome diagnose(
-            Failure failure, Path root, String baseSha,
-            List<String> unrelatedSignatures, long costCapMilliUsd,
-            String workspaceId, String steeringText)
-    {
-        String provider = settings.get(LLM_PROVIDER).orElse("openai");
-        ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(provider);
-        String system = systemPrompt();
-        String prompt = userPrompt(failure, unrelatedSignatures, steeringText);
-        validateBase(root, baseSha);
-        RepoTools tools = new RepoTools(root, baseSha, workspaceId);
-        ArrayNode messages = messages(endpoint.transport(), system, prompt);
-        TurnHooks hooks = new TurnHooks()
-        {
-            @Override
-            public boolean abortTurn(long costSoFarMilliUsd)
-            {
-                return costSoFarMilliUsd >= costCapMilliUsd;
-            }
-        };
-        TurnResult result = runner.runTurn(
-                new TurnSpec(endpoint.transport(), endpoint.url(), endpoint.authToken(),
-                        endpoint.modelId(), endpoint.transport() == TurnSpec.Transport.ANTHROPIC
-                                ? system : null,
-                        messages, toolSchemas(endpoint.transport()),
-                        MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
-                tools, hooks);
-        Diagnosis diagnosis = parseAndValidate(
-                result.finalText(), failure, root, baseSha, unrelatedSignatures);
-        return new DiagnosisOutcome(diagnosis, result.costMilliUsd(), result.finalText(),
-                result.rounds(), result.end().name().toLowerCase(Locale.ROOT));
     }
 
     /** Answers one bounded question about a watch with the same read-only tools.
@@ -172,87 +121,6 @@ public class HarnessDiagnosisService
                 result.costMilliUsd());
     }
 
-    Diagnosis parseAndValidate(
-            String raw, Failure failure, Path root, String baseSha,
-            List<String> unrelatedSignatures)
-    {
-        JsonNode json;
-        try {
-            json = mapper.readTree(stripFence(raw));
-        }
-        catch (IOException e) {
-            throw new IllegalArgumentException("diagnosis is not valid JSON", e);
-        }
-        if (json == null || !json.isObject()) {
-            throw new IllegalArgumentException("diagnosis must be one JSON object");
-        }
-        boolean needsHuman = requiredBoolean(json, "needs_human");
-        List<Edit> edits = new ArrayList<>();
-        JsonNode editNodes = json.path("edits");
-        if (!editNodes.isArray() || editNodes.size() > 20) {
-            throw new IllegalArgumentException("diagnosis edits must be an array of at most 20 items");
-        }
-        for (JsonNode node : editNodes) {
-            edits.add(new Edit(required(node, "path"), required(node, "find"), text(node, "replace")));
-        }
-        List<String> verifyHint = strings(json.path("verify_hint"));
-        verifyHint.forEach(HarnessModels::verifyVerb);
-        Diagnosis diagnosis = new Diagnosis(
-                required(json, "root_cause"), nullable(json, "culprit_commit"),
-                nullable(json, "target_subject"), List.copyOf(edits),
-                required(json, "signature_pattern"), required(json, "bucket"),
-                required(json, "binding"), verifyHint,
-                requiredDouble(json, "confidence"), needsHuman, required(json, "rationale"));
-
-        validatePattern(diagnosis.signaturePattern(), failure.signature(), unrelatedSignatures);
-        if (!needsHuman) {
-            validateTarget(root, baseSha, diagnosis.targetSubject());
-            validateAnchors(root, diagnosis.edits());
-        }
-        if (diagnosis.confidence() < 0 || diagnosis.confidence() > 1) {
-            throw new IllegalArgumentException("diagnosis confidence must be between 0 and 1");
-        }
-        boolean recipe = diagnosis.binding().matches("recipe:[A-Za-z0-9_.-]+");
-        if (!"agent".equals(diagnosis.binding()) && !recipe) {
-            throw new IllegalArgumentException("diagnosis binding must be agent or recipe:<id>");
-        }
-        if (recipe && needsHuman) {
-            throw new IllegalArgumentException(
-                    "recipe diagnosis must be complete, deterministic, and not need human judgment");
-        }
-        boolean pureRegeneration = recipe && diagnosis.edits().isEmpty()
-                && diagnosis.verifyHint().stream().map(HarnessModels::verifyVerb)
-                .anyMatch("regen"::equals);
-        if (!needsHuman && diagnosis.edits().isEmpty() && !pureRegeneration) {
-            throw new IllegalArgumentException(
-                    "non-human diagnosis needs edits, except a recipe with a regen hint");
-        }
-        return diagnosis;
-    }
-
-    private void validateTarget(Path root, String baseSha, String subject)
-    {
-        if (subject == null || subject.isBlank()) {
-            throw new IllegalArgumentException("diagnosis target_subject is required");
-        }
-        try {
-            validateBase(root, baseSha);
-            long exact = git.listCommits(root, baseSha + "..HEAD", 1_000).stream()
-                    .filter(commit -> subject.equals(commit.subject()))
-                    .count();
-            if (exact != 1) {
-                throw new IllegalArgumentException(
-                        "target_subject must identify exactly one existing commit; found " + exact);
-            }
-        }
-        catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            throw new IllegalStateException("unable to validate target commit", e);
-        }
-    }
-
     private void validateBase(Path root, String baseSha)
     {
         if (baseSha == null || baseSha.isBlank()) {
@@ -268,47 +136,6 @@ public class HarnessDiagnosisService
                 Thread.currentThread().interrupt();
             }
             throw new IllegalStateException("unable to validate PR base SHA", e);
-        }
-    }
-
-    private static void validateAnchors(Path root, List<Edit> edits)
-    {
-        try {
-            Path realRoot = root.toRealPath();
-            for (Edit edit : edits) {
-                Path path = realRoot.resolve(edit.path()).normalize();
-                if (!path.startsWith(realRoot) || !Files.isRegularFile(path)) {
-                    throw new IllegalArgumentException("edit path is not a repository file: " + edit.path());
-                }
-                Path realPath = path.toRealPath();
-                if (!realPath.startsWith(realRoot)) {
-                    throw new IllegalArgumentException("edit path escapes repository: " + edit.path());
-                }
-                String value = Files.readString(realPath, StandardCharsets.UTF_8);
-                if (occurrences(value, edit.find()) != 1) {
-                    throw new IllegalArgumentException(
-                            "edit anchor must be unique in " + edit.path());
-                }
-            }
-        }
-        catch (IOException e) {
-            throw new IllegalArgumentException("cannot validate diagnosis edit paths", e);
-        }
-    }
-
-    private static void validatePattern(String regex, String signature, List<String> unrelated)
-    {
-        try {
-            Pattern pattern = Pattern.compile(regex, Pattern.CASE_INSENSITIVE);
-            if (!pattern.matcher(signature).find()) {
-                throw new IllegalArgumentException("signature_pattern does not match this failure");
-            }
-            if (unrelated.stream().limit(10).anyMatch(value -> pattern.matcher(value).find())) {
-                throw new IllegalArgumentException("signature_pattern matches an unrelated failure");
-            }
-        }
-        catch (PatternSyntaxException e) {
-            throw new IllegalArgumentException("signature_pattern is invalid", e);
         }
     }
 
@@ -401,34 +228,6 @@ public class HarnessDiagnosisService
                 .filter(value -> !value.isBlank())
                 .findFirst()
                 .orElse(null);
-    }
-
-    private String systemPrompt()
-    {
-        return """
-                You are the advisory diagnosis box inside a local CI harness.
-                Propose; never apply. You have only six read-only tools. You cannot run shell,
-                edit files, mutate git history, contact CI, or push. Lead with oss_diff and grep.
-                Prefer the smallest unique-anchor edit. target_subject must be the exact subject
-                returned by candidate_targets and must semantically own the change. If evidence is
-                incomplete, set needs_human=true rather than guessing.
-
-                Return only one JSON object with exactly this semantic shape:
-                {"root_cause":"one sentence","culprit_commit":null,
-                 "target_subject":"exact existing subject or null",
-                 "edits":[{"path":"relative","find":"unique anchor","replace":"replacement"}],
-                 "signature_pattern":"safe regex","bucket":"base or base:lowercase_subtype",
-                 "binding":"agent or recipe:<stable-id>",
-                 "verify_hint":["build"],
-                 "confidence":0.0,"needs_human":false,"rationale":"tool-backed evidence"}
-
-                Choose only the relevant generic verification verbs: style, build, test, regen.
-                Use binding=agent for case-specific judgment. Use recipe:<stable-id> only when
-                this same JSON object is a complete deterministic replay description: exact target,
-                unique-anchor edits, and verification hints. A pure deterministic regeneration may
-                use edits=[] only with a regen hint. Never name a recipe without its full safe
-                description; the harness will reject and never synthesize a missing recipe.
-                """;
     }
 
     private String askSystemPrompt()

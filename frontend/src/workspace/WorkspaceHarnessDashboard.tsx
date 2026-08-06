@@ -22,18 +22,14 @@ import type {
   CiHarnessBootstrapProfileDto,
   CiHarnessCycleDetailDto,
   CiHarnessMilestoneDto,
-  CiHarnessRuleDto,
   CiHarnessWatchSnapshotDto,
 } from './workspaceApi';
 
 export type HarnessActions = FailureActions & {
-  onApproveRule: (ruleId: string) => void;
-  onRetireRule: (ruleId: string) => void;
 };
 
-export function HarnessDashboard({ snapshot, rules, actions, cycleDetail, onCloseCycle }: {
+export function HarnessDashboard({ snapshot, actions, cycleDetail, onCloseCycle }: {
   snapshot: CiHarnessWatchSnapshotDto;
-  rules: CiHarnessRuleDto[];
   actions: HarnessActions;
   cycleDetail: CiHarnessCycleDetailDto | null;
   onCloseCycle: () => void;
@@ -54,7 +50,6 @@ export function HarnessDashboard({ snapshot, rules, actions, cycleDetail, onClos
         <section className="ci-harness-stats" aria-label="Watch statistics">
           <Stat label="Failures" value={String(sumFailures(stats.failuresByState))}
             detail={failureStateSummary(stats.failuresByState)} />
-          <Stat label="Knowledge base" value={String(stats.activeRules)} detail={`${stats.candidateRules} candidates`} />
           <Stat label="Cycle cost" value={money(stats.cycleCostMilliUsd)} detail={snapshot.activeCycle?.id ?? ''} />
           <Stat label="Watch cost" value={money(stats.watchCostMilliUsd)}
             detail={snapshot.budget.limitMilliUsd <= 0 ? 'no budget cap' : `${money(snapshot.budget.limitMilliUsd)} budget`} />

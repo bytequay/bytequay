@@ -16,10 +16,8 @@ package com.bytequay.app.service.harness;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.service.harness.GitHubActionsProbe.FailedJob;
 import com.bytequay.app.service.harness.GitHubActionsProbe.ProbeResult;
-import com.bytequay.app.service.harness.HarnessClassifier.Classification;
 import com.bytequay.app.service.harness.HarnessLogParser.ParsedFailure;
 import com.bytequay.app.service.harness.HarnessModels.BootstrapProfile;
-import com.bytequay.app.service.harness.HarnessModels.Bucket;
 import com.bytequay.app.service.harness.HarnessModels.Cycle;
 import com.bytequay.app.service.harness.HarnessModels.CycleStatus;
 import com.bytequay.app.service.harness.HarnessModels.Diagnosis;
@@ -61,7 +59,6 @@ class TestHarnessOrchestrator
     private final HarnessService service = mock(HarnessService.class);
     private final GitHubActionsProbe probe = mock(GitHubActionsProbe.class);
     private final HarnessLogParser parser = mock(HarnessLogParser.class);
-    private final HarnessClassifier classifier = mock(HarnessClassifier.class);
     private final HarnessRepairAgent agent = mock(HarnessRepairAgent.class);
     private final WorkspaceKnowledgeService knowledge = mock(WorkspaceKnowledgeService.class);
     private final HarnessGitSafety gitSafety = mock(HarnessGitSafety.class);
@@ -69,7 +66,7 @@ class TestHarnessOrchestrator
     private final PRStore prs = mock(PRStore.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final HarnessOrchestrator orchestrator = new HarnessOrchestrator(
-            store, service, probe, parser, classifier, agent, knowledge,
+            store, service, probe, parser, agent, knowledge,
             gitSafety, git, prs, mock(ApplicationEventPublisher.class),
             mapper, Runnable::run);
 
@@ -123,7 +120,6 @@ class TestHarnessOrchestrator
         orchestrator.runCycle(cycle.id());
 
         verify(parser, never()).parse(any(), anyLong(), any(), any(), any());
-        verify(classifier, never()).classify(any(), any(), any(), any(), any(), any(), anyLong());
         verify(agent, never()).fix(any(), any(), any(), anyLong(), any(), any());
         verify(store).updateWatchStatusIfNotStopped(
                 eq(watch.id()), eq(WatchStatus.HANDOFF), eq(watch.handoffJson()), anyLong());
@@ -244,10 +240,6 @@ class TestHarnessOrchestrator
                 "plan mismatch", "plan mismatch", "unknown", null,
                 FailureStatus.OBSERVED, null, null, null, null, 1, 1);
         when(store.insertFailure(any())).thenReturn(failure);
-        when(classifier.classify(
-                eq("ws"), eq("acme"), eq("widget"), eq("root"),
-                eq("plan mismatch"), eq("plan mismatch"), anyLong()))
-                .thenReturn(new Classification(Bucket.UNKNOWN, null));
         when(git.hasUncommittedChanges(any())).thenReturn(false);
         when(service.json(any())).thenAnswer(invocation ->
                 mapper.writeValueAsString(invocation.getArgument(0)));

@@ -770,9 +770,22 @@ public class PRSyncService
             if (known.stream().anyMatch(sha -> sameSha(sha, c.sha()))) {
                 continue;
             }
-            prService.recordSyncedCommit(pr.id(), c.sha(), c.message(), c.authoredAt(), actorLabel(c.authorLogin()));
+            prService.recordSyncedCommit(
+                    pr.id(), c.sha(), c.message(), timelineOrderOf(c),
+                    actorLabel(c.authorLogin()));
             known.add(c.sha());
         }
+    }
+
+    /**
+     * When a commit landed on the branch, which is the order the timeline reads
+     * in. Not when it was written: a cherry-pick keeps upstream's author date,
+     * so ordering by that put every pick before every fixup instead of each
+     * fixup directly after the pick it belongs to.
+     */
+    static Instant timelineOrderOf(PullRequestCommit commit)
+    {
+        return commit.committedAt() == null ? commit.authoredAt() : commit.committedAt();
     }
 
     /** Mirrors GitHub's check runs onto {@code pr_check} for any pushed PR

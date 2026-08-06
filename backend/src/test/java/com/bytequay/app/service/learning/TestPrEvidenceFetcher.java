@@ -166,12 +166,12 @@ class TestPrEvidenceFetcher
 
     private static PullRequestCommit commit(String sha)
     {
-        return new PullRequestCommit(sha, "alice", "alice", T0, "message " + sha);
+        return new PullRequestCommit(sha, "alice", "alice", T0, T0, "message " + sha);
     }
 
     private static PullRequestCommit commitAt(String sha, Instant authoredAt)
     {
-        return new PullRequestCommit(sha, "alice", "alice", authoredAt, "message " + sha);
+        return new PullRequestCommit(sha, "alice", "alice", authoredAt, authoredAt, "message " + sha);
     }
 
     private static PrTimelineEvent timeline(Long githubId, String event)

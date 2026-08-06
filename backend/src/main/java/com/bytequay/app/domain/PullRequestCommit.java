@@ -31,4 +31,7 @@ public record PullRequestCommit(
         String authorLogin,
         String authorName,
         Instant authoredAt,
+        /** When it landed on the branch. Null on rows synced before this was
+         *  read; callers fall back to {@code authoredAt}. */
+        Instant committedAt,
         String message) {}

@@ -466,6 +466,10 @@ public class GitHubClient
                         .map(GitHubPullRequestCommit.GitSignature::date)
                         .orElse(null),
                 Optional.ofNullable(commit.commit())
+                        .map(GitHubPullRequestCommit.CommitInfo::committer)
+                        .map(GitHubPullRequestCommit.GitSignature::date)
+                        .orElse(null),
+                Optional.ofNullable(commit.commit())
                         .map(GitHubPullRequestCommit.CommitInfo::message)
                         .orElse(null));
     }
@@ -840,6 +844,10 @@ public class GitHubClient
                                     .orElse(null),
                             Optional.ofNullable(commit.commit())
                                     .map(GitHubPullRequestCommit.CommitInfo::author)
+                                    .map(GitHubPullRequestCommit.GitSignature::date)
+                                    .orElse(null),
+                            Optional.ofNullable(commit.commit())
+                                    .map(GitHubPullRequestCommit.CommitInfo::committer)
                                     .map(GitHubPullRequestCommit.GitSignature::date)
                                     .orElse(null),
                             Optional.ofNullable(commit.commit())

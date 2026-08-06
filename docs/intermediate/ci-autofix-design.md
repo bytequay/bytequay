@@ -147,7 +147,7 @@ Engine doc §10 order, mapped to concrete pieces. Package: `service/harness/` +
   Scratch-repo JUnit tests for every invariant.
   *(Shipped except the stale-lock clear — `_clear_stale_locks` was never built, so a
   crashed cycle that leaves an `index.lock` fails every subsequent `git add` and the
-  90s poller retries forever.)*
+  5-minute poller retries forever.)*
 - **M3 — Verifier + first recipes** (covers the deterministic ~70%). `Verifier` executes
   VerifyProfile steps scoped to changed modules (`-pl`), env = bootstrap-derived + learned
   env deltas, regen-idempotence 0-diff proof. Recipe primitives (run-generator,

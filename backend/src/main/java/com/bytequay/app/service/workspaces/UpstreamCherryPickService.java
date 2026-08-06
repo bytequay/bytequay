@@ -416,15 +416,14 @@ public class UpstreamCherryPickService
         if (row.closedAt() != null) {
             return;
         }
-        // Closing also settles the status. Leaving it at PAUSED_CONFLICT meant a
-        // finished run still advertised itself as parked, and every reader had to
-        // remember to check closedAt as well — one of them did not, and a closed
-        // run held the cherry-pick dialog hostage indefinitely.
+        // closed_at_ms is the terminal marker, and the only one — the status column
+        // has a CHECK constraint that admits no closed value, and inventing one
+        // here failed against the real schema while the test fixture's looser DDL
+        // let it pass. The status stays as it was, which is honest history: this
+        // run was parked when you closed it. Readers must test closedAt.
         jdbc.update("""
                 UPDATE upstream_cherry_pick_job
                 SET closed_at_ms = ?, pause_requested = 0, repair_pending = 0,
-                    status = CASE WHEN status IN ('QUEUED', 'RUNNING', 'PAUSED_CONFLICT')
-                        THEN 'CLOSED' ELSE status END,
                     updated_at_ms = ?
                 WHERE id = ? AND closed_at_ms IS NULL
                 """, now(), now(), row.id());

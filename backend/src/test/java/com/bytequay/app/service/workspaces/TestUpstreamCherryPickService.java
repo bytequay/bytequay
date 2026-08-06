@@ -829,6 +829,10 @@ class TestUpstreamCherryPickService
                 service.close("fork-ws", "job-1");
 
         assertThat(closed.closedAt()).isNotNull();
+        // The status column has a CHECK constraint with no closed value in it,
+        // so closing must not invent one — closedAt is the terminal marker and
+        // the status stays as honest history of how the run ended.
+        assertThat(closed.status()).isEqualTo("PAUSED_CONFLICT");
         // The agent side stops with the run, and the isolated worktree goes.
         verify(handoff).stopWatch("fork-ws", "watch-1");
         verify(git).worktreeRemove(target, worktree);
@@ -1052,7 +1056,9 @@ class TestUpstreamCherryPickService
                     id TEXT PRIMARY KEY,
                     workspace_id TEXT NOT NULL,
                     upstream_workspace_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
+                    status TEXT NOT NULL
+                        CHECK (status IN ('QUEUED', 'RUNNING', 'PAUSED_CONFLICT',
+                            'COMPLETED', 'FAILED')),
                     source_branch TEXT NOT NULL,
                     source_ref TEXT NOT NULL,
                     base_branch TEXT NOT NULL,

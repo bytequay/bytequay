@@ -306,6 +306,66 @@ class TestHarnessOrchestrator
     }
 
     @Test
+    void aBoardStillRunningHoldsTheRoundBack()
+            throws Exception
+    {
+        Watch watch = watch(WatchStatus.RUNNING, "old", null);
+        stubAgentDiagnosis(watch);
+        stubStillRunningBoard(watch);
+
+        orchestrator.runCycle(cycle.id());
+
+        // A check still running may yet fail; fixing around it wastes a push.
+        verify(agent, never()).fix(any(), any(), anyList(), anyLong(), any(), any());
+        verify(store).updateWatchStatusIfNotStopped(
+                eq(watch.id()), eq(WatchStatus.WATCHING), isNull(), anyLong());
+    }
+
+    @Test
+    void aRoundTheUserAsksForWorksFromWhatHasAlreadyFailed()
+            throws Exception
+    {
+        // Same half-finished board, but this round was asked for by name: a
+        // suite that runs for an hour must not hold back the checks that are
+        // already red.
+        cycle = new Cycle(cycle.id(), "watch", 1, HarnessOrchestrator.TRIGGER_FIX_NOW,
+                null, CycleStatus.QUEUED, Phase.PROBE, null, null, 0, null, null,
+                null, null, 1, 1, null, null);
+        when(store.findCycle(cycle.id())).thenReturn(Optional.of(cycle));
+        Watch watch = watch(WatchStatus.RUNNING, "old", null);
+        Failure failure = stubAgentDiagnosis(watch);
+        when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
+        stubStillRunningBoard(watch);
+        when(agent.fix(any(), eq("ws"), anyList(), anyLong(), any(), any()))
+                .thenReturn(new HarnessRepairAgent.Outcome(
+                        true, false, "fixed the compile break", 300, "session-2"));
+        when(git.pushRewrittenBranch(any(), eq("feature"), eq("new")))
+                .thenReturn(new GitRunner.GitResult(0, "", "", List.of()));
+        when(store.finishHandoff(
+                eq(cycle.id()), eq(watch.id()), anyLong(), isNull(), isNull(),
+                anyString(), anyString(), anyLong())).thenReturn(true);
+
+        orchestrator.runCycle(cycle.id());
+
+        verify(agent).fix(any(), eq("ws"), eq(List.of(failure)), anyLong(), any(), any());
+        verify(git).pushRewrittenBranch(any(), eq("feature"), eq("new"));
+    }
+
+    /** Six checks red, one suite still going — the shape that used to stall. */
+    private void stubStillRunningBoard(Watch watch)
+    {
+        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+                "new", "base", "feature", false, true,
+                List.of(new FailedJob("run", 7, "build", "failure", false, "plan mismatch")),
+                "build: failure"));
+        when(store.finishCycleIfLive(
+                eq(cycle.id()), eq(CycleStatus.NO_CHANGE), eq(Phase.PROBE), anyLong(),
+                isNull(), isNull(), any(), isNull(), anyLong())).thenReturn(true);
+        when(store.updateWatchStatusIfNotStopped(
+                eq(watch.id()), eq(WatchStatus.WATCHING), isNull(), anyLong())).thenReturn(true);
+    }
+
+    @Test
     void aRoundWithoutCommitsParksAndPushesNothing()
             throws Exception
     {

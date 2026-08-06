@@ -79,8 +79,11 @@ public class HarnessController
     {
         // Ownership is checked before the asynchronous request is accepted.
         harness.get(workspaceId, watchId);
+        boolean fixNow = body != null && Boolean.TRUE.equals(body.fixNow());
         orchestrator.requestRun(
-                watchId, "manual", body == null ? null : body.steeringText());
+                watchId,
+                fixNow ? HarnessOrchestrator.TRIGGER_FIX_NOW : "manual",
+                body == null ? null : body.steeringText());
         return harness.get(workspaceId, watchId);
     }
 
@@ -163,8 +166,13 @@ public class HarnessController
             String title,
             Long budgetMilliUsd) {}
 
-    /** Optional run body: {@code {"steeringText":"advisory context"}}. */
-    public record RunWatchBody(String steeringText) {}
+    /**
+     * Optional run body: {@code {"steeringText":"advisory context"}}.
+     *
+     * @param fixNow stop waiting for the rest of the board and fix what has
+     *               already failed.
+     */
+    public record RunWatchBody(String steeringText, Boolean fixNow) {}
 
     /** Optional escalation body: {@code {"note":"what you decided"}}. */
     public record FailureNoteBody(String note) {}

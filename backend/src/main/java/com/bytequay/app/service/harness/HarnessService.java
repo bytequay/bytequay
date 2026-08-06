@@ -33,9 +33,6 @@ import com.bytequay.app.service.harness.HarnessModels.HandoffDto;
 import com.bytequay.app.service.harness.HarnessModels.HarnessDashboard;
 import com.bytequay.app.service.harness.HarnessModels.Phase;
 import com.bytequay.app.service.harness.HarnessModels.PhaseStateDto;
-import com.bytequay.app.service.harness.HarnessModels.Rule;
-import com.bytequay.app.service.harness.HarnessModels.RuleDto;
-import com.bytequay.app.service.harness.HarnessModels.RuleStatus;
 import com.bytequay.app.service.harness.HarnessModels.StatsDto;
 import com.bytequay.app.service.harness.HarnessModels.VerificationResult;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
@@ -317,34 +314,6 @@ public class HarnessService
                 store.listFailuresForCycle(cycle.id()).stream().map(this::toFailure).toList());
     }
 
-    public List<RuleDto> rules(String workspaceId, String watchId)
-    {
-        Watch watch = requireWatch(workspaceId, watchId);
-        return store.listRules(workspaceId, watch.owner(), watch.repo()).stream()
-                .map(HarnessService::toRule).toList();
-    }
-
-    public RuleDto approveRule(String workspaceId, String watchId, String ruleId)
-    {
-        Watch watch = requireWatch(workspaceId, watchId);
-        Rule rule = requireRule(workspaceId, watch, ruleId);
-        Rule approved = store.approveRule(rule.id(), now());
-        store.appendEvent(watch.id(), null, Phase.CLASSIFY, "rule_approved",
-                "Knowledge rule approved for routing", json(Map.of("ruleId", rule.id())), now());
-        return toRule(approved);
-    }
-
-    public RuleDto retireRule(String workspaceId, String watchId, String ruleId)
-    {
-        Watch watch = requireWatch(workspaceId, watchId);
-        Rule rule = requireRule(workspaceId, watch, ruleId);
-        Rule retired = store.retireRule(rule.id(), now());
-        store.appendEvent(watch.id(), null, Phase.CLASSIFY, "rule_retired",
-                "Knowledge rule retired; it no longer routes failures",
-                json(Map.of("ruleId", rule.id())), now());
-        return toRule(retired);
-    }
-
     /** Closes one escalated failure. The note is durable in the milestone feed;
      * re-running the cycle is the caller's separate, explicit step. */
     public String resolveFailure(String workspaceId, String watchId, String failureId, String note)
@@ -440,14 +409,6 @@ public class HarnessService
                 ? out.toString() : out.substring(0, MAX_ASK_CONTEXT);
     }
 
-    private Rule requireRule(String workspaceId, Watch watch, String ruleId)
-    {
-        return store.findRule(ruleId)
-                .filter(value -> value.workspaceId().equals(workspaceId)
-                        && value.owner().equals(watch.owner()) && value.repo().equals(watch.repo()))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no harness rule"));
-    }
-
     private static String boundedNote(String value)
     {
         String stripped = blankToNull(value);
@@ -501,8 +462,6 @@ public class HarnessService
                 store.listEventsForWatch(watch.id(), 200).stream().map(HarnessService::toEvent).toList(),
                 failures.stream().map(this::toFailure).toList(),
                 new StatsDto(Collections.unmodifiableMap(failuresByState),
-                        store.countRules(watch.workspaceId(), watch.owner(), watch.repo(), RuleStatus.ACTIVE),
-                        store.countRules(watch.workspaceId(), watch.owner(), watch.repo(), RuleStatus.CANDIDATE),
                         cycleCost, watch.spentMilliUsd()),
                 newest == null ? null : newest.backupRef(), proof, handoff, handoffCommand,
                 newest == null ? null : newest.runStatusTail());
@@ -567,13 +526,6 @@ public class HarnessService
                 parse(failure.fixJson(), FixResult.class),
                 parse(failure.verificationJson(), VerificationResult.class),
                 failure.updatedAtMs());
-    }
-
-    static RuleDto toRule(Rule rule)
-    {
-        return new RuleDto(rule.id(), rule.matcherPattern(), rule.scope(), rule.bucketLabel(),
-                rule.binding(), rule.status().wire(), rule.origin(), rule.priority(),
-                rule.hits(), rule.approvedAtMs());
     }
 
     private Watch requireWatch(String workspaceId, String id)

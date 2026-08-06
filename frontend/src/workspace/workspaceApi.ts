@@ -572,8 +572,6 @@ export type CiHarnessCycleDetailDto = {
 
 export type CiHarnessStatsDto = {
   failuresByState: Record<string, number>;
-  activeRules: number;
-  candidateRules: number;
   cycleCostMilliUsd: number;
   watchCostMilliUsd: number;
 };
@@ -639,19 +637,6 @@ export type CiHarnessWatchSnapshotDto = {
   } | null;
   handoffCommand: string | null;
   runStatusTail: string | null;
-};
-
-export type CiHarnessRuleDto = {
-  id: string;
-  matcherPattern: string;
-  scope: string | null;
-  bucket: string;
-  binding: string;
-  status: 'candidate' | 'active' | 'retired';
-  origin: string;
-  priority: number;
-  hits: number;
-  approvedAtMs: number | null;
 };
 
 export type CiHarnessBootstrapProfileDto = {
@@ -1230,20 +1215,6 @@ export const workspaceApi = {
   harnessCycle: (workspaceId: string, watchId: string, cycleId: string) =>
     window.bridge.workspaceApi<CiHarnessCycleDetailDto>({
       path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/cycles/${enc(cycleId)}`,
-    }),
-  harnessRules: (workspaceId: string, watchId: string) =>
-    window.bridge.workspaceApi<CiHarnessRuleDto[]>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/rules`,
-    }),
-  approveHarnessRule: (workspaceId: string, watchId: string, ruleId: string) =>
-    window.bridge.workspaceApi<CiHarnessRuleDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/rules/${enc(ruleId)}/approve`,
-      method: 'POST',
-    }),
-  retireHarnessRule: (workspaceId: string, watchId: string, ruleId: string) =>
-    window.bridge.workspaceApi<CiHarnessRuleDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/rules/${enc(ruleId)}/retire`,
-      method: 'POST',
     }),
   resolveHarnessFailure: (
     workspaceId: string,

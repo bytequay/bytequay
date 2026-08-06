@@ -1,8 +1,9 @@
 # CI Autofix Harness — ByteQuay integration design
 
-**Status:** engine shipped 2026-07-25/29; the program/agent split inverted 2026-08-05 —
-see "The upstream sync run" below, which is the current design and supersedes anything
-above it that disagrees.
+**Status:** engine shipped 2026-07-25/29; the program/agent split inverted and rebuilt
+2026-08-05/06 (`7f1435d07`..`2c5e9ab82`). **"The upstream sync run" below is the current
+design and the code matches it** — everything above that section is history, kept only so
+a later reader does not "fix" a deliberate reversal back into a bug.
 
 The **engine design** is in [`ci-autofix-harness.md`](./ci-autofix-harness.md) (authored
 in a separate design session, copied here 2026-07-24). It remains canonical for the generic
@@ -72,22 +73,19 @@ them back into bugs.
   never moved. This is strictly safer than the original shared-checkout plan — a parallel
   agent or the user's own WIP can no longer collide with a history rewrite. **Do not
   "restore" the harness to the registered checkout.**
-- **A "recipe" is a replayed `Diagnosis`, not composable primitives.** The KB stores the
-  first verified diagnosis verbatim in `ci_harness_rule.recipe_json` and replays it on the
-  next match, revalidated against the rule (`validatedRecipe`). The run-generator /
-  rename-by-pattern / apply-edits primitives in M3 below were never built, and there is no
-  `harness_env_delta` table. Known consequence: a replayed recipe carries occurrence #1's
-  `target_subject` and literal edit anchors, so it is only correct when the recurrence is
-  genuinely identical — see "Open items".
+- ~~**A "recipe" is a replayed `Diagnosis`, not composable primitives.**~~ *Gone
+  2026-08-06.* Recipes, rules, the `ci_harness_rule` table and the whole
+  candidate→active promotion path were deleted; the knowledge base is prose memory in
+  `knowledge_item` now. Nothing replays a stored diagnosis, so the "occurrence #1's anchors"
+  hazard this bullet described no longer exists.
 - **No adapter interfaces.** The v1 cut said "adapter interfaces stay — one impl each";
   in practice there is no `ForgeAdapter`/`EcosystemPack`/`AuthProvider` seam. The GitHub
   Actions probe and the Maven-only command whitelist (`^(?:\./mvnw|mvn)…`) live directly in
   the generic core. Adding a second forge or ecosystem means extracting the seam first.
-- **`binding: "defer"` is unreachable.** The engine doc's data model allows
-  `recipe_id | "agent" | "defer"`, but `validateCandidate` accepts only `agent` or
-  `recipe:<id>`, so no rule can ever be created with a defer binding — INFRA/FLAKE deferral
-  happens in the orchestrator instead. The defer branch in the classifier's precedence
-  ordering is dead code. Either wire it up or drop it from the data model.
+- ~~**`binding: "defer"` is unreachable.**~~ *Moot 2026-08-06 — bindings, the classifier
+  and its precedence ordering are all deleted. Infrastructure jobs and duplicate matrix
+  signatures are still set aside, in the orchestrator's `triage`; everything else goes to
+  the agent, which decides for itself what is a flake.*
 - **"One active harness run per repo" is enforced per *PR*, not per repo.** The partial
   unique indexes are `(workspace, owner, repo, pr_number) WHERE status != 'stopped'` and
   one live cycle per watch. Two watched PRs on the same repo run concurrently — safe today
@@ -387,28 +385,38 @@ wait knows it, which is why the agent's session resumes rather than restarting e
   toolchain the agent can simply go and look at. The program keeps what is genuinely
   mechanical.
 
-### What this costs in code
+### What it cost in code — shipped 2026-08-05/06
 
-**Survives:** worktree provisioning, the pick loop, `GitHubActionsProbe`,
-`HarnessLogParser`, the run/cycle/event ledger, the poller.
+Six commits, `7f1435d07`..`2c5e9ab82`, each green through `mvn verify` + `tsc` + `npm test`.
 
-**Deleted:** the θ=0.75 confidence gate, `MAX_REPAIR_ATTEMPTS`, `HarnessFixApplier`,
-`HarnessVerifier` and VerifyProfile execution, `HarnessGitSafety`'s fixup batch and
-net-neutral proof, recipe replay, candidate→active promotion, and `ci_harness_rule`'s
-matcher/binding/status columns. `HarnessClassifier` survives only as an *annotator* — its
-output is a hint in the agent's prompt, not a route.
+**Deleted:** `CherryPickCompileGate`, `HarnessFixApplier`, `HarnessVerifier`,
+`HarnessClassifier`, the θ=0.75 confidence gate, `MAX_REPAIR_ATTEMPTS`, recipe replay,
+candidate→active promotion, the rule CRUD (endpoints, service, store, `RuleDto`/`Rule`/
+`RuleStatus`) and the `ci_harness_rule` table itself (`V337`). `HarnessGitSafety` went
+661 → 321 lines, keeping only `recoverInterrupted`; `HarnessDiagnosisService` 746 → 545,
+keeping only `ask()` — the harness Q&A, the one place a read-only advisory turn still makes
+sense. The dashboard lost its rule browser and its diagnosis card.
 
-**New:** a write-capable CLI lane for both agents (`CliReviewRunner` launches Codex
-`--sandbox read-only` today; `CodexCliThreadAgent` already runs `workspace-write`), a
-`park` tool, knowledge-base read/write tools over `knowledge_item` +
-`SessionKnowledgeProvider`, a program-side guarded push (`--force-with-lease`, refuse any
-branch the harness did not create) — the one irreversible step in the loop — and a
-raise-the-budget-and-resume action on a parked run, which needs `budget_milli_usd` to be
-writable mid-run and the parked session id to be resumable.
+**Built:** `CliReviewRunner.Sandbox.WRITE` (Codex `workspace-write`, Claude a pre-allowed
+tool list; read-only stays the default for every reviewer), `ConflictRepairAgent` rewritten
+to drive its own repair, `HarnessRepairAgent` for the CI round, the rebase round, the
+retrospective (`SyncRetrospectiveWriter` seam so the picker does not import the harness),
+`V336`'s `ci_harness_watch.agent_session_id` seeded from the picks, the guarded push
+(`GitRunner.pushRewrittenBranch` with a named lease on the head CI ran on), and the
+raise-budget action on both surfaces.
 
-**Resequenced:** `closeRunsWhosePullRequestEnded` today detects the merge and immediately
-tears down — `closeRun` → `removeWorktree` + `stopWatch`. Phase 3's retrospective has to be
-inserted ahead of all of it, with teardown gated on that write completing *or failing*.
+**Verdicts, not schemas.** Both agents end a turn with a marker line the program reads:
+`RESOLVED:` / `RESOLVED-UNVALIDATED:` / `PARKED:` for a conflict, `COMMITTED:` / `NOTHING:` /
+`PARKED:` for a round. Anything else is a park — the program never assumes a turn it cannot
+see the end of actually worked. Knowledge entries come back as `<learned title="…">` blocks
+and the program persists them; that is the whole contract, and there is no JSON schema left
+anywhere in this loop.
+
+**Known gaps.** The `park` tool is a marker line rather than a real tool call — enough for
+the loop, and worth revisiting if a model starts burying the verdict mid-turn. The remote
+compile fallback in phase 1 reports `RESOLVED-UNVALIDATED` and lets phase 2's CI be the
+verdict rather than pushing and waiting per commit; cheaper, and consistent with CI being
+the authority, but it means a range can reach the pull request with no local check at all.
 
 **Accepted risk.** A conflict resolution that compiles can still be semantically wrong, and
 an agent that sets its own bounds can spend a long time being wrong. The budget is the hard

@@ -21,7 +21,6 @@ import {
   workspaceApi,
   type CiHarnessCycleDetailDto,
   type CiHarnessFailureDto,
-  type CiHarnessRuleDto,
   type CiHarnessWatchSnapshotDto,
 } from './workspaceApi';
 
@@ -44,7 +43,7 @@ function snapshot(status: CiHarnessWatchSnapshotDto['status']): CiHarnessWatchSn
     failures: status === 'needs_attention' ? [escalation()] : [],
     stats: {
       failuresByState: status === 'needs_attention' ? { escalated: 1 } : {},
-      activeRules: 4, candidateRules: 1, cycleCostMilliUsd: 300, watchCostMilliUsd: 1200,
+      cycleCostMilliUsd: 300, watchCostMilliUsd: 1200,
     },
     backupRef: status === 'handoff' ? 'refs/bytequay/backups/watch-1' : null,
     netNeutralProof: status === 'handoff' ? {
@@ -80,22 +79,9 @@ function escalation(): CiHarnessFailureDto {
   };
 }
 
-const candidate: CiHarnessRuleDto = {
-  id: 'rule-1', matcherPattern: 'cannot find symbol', scope: 'core', bucket: 'build',
-  binding: 'agent', status: 'candidate', origin: 'agent', priority: 50, hits: 2,
-  approvedAtMs: null,
-};
-
-const active: CiHarnessRuleDto = {
-  ...candidate, id: 'rule-2', matcherPattern: 'plan mismatch', status: 'active',
-  binding: 'recipe:regen', approvedAtMs: 1,
-};
-
 function actions(overrides: Partial<HarnessActions> = {}): HarnessActions {
   return {
     busy: false,
-    onApproveRule: () => {},
-    onRetireRule: () => {},
     onResolve: () => {},
     onRetry: () => {},
     ...overrides,
@@ -124,7 +110,6 @@ function cycleDetail(): CiHarnessCycleDetailDto {
 
 function dashboard(overrides: {
   snapshot?: CiHarnessWatchSnapshotDto;
-  rules?: CiHarnessRuleDto[];
   actions?: HarnessActions;
   cycleDetail?: CiHarnessCycleDetailDto | null;
   onCloseCycle?: () => void;
@@ -132,7 +117,6 @@ function dashboard(overrides: {
   return (
     <HarnessDashboard
       snapshot={overrides.snapshot ?? snapshot('watching')}
-      rules={overrides.rules ?? []}
       actions={overrides.actions ?? actions()}
       cycleDetail={overrides.cycleDetail ?? null}
       onCloseCycle={overrides.onCloseCycle ?? (() => {})} />
@@ -150,7 +134,7 @@ describe('HarnessDashboard', () => {
   });
 
   it('renders completed bootstrap evidence before the first cycle', () => {
-    render(dashboard({ rules: [candidate] }));
+    render(dashboard());
 
     expect(screen.getByText('Bootstrap trust profile')).toBeTruthy();
     expect(screen.getByText(/\.\/mvnw spotless:check/)).toBeTruthy();

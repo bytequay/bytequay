@@ -23,7 +23,6 @@ import {
   type CiHarnessCycleDetailDto,
   type CiHarnessWatchDto,
   type CiHarnessWatchSnapshotDto,
-  type CiHarnessRuleDto,
   type WorkspaceRepositoryDto,
 } from './workspaceApi';
 import { HarnessHeader, HarnessIdle, HarnessSidebar } from './WorkspaceHarnessChrome';
@@ -61,7 +60,6 @@ export default function WorkspaceHarnessPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [prRow, setPrRow] = useState<PullRow | null>(null);
-  const [rules, setRules] = useState<CiHarnessRuleDto[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [cycleDetail, setCycleDetail] = useState<CiHarnessCycleDetailDto | null>(null);
   const [prOpen, setPrOpen] = useState(true);
@@ -85,11 +83,6 @@ export default function WorkspaceHarnessPage({
     return next;
   }, [workspaceId]);
 
-  const loadRules = useCallback(async (id: string) => {
-    const next = await workspaceApi.harnessRules(workspaceId, id);
-    setRules(next);
-    return next;
-  }, [workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,12 +125,11 @@ export default function WorkspaceHarnessPage({
       void Promise.all([
         loadSnapshot(currentWatchId),
         loadWatches(),
-        loadRules(currentWatchId),
         cycleId === null ? Promise.resolve(null) : loadCycle(currentWatchId, cycleId),
       ]).catch(() => { /* keep the last complete dashboard */ });
     }, ACTIVE_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [currentWatchId, currentWatchStatus, cycleId, loadCycle, loadRules, loadSnapshot, loadWatches]);
+  }, [currentWatchId, currentWatchStatus, cycleId, loadCycle, loadSnapshot, loadWatches]);
 
   useEffect(() => {
     if (currentWatchId === undefined || cycleId === null) {
@@ -183,17 +175,6 @@ export default function WorkspaceHarnessPage({
     };
   }, [currentLocalPrId, currentOwner, currentPrNumber, currentRepo, currentWatchId, workspaceId]);
 
-  useEffect(() => {
-    if (currentWatchId === undefined) {
-      setRules([]);
-      return undefined;
-    }
-    let cancelled = false;
-    void loadRules(currentWatchId)
-      .then(() => { /* loaded */ })
-      .catch(() => { if (!cancelled) setRules([]); });
-    return () => { cancelled = true; };
-  }, [currentWatchId, loadRules]);
   const showPr = prOpen && prRow !== null;
   const currentRepository = workspaceRepository ?? repository?.fullName ?? workspaceName ?? 'Workspace';
 
@@ -210,14 +191,6 @@ export default function WorkspaceHarnessPage({
 
   const harnessActions = (watchId: string): HarnessActions => ({
     busy,
-    onApproveRule: ruleId => run(
-      () => workspaceApi.approveHarnessRule(workspaceId, watchId, ruleId),
-      approved => setRules(current => current.map(rule => rule.id === approved.id ? approved : rule)),
-    ),
-    onRetireRule: ruleId => run(
-      () => workspaceApi.retireHarnessRule(workspaceId, watchId, ruleId),
-      retired => setRules(current => current.map(rule => rule.id === retired.id ? retired : rule)),
-    ),
     onResolve: (failureId, note) => run(
       () => workspaceApi.resolveHarnessFailure(workspaceId, watchId, failureId, note),
       setSnapshot,
@@ -318,7 +291,7 @@ export default function WorkspaceHarnessPage({
                   }}
                 />
               ) : (
-                <HarnessDashboard snapshot={snapshot} rules={rules}
+                <HarnessDashboard snapshot={snapshot}
                   actions={harnessActions(snapshot.watchId)}
                   cycleDetail={cycleDetail} onCloseCycle={() => setCycleId(null)} />
               )}

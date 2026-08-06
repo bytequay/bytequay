@@ -19,8 +19,6 @@ import com.bytequay.app.service.harness.HarnessModels.Event;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
 import com.bytequay.app.service.harness.HarnessModels.Phase;
-import com.bytequay.app.service.harness.HarnessModels.Rule;
-import com.bytequay.app.service.harness.HarnessModels.RuleStatus;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import org.springframework.dao.DuplicateKeyException;
@@ -37,12 +35,10 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** SQLite persistence boundary for harness watches, cycles, failures and KB rules. */
+/** SQLite persistence boundary for harness watches, cycles, failures and events. */
 @Repository
 public class HarnessStore
 {
-    private static final int CANDIDATE_PROMOTION_HITS = 3;
-
     private final JdbcTemplate jdbc;
 
     public HarnessStore(JdbcTemplate jdbc)
@@ -505,161 +501,6 @@ public class HarnessStore
                 """, watchId, headSha, checkRunId, logText, nowMs);
     }
 
-    public List<Rule> listRules(String workspaceId, String owner, String repo)
-    {
-        return jdbc.query("""
-                SELECT * FROM ci_harness_rule
-                WHERE workspace_id = ? AND owner = ? AND repo = ?
-                ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'candidate' THEN 1 ELSE 2 END,
-                         priority DESC, created_at_ms DESC
-                """, RULE_MAPPER, workspaceId, owner, repo);
-    }
-
-    public List<Rule> activeRules(String workspaceId, String owner, String repo)
-    {
-        return jdbc.query("""
-                SELECT * FROM ci_harness_rule
-                WHERE workspace_id = ? AND owner = ? AND repo = ? AND status = 'active'
-                ORDER BY CASE WHEN bucket = 'infra' OR bucket LIKE 'infra:%'
-                                      OR binding = 'defer' THEN 0 ELSE 1 END,
-                         priority DESC, length(matcher_pattern) DESC
-                """, RULE_MAPPER, workspaceId, owner, repo);
-    }
-
-    public Optional<Rule> findRule(String id)
-    {
-        return jdbc.query("SELECT * FROM ci_harness_rule WHERE id = ?", RULE_MAPPER, id)
-                .stream().findFirst();
-    }
-
-    @Transactional
-    public Rule upsertCandidate(Rule rule)
-    {
-        validateCandidate(rule);
-        int inserted = jdbc.update("""
-                INSERT INTO ci_harness_rule (
-                    id, workspace_id, owner, repo, matcher_pattern, scope,
-                    bucket, binding, recipe_json, status, origin, priority,
-                    evidence_json, hits, created_at_ms, updated_at_ms, approved_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT DO NOTHING
-                """, rule.id(), rule.workspaceId(), rule.owner(), rule.repo(), rule.matcherPattern(),
-                rule.scope(), rule.bucketLabel(), rule.binding(), rule.recipeJson(),
-                rule.status().wire(), rule.origin(), rule.priority(), rule.evidenceJson(),
-                rule.hits(), rule.createdAtMs(), rule.updatedAtMs(), rule.approvedAtMs());
-        Rule persisted = findRuleByIdentity(rule).orElseThrow(() ->
-                new IllegalStateException("candidate identity collided with another rule"));
-        if (inserted == 1) {
-            return persisted;
-        }
-        if (persisted.status() == RuleStatus.RETIRED) {
-            // A human retired this signature. Record nothing and resurrect nothing;
-            // the classifier already ignores retired rules.
-            return persisted;
-        }
-        requireConsistentCandidate(persisted, rule);
-        jdbc.update("""
-                UPDATE ci_harness_rule SET
-                    evidence_json = ?, hits = hits + 1,
-                    status = CASE
-                        WHEN status = 'candidate' AND hits + 1 >= ? THEN 'active'
-                        ELSE status END,
-                    approved_at_ms = CASE
-                        WHEN status = 'candidate' AND hits + 1 >= ?
-                        THEN COALESCE(approved_at_ms, ?)
-                        ELSE approved_at_ms END,
-                    updated_at_ms = ?
-                WHERE id = ?
-                """, rule.evidenceJson(), CANDIDATE_PROMOTION_HITS,
-                CANDIDATE_PROMOTION_HITS, rule.updatedAtMs(), rule.updatedAtMs(), persisted.id());
-        return findRule(persisted.id()).orElseThrow();
-    }
-
-    private Optional<Rule> findRuleByIdentity(Rule rule)
-    {
-        return jdbc.query("""
-                SELECT * FROM ci_harness_rule
-                WHERE workspace_id = ? AND owner = ? AND repo = ? AND matcher_pattern = ?
-                  AND scope IS ?
-                """, RULE_MAPPER, rule.workspaceId(), rule.owner(), rule.repo(),
-                rule.matcherPattern(), rule.scope()).stream().findFirst();
-    }
-
-    /** Records evidence for active rules. Candidate activation happens only
-     * through explicit approval or the three-success upsert threshold. */
-    @Transactional
-    public Rule touchRule(String id, long nowMs)
-    {
-        jdbc.update("""
-                UPDATE ci_harness_rule SET hits = hits + 1,
-                    updated_at_ms = ? WHERE id = ?
-                """, nowMs, id);
-        return findRule(id).orElseThrow();
-    }
-
-    public Rule approveRule(String id, long nowMs)
-    {
-        jdbc.update("""
-                UPDATE ci_harness_rule SET status = 'active', origin = 'human',
-                    approved_at_ms = ?, updated_at_ms = ?
-                WHERE id = ? AND status != 'retired'
-                """, nowMs, nowMs, id);
-        return findRule(id).orElseThrow();
-    }
-
-    /** Retires a rule so the classifier stops routing on it. Retirement is
-     * terminal on purpose: re-learning writes a fresh candidate row. */
-    public Rule retireRule(String id, long nowMs)
-    {
-        jdbc.update("""
-                UPDATE ci_harness_rule SET status = 'retired', updated_at_ms = ?
-                WHERE id = ?
-                """, nowMs, id);
-        return findRule(id).orElseThrow();
-    }
-
-    public int countRules(String workspaceId, String owner, String repo, RuleStatus status)
-    {
-        Integer value = jdbc.queryForObject("""
-                SELECT count(*) FROM ci_harness_rule
-                WHERE workspace_id = ? AND owner = ? AND repo = ? AND status = ?
-                """, Integer.class, workspaceId, owner, repo, status.wire());
-        return value == null ? 0 : value;
-    }
-
-    private static void validateCandidate(Rule rule)
-    {
-        boolean recipe = rule.binding() != null
-                && rule.binding().matches("recipe:[A-Za-z0-9_.-]+");
-        if (!recipe && !"agent".equals(rule.binding())) {
-            throw new IllegalArgumentException("candidate binding must be agent or recipe:<id>");
-        }
-        if (recipe && (rule.recipeJson() == null || rule.recipeJson().isBlank())) {
-            throw new IllegalArgumentException("recipe candidate requires a recipe description");
-        }
-        if (!recipe && rule.recipeJson() != null) {
-            throw new IllegalArgumentException("agent candidate cannot carry a recipe description");
-        }
-    }
-
-    /**
-     * Guards against two different routings hiding behind one matcher. Deliberately
-     * compares routing only: {@code recipe_json} is a whole serialized {@code Diagnosis}
-     * including free-text {@code rationale} and {@code root_cause}, which differ on every
-     * model call, so comparing it rejected every genuine second sighting of a signature —
-     * the exact event that is supposed to advance a candidate toward promotion. The stored
-     * recipe is the first verified one either way; the UPDATE below never rewrites it.
-     */
-    private static void requireConsistentCandidate(Rule persisted, Rule proposed)
-    {
-        boolean persistedIsRecipe = persisted.binding().startsWith("recipe:");
-        if (!persisted.bucketLabel().equals(proposed.bucketLabel())
-                || persistedIsRecipe != proposed.binding().startsWith("recipe:")) {
-            throw new IllegalStateException(
-                    "matching candidate proposals disagree on bucket or routing");
-        }
-    }
-
     private static final RowMapper<Watch> WATCH_MAPPER = (rs, rowNum) -> new Watch(
             rs.getString("id"), rs.getString("workspace_id"), rs.getString("owner"),
             rs.getString("repo"), rs.getInt("pr_number"), rs.getString("local_pr_id"),
@@ -690,14 +531,6 @@ public class HarnessStore
             FailureStatus.valueOf(rs.getString("status").toUpperCase(Locale.ROOT)), rs.getString("target_subject"),
             rs.getString("diagnosis_json"), rs.getString("fix_json"), rs.getString("verification_json"),
             rs.getLong("created_at_ms"), rs.getLong("updated_at_ms"));
-
-    private static final RowMapper<Rule> RULE_MAPPER = (rs, rowNum) -> new Rule(
-            rs.getString("id"), rs.getString("workspace_id"), rs.getString("owner"),
-            rs.getString("repo"), rs.getString("matcher_pattern"), rs.getString("scope"),
-            rs.getString("bucket"), rs.getString("binding"), rs.getString("recipe_json"),
-            RuleStatus.valueOf(rs.getString("status").toUpperCase(Locale.ROOT)), rs.getString("origin"),
-            rs.getInt("priority"), rs.getString("evidence_json"), rs.getInt("hits"),
-            rs.getLong("created_at_ms"), rs.getLong("updated_at_ms"), nullableLong(rs, "approved_at_ms"));
 
     private static final RowMapper<Event> EVENT_MAPPER = (rs, rowNum) -> new Event(
             rs.getLong("id"), rs.getString("watch_id"), rs.getString("cycle_id"),

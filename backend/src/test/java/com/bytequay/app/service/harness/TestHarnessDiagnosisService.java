@@ -15,8 +15,6 @@ package com.bytequay.app.service.harness;
 
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.agents.TurnRunner;
-import com.bytequay.app.service.harness.HarnessModels.Bucket;
-import com.bytequay.app.service.harness.HarnessModels.Diagnosis;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
 import com.bytequay.app.service.local.GitRunner;
@@ -38,7 +36,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -69,120 +66,6 @@ class TestHarnessDiagnosisService
                 new GitRunner.CommitEntry(
                         "1234567890123456789012345678901234567890", "1234567",
                         "Dev", "dev@example.com", "2026-07-24", "Update plan")));
-    }
-
-    @Test
-    void acceptsStrictSchemaAndRoundTripsBucketSubtype()
-            throws Exception
-    {
-        Diagnosis diagnosis = service.parseAndValidate(json(
-                "resource:plan_mismatch", "plan mismatch for module", "Update plan"),
-                failure("plan mismatch for module"), root, BASE, List.of("compile failed"));
-
-        assertThat(diagnosis.bucket()).isEqualTo(Bucket.RESOURCE);
-        assertThat(diagnosis.bucketLabel()).isEqualTo("resource:plan_mismatch");
-        assertThat(mapper.writeValueAsString(diagnosis))
-                .contains("\"bucket\":\"resource:plan_mismatch\"")
-                .doesNotContain("bucketLabel");
-    }
-
-    @Test
-    void rejectsMalformedJsonAndInvalidSubtype()
-    {
-        assertThatThrownBy(() -> service.parseAndValidate(
-                "not-json", failure("failure"), root, BASE, List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("valid JSON");
-        assertThatThrownBy(() -> service.parseAndValidate(
-                json("resource:Not Allowed", "failure", "Update plan"),
-                failure("failure"), root, BASE, List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("bucket label");
-    }
-
-    @Test
-    void rejectsRegexThatMatchesAnUnrelatedFailure()
-    {
-        assertThatThrownBy(() -> service.parseAndValidate(
-                json("build", ".*failed", "Update plan"),
-                failure("compile failed"), root, BASE, List.of("unrelated test failed")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("unrelated failure");
-    }
-
-    @Test
-    void rejectsTargetOutsideThePrOwnedRange()
-    {
-        assertThatThrownBy(() -> service.parseAndValidate(
-                json("build", "compile failed", "Base commit"),
-                failure("compile failed"), root, BASE, List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("exactly one existing commit");
-    }
-
-    @Test
-    void rejectsDuplicateEditAnchors()
-            throws Exception
-    {
-        Files.writeString(root.resolve("pom.xml"), "old and old\n");
-
-        assertThatThrownBy(() -> service.parseAndValidate(
-                json("build", "compile failed", "Update plan"),
-                failure("compile failed"), root, BASE, List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("anchor must be unique");
-    }
-
-    @Test
-    void acceptsEditAndPureRegenerationRecipesButRejectsAnEmptyRecipe()
-            throws Exception
-    {
-        String recipe = json("resource:plan_mismatch", "plan mismatch", "Update plan")
-                .replace("\"binding\": \"agent\"",
-                        "\"binding\": \"recipe:refresh_plan\"");
-
-        assertThat(service.parseAndValidate(
-                recipe, failure("plan mismatch"), root, BASE, List.of()).binding())
-                .isEqualTo("recipe:refresh_plan");
-        String regeneration = recipe.replace(
-                        "[{\"path\":\"pom.xml\",\"find\":\"old\",\"replace\":\"new\"}]",
-                        "[]")
-                .replace("[\"build\"]", "[\"regen\"]");
-        assertThat(service.parseAndValidate(
-                regeneration, failure("plan mismatch"), root, BASE, List.of()).edits())
-                .isEmpty();
-        assertThatThrownBy(() -> service.parseAndValidate(
-                recipe.replace(
-                        "[{\"path\":\"pom.xml\",\"find\":\"old\",\"replace\":\"new\"}]",
-                        "[]"),
-                failure("plan mismatch"), root, BASE, List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("regen hint");
-    }
-
-    @Test
-    void rejectsUnknownVerificationHints()
-    {
-        String diagnosis = json("build", "compile failed", "Update plan")
-                .replace("[\"build\"]", "[\"deploy\"]");
-
-        assertThatThrownBy(() -> service.parseAndValidate(
-                diagnosis, failure("compile failed"), root, BASE, List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("generic verification hint");
-    }
-
-    @Test
-    void steeringIsClearlyAdvisoryAndBounded()
-    {
-        String prompt = HarnessDiagnosisService.userPrompt(
-                failure("compile failed"), List.of(), "focus on module x" + "y".repeat(5_000));
-
-        assertThat(prompt)
-                .contains("Advisory user context")
-                .contains("untrusted context only")
-                .contains("<user_context>\nfocus on module x")
-                .doesNotContain("y".repeat(4_001));
     }
 
     @Test

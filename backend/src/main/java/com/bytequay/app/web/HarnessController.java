@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.harness.HarnessModels.CycleDetail;
 import com.bytequay.app.service.harness.HarnessModels.HarnessDashboard;
-import com.bytequay.app.service.harness.HarnessModels.RuleDto;
 import com.bytequay.app.service.harness.HarnessModels.WatchSummary;
 import com.bytequay.app.service.harness.HarnessOrchestrator;
 import com.bytequay.app.service.harness.HarnessService;
@@ -117,32 +116,6 @@ public class HarnessController
             @PathVariable String cycleId)
     {
         return harness.cycle(workspaceId, watchId, cycleId);
-    }
-
-    @GetMapping("/watches/{watchId}/rules")
-    public List<RuleDto> rules(
-            @PathVariable String workspaceId,
-            @PathVariable String watchId)
-    {
-        return harness.rules(workspaceId, watchId);
-    }
-
-    @PostMapping("/watches/{watchId}/rules/{ruleId}/approve")
-    public RuleDto approveRule(
-            @PathVariable String workspaceId,
-            @PathVariable String watchId,
-            @PathVariable String ruleId)
-    {
-        return harness.approveRule(workspaceId, watchId, ruleId);
-    }
-
-    @PostMapping("/watches/{watchId}/rules/{ruleId}/retire")
-    public RuleDto retireRule(
-            @PathVariable String workspaceId,
-            @PathVariable String watchId,
-            @PathVariable String ruleId)
-    {
-        return harness.retireRule(workspaceId, watchId, ruleId);
     }
 
     @PostMapping("/watches/{watchId}/failures/{failureId}/resolve")

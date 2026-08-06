@@ -55,7 +55,6 @@ import type {
   WorkspaceSettingsDto,
   CiHarnessWatchSnapshotDto,
   CiHarnessWatchDto,
-  CiHarnessRuleDto,
   WorkspaceTrunkDto,
 } from './workspaceApi';
 
@@ -2002,7 +2001,7 @@ const visualHarnessSnapshot: CiHarnessWatchSnapshotDto = {
     updatedAtMs: agoMs(4 * minute),
   }],
   stats: {
-    failuresByState: { verified: 1 }, activeRules: 3, candidateRules: 1,
+    failuresByState: { verified: 1 },
     cycleCostMilliUsd: 290, watchCostMilliUsd: 410,
   },
   backupRef: 'bytequay-backup/ci-harness/visual-7be90d4d',
@@ -2022,12 +2021,6 @@ const visualHarnessSnapshot: CiHarnessWatchSnapshotDto = {
   handoffCommand: `git -C '/Users/chenjian2664/ByteQuay.bytequay-worktrees/ci-harness/visual-ci-watch' push --force-with-lease origin 'HEAD:${VISUAL_BRANCH_NAME}'`,
   runStatusTail: '22 checks complete · 1 failed',
 };
-
-const visualHarnessRules: CiHarnessRuleDto[] = [{
-  id: 'visual-rule', matcherPattern: 'generated plan.*differs', scope: 'backend',
-  bucket: 'resource:plan_mismatch', binding: 'refresh-plan-resource', status: 'candidate',
-  origin: 'agent', priority: 100, hits: 1, approvedAtMs: null,
-}];
 
 export function installWorkspaceVisualBridge(frame: string): void {
   const route = async <T>(request: WorkspaceApiRequest): Promise<T> =>
@@ -2202,7 +2195,6 @@ function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown
   const path = request.path;
   if (path.endsWith('/ci-harness/watches')) return [visualHarnessWatch];
   if (path.endsWith('/ci-harness/watches/visual-ci-watch')) return visualHarnessSnapshot;
-  if (path.endsWith('/ci-harness/watches/visual-ci-watch/rules')) return visualHarnessRules;
   if (path === '/api/ai/plan-usage' || path === '/api/ai/plan-usage/claude/refresh') {
     return {
       providers: [{

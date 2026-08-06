@@ -12,6 +12,13 @@
   flex-direction: column;
   background: var(--bg-base);
 }
+/* The window's 10px drag strip (.app-window-drag-region) is fixed at the
+   top of every view and overlaps this toolbar's 8px top padding — the
+   top 2px of each 28px control lands in an OS drag region, where the
+   mousedown never reaches the DOM and the click is silently lost. Make
+   the toolbar itself the drag handle and opt the controls out, same as
+   .sb-traffic does. z-index doesn't help: app-region is resolved by
+   Electron from the layout, not by stacking. */
 .inapp-browser__toolbar {
   display: flex;
   align-items: center;
@@ -20,6 +27,10 @@
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  -webkit-app-region: drag;
+}
+.inapp-browser__toolbar button {
+  -webkit-app-region: no-drag;
 }
 /* Out of fullscreen, the inset macOS traffic lights sit at the very
    top-left of the renderer (titleBarStyle: hiddenInset, position

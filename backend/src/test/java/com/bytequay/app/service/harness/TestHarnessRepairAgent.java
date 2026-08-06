@@ -13,12 +13,14 @@
  */
 package com.bytequay.app.service.harness;
 
+import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -33,50 +35,8 @@ class TestHarnessRepairAgent
             mock(CliReviewRunner.class),
             mock(WorkspaceEngineSettings.class),
             mock(AiDefaultsService.class),
-            mock(SessionKnowledgeProvider.class));
-
-    @Test
-    void aCommittedRoundIsTheOnlyVerdictThatGetsPushed()
-    {
-        assertThat(agent.read("COMMITTED: fixed the compile break", 300, "s-1").committed())
-                .isTrue();
-        assertThat(agent.read("NOTHING: both failures are cloud-gated", 300, "s-1").committed())
-                .isFalse();
-        assertThat(agent.read("PARKED: needs a call on the fork's API", 300, "s-1").committed())
-                .isFalse();
-        // A turn that ends any other way is never assumed to have worked — the
-        // program will not publish a tree whose author never called it finished.
-        assertThat(agent.read("Let me start by reading the log.", 300, "s-1").committed())
-                .isFalse();
-    }
-
-    @Test
-    void nothingToDoIsDistinctFromBeingStuck()
-    {
-        HarnessRepairAgent.Outcome nothing =
-                agent.read("NOTHING: both failures are cloud-gated", 300, "s-1");
-        HarnessRepairAgent.Outcome parked =
-                agent.read("PARKED: needs a human call", 300, "s-1");
-
-        assertThat(nothing.nothing()).isTrue();
-        assertThat(nothing.detail()).isEqualTo("both failures are cloud-gated");
-        assertThat(parked.nothing()).isFalse();
-    }
-
-    @Test
-    void theVerdictIsTheLastLineAndCarriesTheSessionForward()
-    {
-        HarnessRepairAgent.Outcome outcome = agent.read("""
-                Looked at the build failure first — the fork's config key was dropped.
-                Committed a fixup on "Add retry budget".
-                COMMITTED: restored the fork's config key on its own pick's fixup
-                """, 450, "session-7");
-
-        assertThat(outcome.detail())
-                .isEqualTo("restored the fork's config key on its own pick's fixup");
-        assertThat(outcome.sessionId()).isEqualTo("session-7");
-        assertThat(outcome.costMilliUsd()).isEqualTo(450);
-    }
+            mock(SessionKnowledgeProvider.class),
+            new ObjectMapper());
 
     @Test
     void aResumedRoundAsksWhetherLastRoundsFixWorked()
@@ -102,58 +62,57 @@ class TestHarnessRepairAgent
     }
 
     @Test
+    void onlyACommittedVerdictIsPushed()
+    {
+        assertThat(outcome("committed", "fixed the compile break").committed()).isTrue();
+        assertThat(outcome("nothing", "all cloud-gated").committed()).isFalse();
+        assertThat(outcome("parked", "needs a human").committed()).isFalse();
+    }
+
+    @Test
+    void nothingToDoIsDistinctFromBeingStuck()
+    {
+        assertThat(outcome("nothing", "all cloud-gated").nothing()).isTrue();
+        assertThat(outcome("parked", "needs a human").nothing()).isFalse();
+    }
+
+    @Test
+    void anUnknownStatusParksAndNamesWhatWasWritten()
+    {
+        // A status nobody handles is not a success. Parking is the only safe
+        // reading, and naming it is how the prompt gets fixed.
+        HarnessRepairAgent.Outcome outcome = outcome("finished", "all done!");
+
+        assertThat(outcome.committed()).isFalse();
+        assertThat(outcome.detail()).contains("unknown verdict status").contains("finished");
+    }
+
+    @Test
     void whatTheAgentLearnedIsLiftedOutForTheProgramToPersist()
     {
-        HarnessRepairAgent.Outcome outcome = agent.read("""
-                The plan fixtures were stale again.
-
+        List<HarnessRepairAgent.Learned> learned = HarnessRepairAgent.learned("""
                 <learned title="stale plan fixtures after an optimizer change">
-                Shows up as expected/but was on a generated plan file. Regenerating the
-                fixtures fixes it; editing the assertion does not, because the next
-                optimizer change reintroduces it.
+                Regenerating the fixtures fixes it; editing the assertion does not.
                 </learned>
+                """);
 
-                COMMITTED: regenerated the plan fixtures
-                """, 300, "s-1");
-
-        assertThat(outcome.learned()).hasSize(1);
-        assertThat(outcome.learned().getFirst().title())
+        assertThat(learned).hasSize(1);
+        assertThat(learned.getFirst().title())
                 .isEqualTo("stale plan fixtures after an optimizer change");
-        // The "what didn't work and why" half is the part only the session that
-        // tried it can write, so it has to survive extraction intact.
-        assertThat(outcome.learned().getFirst().body())
-                .contains("editing the assertion does not");
-        assertThat(outcome.committed()).isTrue();
+        assertThat(learned.getFirst().body()).contains("editing the assertion does not");
     }
 
     @Test
     void mostRoundsLearnNothingAndThatIsNotAnError()
     {
-        assertThat(agent.read("COMMITTED: fixed it", 300, "s-1").learned()).isEmpty();
-        // A malformed block is dropped rather than persisted half-written.
-        assertThat(agent.read(
-                "<learned title=\"\"></learned>\nCOMMITTED: fixed it", 300, "s-1").learned())
-                .isEmpty();
+        assertThat(HarnessRepairAgent.learned("fixed it")).isEmpty();
+        assertThat(HarnessRepairAgent.learned("<learned title=\"\"></learned>")).isEmpty();
     }
 
-    @Test
-    void aRetrospectiveMayWriteSeveralEntriesOrNone()
+    private HarnessRepairAgent.Outcome outcome(String status, String summary)
     {
-        HarnessRepairAgent.Outcome outcome = agent.read("""
-                <learned title="the fork keeps its own config prefix">
-                Upstream renames keys; this fork does not follow. Rename in the fixup.
-                </learned>
-                <learned title="coverage gate needs a stub for new fork-only classes">
-                Adding one to the generated list is enough; the gate reads it at build time.
-                </learned>
-                NOTHING: two things worth keeping from this range
-                """, 900, "s-9");
-
-        assertThat(outcome.learned()).hasSize(2);
-        assertThat(outcome.learned().stream().map(HarnessRepairAgent.Learned::title))
-                .contains("the fork keeps its own config prefix");
-        // A retrospective is not a fix: nothing here should ever be pushed.
-        assertThat(outcome.committed()).isFalse();
+        return agent.outcomeOf(
+                new AgentVerdictFile.Verdict(status, summary), List.of(), 300, "s-1");
     }
 
     private static Failure failure(String signature)

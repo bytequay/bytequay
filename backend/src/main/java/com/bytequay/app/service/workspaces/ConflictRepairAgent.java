@@ -15,17 +15,19 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Locale;
+import java.util.Optional;
 
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -52,24 +54,30 @@ import static java.util.Objects.requireNonNull;
 public class ConflictRepairAgent
         implements ConflictRepairAdvisor
 {
-    /** The agent ends its turn with one of these on the last line. */
-    private static final String RESOLVED = "RESOLVED:";
-    private static final String UNVALIDATED = "RESOLVED-UNVALIDATED:";
-    private static final String PARKED = "PARKED:";
+    /** What the agent may write as its verdict status. */
+    private static final String RESOLVED = "resolved";
+    private static final String UNVALIDATED = "resolved_unvalidated";
+    private static final String PARKED = "parked";
     private static final int MAX_DETAIL = 500;
+    /** One corrective turn is usually enough: the work is already committed and
+     *  the session still remembers it, so all that is missing is the file. */
+    private static final int MAX_VERDICT_RETRIES = 2;
 
     private final CliReviewRunner cli;
     private final WorkspaceEngineSettings engines;
     private final AiDefaultsService aiDefaults;
+    private final AgentVerdictFile verdicts;
 
     public ConflictRepairAgent(
             CliReviewRunner cli,
             WorkspaceEngineSettings engines,
-            AiDefaultsService aiDefaults)
+            AiDefaultsService aiDefaults,
+            ObjectMapper mapper)
     {
         this.cli = requireNonNull(cli, "cli is null");
         this.engines = requireNonNull(engines, "engines is null");
         this.aiDefaults = requireNonNull(aiDefaults, "aiDefaults is null");
+        this.verdicts = new AgentVerdictFile(requireNonNull(mapper, "mapper is null"));
     }
 
     /**
@@ -114,71 +122,73 @@ public class ConflictRepairAgent
                     "conflict repair needs a CLI agent; this workspace's CI-fix engine is "
                             + engine.agentOrProvider());
         }
+        verdicts.clear(worktree);
         String prompt = (resumeSessionId == null ? systemPrompt() + "\n\n" : "")
                 + userPrompt(targetSubject, conflictPaths, validateHint);
-        CliReviewRunner.Result result = cli.run(
-                cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
-                toIntExact(Math.max(1, budgetMilliUsd / 10)),
-                CliReviewRunner.Sandbox.WRITE);
-        if (result.failed()) {
-            // The turn never happened — a missing binary, a refused login, a
-            // rejected flag. Reporting that as "no verdict" sends the reader
-            // looking for a model that never spoke.
-            return new Outcome(
-                    false, false,
-                    "the repair agent did not run: " + clamp(String.valueOf(result.errorMessage())),
-                    result.transcript(), result.costUsdMilli(), result.sessionId());
+        String session = resumeSessionId;
+        long spent = 0;
+        String transcript = null;
+        for (int attempt = 0; attempt <= MAX_VERDICT_RETRIES; attempt++) {
+            CliReviewRunner.Result result = cli.run(
+                    cliProvider(engine.agentOrProvider()), prompt, session, worktree, null,
+                    toIntExact(Math.max(1, (budgetMilliUsd - spent) / 10)),
+                    CliReviewRunner.Sandbox.WRITE);
+            spent += result.costUsdMilli();
+            session = result.sessionId() == null ? session : result.sessionId();
+            transcript = result.transcript() == null ? transcript : result.transcript();
+            if (result.failed()) {
+                // The turn never happened — a missing binary, a refused login, a
+                // rejected flag. Asking again would fail the same way.
+                return new Outcome(
+                        false, false,
+                        "the repair agent did not run: " + clamp(String.valueOf(result.errorMessage())),
+                        transcript, spent, session);
+            }
+            Optional<AgentVerdictFile.Verdict> verdict = verdicts.read(worktree);
+            if (verdict.isPresent()) {
+                Outcome outcome = outcomeOf(verdict.orElseThrow(), transcript, spent, session);
+                verdicts.clear(worktree);
+                return outcome;
+            }
+            // No verdict. The work may well be done — the session still knows what
+            // it did — so ask for the file rather than redo or discard the turn.
+            prompt = retryPrompt(attempt);
         }
-        return read(
-                result.text(), result.costUsdMilli(), result.sessionId(), result.transcript());
-    }
-
-    /**
-     * The verdict is the last non-blank line. A turn that ends any other way —
-     * out of budget, timed out, wandered off — is a park: the program will not
-     * guess that a repair it cannot see the end of actually worked.
-     */
-    Outcome read(String raw, long costMilliUsd, String sessionId)
-    {
-        return read(raw, costMilliUsd, sessionId, null);
-    }
-
-    Outcome read(String raw, long costMilliUsd, String sessionId, String transcript)
-    {
-        String last = lastLine(raw);
-        String upper = last.toUpperCase(Locale.ROOT);
-        if (upper.startsWith(RESOLVED)) {
-            return new Outcome(true, true, detail(last, RESOLVED), transcript, costMilliUsd, sessionId);
-        }
-        if (upper.startsWith(UNVALIDATED)) {
-            return new Outcome(true, false, detail(last, UNVALIDATED), transcript, costMilliUsd, sessionId);
-        }
-        if (upper.startsWith(PARKED)) {
-            return new Outcome(false, false, detail(last, PARKED), transcript, costMilliUsd, sessionId);
-        }
+        verdicts.clear(worktree);
         return new Outcome(
                 false, false,
-                last.isBlank()
-                        ? "the repair turn ended without a verdict"
-                        : "the repair turn ended without a verdict: " + clamp(last),
-                transcript, costMilliUsd, sessionId);
+                "the agent finished " + (MAX_VERDICT_RETRIES + 1)
+                        + " turns without writing a verdict to " + AgentVerdictFile.relativePath(),
+                transcript, spent, session);
     }
 
-    private static String lastLine(String raw)
+    Outcome outcomeOf(
+            AgentVerdictFile.Verdict verdict, String transcript, long costMilliUsd, String sessionId)
     {
-        if (raw == null) {
-            return "";
-        }
-        return raw.lines()
-                .map(String::strip)
-                .filter(line -> !line.isBlank())
-                .reduce((first, second) -> second)
-                .orElse("");
+        return switch (verdict.status()) {
+            case RESOLVED -> new Outcome(
+                    true, true, clamp(verdict.summary()), transcript, costMilliUsd, sessionId);
+            case UNVALIDATED -> new Outcome(
+                    true, false, clamp(verdict.summary()), transcript, costMilliUsd, sessionId);
+            case PARKED -> new Outcome(
+                    false, false, clamp(verdict.summary()), transcript, costMilliUsd, sessionId);
+            // An unknown status is not a resolution. Parking on it is the only
+            // safe reading, and it names what was written so the prompt can be fixed.
+            default -> new Outcome(
+                    false, false,
+                    "the agent wrote an unknown verdict status: " + clamp(verdict.status()),
+                    transcript, costMilliUsd, sessionId);
+        };
     }
 
-    private static String detail(String line, String marker)
+    private static String retryPrompt(int attempt)
     {
-        return clamp(line.substring(marker.length()).strip());
+        return attempt == 0
+                ? "You did not write " + AgentVerdictFile.relativePath() + ". Do not redo any "
+                        + "work — just write that file now, describing what you already did."
+                : "There is still no " + AgentVerdictFile.relativePath() + ". Write exactly this "
+                        + "file, nothing else:\n"
+                        + "{\"status\":\"resolved|resolved_unvalidated|parked\",\"summary\":\"one sentence\"}";
     }
 
     private static String clamp(String value)
@@ -243,10 +253,16 @@ public class ConflictRepairAgent
                 Leave the worktree clean — everything you changed committed, nothing
                 staged, no stray files.
 
-                End your turn with exactly one of these as the final line:
-                  RESOLVED: <one sentence on what you did>
-                  RESOLVED-UNVALIDATED: <what you did, and why the build could not run>
-                  PARKED: <why a human has to decide this one>
+                When you are done, write your verdict to .bytequay/verdict.json — create the
+                directory if it is not there. That file is how the program learns what
+                happened; nothing else you write is read as a decision.
+
+                  {"status":"resolved","summary":"one sentence on what you did"}
+                  {"status":"resolved_unvalidated","summary":"what you did, and why the build
+                   could not run"}
+                  {"status":"parked","summary":"why a human has to decide this one"}
+
+                Never commit that file. It is removed for you between turns.
 
                 Park rather than guess. A wrong resolution that compiles is worse than a
                 stop, because nothing downstream will catch it.

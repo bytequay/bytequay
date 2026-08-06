@@ -15,12 +15,14 @@ package com.bytequay.app.service.harness;
 
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -30,7 +32,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -52,10 +54,11 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class HarnessRepairAgent
 {
-    /** The agent ends its turn with one of these on the last line. */
-    private static final String COMMITTED = "COMMITTED:";
-    private static final String NOTHING = "NOTHING:";
-    private static final String PARKED = "PARKED:";
+    /** What the agent may write as its verdict status. */
+    private static final String COMMITTED = "committed";
+    private static final String NOTHING = "nothing";
+    private static final String PARKED = "parked";
+    private static final int MAX_VERDICT_RETRIES = 2;
     private static final int MAX_DETAIL = 500;
     private static final int MAX_EXCERPT = 6_000;
     private static final int MAX_FAILURES = 40;
@@ -70,17 +73,20 @@ public class HarnessRepairAgent
     private final WorkspaceEngineSettings engines;
     private final AiDefaultsService aiDefaults;
     private final SessionKnowledgeProvider knowledge;
+    private final AgentVerdictFile verdicts;
 
     public HarnessRepairAgent(
             CliReviewRunner cli,
             WorkspaceEngineSettings engines,
             AiDefaultsService aiDefaults,
-            SessionKnowledgeProvider knowledge)
+            SessionKnowledgeProvider knowledge,
+            ObjectMapper mapper)
     {
         this.cli = requireNonNull(cli, "cli is null");
         this.engines = requireNonNull(engines, "engines is null");
         this.aiDefaults = requireNonNull(aiDefaults, "aiDefaults is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
+        this.verdicts = new AgentVerdictFile(requireNonNull(mapper, "mapper is null"));
     }
 
     // ponytail: duplicated from ConflictRepairAgent — 12 lines and one enum
@@ -122,11 +128,8 @@ public class HarnessRepairAgent
         String prompt = (resuming ? "" : systemPrompt() + "\n\n")
                 + knowledge(workspaceId, failures)
                 + userPrompt(failures, steeringText, resuming);
-        CliReviewRunner.Result result = cli.run(
-                cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
-                toIntExact(Math.max(1, budgetMilliUsd / 10)),
-                CliReviewRunner.Sandbox.WRITE);
-        return readTurn(result);
+        return drive(
+                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, budgetMilliUsd);
     }
 
     /**
@@ -147,11 +150,8 @@ public class HarnessRepairAgent
         }
         String prompt = RETROSPECTIVE_PROMPT
                 + (prNumber == null ? "" : "\n\nThe merged pull request was #" + prNumber + ".");
-        CliReviewRunner.Result result = cli.run(
-                cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
-                toIntExact(Math.max(1, budgetMilliUsd / 10)),
-                CliReviewRunner.Sandbox.WRITE);
-        return readTurn(result);
+        return drive(
+                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, budgetMilliUsd);
     }
 
     /**
@@ -171,11 +171,8 @@ public class HarnessRepairAgent
         }
         boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
         String prompt = (resuming ? "" : systemPrompt() + "\n\n") + REBASE_PROMPT;
-        CliReviewRunner.Result result = cli.run(
-                cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
-                toIntExact(Math.max(1, budgetMilliUsd / 10)),
-                CliReviewRunner.Sandbox.WRITE);
-        return readTurn(result);
+        return drive(
+                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, budgetMilliUsd);
     }
 
     /**
@@ -206,46 +203,71 @@ public class HarnessRepairAgent
                 + projection.strip() + "\n</knowledge>\n\n";
     }
 
-    /** A turn that never ran reports why; otherwise the verdict is read off it. */
-    private Outcome readTurn(CliReviewRunner.Result result)
-    {
-        if (result.failed()) {
-            return new Outcome(
-                    false, false,
-                    "the agent did not run: " + clamp(String.valueOf(result.errorMessage())),
-                    List.of(), result.costUsdMilli(), result.sessionId());
-        }
-        return read(result.text(), result.costUsdMilli(), result.sessionId());
-    }
-
     /**
-     * The verdict is the last non-blank line. A turn that ends any other way is
-     * a park: the program will not push a tree whose author never said it was
-     * ready.
+     * Runs a turn and reads the verdict the agent wrote. A turn that produced no
+     * verdict is asked again — the work is usually already done and the session
+     * still remembers it, so only the file is missing. A turn that never ran is
+     * not retried; it would fail the same way.
      */
-    Outcome read(String raw, long costMilliUsd, String sessionId)
+    private Outcome drive(
+            Path worktree, CliReviewRunner.Provider provider, String firstPrompt, String resume,
+            long budgetMilliUsd)
     {
-        List<Learned> learned = learned(raw);
-        String last = lastLine(raw);
-        String upper = last.toUpperCase(Locale.ROOT);
-        if (upper.startsWith(COMMITTED)) {
-            return new Outcome(
-                    true, false, detail(last, COMMITTED), learned, costMilliUsd, sessionId);
+        verdicts.clear(worktree);
+        String prompt = firstPrompt;
+        String session = resume;
+        long spent = 0;
+        List<Learned> learned = List.of();
+        for (int attempt = 0; attempt <= MAX_VERDICT_RETRIES; attempt++) {
+            CliReviewRunner.Result result = cli.run(
+                    provider, prompt, session, worktree, null,
+                    toIntExact(Math.max(1, (budgetMilliUsd - spent) / 10)),
+                    CliReviewRunner.Sandbox.WRITE);
+            spent += result.costUsdMilli();
+            session = result.sessionId() == null ? session : result.sessionId();
+            if (!learned(result.text()).isEmpty()) {
+                learned = learned(result.text());
+            }
+            if (result.failed()) {
+                return new Outcome(
+                        false, false,
+                        "the agent did not run: " + clamp(String.valueOf(result.errorMessage())),
+                        learned, spent, session);
+            }
+            Optional<AgentVerdictFile.Verdict> verdict = verdicts.read(worktree);
+            if (verdict.isPresent()) {
+                Outcome outcome = outcomeOf(verdict.orElseThrow(), learned, spent, session);
+                verdicts.clear(worktree);
+                return outcome;
+            }
+            prompt = "You did not write " + AgentVerdictFile.relativePath()
+                    + ". Do not redo any work — write that file now: "
+                    + "{\"status\":\"committed|nothing|parked\",\"summary\":\"one sentence\"}";
         }
-        if (upper.startsWith(NOTHING)) {
-            return new Outcome(
-                    false, true, detail(last, NOTHING), learned, costMilliUsd, sessionId);
-        }
-        if (upper.startsWith(PARKED)) {
-            return new Outcome(
-                    false, false, detail(last, PARKED), learned, costMilliUsd, sessionId);
-        }
+        verdicts.clear(worktree);
         return new Outcome(
                 false, false,
-                last.isBlank()
-                        ? "the round ended without a verdict"
-                        : "the round ended without a verdict: " + clamp(last),
-                learned, costMilliUsd, sessionId);
+                "the agent finished without writing a verdict to "
+                        + AgentVerdictFile.relativePath(),
+                learned, spent, session);
+    }
+
+    Outcome outcomeOf(
+            AgentVerdictFile.Verdict verdict, List<Learned> learned,
+            long costMilliUsd, String sessionId)
+    {
+        return switch (verdict.status()) {
+            case COMMITTED -> new Outcome(
+                    true, false, clamp(verdict.summary()), learned, costMilliUsd, sessionId);
+            case NOTHING -> new Outcome(
+                    false, true, clamp(verdict.summary()), learned, costMilliUsd, sessionId);
+            case PARKED -> new Outcome(
+                    false, false, clamp(verdict.summary()), learned, costMilliUsd, sessionId);
+            default -> new Outcome(
+                    false, false,
+                    "the agent wrote an unknown verdict status: " + clamp(verdict.status()),
+                    learned, costMilliUsd, sessionId);
+        };
     }
 
     /**
@@ -270,23 +292,6 @@ public class HarnessRepairAgent
             }
         }
         return List.copyOf(entries);
-    }
-
-    private static String lastLine(String raw)
-    {
-        if (raw == null) {
-            return "";
-        }
-        return raw.lines()
-                .map(String::strip)
-                .filter(line -> !line.isBlank())
-                .reduce((first, second) -> second)
-                .orElse("");
-    }
-
-    private static String detail(String line, String marker)
-    {
-        return clamp(line.substring(marker.length()).strip());
     }
 
     private static String clamp(String value)
@@ -364,8 +369,8 @@ public class HarnessRepairAgent
 
             Write nothing if the range taught nothing durable — that is a real answer.
 
-            End your turn with:
-              NOTHING: <one sentence on what this range taught, or that it taught nothing>
+            Write your verdict to .bytequay/verdict.json when you are done:
+            {"status":"nothing","summary":"what this range taught, or that it taught nothing"}
             """;
 
     private static final String REBASE_PROMPT = """
@@ -379,9 +384,8 @@ public class HarnessRepairAgent
 
             Do not push. Do not squash the picks together. Do not reorder them.
 
-            End your turn with exactly one of:
-              COMMITTED: <one sentence on what the rebase took>
-              PARKED: <why a human has to resolve this one>
+            Write your verdict to .bytequay/verdict.json as usual — "committed" when the
+            rebase is done, "parked" when a human has to resolve it.
             """;
 
     private static String systemPrompt()
@@ -441,10 +445,13 @@ public class HarnessRepairAgent
                 for a reader who has forgotten everything but has the same failure in front
                 of them. Nothing to confirm this round means no block — most rounds have none.
 
-                End your turn with exactly one of these as the final line:
-                  COMMITTED: <one sentence on what you fixed>
-                  NOTHING: <why nothing here is yours to fix>
-                  PARKED: <why a human has to take this one>
+                When you are done, write your verdict to .bytequay/verdict.json — create
+                the directory if it is not there. That file is how the program learns what
+                happened; nothing else you write is read as a decision. Never commit it.
+
+                  {"status":"committed","summary":"one sentence on what you fixed"}
+                  {"status":"nothing","summary":"why nothing here is yours to fix"}
+                  {"status":"parked","summary":"why a human has to take this one"}
                 """;
     }
 

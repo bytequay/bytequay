@@ -469,8 +469,23 @@ public class LocalRepoService
             String owner,
             String repo,
             PreparedClone prepared)
+            throws IOException, InterruptedException
     {
         requireNonNull(prepared, "prepared is null");
+        // A checkout is only cloned fresh the first time: the directory
+        // outlives un-watching the repo, so both the recovery path and a
+        // re-clone adopt whatever is already on disk. Without this the
+        // Commits tab opens on the history as of whenever that clone was
+        // last updated, which is what makes a "fresh" clone look days old.
+        // Best-effort: a checkout that exists is usable offline, so a failed
+        // fetch must not throw away the clone we just verified.
+        try {
+            gitRunner.fetch(prepared.path());
+        }
+        catch (IOException | GitRunner.GitCommandException e) {
+            log.warn("Could not fetch adopted clone {}: {}", prepared.path(), e.getMessage());
+        }
+        fastForwardIfPossible(prepared.path());
         watchedRepoStore.replaceClone(
                 owner,
                 repo,
@@ -657,6 +672,39 @@ public class LocalRepoService
         gitRunner.fetch(path);
         codeGraph.requestRefreshAsync(path, "repo-fetch");
         return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * Fetches, then fast-forwards the checked-out branch when it can be.
+     * This is what the Commits and Branches "Refresh" buttons mean: a bare
+     * fetch only moves {@code refs/remotes/*}, while the history those tabs
+     * render is read from the local branch, so fetching alone leaves them
+     * showing whatever the clone last pulled.
+     */
+    public LocalRepoStatus refresh(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        gitRunner.fetch(path);
+        fastForwardIfPossible(path);
+        codeGraph.requestRefreshAsync(path, "repo-refresh");
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * A diverged branch, a dirty tree or a detached HEAD leaves the checkout
+     * alone — refreshing is a read-only convenience, so it must never fail
+     * the caller or touch work in progress.
+     */
+    private void fastForwardIfPossible(Path path)
+            throws InterruptedException
+    {
+        try {
+            gitRunner.pullFastForward(path);
+        }
+        catch (IOException | GitRunner.GitCommandException e) {
+            log.warn("Could not fast-forward {}: {}", path, e.getMessage());
+        }
     }
 
     /**

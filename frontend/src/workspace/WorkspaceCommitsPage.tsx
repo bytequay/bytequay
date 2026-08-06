@@ -36,6 +36,7 @@ import {
 } from './WorkspaceUpstreamCommits';
 import {
   PageHeader,
+  RefreshIcon,
   SearchIcon,
   message,
   relative,
@@ -95,6 +96,26 @@ export default function WorkspaceCommitsPage({
   // A typed range is resolved by the backend against full history, so it can
   // reach commits older than the page has loaded.
   const [shaRangeOpen, setShaRangeOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  /** Bumped by Refresh; the history reloads off this, so a fetch that lands
+   *  new commits is visible without switching branches. */
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const refresh = useCallback(() => {
+    setRefreshing(true);
+    // The two sources are two different clones: the fork's own remote, and
+    // the linked upstream workspace's.
+    const fetched = source === 'upstream'
+      ? workspaceApi.fetchRelation(workspaceId).then(setRelation)
+      : workspaceApi.refreshRepository(workspaceId).then(() => {});
+    void fetched
+      .then(() => {
+        setReloadKey(key => key + 1);
+        setError(null);
+      })
+      .catch(reason => setError(message(reason)))
+      .finally(() => setRefreshing(false));
+  }, [source, workspaceId]);
 
   const loadRelation = useCallback(() => {
     void workspaceApi.relation(workspaceId)
@@ -117,7 +138,7 @@ export default function WorkspaceCommitsPage({
       .then(next => { if (!cancelled) setBranches(next); })
       .catch(reason => { if (!cancelled) setError(message(reason)); });
     return () => { cancelled = true; };
-  }, [workspaceId]);
+  }, [workspaceId, reloadKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,7 +172,7 @@ export default function WorkspaceCommitsPage({
       .catch(reason => { if (!cancelled) setError(message(reason)); })
       .finally(() => { if (!cancelled) setUpstreamLoading(false); });
     return () => { cancelled = true; };
-  }, [source, workspaceId, upstreamRevision]);
+  }, [source, workspaceId, upstreamRevision, reloadKey]);
 
   /**
    * The next page, appended. Only ever appends, because the range selection
@@ -263,6 +284,11 @@ export default function WorkspaceCommitsPage({
               ? 'Search commits…'
               : tab === 'uncommitted' ? 'Filter files by path…' : 'Filter by title or SHA…'} />
         </label>
+        <button type="button" className="wu-icon-button" disabled={refreshing}
+          title="Fetch the remote and fast-forward the current branch"
+          onClick={refresh}>
+          <RefreshIcon />{refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </PageHeader>
       {source === 'upstream' && upstream !== null && (
         <div className="wu-upstream-banner">
@@ -326,6 +352,7 @@ export default function WorkspaceCommitsPage({
             onCountChange={setUncommitted} />
         ) : (
           <WorkspaceCommitEditor workspaceId={workspaceId} branch={branch}
+            reloadKey={reloadKey}
             query={query} author={author} onAuthorsChange={setAuthors}
             cherryPickTargets={cherryPickTargets}
             repoContext={{ owner: repo.owner, repo: repo.repo }}

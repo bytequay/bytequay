@@ -188,6 +188,11 @@ class TestLocalRepoServiceManagedClone
         WatchedRepo watched = f.store.find("trinodb", "trino").orElseThrow();
         assertThat(watched.localClonePath()).isEqualTo(destination.toString());
         assertThat(f.gitRunner.clonedDestination).isNull();
+        // The adopted directory can be arbitrarily old — it outlived the
+        // watched-repo row that was removed — so it is brought up to date
+        // rather than served as-is.
+        assertThat(f.gitRunner.fetched).containsExactly(destination);
+        assertThat(f.gitRunner.fastForwarded).containsExactly(destination);
     }
 
     @Test
@@ -381,6 +386,8 @@ class TestLocalRepoServiceManagedClone
         Optional<String> remoteDefaultBranch = Optional.empty();
         final List<AddedRemote> addedRemotes = new ArrayList<>();
         final List<FetchedRemote> fetchedRemotes = new ArrayList<>();
+        final List<Path> fetched = new ArrayList<>();
+        final List<Path> fastForwarded = new ArrayList<>();
 
         @Override
         public void clone(String url, Path destination)
@@ -401,6 +408,18 @@ class TestLocalRepoServiceManagedClone
         public void fetchRemote(Path workingDir, String remote)
         {
             fetchedRemotes.add(new FetchedRemote(workingDir, remote));
+        }
+
+        @Override
+        public void fetch(Path workingDir)
+        {
+            fetched.add(workingDir);
+        }
+
+        @Override
+        public void pullFastForward(Path workingDir)
+        {
+            fastForwarded.add(workingDir);
         }
 
         @Override

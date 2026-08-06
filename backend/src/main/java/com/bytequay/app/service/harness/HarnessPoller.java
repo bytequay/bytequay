@@ -28,7 +28,9 @@ import static java.util.Objects.requireNonNull;
 public class HarnessPoller
 {
     private static final Logger log = LoggerFactory.getLogger(HarnessPoller.class);
-    private static final long POLL_INTERVAL_MS = 90_000;
+    /** A CI board rarely settles inside a minute, and every cycle costs a
+     *  GitHub round trip per watch. Five minutes is the cadence. */
+    private static final long POLL_INTERVAL_MS = 300_000;
 
     private final HarnessStore store;
     private final HarnessOrchestrator orchestrator;

@@ -24,9 +24,11 @@ import {
   type CiHarnessWatchDto,
   type CiHarnessWatchSnapshotDto,
   type WorkspaceRepositoryDto,
+  type UpstreamCherryPickJobDto,
 } from './workspaceApi';
 import { HarnessHeader, HarnessIdle, HarnessSidebar } from './WorkspaceHarnessChrome';
 import { HarnessDashboard, type HarnessActions } from './WorkspaceHarnessDashboard';
+import WorkspaceSyncRunPage from './WorkspaceSyncRunPage';
 
 const ACTIVE_REFRESH_MS = 3_000;
 
@@ -60,6 +62,8 @@ export default function WorkspaceHarnessPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [prRow, setPrRow] = useState<PullRow | null>(null);
+  /** Sync runs in this workspace, so a watch can find the run that created it. */
+  const [syncRuns, setSyncRuns] = useState<UpstreamCherryPickJobDto[]>([]);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [cycleDetail, setCycleDetail] = useState<CiHarnessCycleDetailDto | null>(null);
   const [prOpen, setPrOpen] = useState(true);
@@ -75,6 +79,16 @@ export default function WorkspaceHarnessPage({
     const next = await workspaceApi.harnessWatches(workspaceId);
     setWatches(next);
     return next;
+  }, [workspaceId]);
+
+  // The link from a watch back to the run that created it. Cheap enough to
+  // load once here rather than add an endpoint for the reverse lookup.
+  useEffect(() => {
+    let cancelled = false;
+    void workspaceApi.upstreamCherryPicks(workspaceId)
+      .then(next => { if (!cancelled) setSyncRuns(next); })
+      .catch(() => { /* A watch without a run just keeps the dashboard. */ });
+    return () => { cancelled = true; };
   }, [workspaceId]);
 
   const loadSnapshot = useCallback(async (id: string) => {
@@ -176,6 +190,7 @@ export default function WorkspaceHarnessPage({
   }, [currentLocalPrId, currentOwner, currentPrNumber, currentRepo, currentWatchId, workspaceId]);
 
   const showPr = prOpen && prRow !== null;
+  const syncJobId = syncRuns.find(job => job.harnessWatchId === snapshot?.watchId)?.jobId ?? null;
   const currentRepository = workspaceRepository ?? repository?.fullName ?? workspaceName ?? 'Workspace';
 
   const run = useCallback(<T,>(
@@ -202,6 +217,24 @@ export default function WorkspaceHarnessPage({
   });
 
   if (loading) return <div className="ci-harness-loading" role="status">Loading CI Harness…</div>;
+
+  // The design calls phase 1 and phase 2 one continuous run, so a watch that
+  // came from a sync run opens that run's cockpit — its own commit queue on the
+  // left and its agent conversation in the middle — with the pull request pane
+  // kept on the right. A watch created by hand from the idle screen has no run
+  // behind it and keeps the dashboard.
+  if (syncJobId !== null) {
+    return (
+      <div className="ci-harness-page">
+        <WorkspaceSyncRunPage
+          workspaceId={workspaceId}
+          jobId={syncJobId}
+          onBack={onNavigateGlobal === undefined ? undefined : () => onNavigateGlobal('today')}
+          rightPane={prRow === null ? undefined : <PullDetailPane key={prRow.id} row={prRow} />}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="ci-harness-page">

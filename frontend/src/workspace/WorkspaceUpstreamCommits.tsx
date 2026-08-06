@@ -134,6 +134,8 @@ export function UpstreamCherryPicker({
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [job, setJob] = useState<UpstreamCherryPickJobDto | null>(null);
+  /** A run already going elsewhere in this workspace — shown, never blocking. */
+  const [liveJob, setLiveJob] = useState<UpstreamCherryPickJobDto | null>(null);
   const [discoveringJob, setDiscoveringJob] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,10 +149,22 @@ export function UpstreamCherryPicker({
     void workspaceApi.upstreamCherryPicks(workspaceId)
       .then(jobs => {
         if (cancelled) return;
-        const active = jobs.find(candidate => candidate.status === 'QUEUED'
+        // A closed run is over whatever its status says. Closing only stamped
+        // closedAt and left the status at PAUSED_CONFLICT, so a finished run
+        // still looked parked and held this dialog open on it forever.
+        const open = jobs.filter(candidate => candidate.closedAt === null);
+        // A run actively going is worth showing — that is how progress survives
+        // an app restart — and so is a failed one, which offers its retry. Both
+        // have "Start another" to get back to the picker.
+        setJob(open.find(candidate => candidate.status === 'QUEUED'
           || candidate.status === 'RUNNING'
-          || candidate.status === 'PAUSED_CONFLICT');
-        setJob(active ?? jobs.find(candidate => candidate.status === 'FAILED') ?? null);
+          || candidate.status === 'FAILED') ?? null);
+        // A parked run is different: it is waiting on a human somewhere else and
+        // has no way back to the picker, so it used to hold this dialog shut on
+        // an unrelated range. It is reported instead. Runs are independent —
+        // each has its own worktree and the backend refuses nothing but a
+        // branch name already taken.
+        setLiveJob(open.find(candidate => candidate.status === 'PAUSED_CONFLICT') ?? null);
       })
       .catch(() => { /* Starting a new job remains available if discovery fails. */ })
       .finally(() => { if (!cancelled) setDiscoveringJob(false); });
@@ -289,6 +303,12 @@ export function UpstreamCherryPicker({
             )}
             <p className="wu-upstream-cherry__guard">⌾ Runs in an app-owned worktree, never your checkout ·
               conflicts are repaired and re-checked before the range moves on · it parks rather than guess.</p>
+            {liveJob !== null && (
+              <p className="wu-upstream-cherry__note">
+                A sync run is parked on <code>{liveJob.resultBranch}</code>, waiting on you.
+                It has its own worktree — starting this range does not touch it.
+              </p>
+            )}
             {error !== null && <span className="wu-form-error">{error}</span>}
           </div>
         ) : (

@@ -409,7 +409,7 @@ export type CherryPickPlanDto = {
 };
 
 export type UpstreamCherryPickStatus =
-  'QUEUED' | 'RUNNING' | 'PAUSED_CONFLICT' | 'COMPLETED' | 'FAILED';
+  'QUEUED' | 'RUNNING' | 'PAUSED_CONFLICT' | 'COMPLETED' | 'FAILED' | 'CLOSED';
 
 export type UpstreamCherryPickJobDto = {
   jobId: string;

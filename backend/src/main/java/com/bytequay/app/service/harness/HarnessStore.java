@@ -265,6 +265,20 @@ public class HarnessStore
                 """, CYCLE_MAPPER, watchId).stream().findFirst();
     }
 
+    /** Adds to a live round's steering, so a steer mid-round is not dropped. */
+    @Transactional
+    public void appendCycleSteering(String cycleId, String text, long nowMs)
+    {
+        jdbc.update("""
+                UPDATE ci_harness_cycle
+                SET steering_text = CASE
+                        WHEN steering_text IS NULL OR steering_text = '' THEN ?
+                        ELSE steering_text || char(10) || ? END,
+                    updated_at_ms = ?
+                WHERE id = ?
+                """, text, text, nowMs, cycleId);
+    }
+
     public boolean isCycleActive(String watchId, String cycleId)
     {
         Boolean active = jdbc.queryForObject("""

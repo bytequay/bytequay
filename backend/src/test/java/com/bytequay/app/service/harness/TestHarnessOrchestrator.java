@@ -29,6 +29,7 @@ import com.bytequay.app.service.harness.HarnessModels.Phase;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.workspaces.SyncRunStream;
 import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +67,7 @@ class TestHarnessOrchestrator
     private final PRStore prs = mock(PRStore.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final HarnessOrchestrator orchestrator = new HarnessOrchestrator(
-            store, service, probe, parser, agent, knowledge,
+            store, service, probe, parser, agent, knowledge, new SyncRunStream(),
             gitSafety, git, prs, mock(ApplicationEventPublisher.class),
             mapper, Runnable::run);
 
@@ -120,7 +121,7 @@ class TestHarnessOrchestrator
         orchestrator.runCycle(cycle.id());
 
         verify(parser, never()).parse(any(), anyLong(), any(), any(), any());
-        verify(agent, never()).fix(any(), any(), any(), anyLong(), any(), any());
+        verify(agent, never()).fix(any(), any(), any(), anyLong(), any(), any(), any());
         verify(store).updateWatchStatusIfNotStopped(
                 eq(watch.id()), eq(WatchStatus.HANDOFF), eq(watch.handoffJson()), anyLong());
     }
@@ -266,7 +267,7 @@ class TestHarnessOrchestrator
         Watch watch = watch(WatchStatus.RUNNING, "old", null);
         Failure failure = stubAgentDiagnosis(watch);
         when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
-        when(agent.fix(any(), eq("ws"), anyList(), anyLong(), any(), any()))
+        when(agent.fix(any(), eq("ws"), anyList(), anyLong(), any(), any(), any()))
                 .thenReturn(new HarnessRepairAgent.Outcome(
                         true, false, "fixed the compile break", 300, "session-2"));
         when(git.pushRewrittenBranch(any(), eq("feature"), eq("new")))
@@ -279,7 +280,7 @@ class TestHarnessOrchestrator
 
         // Every failure of the round goes over in one turn — the agent decides
         // what to take on, not the program.
-        verify(agent).fix(any(), eq("ws"), eq(List.of(failure)), anyLong(), any(), any());
+        verify(agent).fix(any(), eq("ws"), eq(List.of(failure)), anyLong(), any(), any(), any());
         // The push is the program's, under an explicit lease on the head CI ran on.
         verify(git).pushRewrittenBranch(any(), eq("feature"), eq("new"));
         // One session for the run: what this round opened, the next resumes.
@@ -293,7 +294,7 @@ class TestHarnessOrchestrator
         Watch watch = watch(WatchStatus.RUNNING, "old", null);
         Failure failure = stubAgentDiagnosis(watch);
         when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
-        when(agent.fix(any(), any(), anyList(), anyLong(), any(), any()))
+        when(agent.fix(any(), any(), anyList(), anyLong(), any(), any(), any()))
                 .thenReturn(new HarnessRepairAgent.Outcome(
                         true, false, "fixed it", 300, "session-2"));
         // Clean when the round starts, dirty when the agent hands it back.
@@ -316,7 +317,7 @@ class TestHarnessOrchestrator
         orchestrator.runCycle(cycle.id());
 
         // A check still running may yet fail; fixing around it wastes a push.
-        verify(agent, never()).fix(any(), any(), anyList(), anyLong(), any(), any());
+        verify(agent, never()).fix(any(), any(), anyList(), anyLong(), any(), any(), any());
         verify(store).updateWatchStatusIfNotStopped(
                 eq(watch.id()), eq(WatchStatus.WATCHING), isNull(), anyLong());
     }
@@ -336,7 +337,7 @@ class TestHarnessOrchestrator
         Failure failure = stubAgentDiagnosis(watch);
         when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
         stubStillRunningBoard(watch);
-        when(agent.fix(any(), eq("ws"), anyList(), anyLong(), any(), any()))
+        when(agent.fix(any(), eq("ws"), anyList(), anyLong(), any(), any(), any()))
                 .thenReturn(new HarnessRepairAgent.Outcome(
                         true, false, "fixed the compile break", 300, "session-2"));
         when(git.pushRewrittenBranch(any(), eq("feature"), eq("new")))
@@ -347,7 +348,7 @@ class TestHarnessOrchestrator
 
         orchestrator.runCycle(cycle.id());
 
-        verify(agent).fix(any(), eq("ws"), eq(List.of(failure)), anyLong(), any(), any());
+        verify(agent).fix(any(), eq("ws"), eq(List.of(failure)), anyLong(), any(), any(), any());
         verify(git).pushRewrittenBranch(any(), eq("feature"), eq("new"));
     }
 
@@ -372,7 +373,7 @@ class TestHarnessOrchestrator
         Watch watch = watch(WatchStatus.RUNNING, "old", null);
         Failure failure = stubAgentDiagnosis(watch);
         when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
-        when(agent.fix(any(), any(), anyList(), anyLong(), any(), any()))
+        when(agent.fix(any(), any(), anyList(), anyLong(), any(), any(), any()))
                 .thenReturn(new HarnessRepairAgent.Outcome(
                         false, false, "the fork's own API diverged too far here",
                         300, "session-2"));
@@ -392,7 +393,7 @@ class TestHarnessOrchestrator
         Watch watch = watch(WatchStatus.RUNNING, "old", null);
         Failure failure = stubAgentDiagnosis(watch);
         when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
-        when(agent.fix(any(), any(), anyList(), anyLong(), any(), any()))
+        when(agent.fix(any(), any(), anyList(), anyLong(), any(), any(), any()))
                 .thenReturn(new HarnessRepairAgent.Outcome(
                         true, false, "fixed it", 300, "session-2"));
         when(git.pushRewrittenBranch(any(), eq("feature"), eq("new")))
@@ -420,7 +421,7 @@ class TestHarnessOrchestrator
 
         orchestrator.runCycle(cycle.id());
 
-        verify(agent, never()).fix(any(), any(), any(), anyLong(), any(), any());
+        verify(agent, never()).fix(any(), any(), any(), anyLong(), any(), any(), any());
         // The budget is the one hard stop, and the park says it can be lifted.
         verify(service).notifyNeedsAttention(any(), anyString(), contains("Raise it"));
     }

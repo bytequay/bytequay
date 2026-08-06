@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.SyncSettings;
 import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
-import com.bytequay.app.service.settings.AiDefaultsService.AiDefaults;
 import com.bytequay.app.service.settings.SettingsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -64,19 +63,6 @@ public class SettingsController
     {
         settings = requireBody(settings);
         return service.updateSyncSettings(settings);
-    }
-
-    @GetMapping("/ai-defaults")
-    public AiDefaults getAiDefaults()
-    {
-        return service.getAiDefaults();
-    }
-
-    @PutMapping("/ai-defaults")
-    public AiDefaults updateAiDefaults(@RequestBody AiDefaults body)
-    {
-        body = requireBody(body);
-        return service.updateAiDefaults(body);
     }
 
     @PostMapping("/sync/trigger")

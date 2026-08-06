@@ -53,7 +53,7 @@ function SettingsShell({ section, workspaceId, onSelectSection, onOpenThread }: 
           {resolved === 'account' && <AccountPage />}
           {resolved === 'appearance' && <AppearancePage />}
           {resolved === 'credentials' && <CredentialsPage />}
-          {isAi && <AiReviewPage key={resolved} initialTab={resolved === 'local-ai' ? 'local' : 'defaults'} />}
+          {isAi && <AiReviewPage key={resolved} initialTab={resolved === 'local-ai' ? 'local' : 'backends'} />}
           {resolved === 'skills' && <SkillsPage />}
           {resolved === 'agent-roles' && <AgentRolesPage />}
           {resolved === 'saved-views' && <SavedViewsPage />}

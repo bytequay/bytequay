@@ -27,9 +27,9 @@ import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.settings.AiDefaultsService;
+import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelCatalog;
-import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -59,7 +59,7 @@ public class GlobalReviewRunner
     private static final String LOCAL_MODEL = "deepseek-v4-flash";
     private static final String LOCAL_TOKEN = "dsv4-local";
 
-    private final AiDefaultsService defaults;
+    private final WorkModelResolver engines;
     private final CredentialService credentials;
     private final Ds4LifecycleService ds4;
     private final TurnRunner turnRunner;
@@ -67,14 +67,14 @@ public class GlobalReviewRunner
     private final ObjectMapper mapper;
 
     public GlobalReviewRunner(
-            AiDefaultsService defaults,
+            WorkModelResolver engines,
             CredentialService credentials,
             Ds4LifecycleService ds4,
             TurnRunner turnRunner,
             CliReviewRunner cliRunner,
             ObjectMapper mapper)
     {
-        this.defaults = requireNonNull(defaults, "defaults is null");
+        this.engines = requireNonNull(engines, "engines is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.ds4 = requireNonNull(ds4, "ds4 is null");
         this.turnRunner = requireNonNull(turnRunner, "turnRunner is null");
@@ -85,10 +85,10 @@ public class GlobalReviewRunner
     public ReviewOutput review(ReviewRequest request)
     {
         requireNonNull(request, "request is null");
-        String choice = defaults.get().globalReview();
-        WorkModel workModel = WorkspaceEngineSettings.parseChoice(choice)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Global PR review engine '" + choice + "' is not supported. Choose another in Settings → AI."));
+        // No workspace behind a global review, so this resolves to the catalog's
+        // first CLI agent unless something above it is configured — the same
+        // chain every other engine choice goes through.
+        WorkModel workModel = engines.resolveForWorkspace(null, SessionAudience.REVIEW).choice();
         String model = modelId(workModel);
         String text = workModel.kind() == WorkModelKind.CLI
                 ? runCli(workModel, request)

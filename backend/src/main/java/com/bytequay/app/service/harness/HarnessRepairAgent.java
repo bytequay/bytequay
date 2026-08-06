@@ -18,9 +18,8 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
-import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -70,33 +69,31 @@ public class HarnessRepairAgent
     private static final Logger log = LoggerFactory.getLogger(HarnessRepairAgent.class);
 
     private final CliReviewRunner cli;
-    private final WorkspaceEngineSettings engines;
-    private final AiDefaultsService aiDefaults;
+    private final WorkModelResolver engines;
     private final SessionKnowledgeProvider knowledge;
     private final AgentVerdictFile verdicts;
 
     public HarnessRepairAgent(
             CliReviewRunner cli,
-            WorkspaceEngineSettings engines,
-            AiDefaultsService aiDefaults,
+            WorkModelResolver engines,
             SessionKnowledgeProvider knowledge,
             ObjectMapper mapper)
     {
         this.cli = requireNonNull(cli, "cli is null");
         this.engines = requireNonNull(engines, "engines is null");
-        this.aiDefaults = requireNonNull(aiDefaults, "aiDefaults is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
         this.verdicts = new AgentVerdictFile(requireNonNull(mapper, "mapper is null"));
     }
 
-    // ponytail: duplicated from ConflictRepairAgent — 12 lines and one enum
-    // constant. Extract a shared resolver when a third agent needs it, not now.
+    /**
+     * One chain, the same one threads and tasks use: this workspace's engine for
+     * the audience, then its default, then the catalog's first CLI agent. There
+     * used to be a second account-level chain here whose CI-fix fallback was
+     * codex, so this path silently disagreed with every other one.
+     */
     WorkModel engineFor(String workspaceId)
     {
-        return engines.forAudience(workspaceId, SessionAudience.CI_FIX)
-                .map(WorkspaceEngineSettings.Engine::model)
-                .or(() -> WorkspaceEngineSettings.parseChoice(aiDefaults.get().ciFix()))
-                .orElseGet(() -> new WorkModel(WorkModelKind.CLI, "codex", null, null));
+        return engines.resolveForWorkspace(workspaceId, SessionAudience.CI_FIX).choice();
     }
 
     static CliReviewRunner.Provider cliProvider(String agent)

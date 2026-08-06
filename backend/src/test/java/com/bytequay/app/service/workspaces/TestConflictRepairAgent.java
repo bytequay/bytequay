@@ -17,15 +17,12 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.settings.AiDefaultsService;
-import com.bytequay.app.service.workmodel.SessionAudience;
-import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,52 +33,16 @@ import static org.mockito.Mockito.when;
 
 class TestConflictRepairAgent
 {
-    private final WorkspaceEngineSettings engines = mock(WorkspaceEngineSettings.class);
-    private final AiDefaultsService aiDefaults = mock(AiDefaultsService.class);
+    private final WorkModelResolver engines = mock(WorkModelResolver.class);
     private final CliReviewRunner cli = mock(CliReviewRunner.class);
     private final ConflictRepairAgent agent =
-            new ConflictRepairAgent(cli, engines, aiDefaults, new ObjectMapper());
+            new ConflictRepairAgent(cli, engines, new ObjectMapper());
 
-    @Test
-    void theWorkspacesOwnCiFixEngineWins()
+    private void engine(WorkModel model)
     {
-        when(engines.forAudience("ws-1", SessionAudience.CI_FIX))
-                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(
-                        new WorkModel(WorkModelKind.CLI, "claude-code", null, null), true)));
-
-        WorkModel engine = agent.engineFor("ws-1");
-
-        assertThat(engine.kind()).isEqualTo(WorkModelKind.CLI);
-        assertThat(engine.agentOrProvider()).isEqualTo("claude-code");
-    }
-
-    @Test
-    void theAccountDefaultAnswersWhenTheWorkspaceHasNoPick()
-    {
-        when(engines.forAudience("ws-1", SessionAudience.CI_FIX)).thenReturn(Optional.empty());
-        when(aiDefaults.get()).thenReturn(new AiDefaultsService.AiDefaults(
-                "cli:claude-code", "cli:claude-code", "cli:claude-code",
-                "cli:claude-code", "cli:codex", "cli:claude-code", "cli:claude-code"));
-
-        WorkModel engine = agent.engineFor("ws-1");
-
-        assertThat(engine.kind()).isEqualTo(WorkModelKind.CLI);
-        assertThat(engine.agentOrProvider()).isEqualTo("codex");
-    }
-
-    @Test
-    void anUnconfiguredWorkspaceLandsOnACliAgentAndNeverAnApiKey()
-    {
-        when(engines.forAudience("ws-1", SessionAudience.CI_FIX)).thenReturn(Optional.empty());
-        when(aiDefaults.get()).thenReturn(new AiDefaultsService.AiDefaults(
-                null, null, null, null, null, null, null));
-
-        WorkModel engine = agent.engineFor("ws-1");
-
-        // The old behaviour fell through to OpenAI here and failed for want of
-        // a key nobody had asked for.
-        assertThat(engine.kind()).isEqualTo(WorkModelKind.CLI);
-        assertThat(engine.agentOrProvider()).isEqualTo("codex");
+        when(engines.resolveForWorkspace(any(), any())).thenReturn(
+                new WorkModelResolver.Resolved(model, new WorkModelResolver.Provenance(
+                        WorkModelResolver.Source.GLOBAL_DEFAULT, null, "test")));
     }
 
     @Test
@@ -98,9 +59,7 @@ class TestConflictRepairAgent
     @Test
     void anApiEngineIsRefusedRatherThanSilentlyDoingNothing()
     {
-        when(engines.forAudience("ws-1", SessionAudience.CI_FIX))
-                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(
-                        new WorkModel(WorkModelKind.API, "anthropic", null, null), true)));
+        engine(new WorkModel(WorkModelKind.API, "anthropic", null, null));
 
         // An in-JVM turn has no shell and no editor, so it cannot do this job.
         assertThatThrownBy(() -> agent.repair(
@@ -114,9 +73,7 @@ class TestConflictRepairAgent
         // A missing binary, a refused login, a rejected flag. The runner already
         // knows why; reporting "no verdict" sent the reader looking for a model
         // that never spoke.
-        when(engines.forAudience(any(), any())).thenReturn(Optional.empty());
-        when(aiDefaults.get()).thenReturn(new AiDefaultsService.AiDefaults(
-                null, null, null, null, null, null, null));
+        engine(new WorkModel(WorkModelKind.CLI, "codex", null, null));
         when(cli.run(any(), any(), any(), any(), any(), anyInt(), any()))
                 .thenReturn(new CliReviewRunner.Result(
                         "", null, 0, "ERRORED",

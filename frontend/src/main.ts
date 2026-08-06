@@ -1929,21 +1929,7 @@ const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     return res.json();
   });
 
-  ipcMain.handle('settings:getAiDefaults', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/settings/ai-defaults`);
-    if (!res.ok) throw new Error(`backend /api/settings/ai-defaults returned ${res.status}`);
-    return res.json();
-  });
 
-  ipcMain.handle('settings:setAiDefaults', async (_event, defaults: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/settings/ai-defaults`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(defaults),
-    });
-    if (!res.ok) throw new Error(`backend PUT /api/settings/ai-defaults returned ${res.status}`);
-    return res.json();
-  });
 
   ipcMain.handle('settings:triggerSync', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' });

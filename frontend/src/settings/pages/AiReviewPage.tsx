@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { AiDefaultsDto, AiLedgerDto, Ds4StateDto, WorkModelOptionsDto } from '../../types';
+import type { AiLedgerDto, Ds4StateDto, WorkModelOptionsDto } from '../../types';
 import {
   type AgentChoice,
   choiceClass,
@@ -25,38 +25,20 @@ import SettingsPage, { type SettingsTab } from '../shared/SettingsPage';
 import { ChevronDownIcon, InfoIcon } from '../shared/icons';
 import LocalAiPage from './LocalAiPage';
 
-export type AiTab = 'defaults' | 'backends' | 'local' | 'usage';
+export type AiTab = 'backends' | 'local' | 'usage';
 
 const TABS: SettingsTab<AiTab>[] = [
-  { id: 'defaults', label: 'Defaults' },
   { id: 'backends', label: 'Backends' },
   { id: 'local', label: 'Local AI (ds4)', badge: 'EXP' },
   { id: 'usage', label: 'Usage' },
 ];
 
-/** The four workspace session kinds, in the order the workspace Agents
- *  tab shows them. `key` is the field on {@link AiDefaultsDto}. */
-const SESSION_KINDS: { key: keyof AiDefaultsDto; kind: string; bg: string; fg: string; title: string; sub: string }[] = [
-  { key: 'plan', kind: 'plan', bg: '#fbefff', fg: '#8250df', title: 'Deep reasoning for specs & plans', sub: 'Trunk sessions — planning and task cutting' },
-  { key: 'dev', kind: 'dev', bg: '#ddf4ff', fg: '#0969da', title: 'Code writing & tests', sub: 'Task sessions — edits, tests, gated pushes' },
-  { key: 'review', kind: 'review', bg: '#dafbe1', fg: '#1a7f37', title: 'PR review rounds', sub: 'Reviewer and Lead seats on the panel' },
-  { key: 'ciFix', kind: 'ci fix', bg: '#ffebe9', fg: '#cf222e', title: 'Cheap loops on red builds', sub: 'Headless auto-fix turns on failing CI' },
-];
-
-/** Account-wide roles. These have no workspace equivalent, so the value
- *  stored here is the one that actually runs. */
-const GLOBAL_ROLES: typeof SESSION_KINDS = [
-  { key: 'globalReview', kind: 'review', bg: '#dafbe1', fg: '#1a7f37', title: 'Global PR review', sub: 'Quick reviews for PRs whose repositories do not have a workspace yet' },
-  { key: 'triage', kind: 'triage', bg: '#fff8c5', fg: '#9a6700', title: 'Issue triage', sub: 'Reads new issues and proposes labels and an owner — never comments without your click' },
-  { key: 'perf', kind: 'perf', bg: '#f0f2f4', fg: '#454c54', title: 'Performance investigator', sub: 'Digs through slow paths and profiles before proposing a fix' },
-];
-
 /**
- * Settings → AI. Four tabs over one subject: which engine runs each kind
+ * Settings → AI. Three tabs over one subject: which engine runs each kind
  * of agent work (Defaults), what is installed to run it (Backends), the
  * experimental local server (Local AI), and what it all cost (Usage).
  */
-function AiReviewPage({ initialTab = 'defaults' }: { initialTab?: AiTab }) {
+function AiReviewPage({ initialTab = 'backends' }: { initialTab?: AiTab }) {
   const [tab, setTab] = useState<AiTab>(initialTab);
   useEffect(() => { setTab(initialTab); }, [initialTab]);
 
@@ -69,7 +51,6 @@ function AiReviewPage({ initialTab = 'defaults' }: { initialTab?: AiTab }) {
       activeTab={tab}
       onSelectTab={next => setTab(next)}
     >
-      {tab === 'defaults' && <DefaultsTab />}
       {tab === 'backends' && <BackendsTab />}
       {tab === 'local' && <LocalAiPage embedded />}
       {tab === 'usage' && <UsageTab />}
@@ -110,124 +91,6 @@ function useEngines() {
     refresh,
     choices: choicesFrom(options, localState),
   };
-}
-
-function DefaultsTab() {
-  const { options, localState, refreshing, refresh, choices } = useEngines();
-  const [defaults, setDefaults] = useState<AiDefaultsDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    window.bridge.getAiDefaults()
-      .then(setDefaults)
-      .catch(e => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
-
-  const save = async (key: keyof AiDefaultsDto, value: string) => {
-    if (defaults === null) return;
-    const next = { ...defaults, [key]: value };
-    setDefaults(next);
-    try {
-      setDefaults(await window.bridge.setAiDefaults(next));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const rows = (group: typeof SESSION_KINDS) => group.map(row => (
-    <EngineRow
-      key={row.key}
-      row={row}
-      choices={choices}
-      value={defaults === null ? null : selectableChoice(defaults[row.key], choices)}
-      onChange={value => { void save(row.key, value); }}
-    />
-  ));
-
-  return (
-    <>
-      <div className="sv2-note sv2-note--info">
-        <span className="sv2-note__icon"><InfoIcon size={15} /></span>
-        <span>
-          These are account-level defaults. Workspace session kinds seed the
-          <strong> Agents</strong> tab; global roles are used directly when work has no workspace.
-          Workspace overrides are never written back here.
-        </span>
-      </div>
-
-      {error !== null && <div className="sv2-error" role="alert">{error}</div>}
-
-      <div className="sv2-card">
-        <div className="sv2-card__head">
-          <span className="sv2-card__title">Defaults per session kind</span>
-          <span className="sv2-card__hint">threads can override per run</span>
-          <button
-            className="sv2-btn sv2-btn--sm"
-            type="button"
-            style={{ marginLeft: 'auto' }}
-            disabled={refreshing}
-            onClick={() => { void refresh(); }}
-          >
-            {refreshing ? 'Checking…' : 'Check'}
-          </button>
-        </div>
-        {rows(SESSION_KINDS)}
-      </div>
-
-      <div className="sv2-card">
-        <div className="sv2-card__head">
-          <span className="sv2-card__title">Global roles</span>
-          <span className="sv2-card__hint">account-wide agents — no workspace equivalent</span>
-        </div>
-        {rows(GLOBAL_ROLES)}
-      </div>
-
-      {options === null && localState === null && <div className="sv2-loading">Probing engines…</div>}
-    </>
-  );
-}
-
-function EngineRow({ row, choices, value, onChange }: {
-  row: (typeof SESSION_KINDS)[number];
-  choices: AgentChoice[];
-  value: string | null;
-  onChange: (value: string) => void;
-}) {
-  const selected = choices.find(c => c.value === value);
-  const available = selected !== undefined && selected.disabled !== true;
-  return (
-    <div className="sv2-ai__row">
-      <span className="sv2-ai__kind" style={{ background: row.bg, color: row.fg }}>{row.kind}</span>
-      <span style={{ minWidth: 0 }}>
-        <span className="sv2-ai__title">{row.title}</span>
-        <span className="sv2-ai__sub">{row.sub}</span>
-      </span>
-      <span className="sv2-ai__pick">
-        <span className={`sv2-ai__glyph sv2-ai__glyph--${choiceClass(value ?? 'local')}`}>
-          {choiceGlyph(value ?? 'local')}
-        </span>
-        <span className="sv2-ai__select">
-          <span>{selected === undefined ? (value ?? '…') : choiceText(selected)}</span>
-          <ChevronDownIcon size={12} />
-          <select
-            aria-label={`${row.title} engine`}
-            value={value ?? ''}
-            disabled={value === null}
-            onChange={e => onChange(e.target.value)}
-          >
-            {choices.map(choice => (
-              <option key={choice.value} value={choice.value} disabled={choice.disabled}>
-                {choiceText(choice)}
-              </option>
-            ))}
-          </select>
-        </span>
-        <span className={'sv2-ai__status' + (available ? ' sv2-ai__status--ok' : '')}>
-          {selected === undefined ? 'checking…' : available ? 'reachable' : selected.detail}
-        </span>
-      </span>
-    </div>
-  );
 }
 
 function BackendsTab() {

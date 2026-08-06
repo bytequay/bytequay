@@ -15,7 +15,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { AgentReviewData } from './review/agentReviewTypes';
 import type {
   ActivityItemDto,
-  AiDefaultsDto,
   AiLedgerDto,
   AiProviderInfo,
   AiSettingsDto,
@@ -208,9 +207,6 @@ const bridge: Bridge = {
   setSyncSettings: (settings: SyncSettingsDto): Promise<SyncSettingsDto> =>
     ipcRenderer.invoke('settings:setSyncSettings', settings),
   triggerSync: (): Promise<void> => ipcRenderer.invoke('settings:triggerSync'),
-  getAiDefaults: (): Promise<AiDefaultsDto> => ipcRenderer.invoke('settings:getAiDefaults'),
-  setAiDefaults: (defaults: AiDefaultsDto): Promise<AiDefaultsDto> =>
-    ipcRenderer.invoke('settings:setAiDefaults', defaults),
   markPrViewed: (prId: number): Promise<void> => ipcRenderer.invoke('backend:markPrViewed', prId),
   markPrViewedByRef: (repo: string, number: number): Promise<void> =>
     ipcRenderer.invoke('backend:markPrViewedByRef', repo, number),

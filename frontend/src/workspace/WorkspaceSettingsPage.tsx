@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AiDefaultsDto, Ds4StateDto, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
+import type { Ds4StateDto, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
 import WorkspaceRelationsSettings from './WorkspaceRelationsSettings';
 import {
   workspaceApi,
@@ -101,10 +101,6 @@ export default function WorkspaceSettingsPage({
   const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(null);
   const [modelOptions, setModelOptions] = useState<WorkModelOptionsDto | null>(null);
   const [localAiState, setLocalAiState] = useState<Ds4StateDto | null>(null);
-  // Account-level defaults from Settings → AI. A workspace that has never
-  // picked an engine for a session kind inherits the account value; once
-  // it saves its own, the workspace row stops tracking this.
-  const [accountDefaults, setAccountDefaults] = useState<AiDefaultsDto | null>(null);
   const [memory, setMemory] = useState<WorkspaceMemoryDto | null>(null);
   const [automation, setAutomation] = useState<WorkspaceAutomationStatusDto | null>(null);
   const [saved, setSaved] = useState(false);
@@ -137,14 +133,12 @@ export default function WorkspaceSettingsPage({
       workspaceApi.settings(workspaceId),
       workspaceApi.workModelOptions(),
       window.bridge.getDs4Status(),
-      window.bridge.getAiDefaults().catch((): AiDefaultsDto | null => null),
     ])
-      .then(([repository, persisted, options, localAi, inherited]) => {
+      .then(([repository, persisted, options, localAi]) => {
         if (cancelled) return;
         setRepo(repository);
-        setAccountDefaults(inherited);
         const nextSettings = coerceSettingsChoices(
-          fromDto(persisted, inherited),
+          fromDto(persisted),
           choicesFrom(options, localAi.state),
         );
         const nextMaxRunningTasksDraft = formatNullableInteger(nextSettings.maxRunningTasks);
@@ -256,7 +250,7 @@ export default function WorkspaceSettingsPage({
       const saveCurrent = saveIsCurrent();
       const maxRunningTasksUnchanged = maxRunningTasksDraftRef.current === maxRunningTasksDraftAtSave;
       if (saveCurrent && maxRunningTasksUnchanged) {
-        const nextSettings = fromDto(persisted, accountDefaults);
+        const nextSettings = fromDto(persisted);
         const nextMaxRunningTasksDraft = formatNullableInteger(nextSettings.maxRunningTasks);
         maxRunningTasksDraftRef.current = nextMaxRunningTasksDraft;
         setMaxRunningTasksDraft(nextMaxRunningTasksDraft);
@@ -380,28 +374,28 @@ export default function WorkspaceSettingsPage({
               >
                 <ModelRow label="Deep reasoning for specs & plans" tone="plan" value={settings.planModel}
                   allowInherit
-                  inherited={accountDefaults?.plan}
+                  inherited={settings.defaultModel}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('planModel', value)} />
                 <ModelRow label="Code writing & tests" tone="dev" value={settings.devModel}
                   allowInherit
-                  inherited={accountDefaults?.dev}
+                  inherited={settings.defaultModel}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('devModel', value)} />
                 <ModelRow label="PR review rounds" tone="review" value={settings.reviewModel}
                   allowInherit
-                  inherited={accountDefaults?.review}
+                  inherited={settings.defaultModel}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('reviewModel', value)} />
                 <ModelRow label="Cheap loops on red builds" tone="ci-fix" value={settings.ciFixModel}
                   allowInherit
-                  inherited={accountDefaults?.ciFix}
+                  inherited={settings.defaultModel}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
@@ -800,13 +794,13 @@ function DangerRow({ title, detail, action, destructive = false, disabled = fals
 
 /** `inherited` is the account-level default set; a workspace key that was
  *  never chosen falls back to it before the hardcoded baseline. */
-function fromDto(value: WorkspaceSettingsDto, inherited: AiDefaultsDto | null): StoredSettings {
+function fromDto(value: WorkspaceSettingsDto): StoredSettings {
   return {
-    // The workspace default seeds from the account-level dev engine the
-    // first time, so a fresh workspace doesn't start on a pick the user
-    // never made in Settings → AI.
-    defaultModel: choiceOrInherit(value.providers.default)
-      || normalizeChoice(inherited?.dev ?? defaults.defaultModel),
+    // What an unset workspace actually resolves to: the catalog's first CLI
+    // agent. This used to display the account-level *dev* engine while CI-fix
+    // work resolved through a different account field that defaulted to codex,
+    // so the page said one thing and the runs did another.
+    defaultModel: choiceOrInherit(value.providers.default) || defaults.defaultModel,
     planModel: choiceOrInherit(value.providers.plan),
     devModel: choiceOrInherit(value.providers.dev),
     reviewModel: choiceOrInherit(value.providers.review),

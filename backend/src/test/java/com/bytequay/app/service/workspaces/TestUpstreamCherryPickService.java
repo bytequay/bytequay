@@ -737,6 +737,38 @@ class TestUpstreamCherryPickService
 
     @Test
     @SuppressWarnings("unchecked")
+    void theAgentsTranscriptIsKeptAsItsOwnLogLine(@TempDir Path root)
+            throws Exception
+    {
+        Conflict setup = conflictingRepositories(root);
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any()))
+                .thenReturn(new ConflictRepairAdvisor.Outcome(
+                        false, false, "the repair agent did not run: claude: not found",
+                        "{\"type\":\"result\",\"is_error\":true}", 0, null));
+        UpstreamCherryPickService service = service(jdbc, setup, advisor);
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "logged-pick", List.of(setup.upstreamSha()),
+                        null, null, null, null, null, false, false, null));
+        awaitStatus(service, "fork-ws", started.jobId(),
+                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+
+        // This used to be written by a hand-rolled INSERT that named columns the
+        // table does not have; it threw on every run and the failure was caught
+        // and logged, so the feature never once worked and nothing said so.
+        assertThat(service.run("fork-ws", started.jobId(), 100).events())
+                .filteredOn(event -> "agent_log".equals(event.kind()))
+                .singleElement()
+                .satisfies(event -> assertThat(event.detail()).contains("is_error"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void anAgentThatParksStopsTheRunWithoutPushingAnything(@TempDir Path root)
             throws Exception
     {

@@ -202,14 +202,26 @@ export function parseTranscript(raw: string | null): TranscriptEntry[] {
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('{')) continue;
-    let event: Record<string, unknown>;
     try {
-      event = JSON.parse(trimmed) as Record<string, unknown>;
+      entries.push(...transcriptEntries(JSON.parse(trimmed)));
     }
     catch {
       // A truncated tail is expected — the transcript is capped at 64KB.
       continue;
     }
+  }
+  return entries;
+}
+
+/**
+ * The same reading, for one already-parsed event. The live stream delivers
+ * events one at a time; the stored transcript is the same events as text.
+ */
+export function transcriptEntries(value: unknown): TranscriptEntry[] {
+  const entries: TranscriptEntry[] = [];
+  if (value === null || typeof value !== 'object') return entries;
+  {
+    const event = value as Record<string, unknown>;
     if (event.type === 'assistant') {
       const message = event.message as { content?: unknown[] } | undefined;
       for (const part of message?.content ?? []) {

@@ -63,7 +63,7 @@ class TestConflictRepairAgent
 
         // An in-JVM turn has no shell and no editor, so it cannot do this job.
         assertThatThrownBy(() -> agent.repair(
-                Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null))
+                Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null, null))
                 .hasMessageContaining("needs a CLI agent");
     }
 
@@ -74,13 +74,13 @@ class TestConflictRepairAgent
         // knows why; reporting "no verdict" sent the reader looking for a model
         // that never spoke.
         engine(new WorkModel(WorkModelKind.CLI, "codex", null, null));
-        when(cli.run(any(), any(), any(), any(), any(), anyInt(), any()))
+        when(cli.run(any(), any(), any(), any(), any(), anyInt(), any(), any()))
                 .thenReturn(new CliReviewRunner.Result(
                         "", null, 0, "ERRORED",
                         "CLI agent exited with code 127: codex: command not found", null));
 
         ConflictRepairAdvisor.Outcome outcome = agent.repair(
-                Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null);
+                Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null, null);
 
         assertThat(outcome.resolved()).isFalse();
         assertThat(outcome.detail())

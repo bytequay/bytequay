@@ -4402,6 +4402,13 @@ export type Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => () => void;
+  /** Live agent output for a sync run. Each event's `data` is one line of the
+   *  CLI's JSONL, so it reads with the same parser as the stored transcript. */
+  subscribeSyncRunStream: (
+    jobId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => () => void;
 
   // ── Brain agent (per-task read-only conversational surface) ──────
   /** Full brain-view payload for a task: aggregate strip, stages,

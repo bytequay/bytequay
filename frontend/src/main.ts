@@ -414,6 +414,21 @@ function openInPopupWindow(url: string): void {
   void popup.loadURL(url);
 }
 
+// `createWindow` is async but `mainWindow` only exists once it has actually
+// run, so a dock click during startup (the packaged build awaits the backend
+// before opening anything) used to slip past the "no windows yet" check and
+// build a second window. Memoise the in-flight call so every caller — ready
+// and activate alike — joins the same one.
+let pendingWindow: Promise<void> | null = null;
+
+function ensureWindow(): Promise<void> {
+  if (mainWindow && !mainWindow.isDestroyed()) return Promise.resolve();
+  if (!pendingWindow) {
+    pendingWindow = createWindow().finally(() => { pendingWindow = null; });
+  }
+  return pendingWindow;
+}
+
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -6750,7 +6765,7 @@ app.on('ready', async () => {
     }
     // Open the window immediately so the user isn't staring at a blank screen.
     // The sync runs in the background; the frontend will show data once it arrives.
-    await createWindow();
+    await ensureWindow();
     // Push PAT + trigger sync after the window is open (non-blocking).
     void bootstrapSync();
   } catch (error) {
@@ -6819,7 +6834,10 @@ app.on('before-quit', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    void createWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return;
   }
+  void ensureWindow();
 });

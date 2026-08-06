@@ -569,12 +569,6 @@ export type CiHarnessFailureDto = {
   updatedAtMs: number;
 };
 
-export type CiHarnessCycleDetailDto = {
-  cycle: CiHarnessCycleDto;
-  milestones: CiHarnessMilestoneDto[];
-  failures: CiHarnessFailureDto[];
-};
-
 export type CiHarnessStatsDto = {
   failuresByState: Record<string, number>;
   cycleCostMilliUsd: number;
@@ -1174,75 +1168,18 @@ export const workspaceApi = {
       method: 'POST',
       body: { text },
     }),
-  harnessWatches: (workspaceId: string) =>
-    window.bridge.workspaceApi<CiHarnessWatchDto[]>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches`,
-    }),
-  createHarnessWatch: (
-    workspaceId: string,
-    input: {
-      owner: string;
-      repo: string;
-      prNumber: number;
-      localPrId?: string;
-      localPath?: string;
-      branch?: string;
-      title?: string;
-      budgetMilliUsd?: number;
-    },
-  ) => window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
-    path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches`,
-    method: 'POST',
-    body: input,
-  }),
   harnessWatch: (workspaceId: string, watchId: string) =>
     window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
       path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}`,
     }),
-  runHarnessWatch: (workspaceId: string, watchId: string, guidance?: string) =>
-    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+  /** Run a harness cycle now. With fixNow the round works on the checks that
+   *  have already failed instead of waiting for the board to settle. */
+  runHarnessWatch: (workspaceId: string, watchId: string, fixNow = false) =>
+    window.bridge.workspaceApi<unknown>({
       path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/run`,
       method: 'POST',
-      body: guidance === undefined || guidance.trim().length === 0
-        ? {} : { steeringText: guidance.trim() },
+      body: { fixNow },
     }),
-  stopHarnessWatch: (workspaceId: string, watchId: string) =>
-    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/stop`,
-      method: 'POST',
-    }),
-  askHarnessWatch: (workspaceId: string, watchId: string, question: string) =>
-    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/ask`,
-      method: 'POST',
-      body: { question: question.trim() },
-    }),
-  harnessCycle: (workspaceId: string, watchId: string, cycleId: string) =>
-    window.bridge.workspaceApi<CiHarnessCycleDetailDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/cycles/${enc(cycleId)}`,
-    }),
-  resolveHarnessFailure: (
-    workspaceId: string,
-    watchId: string,
-    failureId: string,
-    note?: string,
-  ) => window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
-    path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${
-      enc(watchId)}/failures/${enc(failureId)}/resolve`,
-    method: 'POST',
-    body: note === undefined || note.trim().length === 0 ? {} : { note: note.trim() },
-  }),
-  retryHarnessFailure: (
-    workspaceId: string,
-    watchId: string,
-    failureId: string,
-    note?: string,
-  ) => window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
-    path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${
-      enc(watchId)}/failures/${enc(failureId)}/retry`,
-    method: 'POST',
-    body: note === undefined || note.trim().length === 0 ? {} : { note: note.trim() },
-  }),
   refreshRepository: (workspaceId: string) =>
     window.bridge.workspaceApi<LocalRepoStatusDto>({
       path: `/api/workspaces/${enc(workspaceId)}/refresh`,

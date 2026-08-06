@@ -13,10 +13,21 @@
   background: #fff;
   color: #1f2328;
   display: grid;
+  /* Overridden inline from the live column widths; this is the first paint. */
   grid-template-columns: 300px 1fr;
   height: 100%;
   letter-spacing: -0.005em;
   min-height: 0;
+  position: relative;
+}
+
+/* Both drag targets ride a column edge, absolutely placed (offset set inline
+   from the live width) so neither takes a column of its own. */
+.sr-page .sr-resize {
+  bottom: 0;
+  position: absolute;
+  top: 0;
+  z-index: 6;
 }
 
 .sr-loading {
@@ -109,6 +120,9 @@
   margin-top: 9px;
   padding-left: 33px;
 }
+
+.sr-queue__top.has-syncs .sr-queue__range { padding-left: 0; }
+.sr-queue__top.has-syncs .sr-queue__progress { margin-left: 0; }
 
 .sr-queue__range code {
   background: #eef0f2;
@@ -268,6 +282,15 @@
 
 .sr-queue__note span { color: #9ba0a6; font-size: 10.5px; }
 
+/* The fixup's own sha reads as a commit, not as another label. */
+.sr-queue__note code.sr-queue__note-sha {
+  background: transparent;
+  border: 0;
+  color: #8b9198;
+  font-size: 10.5px;
+  padding: 0;
+}
+
 .sr-queue__more {
   background: transparent;
   border: 0;
@@ -338,6 +361,82 @@
 
 .sr-queue__tail span { color: #9ba0a6; font-size: 11px; }
 .sr-queue__tail code { color: #9ba0a6; font-size: 10px; }
+
+/* ── Phase 2, pinned above the safety footer ────────────────── */
+
+.sr-queue__phase2 {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 14px;
+}
+
+.sr-queue__phase2-head {
+  align-items: center;
+  color: #8b9198;
+  display: flex;
+  font-size: 9px;
+  font-weight: 700;
+  gap: 6px;
+  letter-spacing: 0.07em;
+}
+
+.sr-queue__phase2-head em {
+  color: #9ba0a6;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0;
+  margin-left: auto;
+}
+
+.sr-queue__phase2-dot {
+  background: #8b9198;
+  border-radius: 50%;
+  flex-shrink: 0;
+  height: 6px;
+  width: 6px;
+}
+
+.sr-queue__phase2.is-live .sr-queue__phase2-dot {
+  animation: sr-pulse 1.6s ease-in-out infinite;
+  background: #8250df;
+}
+
+.sr-queue__phase2.is-wait .sr-queue__phase2-dot { background: #bf8700; }
+.sr-queue__phase2.is-green .sr-queue__phase2-dot { background: #1a7f37; }
+.sr-queue__phase2.is-attention .sr-queue__phase2-dot { background: #cf222e; }
+
+.sr-queue__phase2 strong {
+  color: #454c54;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sr-queue__phase2-now {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 7px;
+  color: #454c54;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  margin-top: 5px;
+  padding: 4px 9px;
+}
+
+.sr-queue__phase2-now:hover { background: #f6f8fa; color: #1f2328; }
+
+.sr-queue__phase2 > span {
+  color: #9ba0a6;
+  font-size: 9.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .sr-queue__safety {
   align-items: flex-start;
@@ -435,16 +534,6 @@
   background: rgba(31, 136, 61, 0.09);
   border: 1px solid rgba(31, 136, 61, 0.24);
   color: #1a7f37;
-}
-
-.sr-topbar__worktree {
-  background: #f0f1f3;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 5px;
-  color: #6e747c;
-  font-size: 10.5px;
-  padding: 3px 8px;
-  white-space: nowrap;
 }
 
 .sr-topbar__action {
@@ -553,7 +642,21 @@
 
 .sr-pick { margin-top: 10px; }
 
-.sr-pick__head { align-items: center; display: flex; gap: 9px; padding: 4px 0; }
+/* A button so the whole pick folds; it must still read as the heading it was. */
+.sr-pick__head {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 9px;
+  padding: 4px 0;
+  text-align: left;
+  width: 100%;
+}
+
+.sr-pick__head:hover strong { color: #8250df; }
 
 .sr-pick__head code {
   background: #f0f1f3;
@@ -919,7 +1022,45 @@
   letter-spacing: 0.06em;
 }
 
-/* ── Syncs in the workspace nav ─────────────────────────────── */
+/* ── The run list, at the top of the run's own column ────────── */
+
+.sr-queue__syncs {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  margin: 0 -14px 8px;
+  max-height: 34vh;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.sr-queue__syncs.is-folded { border-bottom: 0; margin-bottom: 0; padding-bottom: 2px; }
+.sr-queue__syncs .sync-nav__head { padding: 8px 6px 4px; }
+.sr-queue__syncs .sync-nav__head strong { font-size: 11px; }
+
+.sr-queue__syncs-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 5px;
+  padding: 0;
+}
+
+.sr-queue__syncs-toggle small { color: #9ba0a6; font-size: 10px; }
+
+/* The selected run is this column's title, so it reads as chosen even when
+   nothing about it is running. */
+.sr-queue__syncs .sync-nav__row.is-selected {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.sr-queue__syncs .sync-nav__row.is-selected.is-live {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.28);
+}
 
 .sync-nav__head {
   align-items: center;
@@ -930,7 +1071,9 @@
 
 .sync-nav__head strong { color: #5a5f66; font-size: 13px; font-weight: 600; }
 
-.sync-nav__head button {
+/* Scoped to the add chip: the fold toggle beside it is a button too, and the
+   auto margin here used to push its label into the middle of the column. */
+.sync-nav__add {
   align-items: center;
   background: transparent;
   border: 0;
@@ -945,7 +1088,7 @@
   width: 20px;
 }
 
-.sync-nav__head button:hover { background: rgba(0, 0, 0, 0.06); color: #3c4149; }
+.sync-nav__add:hover { background: rgba(0, 0, 0, 0.06); color: #3c4149; }
 
 .sync-nav__row {
   align-items: center;
@@ -955,9 +1098,9 @@
   cursor: pointer;
   display: flex;
   font: inherit;
-  gap: 9px;
-  margin-top: 2px;
-  padding: 6px 10px;
+  gap: 8px;
+  margin-top: 1px;
+  padding: 4px 9px;
   text-align: left;
   width: 100%;
 }
@@ -977,7 +1120,7 @@
 .sync-nav__copy strong {
   color: #3c4149;
   display: block;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -986,26 +1129,17 @@
 
 .is-live .sync-nav__copy strong { color: #1d2127; font-weight: 600; }
 
-.sync-nav__copy small {
-  color: #b45309;
-  display: block;
-  font-size: 10.5px;
-  margin-top: 1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.is-live .sync-nav__copy small { color: #6d28d9; }
-
-.sync-nav__live {
-  animation: sr-pulse 1.8s ease-in-out infinite;
-  background: #1a7f37;
+.sync-nav__live,
+.sync-nav__attention {
   border-radius: 50%;
   flex-shrink: 0;
   height: 7px;
   width: 7px;
 }
+
+.sync-nav__live { animation: sr-pulse 1.8s ease-in-out infinite; background: #1a7f37; }
+/* Parked or stopped: the run is waiting on a person, not on a machine. */
+.sync-nav__attention { background: #bf8700; }
 
 /* ── Sync cards on Today ────────────────────────────────────── */
 
@@ -1180,11 +1314,8 @@
 }
 
 /* With a pull request beside it, the cockpit becomes the middle column. */
-.sr-page.with-right { grid-template-columns: auto minmax(0, 1fr) auto; }
+.sr-page.with-right { grid-template-columns: 300px minmax(0, 1fr) 460px; }
 .sr-right {
   border-left: 1px solid #e7e9ec; display: flex; flex-direction: column;
-  min-width: 0; overflow: hidden; width: 460px;
-}
-@media (max-width: 1500px) {
-  .sr-right { width: 380px; }
+  min-width: 0; overflow: hidden;
 }

@@ -117,3 +117,7 @@ export function SendIcon({ size = 15 }: { size?: number }) {
 export function PlayIcon({ size = 12 }: { size?: number }) {
   return <Glyph size={size} width={2}><path d="m7 4 12 8-12 8z" /></Glyph>;
 }
+
+export function PlusIcon({ size = 13 }: { size?: number }) {
+  return <Glyph size={size} width={2}><path d="M12 5v14M5 12h14" /></Glyph>;
+}

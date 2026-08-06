@@ -59,7 +59,7 @@ type Props = {
   onOpenIssue: (number: number) => void;
   onOpenBranch?: (branchName: string) => void;
   onOpenTrunk?: (trunkId: string) => void;
-  onOpenHarness?: (watchId?: string) => void;
+  onOpenSync?: (jobId: string) => void;
   selectedNumber?: number;
   /** Stable PR id for an AgentReview whose PR may still be local-only. */
   selectedPrId?: string;
@@ -81,7 +81,7 @@ export default function WorkspaceRepoPage({
   onOpenIssue,
   onOpenBranch,
   onOpenTrunk,
-  onOpenHarness,
+  onOpenSync,
   selectedNumber,
   selectedPrId,
   initialAgentView,
@@ -142,7 +142,7 @@ export default function WorkspaceRepoPage({
     );
   }
   return <WorkspaceCommitsPage workspaceId={workspaceId} repo={repo} onOpenTrunk={onOpenTrunk}
-    onOpenHarness={onOpenHarness} onOpenIssue={onOpenIssue} />;
+    onOpenSync={onOpenSync} onOpenIssue={onOpenIssue} />;
 }
 
 function PullRequestsPage({

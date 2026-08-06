@@ -45,7 +45,7 @@ type Props = {
   workspaceId: string;
   repo: WorkspaceRepositoryDto;
   onOpenTrunk?: (trunkId: string) => void;
-  onOpenHarness?: (watchId?: string) => void;
+  onOpenSync?: (jobId: string) => void;
   onOpenIssue?: (issueNumber: number) => void;
 };
 
@@ -53,7 +53,7 @@ export default function WorkspaceCommitsPage({
   workspaceId,
   repo,
   onOpenTrunk,
-  onOpenHarness,
+  onOpenSync,
   onOpenIssue,
 }: Props) {
   const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
@@ -364,7 +364,7 @@ export default function WorkspaceCommitsPage({
           fromSha={fromSha.trim()}
           toSha={toSha.trim()}
           onClose={() => setShaRangeOpen(false)}
-          onOpenHarness={onOpenHarness}
+          onOpenSync={onOpenSync}
         />
       )}
       {upstreamCherryOpen && upstream !== null && upstreamRange !== null && (
@@ -374,7 +374,7 @@ export default function WorkspaceCommitsPage({
           snapshot={upstream}
           commits={upstream.commits.slice(upstreamRange[0], upstreamRange[1] + 1)}
           onClose={() => setUpstreamCherryOpen(false)}
-          onOpenHarness={onOpenHarness}
+          onOpenSync={onOpenSync}
         />
       )}
     </section>

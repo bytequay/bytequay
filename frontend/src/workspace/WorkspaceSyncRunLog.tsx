@@ -64,24 +64,34 @@ function LogGroup({ group, commit }: {
   group: SyncLogGroup;
   commit?: UpstreamCherryPickCommitDto;
 }) {
+  // A pick's conversation runs to a screenful; folding it is how a reader gets
+  // past the ones they have already read to the one they came for.
+  const [open, setOpen] = useState(true);
   const tone = commit === undefined ? 'run' : commitTone(commit);
+  const foldable = commit !== undefined && group.pickIndex !== null;
   return (
     <section className={`sr-pick is-${tone}`}>
-      {commit !== undefined && group.pickIndex !== null && (
-        <header className="sr-pick__head">
+      {foldable && (
+        <button type="button" className="sr-pick__head" aria-expanded={open}
+          onClick={() => setOpen(current => !current)}>
+          <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
+            <ChevronIcon size={10} />
+          </span>
           <span className="sr-pick__mark" aria-hidden>
             {commit.state === 'current' ? null : <CheckIcon size={9} />}
           </span>
-          <span className="sr-pick__ordinal">PICK {group.pickIndex + 1}</span>
+          <span className="sr-pick__ordinal">PICK {(group.pickIndex ?? 0) + 1}</span>
           <code>{commit.shortSha}</code>
           <strong title={commit.subject}>{commit.subject}</strong>
           <span className="sr-pick__state">{pickStateLabel(commit)}</span>
           <time>{clockLabel(group.events[0].at)}</time>
-        </header>
+        </button>
       )}
-      <div className="sr-pick__body">
-        {group.events.map(event => <LogRow key={event.id} event={event} />)}
-      </div>
+      {(open || !foldable) && (
+        <div className="sr-pick__body">
+          {group.events.map(event => <LogRow key={event.id} event={event} />)}
+        </div>
+      )}
     </section>
   );
 }

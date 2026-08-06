@@ -11,175 +11,76 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import ResizeHandle from '../ResizeHandle';
+import { useEffect, useState } from 'react';
 import PullDetailPane from '../pulls/PullDetailPane';
 import type { PullRow } from '../pulls/model';
 import { pullRowFromDto, toDashboardPr } from '../pulls/workspaceModel';
-import { Composer, Main, Shell, usePaneWidth } from '../ui/shell';
-import type { WsNavKey } from '../ui/workspace';
-import {
-  workspaceApi,
-  type CiHarnessCycleDetailDto,
-  type CiHarnessWatchDto,
-  type CiHarnessWatchSnapshotDto,
-  type WorkspaceRepositoryDto,
-  type UpstreamCherryPickJobDto,
-} from './workspaceApi';
-import { HarnessHeader, HarnessIdle, HarnessSidebar } from './WorkspaceHarnessChrome';
-import { HarnessDashboard, type HarnessActions } from './WorkspaceHarnessDashboard';
+import { workspaceApi, type WorkspaceRepositoryDto } from './workspaceApi';
+import { useUpstreamSyncs } from './useUpstreamSyncs';
 import WorkspaceSyncRunPage from './WorkspaceSyncRunPage';
 
-const ACTIVE_REFRESH_MS = 3_000;
+const PR_RETRY_MS = 3_000;
 
+/**
+ * The CI Harness surface: every sync run in the workspace, the run you are
+ * looking at, and its pull request beside it.
+ *
+ * <p>There is no separate watch dashboard any more. Phase 1 and phase 2 are one
+ * run by design, so the run's own cockpit is the whole page — the harness shows
+ * through it as the phase 2 status in the queue column rather than as a second
+ * screen with its own vocabulary.
+ */
 export default function WorkspaceHarnessPage({
   workspaceId,
-  watchId,
-  workspaceName,
-  workspaceRepository,
-  onOpenWatch,
-  onNewWatch,
-  onNavigateGlobal,
-  onSwitchWorkspace,
+  jobId,
+  onOpenSync,
+  onNewSync,
+  onBack,
 }: {
   workspaceId: string;
-  watchId?: string;
-  workspaceName?: string;
-  workspaceRepository?: string;
-  onOpenWatch?: (watchId: string) => void;
-  onNewWatch?: () => void;
-  onNavigateGlobal?: (key: WsNavKey) => void;
-  onSwitchWorkspace?: () => void;
+  /** The run to show; without one the newest is opened. */
+  jobId?: string;
+  onOpenSync?: (jobId: string) => void;
+  onNewSync?: () => void;
+  onBack?: () => void;
 }) {
-  const [watches, setWatches] = useState<CiHarnessWatchDto[]>([]);
-  const [snapshot, setSnapshot] = useState<CiHarnessWatchSnapshotDto | null>(null);
+  const syncs = useUpstreamSyncs(workspaceId);
+  const loaded = syncs !== null;
   const [repository, setRepository] = useState<WorkspaceRepositoryDto | null>(null);
-  const [pulls, setPulls] = useState<Awaited<ReturnType<typeof workspaceApi.pullRequests>>>([]);
-  const [selectedPr, setSelectedPr] = useState<number | null>(null);
-  const [budget, setBudget] = useState('');
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [prRow, setPrRow] = useState<PullRow | null>(null);
-  /** Sync runs in this workspace, so a watch can find the run that created it. */
-  const [syncRuns, setSyncRuns] = useState<UpstreamCherryPickJobDto[]>([]);
-  const [cycleId, setCycleId] = useState<string | null>(null);
-  const [cycleDetail, setCycleDetail] = useState<CiHarnessCycleDetailDto | null>(null);
-  const [prOpen, setPrOpen] = useState(true);
-  const { paneWidth, bodyRef, onResize } = usePaneWidth();
-  const currentWatchId = snapshot?.watchId;
-  const currentWatchStatus = snapshot?.status;
-  const currentPrNumber = snapshot?.prNumber;
-  const currentLocalPrId = snapshot?.localPrId;
-  const currentOwner = snapshot?.owner;
-  const currentRepo = snapshot?.repo;
 
-  const loadWatches = useCallback(async () => {
-    const next = await workspaceApi.harnessWatches(workspaceId);
-    setWatches(next);
-    return next;
-  }, [workspaceId]);
-
-  // The link from a watch back to the run that created it. Cheap enough to
-  // load once here rather than add an endpoint for the reverse lookup.
-  useEffect(() => {
-    let cancelled = false;
-    void workspaceApi.upstreamCherryPicks(workspaceId)
-      .then(next => { if (!cancelled) setSyncRuns(next); })
-      .catch(() => { /* A watch without a run just keeps the dashboard. */ });
-    return () => { cancelled = true; };
-  }, [workspaceId]);
-
-  const loadSnapshot = useCallback(async (id: string) => {
-    const next = await workspaceApi.harnessWatch(workspaceId, id);
-    setSnapshot(next);
-    return next;
-  }, [workspaceId]);
-
+  // Landing on the surface with no run named opens the newest rather than an
+  // empty frame; the list is right there to move off it.
+  const selected = jobId ?? syncs?.at(0)?.jobId;
+  const job = syncs?.find(row => row.jobId === selected);
+  const prNumber = job?.prNumber ?? null;
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    void Promise.all([
-      workspaceApi.repository(workspaceId),
-      workspaceApi.pullRequests(workspaceId),
-      workspaceApi.harnessWatches(workspaceId),
-    ]).then(async ([nextRepo, nextPulls, nextWatches]) => {
-      if (cancelled) return;
-      setRepository(nextRepo);
-      setPulls(nextPulls);
-      setWatches(nextWatches);
-      setSelectedPr(nextPulls.find(row => row.state === 'open' && row.ciStatus === 'FAILING')?.number ?? null);
-      const selectedWatchId = watchId;
-      if (selectedWatchId !== undefined) {
-        const next = await workspaceApi.harnessWatch(workspaceId, selectedWatchId);
-        if (!cancelled) setSnapshot(next);
-      }
-      else {
-        setSnapshot(null);
-      }
-    }).catch(reason => { if (!cancelled) setError(errorMessage(reason)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    void workspaceApi.repository(workspaceId)
+      .then(next => { if (!cancelled) setRepository(next); })
+      .catch(() => { /* the run still reads without its pull request */ });
     return () => { cancelled = true; };
-  }, [watchId, workspaceId]);
-
-  const loadCycle = useCallback(async (id: string, selectedCycleId: string) => {
-    const next = await workspaceApi.harnessCycle(workspaceId, id, selectedCycleId);
-    setCycleDetail(next);
-    return next;
   }, [workspaceId]);
 
-  useEffect(() => {
-    if (currentWatchId === undefined || currentWatchStatus === undefined || !isPollableHarnessStatus(currentWatchStatus)) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => {
-      void Promise.all([
-        loadSnapshot(currentWatchId),
-        loadWatches(),
-        cycleId === null ? Promise.resolve(null) : loadCycle(currentWatchId, cycleId),
-      ]).catch(() => { /* keep the last complete dashboard */ });
-    }, ACTIVE_REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [currentWatchId, currentWatchStatus, cycleId, loadCycle, loadSnapshot, loadWatches]);
-
-  useEffect(() => {
-    if (currentWatchId === undefined || cycleId === null) {
-      setCycleDetail(null);
-      return undefined;
-    }
-    let cancelled = false;
-    void loadCycle(currentWatchId, cycleId)
-      .catch(reason => {
-        if (!cancelled) {
-          setError(errorMessage(reason));
-          setCycleId(null);
-        }
-      });
-    return () => { cancelled = true; };
-  }, [currentWatchId, cycleId, loadCycle]);
-
+  const owner = repository?.owner;
+  const repo = repository?.repo;
   useEffect(() => {
     setPrRow(null);
-    if (currentWatchId === undefined || currentPrNumber === undefined || currentOwner === undefined || currentRepo === undefined) {
-      return undefined;
-    }
+    if (prNumber === null || owner === undefined || repo === undefined) return undefined;
     let cancelled = false;
     let retry: number | undefined;
     const load = async () => {
       try {
-        const dto = await workspaceApi.pullRequest(workspaceId, currentPrNumber);
-        const local = currentLocalPrId === null || currentLocalPrId === undefined
-          ? await window.bridge.getPrForRepoPull(currentOwner, currentRepo, currentPrNumber)
-          : { id: currentLocalPrId };
+        const dto = await workspaceApi.pullRequest(workspaceId, prNumber);
+        const local = await window.bridge.getPrForRepoPull(owner, repo, prNumber);
         if (cancelled) return;
         const row = pullRowFromDto(dto);
         setPrRow({ ...row, id: local.id, dto: { ...toDashboardPr(dto), id: local.id } });
       }
       catch {
-        if (!cancelled) retry = window.setTimeout(() => { void load(); }, ACTIVE_REFRESH_MS);
+        // A PR opened seconds ago has not been synced locally yet.
+        if (!cancelled) retry = window.setTimeout(() => { void load(); }, PR_RETRY_MS);
       }
     };
     void load();
@@ -187,202 +88,30 @@ export default function WorkspaceHarnessPage({
       cancelled = true;
       if (retry !== undefined) window.clearTimeout(retry);
     };
-  }, [currentLocalPrId, currentOwner, currentPrNumber, currentRepo, currentWatchId, workspaceId]);
+  }, [owner, prNumber, repo, workspaceId]);
 
-  const showPr = prOpen && prRow !== null;
-  const syncJobId = syncRuns.find(job => job.harnessWatchId === snapshot?.watchId)?.jobId ?? null;
-  const currentRepository = workspaceRepository ?? repository?.fullName ?? workspaceName ?? 'Workspace';
-
-  const run = useCallback(<T,>(
-    call: () => Promise<T>,
-    apply: (result: T) => void,
-  ) => {
-    setBusy(true);
-    setError(null);
-    void call().then(apply)
-      .catch(reason => setError(errorMessage(reason)))
-      .finally(() => setBusy(false));
-  }, []);
-
-  const harnessActions = (watchId: string): HarnessActions => ({
-    busy,
-    onResolve: (failureId, note) => run(
-      () => workspaceApi.resolveHarnessFailure(workspaceId, watchId, failureId, note),
-      setSnapshot,
-    ),
-    onRetry: (failureId, note) => run(
-      () => workspaceApi.retryHarnessFailure(workspaceId, watchId, failureId, note),
-      setSnapshot,
-    ),
-  });
-
-  if (loading) return <div className="ci-harness-loading" role="status">Loading CI Harness…</div>;
-
-  // The design calls phase 1 and phase 2 one continuous run, so a watch that
-  // came from a sync run opens that run's cockpit — its own commit queue on the
-  // left and its agent conversation in the middle — with the pull request pane
-  // kept on the right. A watch created by hand from the idle screen has no run
-  // behind it and keeps the dashboard.
-  if (syncJobId !== null) {
+  if (selected === undefined) {
     return (
-      <div className="ci-harness-page">
-        <WorkspaceSyncRunPage
-          workspaceId={workspaceId}
-          jobId={syncJobId}
-          onBack={onNavigateGlobal === undefined ? undefined : () => onNavigateGlobal('today')}
-          rightPane={prRow === null ? undefined : <PullDetailPane key={prRow.id} row={prRow} />}
-        />
+      <div className="sr-loading" role="status">
+        {loaded ? 'No sync run in this workspace yet.' : 'Loading sync runs…'}
+        {loaded && onNewSync !== undefined && (
+          <button type="button" onClick={onNewSync}>Start a sync run</button>
+        )}
       </div>
     );
   }
 
   return (
     <div className="ci-harness-page">
-      <Shell sidebarWidthKey="bytequay.ciHarness.sidebarWidth" sidebarWidthDefault={260}>
-        <HarnessSidebar
-          workspaceName={workspaceName ?? repository?.repo ?? 'Workspace'}
-          repository={currentRepository}
-          watches={watches}
-          selectedId={snapshot?.watchId}
-          snapshot={snapshot}
-          selectedCycleId={cycleId}
-          onSelect={id => { setCycleId(null); onOpenWatch?.(id); void loadSnapshot(id); }}
-          onOpenCycle={id => setCycleId(current => current === id ? null : id)}
-          onNew={() => {
-            setSnapshot(null);
-            setPrRow(null);
-            setCycleId(null);
-            onNewWatch?.();
-          }}
-          onNavigateGlobal={onNavigateGlobal}
-          onSwitchWorkspace={onSwitchWorkspace}
-        />
-        <Main topBar={(
-          <HarnessHeader snapshot={snapshot} showPr={showPr} busy={busy}
-            onTogglePr={prRow === null ? undefined : () => setPrOpen(open => !open)}
-            onRun={snapshot === null ? undefined : () => {
-              setBusy(true);
-              setError(null);
-              void workspaceApi.runHarnessWatch(workspaceId, snapshot.watchId)
-                .then(next => { setSnapshot(next); setMessage(''); })
-                .then(() => loadWatches())
-                .catch(reason => setError(errorMessage(reason)))
-                .finally(() => setBusy(false));
-            }}
-            onStop={snapshot === null ? undefined : () => {
-              setBusy(true);
-              setError(null);
-              void workspaceApi.stopHarnessWatch(workspaceId, snapshot.watchId)
-                .then(next => setSnapshot(next))
-                .then(() => loadWatches())
-                .catch(reason => setError(errorMessage(reason)))
-                .finally(() => setBusy(false));
-            }}
-          />
-        )}>
-          <div ref={bodyRef} className={`ci-harness-body${showPr ? ' with-pr' : ''}`}>
-            <div className="ci-harness-center">
-              {error !== null && <div className="ci-harness-error" role="alert">{error}</div>}
-              {snapshot === null ? (
-                <HarnessIdle
-                  pulls={pulls}
-                  selectedPr={selectedPr}
-                  budget={budget}
-                  onSelectPr={setSelectedPr}
-                  onBudget={setBudget}
-                  busy={busy}
-                  onCreate={() => {
-                    if (selectedPr === null || repository === null) return;
-                    const parsedBudget = Number(budget);
-                    if (budget.trim().length > 0
-                      && (!Number.isFinite(parsedBudget) || parsedBudget < 0.10 || parsedBudget > 100)) {
-                      setError('Watch budget must be between $0.10 and $100.00.');
-                      return;
-                    }
-                    setBusy(true);
-                    setError(null);
-                    const selectedPull = pulls.find(pull => pull.number === selectedPr);
-                    void window.bridge.getPrForRepoPull(repository.owner, repository.repo, selectedPr)
-                      .catch((): null => null)
-                      .then(localPr => workspaceApi.createHarnessWatch(workspaceId, {
-                        owner: repository.owner,
-                        repo: repository.repo,
-                        prNumber: selectedPr,
-                        ...(localPr === null ? {} : { localPrId: localPr.id }),
-                        ...(repository.local.localClonePath === null ? {} : { localPath: repository.local.localClonePath }),
-                        ...(selectedPull?.headRef === undefined || selectedPull.headRef === null
-                          ? {} : { branch: selectedPull.headRef }),
-                        ...(selectedPull === undefined ? {} : { title: selectedPull.title }),
-                        ...(budget.trim().length === 0 || !Number.isFinite(parsedBudget)
-                          ? {} : { budgetMilliUsd: Math.round(parsedBudget * 1000) }),
-                      })).then(next => {
-                      setSnapshot(next);
-                      onOpenWatch?.(next.watchId);
-                      return loadWatches();
-                    }).catch(reason => setError(errorMessage(reason)))
-                      .finally(() => setBusy(false));
-                  }}
-                />
-              ) : (
-                <HarnessDashboard snapshot={snapshot}
-                  actions={harnessActions(snapshot.watchId)}
-                  cycleDetail={cycleDetail} onCloseCycle={() => setCycleId(null)} />
-              )}
-              {snapshot === null ? <Composer
-                variant="workspace-v2"
-                value=""
-                onChange={() => {}}
-                onSubmit={() => {}}
-                disabled
-                placeholder="Pick a PR to watch — or ask how the harness decides what it can fix…"
-                meta="CI Harness"
-              /> : <Composer
-                variant="workspace-v2"
-                value={message}
-                onChange={setMessage}
-                onSubmit={() => {
-                  const question = message.trim();
-                  if (question.length === 0) return;
-                  setBusy(true);
-                  setError(null);
-                  setMessage('');
-                  void workspaceApi.askHarnessWatch(workspaceId, snapshot.watchId, question)
-                    .then(setSnapshot)
-                    .catch(reason => {
-                      setError(errorMessage(reason));
-                      setMessage(question);
-                    })
-                    .finally(() => setBusy(false));
-                }}
-                busy={busy}
-                disabled={message.trim().length === 0 || snapshot.status === 'bootstrap'
-                  || snapshot.status === 'stopped'}
-                placeholder="Ask about a failure, a fixup, or what the harness derived…"
-                meta={money(snapshot.budget.spentMilliUsd)}
-              />}
-            </div>
-            {showPr && (
-              <aside className="ci-harness-pr" style={{ width: paneWidth }}>
-                <ResizeHandle className="pane-resize pl-hov-drag" ariaLabel="Resize pull request panel"
-                  onResize={onResize} style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, zIndex: 5 }} />
-                <PullDetailPane key={prRow.id} row={prRow} />
-              </aside>
-            )}
-          </div>
-        </Main>
-      </Shell>
+      <WorkspaceSyncRunPage
+        workspaceId={workspaceId}
+        jobId={selected}
+        syncs={syncs ?? []}
+        onOpenSync={onOpenSync}
+        onNewSync={onNewSync}
+        onBack={onBack}
+        rightPane={prRow === null ? undefined : <PullDetailPane key={prRow.id} row={prRow} />}
+      />
     </div>
   );
-}
-
-export function isPollableHarnessStatus(status: CiHarnessWatchDto['status']): boolean {
-  return status !== 'stopped';
-}
-
-function money(milliUsd: number): string {
-  return `$${(milliUsd / 1000).toFixed(2)}`;
-}
-
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
 }

@@ -109,7 +109,7 @@ export function UpstreamCommitHistory({
 }
 
 export function UpstreamCherryPicker({
-  workspaceId, repo, snapshot, commits, fromSha, toSha, onClose, onOpenHarness,
+  workspaceId, repo, snapshot, commits, fromSha, toSha, onClose, onOpenSync,
 }: {
   workspaceId: string;
   repo: WorkspaceRepositoryDto;
@@ -120,7 +120,7 @@ export function UpstreamCherryPicker({
   fromSha?: string;
   toSha?: string;
   onClose: () => void;
-  onOpenHarness?: (watchId?: string) => void;
+  onOpenSync?: (jobId: string) => void;
 }) {
   const byRange = fromSha !== undefined && toSha !== undefined;
   const [targetBranch, setTargetBranch] = useState(() => suggestedTarget(snapshot, commits, fromSha, toSha));
@@ -376,9 +376,11 @@ export function UpstreamCherryPicker({
                 .finally(() => setBusy(false));
             }}>{busy ? 'Retrying…' : 'Retry cherry-pick'}</button>
           )}
-          {job?.harnessWatchId !== null && job?.harnessWatchId !== undefined && (
+          {job !== null && (
+            // The run's own cockpit is the CI Harness surface, so a started run
+            // opens there whether or not phase 2 has a watch yet.
             <button type="button" className="wu-primary-button"
-              onClick={() => onOpenHarness?.(job.harnessWatchId as string)}>Open CI Harness</button>
+              onClick={() => onOpenSync?.(job.jobId)}>Open sync run</button>
           )}
         </footer>
       </section>

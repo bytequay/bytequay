@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 import type {
+  CiHarnessPhase,
+  CiHarnessWatchSnapshotDto,
   UpstreamCherryPickCommitDto,
   UpstreamCherryPickEventDto,
   UpstreamCherryPickJobDto,
@@ -42,6 +44,14 @@ export const isLiveSync = (job: UpstreamCherryPickJobDto): boolean =>
 /** A closed run is terminal whatever its status said when the user closed it. */
 export const isClosedSync = (job: UpstreamCherryPickJobDto): boolean =>
   job.closedAt !== null;
+
+/**
+ * Phase 2 keeps moving long after phase 1 says COMPLETED — the harness watch
+ * is what runs it. Without this the cockpit stops polling the moment the last
+ * pick lands and a run that is still working reads as finished.
+ */
+export const isWatchingSync = (job: UpstreamCherryPickJobDto): boolean =>
+  job.closedAt === null && job.harnessWatchId !== null;
 
 /** The label the run carries everywhere — sidebar, Today, and its own header. */
 export function syncTitle(job: UpstreamCherryPickJobDto): string {
@@ -115,10 +125,83 @@ export function syncLogGroups(events: UpstreamCherryPickEventDto[]): SyncLogGrou
   return groups;
 }
 
+/**
+ * The fixup each repaired pick produced, by pick index. A pick whose repair
+ * was a no-op has none, and the oldest of a very long run age out of the
+ * event window — both read as "no fixup to name" rather than a wrong one.
+ */
+export function fixupsByPick(
+  events: UpstreamCherryPickEventDto[],
+): Map<number, string> {
+  const byPick = new Map<number, string>();
+  for (const event of events) {
+    if (event.kind === 'fixup' && event.pickIndex !== null) {
+      byPick.set(event.pickIndex, event.title);
+    }
+  }
+  return byPick;
+}
+
+/** What phase 2 is doing, for a reader who only wants to know if it is alive. */
+export type HarnessLine = {
+  label: string;
+  detail: string | null;
+  tone: 'live' | 'wait' | 'green' | 'attention';
+  /** When the harness last finished looking at CI, epoch ms. */
+  checkedAtMs: number | null;
+};
+
+const PHASE_WORK: Record<CiHarnessPhase, string> = {
+  probe: 'Reading the latest CI checks',
+  parse: 'Reading the failed job logs',
+  classify: 'Sorting what is worth fixing',
+  fix: 'Agent fixing the failures',
+  verify: 'Verifying the fix',
+  commit: 'Pushing the round',
+  rebase: 'Rebasing onto the target branch',
+  done: 'Finishing the round',
+};
+
+export function harnessLine(snapshot: CiHarnessWatchSnapshotDto): HarnessLine {
+  const newest = snapshot.cycles.at(0) ?? null;
+  const base = {
+    detail: snapshot.runStatusTail,
+    checkedAtMs: newest === null ? null : newest.finishedAtMs ?? newest.startedAtMs,
+  };
+  switch (snapshot.status) {
+    case 'bootstrap':
+      return { ...base, label: 'Setting up — reading how this repo runs CI', tone: 'wait' };
+    case 'running':
+      return {
+        ...base,
+        label: PHASE_WORK[snapshot.activeCycle?.phase ?? 'probe'],
+        tone: 'live',
+      };
+    case 'watching':
+      return { ...base, label: 'Waiting for CI to finish', tone: 'wait' };
+    case 'handoff':
+      return { ...base, label: 'Waiting for the fix to reach the remote', tone: 'wait' };
+    case 'needs_attention':
+      // `reason` is the machine code ("needs_attention"); `detail` is the
+      // sentence saying what actually stopped it, which is the whole point.
+      return {
+        ...base,
+        label: 'Stopped — nothing runs until you restart it',
+        detail: snapshot.handoff?.detail ?? snapshot.runStatusTail,
+        tone: 'attention',
+      };
+    case 'green':
+      return { ...base, label: 'All checks green — yours to merge', tone: 'green' };
+    default:
+      return { ...base, label: 'Watch stopped', tone: 'attention' };
+  }
+}
+
 /** What the run is doing right now, in words rather than a spinner. */
 export function syncNowLine(
   job: UpstreamCherryPickJobDto,
   queue: SyncQueue,
+  harness?: CiHarnessWatchSnapshotDto | null,
 ): string {
   if (job.closedAt !== null) {
     return 'Run closed — the worktree was removed; the branch and this log are kept';
@@ -131,6 +214,11 @@ export function syncNowLine(
         job.conflictPaths.length === 1 ? '' : 's'}`;
   }
   if (job.status === 'COMPLETED') {
+    // The range being picked is not the run being over — phase 2 takes it from
+    // here, and saying "parked for your review" while it works is a lie.
+    if (harness !== undefined && harness !== null) {
+      return `Phase 2 — ${harnessLine(harness).label.toLowerCase()}`;
+    }
     return job.prNumber === null
       ? `Range complete — ${job.appliedCount} picked on ${job.resultBranch}`
       : `Range complete — draft PR #${job.prNumber} parked for your review`;
@@ -169,13 +257,6 @@ export function clockLabel(iso: string): string {
   return new Date(parsed).toLocaleTimeString(undefined, {
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
-}
-
-/** `…/worktrees/upstream-cherry-pick/<id>` → `…cherry-pick/1a2b3c4`. */
-export function worktreeLabel(path: string | null): string {
-  if (path === null || path.length === 0) return '';
-  const parts = path.split('/').filter(part => part.length > 0);
-  return parts.length <= 2 ? path : `…/${parts.slice(-2).join('/')}`;
 }
 
 export function money(milliUsd: number): string {

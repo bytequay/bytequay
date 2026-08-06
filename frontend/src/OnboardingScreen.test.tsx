@@ -69,3 +69,21 @@ it('surfaces the login command when gh is installed but logged out', async () =>
   fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
   await waitFor(() => expect(writeText).toHaveBeenCalledWith('gh auth login'));
 });
+
+it('retries the gh probe rather than reading a cold sidecar as "no gh"', async () => {
+  // The window opens the moment the backend answers /hello, so the very first
+  // probe can still lose the race. Treating that as absence used to pin the
+  // install-gh advice in front of users who had gh installed all along.
+  let calls = 0;
+  bridge(true, async () => ({ login: 'nobody' }));
+  window.bridge.getGitHubCliAvailable = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error('fetch failed');
+    return { available: true };
+  };
+  render(<OnboardingScreen onSaved={vi.fn()} />);
+
+  expect(await screen.findByRole(
+    'button', { name: 'Use my GitHub CLI login' }, { timeout: 4_000 })).toBeTruthy();
+  expect(screen.queryByText('brew install gh && gh auth login')).toBeNull();
+}, 10_000);

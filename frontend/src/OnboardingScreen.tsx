@@ -72,13 +72,23 @@ export default function OnboardingScreen({ onSaved }: Props) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const res = await window.bridge.getGitHubCliAvailable();
-        if (!cancelled) setGhAvailable(res.available);
+      // A failed probe means "the sidecar hasn't answered yet", not "gh is
+      // missing" — the two are indistinguishable from one call, and guessing
+      // wrong pins the install-gh advice in front of users who already have
+      // it, with no way to re-ask short of relaunching. Retry, and only
+      // report absence when the backend actually says so.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (cancelled) return;
+        try {
+          const res = await window.bridge.getGitHubCliAvailable();
+          if (!cancelled) setGhAvailable(res.available);
+          return;
+        }
+        catch {
+          await new Promise((resolve) => { setTimeout(resolve, 1_000); });
+        }
       }
-      catch {
-        if (!cancelled) setGhAvailable(false);
-      }
+      if (!cancelled) setGhAvailable(false);
     })();
     return () => { cancelled = true; };
   }, []);

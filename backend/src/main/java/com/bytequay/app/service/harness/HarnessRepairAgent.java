@@ -126,7 +126,7 @@ public class HarnessRepairAgent
                 cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
                 toIntExact(Math.max(1, budgetMilliUsd / 10)),
                 CliReviewRunner.Sandbox.WRITE);
-        return read(result.text(), result.costUsdMilli(), result.sessionId());
+        return readTurn(result);
     }
 
     /**
@@ -151,7 +151,7 @@ public class HarnessRepairAgent
                 cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
                 toIntExact(Math.max(1, budgetMilliUsd / 10)),
                 CliReviewRunner.Sandbox.WRITE);
-        return read(result.text(), result.costUsdMilli(), result.sessionId());
+        return readTurn(result);
     }
 
     /**
@@ -175,7 +175,7 @@ public class HarnessRepairAgent
                 cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
                 toIntExact(Math.max(1, budgetMilliUsd / 10)),
                 CliReviewRunner.Sandbox.WRITE);
-        return read(result.text(), result.costUsdMilli(), result.sessionId());
+        return readTurn(result);
     }
 
     /**
@@ -204,6 +204,18 @@ public class HarnessRepairAgent
         }
         return "What this repository has taught you before:\n<knowledge>\n"
                 + projection.strip() + "\n</knowledge>\n\n";
+    }
+
+    /** A turn that never ran reports why; otherwise the verdict is read off it. */
+    private Outcome readTurn(CliReviewRunner.Result result)
+    {
+        if (result.failed()) {
+            return new Outcome(
+                    false, false,
+                    "the agent did not run: " + clamp(String.valueOf(result.errorMessage())),
+                    List.of(), result.costUsdMilli(), result.sessionId());
+        }
+        return read(result.text(), result.costUsdMilli(), result.sessionId());
     }
 
     /**

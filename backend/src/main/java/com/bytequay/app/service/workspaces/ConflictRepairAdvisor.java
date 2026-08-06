@@ -66,6 +66,16 @@ public interface ConflictRepairAdvisor
             boolean resolved,
             boolean validated,
             String detail,
+            /** The turn's own JSONL, kept so a run nobody was watching can be read back. */
+            String transcript,
             long costMilliUsd,
-            String sessionId) {}
+            String sessionId)
+    {
+        public Outcome(
+                boolean resolved, boolean validated, String detail,
+                long costMilliUsd, String sessionId)
+        {
+            this(resolved, validated, detail, null, costMilliUsd, sessionId);
+        }
+    }
 }

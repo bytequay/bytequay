@@ -49,6 +49,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.RepoMetadataCacheStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
@@ -438,17 +439,17 @@ public class PullRequestService
         if (prId.isPresent()) {
             Optional<StoredPrDetail> stored = detailStore.find(prId.get());
             if (stored.isPresent()) {
-                log.info("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body",
+                log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body",
                         repo, number);
                 int writeApprovals = collaboratorPermissions.countWriteApprovals(pat, repoRef, stored.get().reviews());
                 return PullRequestDetailMapper.toPullRequestDetail(
                         repo, number, stored.get(), viewerCanWrite, writeApprovals);
             }
-            log.info("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub",
+            log.debug("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub",
                     repo, number);
         }
         else {
-            log.info("[cache-diag] getPullRequestDetail {}#{}: no prId in store — calling fetchDetailFromGitHub",
+            log.debug("[cache-diag] getPullRequestDetail {}#{}: no prId in store — calling fetchDetailFromGitHub",
                     repo, number);
         }
 
@@ -500,9 +501,11 @@ public class PullRequestService
      * the PR resource's ETag, so treating 304 as proof that CI is unchanged
      * leaves task automation and the PR UI stuck on stale checks.
      *
-     * <p>On a miss (no prior ETag, 200, or any probe error) we fall
-     * back to the original invalidate-then-refetch path so the caller
-     * always gets the freshest data we can produce.
+     * <p>On a miss (no prior ETag, or a 200) we fall back to the
+     * invalidate-then-refetch path so the caller gets the freshest data we
+     * can produce. A probe that <em>fails</em> is different: it proves
+     * nothing about the cached snapshot, so we keep and serve that snapshot
+     * rather than discarding data we cannot re-fetch.
      */
     public PullRequestDetail refreshPullRequestDetail(String repo, int number)
     {
@@ -537,7 +540,7 @@ public class PullRequestService
     public PullRequestDetail refreshPullRequestDetail(String repo, int number, int maxAgeSeconds)
     {
         String pat = patResolver.resolve(repo);
-        log.info("[cache-diag] refreshPullRequestDetail entry: {}#{} maxAge={}s", repo, number, maxAgeSeconds);
+        log.debug("[cache-diag] refreshPullRequestDetail entry: {}#{} maxAge={}s", repo, number, maxAgeSeconds);
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
             // Fast path: a recent probe already established that the
@@ -547,14 +550,14 @@ public class PullRequestService
                 if (entry != null
                         && entry.lastProbedAt() != null
                         && entry.lastProbedAt().isAfter(Instant.now().minusSeconds(maxAgeSeconds))) {
-                    log.info("[cache-diag] maxAge FAST-PATH fired for {}#{}: lastProbed {}s ago (<= {}s)",
+                    log.debug("[cache-diag] maxAge FAST-PATH fired for {}#{}: lastProbed {}s ago (<= {}s)",
                             repo, number,
                             Instant.now().getEpochSecond() - entry.lastProbedAt().getEpochSecond(),
                             maxAgeSeconds);
                     return getPullRequestDetail(repo, number);
                 }
                 else {
-                    log.info("[cache-diag] maxAge fast-path SKIPPED for {}#{}: entry={} lastProbedAt={}",
+                    log.debug("[cache-diag] maxAge fast-path SKIPPED for {}#{}: entry={} lastProbedAt={}",
                             repo, number,
                             entry == null ? "NULL" : "present",
                             entry == null ? "n/a" : (entry.lastProbedAt() == null ? "null"
@@ -587,18 +590,27 @@ public class PullRequestService
                     // queued → success/failure without changing this ETag.
                     // Refresh that lightweight snapshot before serving the
                     // otherwise-cached detail.
-                    log.info("[cache-diag] ETag probe 304 for {}#{} — refreshing CI snapshot", repo, number);
+                    log.debug("[cache-diag] ETag probe 304 for {}#{} — refreshing CI snapshot", repo, number);
                     getPullRequestCiSnapshot(repo, number);
                     return getPullRequestDetail(repo, number);
                 }
-                log.info("[cache-diag] ETag probe for {}#{}: hadCachedEtag={} changed={} → invalidate + refetch",
+                log.debug("[cache-diag] ETag probe for {}#{}: hadCachedEtag={} changed={} → invalidate + refetch",
                         repo, number, cachedEtag != null, probe.changed());
             }
             catch (Exception e) {
-                // Probe is best-effort. Fall through to the full
-                // refetch — never gate correctness on the probe.
-                log.info("[cache-diag] ETag probe failed for {}#{}: {} → invalidate + refetch",
-                        repo, number, e.getMessage());
+                // Probe is best-effort, so a failed probe must not cost the
+                // user the snapshot they already have: dropping it turns a
+                // 403/5xx/network blip into an empty PR page, because the
+                // refetch that follows the invalidate fails the same way.
+                // Serve the cached detail and try again next refresh.
+                if (GitHubOrgAccess.isClassicPatDenial(e.getMessage())) {
+                    log.debug("[cache-diag] ETag probe denied for {}#{} — serving cached detail", repo, number);
+                }
+                else {
+                    log.info("[cache-diag] ETag probe failed for {}#{}: {} — serving cached detail",
+                            repo, number, e.getMessage());
+                }
+                return getPullRequestDetail(repo, number);
             }
         }
         invalidatePullRequestDetail(repo, number);

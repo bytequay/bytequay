@@ -55,6 +55,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
@@ -529,6 +530,34 @@ class TestPullRequestService
         assertThat(result.ciStatus()).isEqualTo(FAILING);
         verify(gitHub).fetchPrCheckRunsStrict("pat", "owner", "repo", "sha");
         verify(store).updateCiStatus(7L, FAILING);
+    }
+
+    @Test
+    void testRefreshPullRequestDetailKeepsTheCachedSnapshotWhenTheProbeFails()
+    {
+        PrRawDetail raw = new PrRawDetail(
+                "cached body", ImmutableList.of(), false, true, "clean", 10, 0, 0, 0,
+                ImmutableList.of(), "sha",
+                "feat/foo", "owner/repo", "main", "owner/repo");
+        StoredPrDetail cached = new StoredPrDetail(
+                raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
+        when(detailStore.find(7L)).thenReturn(Optional.of(cached));
+        when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any()))
+                .thenReturn(true);
+        // An org that forbids classic PATs 403s the probe for every PR. The
+        // user must keep seeing the PR they already have.
+        when(gitHub.probeChangedSinceEtag(eq("pat"), any(PullRequestRef.class), any()))
+                .thenThrow(new ResponseStatusException(
+                        HttpStatusCode.valueOf(403),
+                        "`owner` forbids access via a personal access token (classic)."));
+
+        PullRequestDetail result = pullRequestService.refreshPullRequestDetail("owner/repo", 7);
+
+        assertThat(result.body()).isEqualTo("cached body");
+        verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+        verify(gitHub, never()).fetchPrDetail(any(), any());
     }
 
     @Test

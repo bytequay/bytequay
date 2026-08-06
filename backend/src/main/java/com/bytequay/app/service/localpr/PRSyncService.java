@@ -635,7 +635,12 @@ public class PRSyncService
             detail = pullRequests.refreshPullRequestDetail(repoSlug, pr.remotePrNumber(), maxAgeSeconds);
         }
         catch (RuntimeException e) {
-            log.info("fetching remote PR detail for PR {} failed: {}", pr.id(), e.getMessage());
+            if (GitHubOrgAccess.isClassicPatDenial(e.getMessage())) {
+                log.debug("fetching remote PR detail for PR {} denied: {}", pr.id(), e.getMessage());
+            }
+            else {
+                log.info("fetching remote PR detail for PR {} failed: {}", pr.id(), e.getMessage());
+            }
             return;
         }
         reconcileRemoteStatus(pr, detail);

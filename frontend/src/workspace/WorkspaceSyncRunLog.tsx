@@ -108,6 +108,26 @@ function LogRow({ event }: { event: UpstreamCherryPickEventDto }) {
       </>
     );
   }
+  if (event.kind === 'agent_log') {
+    // The turn's own conversation and tool calls. Collapsed by default — it is
+    // evidence, not narrative — but it is the only place to see what the agent
+    // actually did, or that it never ran.
+    return (
+      <>
+        <button type="button" className="sr-cmd" aria-expanded={open}
+          disabled={event.detail === null}
+          onClick={() => setOpen(current => !current)}>
+          <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
+            {event.detail === null ? null : <ChevronIcon size={10} />}
+          </span>
+          <span className="sr-cmd__glyph" aria-hidden><TerminalIcon size={11} /></span>
+          <code>{event.title}</code>
+          <time>{clockLabel(event.at)}</time>
+        </button>
+        {open && event.detail !== null && <pre className="sr-output">{event.detail}</pre>}
+      </>
+    );
+  }
   if (event.kind === 'guidance' || event.kind === 'agent') {
     // The agent proposes; the program applies. The block reads as reasoning,
     // never as "the agent changed your files".

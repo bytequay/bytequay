@@ -27,6 +27,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -142,6 +144,29 @@ class TestConflictRepairAgent
 
         assertThat(outcome.resolved()).isFalse();
         assertThat(outcome.detail()).isEqualTo("upstream dropped the setter this fork still calls");
+    }
+
+    @Test
+    void aTurnThatNeverRanSaysSoRatherThanBlamingTheVerdict()
+    {
+        // A missing binary, a refused login, a rejected flag. The runner already
+        // knows why; reporting "no verdict" sent the reader looking for a model
+        // that never spoke.
+        when(engines.forAudience(any(), any())).thenReturn(Optional.empty());
+        when(aiDefaults.get()).thenReturn(new AiDefaultsService.AiDefaults(
+                null, null, null, null, null, null, null));
+        when(cli.run(any(), any(), any(), any(), any(), anyInt(), any()))
+                .thenReturn(new CliReviewRunner.Result(
+                        "", null, 0, "ERRORED",
+                        "CLI agent exited with code 127: codex: command not found", null));
+
+        ConflictRepairAdvisor.Outcome outcome = agent.repair(
+                Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null);
+
+        assertThat(outcome.resolved()).isFalse();
+        assertThat(outcome.detail())
+                .contains("did not run")
+                .contains("command not found");
     }
 
     @Test

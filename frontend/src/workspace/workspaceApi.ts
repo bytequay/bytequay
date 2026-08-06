@@ -458,7 +458,7 @@ export type UpstreamCherryPickEventDto = {
   /** The pick this line belongs under; null for run-level lines. */
   pickIndex: number | null;
   kind: 'start' | 'command' | 'note' | 'skip' | 'park' | 'guidance' | 'agent'
-    | 'fixup' | 'push' | 'pr' | 'watch' | 'done' | 'error' | 'closed';
+    | 'agent_log' | 'fixup' | 'push' | 'pr' | 'watch' | 'done' | 'error' | 'closed';
   title: string;
   detail: string | null;
   exitCode: number | null;

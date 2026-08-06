@@ -681,6 +681,19 @@ public class UpstreamCherryPickService
             Integer exitCode,
             Long durationMs)
     {
+        record(jobId, pickIndex, kind, title, detail, exitCode, durationMs, MAX_EVENT_DETAIL);
+    }
+
+    private void record(
+            String jobId,
+            Integer pickIndex,
+            String kind,
+            String title,
+            String detail,
+            Integer exitCode,
+            Long durationMs,
+            int detailCap)
+    {
         try {
             jdbc.update("""
                     INSERT INTO upstream_cherry_pick_event (
@@ -696,7 +709,7 @@ public class UpstreamCherryPickService
                     pickIndex,
                     kind,
                     title,
-                    clampDetail(detail),
+                    clampDetail(detail, detailCap),
                     exitCode,
                     durationMs,
                     now());
@@ -730,21 +743,11 @@ public class UpstreamCherryPickService
      */
     private void recordTranscript(String jobId, Integer index, String transcript)
     {
-        String text = clampDetail(transcript, MAX_TRANSCRIPT_DETAIL);
-        if (text == null) {
+        if (transcript == null || transcript.isBlank()) {
             return;
         }
-        try {
-            jdbc.update("""
-                    INSERT INTO upstream_cherry_pick_event (
-                        job_id, commit_index, kind, title, detail, exit_code,
-                        duration_ms, created_at_ms)
-                    VALUES (?, ?, 'agent_log', 'Agent transcript', ?, NULL, NULL, ?)
-                    """, jobId, index, text, now());
-        }
-        catch (DataAccessException e) {
-            log.warn("recording the agent transcript failed: {}", e.getMessage());
-        }
+        record(jobId, index, "agent_log", "Agent transcript", transcript,
+                null, null, MAX_TRANSCRIPT_DETAIL);
     }
 
     private static String shortSha(String sha)

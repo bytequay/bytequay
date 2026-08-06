@@ -485,9 +485,14 @@ public class CliReviewRunner
             String transcript, List<String> stderr)
     {
         if (exitCode == 0 || !"COMPLETED".equals(result.end())) {
+            // The stream said it failed. Its own message is often a placeholder
+            // ("turn failed") because the CLI reported an error with no text, and
+            // the reason is on stderr — so attach that here too. Enriching only
+            // the process-exit path below dropped stderr in exactly the case the
+            // caller most needs it.
             return new Result(
                     result.text(), result.sessionId(), result.costUsdMilli(),
-                    result.end(), result.errorMessage(), transcript);
+                    result.end(), withStderr(result.errorMessage(), stderr), transcript);
         }
         boolean capReached = costCapCents != null
                 && result.costUsdMilli() >= (long) costCapCents * 10;
@@ -501,6 +506,14 @@ public class CliReviewRunner
                 capReached ? "ABORTED" : "ERRORED",
                 capReached ? "CLI review reached its budget cap" : detail,
                 transcript);
+    }
+
+    /** A failure the user can act on: the stream's own message, plus whatever
+     *  the binary said on stderr. Either half alone is routinely useless. */
+    private static String withStderr(String message, List<String> stderr)
+    {
+        String base = message == null || message.isBlank() ? "the CLI agent failed" : message;
+        return stderr.isEmpty() ? base : base + ": " + String.join(" / ", stderr);
     }
 
     /** The turn's own JSONL, kept so a failed or surprising run can be read back. */

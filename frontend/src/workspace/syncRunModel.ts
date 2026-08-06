@@ -181,3 +181,71 @@ export function worktreeLabel(path: string | null): string {
 export function money(milliUsd: number): string {
   return `$${(milliUsd / 1000).toFixed(2)}`;
 }
+
+/**
+ * One line of an agent turn as a reader wants it: what the agent said, what it
+ * ran, and how the turn ended. The stored transcript is the CLI's raw JSONL,
+ * where a single tool call can carry an entire pom.xml — rendering that
+ * verbatim buries the two sentences that actually explain the decision.
+ */
+export type TranscriptEntry =
+  | { kind: 'say'; text: string }
+  | { kind: 'tool'; name: string; summary: string }
+  | { kind: 'result'; failed: boolean; costUsdMilli: number; turns: number };
+
+/** Tool arguments are unbounded; a command's first line is the readable part. */
+const MAX_TOOL_SUMMARY = 200;
+
+export function parseTranscript(raw: string | null): TranscriptEntry[] {
+  if (raw === null || raw.trim().length === 0) return [];
+  const entries: TranscriptEntry[] = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(trimmed) as Record<string, unknown>;
+    }
+    catch {
+      // A truncated tail is expected — the transcript is capped at 64KB.
+      continue;
+    }
+    if (event.type === 'assistant') {
+      const message = event.message as { content?: unknown[] } | undefined;
+      for (const part of message?.content ?? []) {
+        const block = part as { type?: string; text?: string; name?: string; input?: unknown };
+        if (block.type === 'text' && (block.text ?? '').trim().length > 0) {
+          entries.push({ kind: 'say', text: (block.text ?? '').trim() });
+        }
+        if (block.type === 'tool_use') {
+          entries.push({
+            kind: 'tool',
+            name: block.name ?? 'tool',
+            summary: toolSummary(block.input),
+          });
+        }
+      }
+    }
+    if (event.type === 'result') {
+      entries.push({
+        kind: 'result',
+        failed: event.is_error === true,
+        costUsdMilli: Math.round(Number(event.total_cost_usd ?? 0) * 1000),
+        turns: Number(event.num_turns ?? 0),
+      });
+    }
+  }
+  return entries;
+}
+
+function toolSummary(input: unknown): string {
+  if (input === null || typeof input !== 'object') return '';
+  const fields = input as Record<string, unknown>;
+  // A command, a path, or whatever single field reads as the subject.
+  const subject = fields.command ?? fields.file_path ?? fields.pattern ?? fields.path;
+  const text = typeof subject === 'string' ? subject : JSON.stringify(fields);
+  const firstLine = text.split('\n').find(part => part.trim().length > 0) ?? '';
+  return firstLine.length <= MAX_TOOL_SUMMARY
+    ? firstLine
+    : `${firstLine.slice(0, MAX_TOOL_SUMMARY)}…`;
+}

@@ -196,7 +196,7 @@ class TestUpstreamCherryPickService
                         relationDto, targetIdentity, upstreamIdentity, target, upstream);
         when(relations.requireResolved("fork-ws")).thenReturn(resolved);
         when(git.cherryPickInProgress(worktree)).thenReturn(false);
-        when(git.listCommits(worktree, "base-sha..HEAD", 3))
+        when(git.listCommits(worktree, "base-sha..HEAD", 5_000))
                 .thenReturn(List.of(new GitRunner.CommitEntry(
                         "picked-head", "picked", "Test", "test@example.com",
                         "2026-08-05T00:00:00Z", "2026-08-05T00:00:00Z", "First")));
@@ -233,6 +233,70 @@ class TestUpstreamCherryPickService
         assertThat(run.commits())
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickCommitDto::state)
                 .containsExactly("applied", "applied");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void marksThePlansSkipsBeforeTheRunWalksToThem(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        initialise(target);
+        initialise(upstream);
+        commit(target, "base.txt", "base", "Fork base");
+        commit(upstream, "one.txt", "one", "Keep this one");
+        String first = output(upstream, "rev-parse", "HEAD");
+        commit(upstream, "two.txt", "two", "Already in the fork");
+        commit(upstream, "three.txt", "three", "chore: bump the version");
+        String last = output(upstream, "rev-parse", "HEAD");
+
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        WorkspaceRelationService relations = relations(target, upstream);
+        // The fork already carries the middle commit's subject.
+        when(relations.pickedCommitSubjects(any(), any()))
+                .thenReturn(Set.of("already in the fork"));
+        UpstreamCherryPickService service = service(
+                jdbc, relations, mock(ConflictRepairAdvisor.class),
+                mock(PullRequestRepository.class));
+
+        UpstreamCherryPickService.StartRequest request =
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "planned-pick", null, first, last, null,
+                        null, List.of("chore:"), false, false, null);
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started =
+                service.enqueue("fork-ws", request);
+
+        // The plan's verdict is on the queue before the worker touches it —
+        // the dry run's skips are gray from the first render, not once the
+        // run happens to walk past them.
+        assertThat(started.requestedCount()).isEqualTo(3);
+        assertThat(started.skippedCount()).isEqualTo(2);
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto completed = awaitStatus(
+                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.appliedCount()).isEqualTo(1);
+        // Walking past an already-marked skip must not count or log it twice.
+        assertThat(completed.skippedCount()).isEqualTo(2);
+        assertThat(service.run("fork-ws", started.jobId(), 100).commits())
+                .extracting(
+                        UpstreamCherryPickService.UpstreamCherryPickCommitDto::subject,
+                        UpstreamCherryPickService.UpstreamCherryPickCommitDto::state)
+                .containsExactly(
+                        tuple("Keep this one", "applied"),
+                        tuple("Already in the fork", "skipped"),
+                        tuple("chore: bump the version", "skipped"));
+        assertThat(service.run("fork-ws", started.jobId(), 100).events())
+                .filteredOn(event -> "skip".equals(event.kind()))
+                .extracting(UpstreamCherryPickService.UpstreamCherryPickEventDto::detail)
+                .containsExactlyInAnyOrder(
+                        "already in the fork", "subject contains \"chore:\"");
+        assertThat(output(target, "log", "--format=%s", "main..planned-pick")
+                .lines().toList())
+                .containsExactly("Keep this one");
     }
 
     @Test
@@ -385,7 +449,7 @@ class TestUpstreamCherryPickService
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
         when(git.cherryPickInProgress(worktree)).thenReturn(false);
-        when(git.listCommits(worktree, "base-sha..HEAD", 2))
+        when(git.listCommits(worktree, "base-sha..HEAD", 5_000))
                 .thenReturn(List.of(new GitRunner.CommitEntry(
                         "new-head", "new-head", "Test", "test@example.com",
                         "2026-07-24T00:00:00Z", "2026-07-24T00:00:00Z", "Feature (#101)")));
@@ -458,7 +522,7 @@ class TestUpstreamCherryPickService
                         relationDto, targetIdentity, upstreamIdentity, target, upstream);
         when(relations.requireResolved("fork-ws")).thenReturn(resolved);
         when(git.cherryPickInProgress(worktree)).thenReturn(false);
-        when(git.listCommits(worktree, "base-sha..HEAD", 3))
+        when(git.listCommits(worktree, "base-sha..HEAD", 5_000))
                 .thenReturn(List.of(new GitRunner.CommitEntry(
                         "picked-head", "picked", "Test", "test@example.com",
                         "2026-07-24T00:00:00Z", "2026-07-24T00:00:00Z", "First")));
@@ -549,7 +613,7 @@ class TestUpstreamCherryPickService
         // nothing to judge it, so the run parks instead of pushing a guess.
         when(git.continueCherryPick(worktree)).thenReturn(
                 new GitRunner.CherryPickOutcome(true, 1, "commit-1", List.of(), null));
-        when(git.listCommits(worktree, "base-sha..HEAD", 2))
+        when(git.listCommits(worktree, "base-sha..HEAD", 5_000))
                 .thenReturn(
                         List.of(),
                         List.of(new GitRunner.CommitEntry(
@@ -630,7 +694,7 @@ class TestUpstreamCherryPickService
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
         when(git.cherryPickInProgress(worktree)).thenReturn(false);
-        when(git.listCommits(worktree, "base-sha..HEAD", 1)).thenReturn(List.of());
+        when(git.listCommits(worktree, "base-sha..HEAD", 5_000)).thenReturn(List.of());
         when(git.listCommits(target, "base-sha", 5_000)).thenReturn(List.of());
         PR localPr = PR.createExternal(
                 "local-pr-1", "acme/fork", 123, "https://example.test/pr/123",
@@ -749,6 +813,50 @@ class TestUpstreamCherryPickService
 
         assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
         assertThat(parked.errorMessage()).contains("uncommitted changes");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aResumeCountsPicksRatherThanTheFixupsSittingBesideThem(@TempDir Path root)
+            throws Exception
+    {
+        Conflict setup = conflictingRepositories(root);
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        // Commits its fixup and then reports it could not finish, so the run
+        // parks with a branch that carries one more commit than it has picks.
+        when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
+                .thenAnswer(invocation -> {
+                    Path worktree = invocation.getArgument(0);
+                    String subject = invocation.getArgument(2);
+                    Files.writeString(worktree.resolve("conflict.txt"), "fork and upstream\n");
+                    run(worktree, "add", "conflict.txt");
+                    run(worktree, "commit", "-m", "fixup! " + subject);
+                    return new ConflictRepairAdvisor.Outcome(
+                            false, false, "needs a human", 120, "session-1");
+                });
+        UpstreamCherryPickService service = service(jdbc, setup, advisor);
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "resumed-pick", List.of(setup.upstreamSha()),
+                        null, null, null, null, null, false, false, null));
+        assertThat(awaitStatus(service, "fork-ws", started.jobId(),
+                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT")).status())
+                .isEqualTo("PAUSED_CONFLICT");
+
+        service.resume("fork-ws", started.jobId());
+        UpstreamCherryPickService.UpstreamCherryPickJobDto done = awaitStatus(
+                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+
+        // The fixup used to be counted as a pick, and the resume refused to run.
+        assertThat(done.status()).isEqualTo("COMPLETED");
+        assertThat(done.errorMessage()).isNull();
+        assertThat(output(setup.target(), "log", "--reverse", "--format=%s",
+                "main..resumed-pick").lines().toList())
+                .containsExactly("Change the shared line", "fixup! Change the shared line");
     }
 
     @Test
@@ -1063,6 +1171,29 @@ class TestUpstreamCherryPickService
             PullRequestRepository pullRequests)
             throws Exception
     {
+        return service(
+                jdbc, relations(setup.target(), setup.upstream()), advisor, pullRequests);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static UpstreamCherryPickService service(
+            JdbcTemplate jdbc,
+            WorkspaceRelationService relations,
+            ConflictRepairAdvisor advisor,
+            PullRequestRepository pullRequests)
+    {
+        ObjectProvider<ConflictRepairAdvisor> advisorProvider = mock(ObjectProvider.class);
+        when(advisorProvider.getIfAvailable()).thenReturn(advisor);
+        return new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations, new GitRunner(),
+                mock(PatResolver.class), pullRequests, mock(PRSyncService.class),
+                mock(ObjectProvider.class), mock(ObjectProvider.class), advisorProvider,
+                new SyncRunStream());
+    }
+
+    private static WorkspaceRelationService relations(Path target, Path upstream)
+            throws Exception
+    {
         WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
@@ -1076,19 +1207,12 @@ class TestUpstreamCherryPickService
                         true, true, false, false, null, 15, 1);
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
-                        relationDto, targetIdentity, upstreamIdentity,
-                        setup.target(), setup.upstream()));
-        when(relations.defaultBranch(upstreamIdentity, setup.upstream())).thenReturn("main");
-        when(relations.defaultBranch(targetIdentity, setup.target())).thenReturn("main");
-        when(relations.resolveFetchedRemoteRef(setup.upstream(), "main")).thenReturn("main");
-        when(relations.resolveFetchedRemoteRef(setup.target(), "main")).thenReturn("main");
-        ObjectProvider<ConflictRepairAdvisor> advisorProvider = mock(ObjectProvider.class);
-        when(advisorProvider.getIfAvailable()).thenReturn(advisor);
-        return new UpstreamCherryPickService(
-                jdbc, new ObjectMapper(), relations, new GitRunner(),
-                mock(PatResolver.class), pullRequests, mock(PRSyncService.class),
-                mock(ObjectProvider.class), mock(ObjectProvider.class), advisorProvider,
-                new SyncRunStream());
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream));
+        when(relations.defaultBranch(upstreamIdentity, upstream)).thenReturn("main");
+        when(relations.defaultBranch(targetIdentity, target)).thenReturn("main");
+        when(relations.resolveFetchedRemoteRef(upstream, "main")).thenReturn("main");
+        when(relations.resolveFetchedRemoteRef(target, "main")).thenReturn("main");
+        return relations;
     }
 
     private static JdbcTemplate jdbc(Path database)

@@ -22,6 +22,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -247,14 +248,21 @@ public class UpstreamCherryPickService
         List<GitRunner.DecoratedCommitEntry> ordered = resolveSelection(
                 relation.upstreamClone(), history,
                 request.fromSha(), request.toSha(), request.shas());
-        List<CommitSpec> specs = resolveCommitSpecs(ordered);
         Set<String> picked = relations.pickedCommitSubjects(relation, baseRef);
         SkipFilters filters = SkipFilters.normalize(
                 request.skipStartsWith(), request.skipContains());
-        // Same planner the preview ran, against freshly fetched refs.
-        boolean noneSurvive = plan(ordered, picked, filters).stream()
-                .noneMatch(PlannedCommit::pick);
-        if (noneSurvive) {
+        // Same planner the preview ran, against freshly fetched refs. Its
+        // verdict is carried into the run rather than rediscovered pick by
+        // pick, so the queue opens on the list the dry run promised.
+        List<PlannedCommit> planned = plan(ordered, picked, filters);
+        List<CommitSpec> specs = planned.stream()
+                .map(commit -> new CommitSpec(commit.sha(), commit.subject()))
+                .toList();
+        List<String> preSkipped = planned.stream()
+                .filter(commit -> !commit.pick())
+                .map(PlannedCommit::sha)
+                .toList();
+        if (preSkipped.size() == specs.size()) {
             throw new ResponseStatusException(
                     HttpStatus.UNPROCESSABLE_ENTITY,
                     filters.isEmpty()
@@ -281,7 +289,7 @@ public class UpstreamCherryPickService
                     pr_description, skip_filters_json, compile_script,
                     created_at_ms, updated_at_ms)
                 VALUES (?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?,
-                    '[]', '[]', 0, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    '[]', ?, 0, '[]', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 id,
                 workspaceId,
@@ -292,6 +300,7 @@ public class UpstreamCherryPickService
                 baseRef,
                 request.targetBranch(),
                 json(specs),
+                json(preSkipped),
                 worktree.toString(),
                 request.openDraftPr() ? 1 : 0,
                 request.createHarnessWatch() ? 1 : 0,
@@ -305,9 +314,21 @@ public class UpstreamCherryPickService
                 now,
                 now);
         record(id, null, "start",
-                "Sync run started — " + specs.size() + " commits from "
-                        + sourceBranch + " onto " + request.targetBranch(),
-                "worktree " + worktree, null, null);
+                "Sync run started — " + (specs.size() - preSkipped.size())
+                        + " commits from " + sourceBranch + " onto "
+                        + request.targetBranch(),
+                preSkipped.isEmpty()
+                        ? "worktree " + worktree
+                        : preSkipped.size() + " of " + specs.size()
+                                + " already in the fork or filtered out\nworktree " + worktree,
+                null, null);
+        for (int index = 0; index < planned.size(); index++) {
+            PlannedCommit dropped = planned.get(index);
+            if (!dropped.pick()) {
+                record(id, index, "skip", "Skipped " + dropped.subject(),
+                        dropped.skipReason(), null, null);
+            }
+        }
         launchAfterCommit(id);
         return require(workspaceId, id);
     }
@@ -1014,9 +1035,13 @@ public class UpstreamCherryPickService
                         ? "already in the fork"
                         : row.skipFilters().skipReason(commit.subject());
                 if (skipReason != null) {
-                    skipped.add(commit.sha());
-                    record(id, index, "skip",
-                            "Skipped " + commit.subject(), skipReason, null, null);
+                    // Already on the list the plan drew at enqueue: walking past
+                    // it must not log or count it a second time.
+                    if (!skipped.contains(commit.sha())) {
+                        skipped.add(commit.sha());
+                        record(id, index, "skip",
+                                "Skipped " + commit.subject(), skipReason, null, null);
+                    }
                     index++;
                     progress(id, applied, skipped, conflicted, index);
                     continue;
@@ -1347,29 +1372,26 @@ public class UpstreamCherryPickService
     private JobRow reconcileUnpersistedPick(JobRow row, Path worktree)
             throws IOException, InterruptedException
     {
-        List<GitRunner.CommitEntry> branchCommits = git.listCommits(
-                worktree,
-                row.baseRef() + "..HEAD",
-                row.specs().size() + 1);
-        // Each conflicted pick adds a fixup commit via repairConflictedPick on
-        // top of the cherry-picked markers commit, so the expected count is
-        // applied + conflicted. When repair is in progress the fixup is not yet
-        // on the branch, so expected - 1 (i.e. applied + conflicted - 1) is also
-        // valid and is treated as a no-crash steady state.
-        int expected = row.appliedShas().size() + row.conflictedShas().size();
-        if (branchCommits.size() == expected) {
+        // Only the picks are durable progress. A repaired pick also leaves the
+        // agent's `fixup!` commit on the branch, and counting those as picks
+        // made every resume after two repairs look like history it could not
+        // explain — which is what this check exists to refuse. Counting picks
+        // rather than deriving an expected total also survives a repair that
+        // was a no-op and committed nothing.
+        List<GitRunner.CommitEntry> picks = git.listCommits(
+                        worktree, row.baseRef() + "..HEAD", HISTORY_LIMIT).stream()
+                .filter(entry -> !isRepairCommit(entry.subject()))
+                .toList();
+        if (picks.size() == row.appliedShas().size()) {
             return row;
         }
-        if (branchCommits.size() == expected - 1 && !row.conflictedShas().isEmpty()) {
-            return row;
-        }
-        if (branchCommits.size() != expected + 1
+        if (picks.size() != row.appliedShas().size() + 1
                 || row.nextCommitIndex() >= row.specs().size()) {
             throw new IllegalStateException(
                     "cherry-pick worktree history no longer matches durable progress");
         }
         CommitSpec current = row.specs().get(row.nextCommitIndex());
-        GitRunner.CommitEntry head = branchCommits.getFirst();
+        GitRunner.CommitEntry head = picks.getFirst();
         if (!current.subject().equals(head.subject())) {
             throw new IllegalStateException(
                     "unexpected commit at cherry-pick HEAD: " + head.subject());
@@ -1380,6 +1402,14 @@ public class UpstreamCherryPickService
                 row.skippedShas(),
                 row.nextCommitIndex() + 1);
         return requireRow(row.id());
+    }
+
+    /** Anything git itself will fold away on an autosquash — never a pick. */
+    private static boolean isRepairCommit(String subject)
+    {
+        return subject.startsWith("fixup!")
+                || subject.startsWith("squash!")
+                || subject.startsWith("amend!");
     }
 
     private PullRequest openOrAdoptDraft(
@@ -1406,9 +1436,14 @@ public class UpstreamCherryPickService
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
-        String title = row.specs().size() == 1
-                ? row.specs().getFirst().subject()
-                : "Cherry-pick " + row.specs().size() + " commits from "
+        // What landed on the branch, not what was selected — a range whose
+        // skips outnumber its picks used to title the PR after the range.
+        List<CommitSpec> picks = row.specs().stream()
+                .filter(spec -> row.appliedShas().contains(spec.sha()))
+                .toList();
+        String title = picks.size() == 1
+                ? picks.getFirst().subject()
+                : "Cherry-pick " + picks.size() + " commits from "
                         + relation.upstream().fullName();
         String provenance = "Cherry-picked a contiguous range from `"
                 + relation.upstream().fullName() + "/" + row.sourceBranch() + "`."
@@ -1622,6 +1657,13 @@ public class UpstreamCherryPickService
                     .orElse(null);
         }
 
+        /**
+         * Derived, and it must stay out of the JSON this record is persisted
+         * as: Jackson reads {@code isEmpty} as a bean property on the way out
+         * and then rejects it as unknown on the way back in, which quietly
+         * turned a stored filter into no filter at all mid-run.
+         */
+        @JsonIgnore
         public boolean isEmpty()
         {
             return startsWith.isEmpty() && contains.isEmpty();
@@ -1688,14 +1730,6 @@ public class UpstreamCherryPickService
     }
 
     /** Sha and subject are all a pick needs; provenance is git's own `-x` line. */
-    private static List<CommitSpec> resolveCommitSpecs(
-            List<GitRunner.DecoratedCommitEntry> commits)
-    {
-        return commits.stream()
-                .map(commit -> new CommitSpec(commit.sha(), commit.subject()))
-                .toList();
-    }
-
     private static int indexOf(
             List<GitRunner.DecoratedCommitEntry> history,
             String sha)

@@ -272,7 +272,8 @@ public class WorkspaceRelationService
                 .toList();
     }
 
-    public UpstreamCommitsDto commits(String workspaceId, String revision, int requestedLimit)
+    public UpstreamCommitsDto commits(
+            String workspaceId, String revision, int requestedLimit, int requestedOffset)
             throws IOException, InterruptedException
     {
         ResolvedRelation resolved = requireResolved(workspaceId);
@@ -282,6 +283,7 @@ public class WorkspaceRelationService
                     "upstream commit reading is disabled for this relation");
         }
         int limit = Math.min(Math.max(requestedLimit, 1), 500);
+        int offset = Math.max(requestedOffset, 0);
         String branch = revision == null || revision.isBlank()
                 ? defaultBranch(resolved.upstream(), resolved.upstreamClone())
                 : revision.strip();
@@ -293,6 +295,7 @@ public class WorkspaceRelationService
         Set<String> pickedSubjects = pickedCommitSubjects(resolved, targetRef);
 
         List<UpstreamCommitDto> rows = history.stream()
+                .skip(offset)
                 .limit(limit)
                 .map(commit -> toCommit(
                         commit,
@@ -315,7 +318,11 @@ public class WorkspaceRelationService
                 resolved.relation().lastFetchedAt(),
                 indexed,
                 notInFork,
-                rows);
+                rows,
+                offset,
+                // What the caller has seen after this page, against what git gave
+                // us. False here is what stops the list asking for more.
+                history.size() > offset + rows.size());
     }
 
     public String defaultBranch(
@@ -559,7 +566,9 @@ public class WorkspaceRelationService
             Instant lastFetchedAt,
             int indexedCommitCount,
             int notInForkCount,
-            List<UpstreamCommitDto> commits) {}
+            List<UpstreamCommitDto> commits,
+            int offset,
+            boolean hasMore) {}
 
     public record UpstreamCommitDto(
             String sha,

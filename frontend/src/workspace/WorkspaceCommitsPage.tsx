@@ -85,6 +85,7 @@ export default function WorkspaceCommitsPage({
   const [upstreamRevision, setUpstreamRevision] = useState<string | null>(null);
   const [upstreamWorkspaceBranches, setUpstreamWorkspaceBranches] = useState<string[]>([]);
   const [upstreamLoading, setUpstreamLoading] = useState(false);
+  const [upstreamPaging, setUpstreamPaging] = useState(false);
   const [upstreamRange, setUpstreamRange] = useState<[number, number] | null>(null);
   const [rangeExpanded, setRangeExpanded] = useState(false);
   const [upstreamCherryOpen, setUpstreamCherryOpen] = useState(false);
@@ -150,6 +151,25 @@ export default function WorkspaceCommitsPage({
       .finally(() => { if (!cancelled) setUpstreamLoading(false); });
     return () => { cancelled = true; };
   }, [source, workspaceId, upstreamRevision]);
+
+  /**
+   * The next page, appended. Only ever appends, because the range selection
+   * holds indices into this list — reordering or replacing it would move the
+   * user's selection onto different commits.
+   */
+  const loadMoreUpstream = useCallback(() => {
+    if (upstream === null || !upstream.hasMore || upstreamPaging) return;
+    setUpstreamPaging(true);
+    void workspaceApi.upstreamCommits(
+      workspaceId, upstreamRevision ?? undefined, 200, upstream.commits.length,
+    )
+      .then(next => setUpstream(current => (current === null ? next : {
+        ...next,
+        commits: [...current.commits, ...next.commits],
+      })))
+      .catch(reason => setError(message(reason)))
+      .finally(() => setUpstreamPaging(false));
+  }, [upstream, upstreamPaging, upstreamRevision, workspaceId]);
 
   // Every branch the upstream clone carries, so a release line can be read
   // and cherry-picked from — not just whatever it happens to have checked out.
@@ -281,6 +301,9 @@ export default function WorkspaceCommitsPage({
             setUpstreamRange(current => contiguousRangeAfterToggle(current, index));
             setRangeExpanded(false);
           }}
+          hasMore={upstream?.hasMore ?? false}
+          paging={upstreamPaging}
+          onLoadMore={loadMoreUpstream}
         />
       ) : (
         tab === 'uncommitted' ? (

@@ -128,7 +128,7 @@ describe('WorkspaceCommitsPage', () => {
     fireEvent.click(within(menu).getByText('release-476'));
     await waitFor(() => expect(workspaceApi.mock.calls.some(([request]) =>
       (request as WorkspaceApiRequest).path
-        === '/api/workspaces/fork/upstream/commits?revision=release-476&limit=200')).toBe(true));
+        === '/api/workspaces/fork/upstream/commits?revision=release-476&limit=200&offset=0')).toBe(true));
 
     fireEvent.click(screen.getByRole('button', { name: /^Branch:/ }));
     const reopened = await screen.findByRole('menu');
@@ -137,7 +137,7 @@ describe('WorkspaceCommitsPage', () => {
     fireEvent.click(within(reopened).getByText(/Use /));
     await waitFor(() => expect(workspaceApi.mock.calls.some(([request]) =>
       (request as WorkspaceApiRequest).path
-        === '/api/workspaces/fork/upstream/commits?revision=never-fetched&limit=200')).toBe(true));
+        === '/api/workspaces/fork/upstream/commits?revision=never-fetched&limit=200&offset=0')).toBe(true));
   });
 
   it('sends relation management to workspace settings', async () => {

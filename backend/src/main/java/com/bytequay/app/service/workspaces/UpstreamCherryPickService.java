@@ -855,6 +855,17 @@ public class UpstreamCherryPickService
                 """, String.class).forEach(this::launch);
     }
 
+    /**
+     * Whether a worker thread is still running for this job. Visible for tests:
+     * a status lands in the database inside {@code execute}, but the worker keeps
+     * running for a few instructions after that — long enough for a test that only
+     * waits on the status to tear its temp directory down underneath it.
+     */
+    boolean isWorking(String id)
+    {
+        return activeJobs.contains(id);
+    }
+
     private void launch(String id)
     {
         if (!activeJobs.add(id)) {

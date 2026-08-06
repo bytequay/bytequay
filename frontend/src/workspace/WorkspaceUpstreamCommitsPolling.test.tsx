@@ -70,7 +70,7 @@ const commit: UpstreamCommitDto = {
 const snapshot: UpstreamCommitsDto = {
   upstreamWorkspaceId: 'upstream', upstreamWorkspaceName: 'Upstream',
   upstreamRepoFullName: 'upstream/widget', revision: 'master', lastFetchedAt: null,
-  indexedCommitCount: 1, notInForkCount: 1, commits: [commit],
+  indexedCommitCount: 1, notInForkCount: 1, commits: [commit], offset: 0, hasMore: false,
 };
 
 describe('UpstreamCherryPicker dry run', () => {

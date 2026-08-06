@@ -414,9 +414,10 @@ public class WorkspaceRepositoryController
     public WorkspaceRelationService.UpstreamCommitsDto upstreamCommits(
             @PathVariable String workspaceId,
             @RequestParam(required = false) String revision,
-            @RequestParam(defaultValue = "100") int limit)
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(defaultValue = "0") int offset)
     {
-        return interrupted(() -> relations.commits(workspaceId, revision, limit));
+        return interrupted(() -> relations.commits(workspaceId, revision, limit, offset));
     }
 
     /** Dry run: what a cherry-pick would apply and what it would skip, and why. */

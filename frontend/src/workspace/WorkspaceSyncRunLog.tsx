@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { CheckIcon, ChevronIcon, TerminalIcon } from './WorkspaceSyncIcons';
 import {
-  clockLabel, durationLabel, syncLogGroups, type SyncLogGroup,
+  clockLabel, durationLabel, money, parseTranscript, syncLogGroups, type SyncLogGroup,
 } from './syncRunModel';
 import type {
   UpstreamCherryPickCommitDto,
@@ -109,22 +109,51 @@ function LogRow({ event }: { event: UpstreamCherryPickEventDto }) {
     );
   }
   if (event.kind === 'agent_log') {
-    // The turn's own conversation and tool calls. Collapsed by default — it is
-    // evidence, not narrative — but it is the only place to see what the agent
-    // actually did, or that it never ran.
+    // The turn as a conversation: what it said, what it ran, how it ended.
+    // The stored detail is the CLI's raw JSONL, where one tool call can carry a
+    // whole pom.xml — rendering that verbatim buries the two sentences that
+    // explain the decision.
+    const entries = parseTranscript(event.detail);
+    const said = entries.filter(entry => entry.kind === 'say').length;
+    const ran = entries.filter(entry => entry.kind === 'tool').length;
     return (
       <>
         <button type="button" className="sr-cmd" aria-expanded={open}
-          disabled={event.detail === null}
+          disabled={entries.length === 0}
           onClick={() => setOpen(current => !current)}>
           <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
-            {event.detail === null ? null : <ChevronIcon size={10} />}
+            {entries.length === 0 ? null : <ChevronIcon size={10} />}
           </span>
           <span className="sr-cmd__glyph" aria-hidden><TerminalIcon size={11} /></span>
           <code>{event.title}</code>
+          <span className="sr-transcript__count">
+            {said} note{said === 1 ? '' : 's'} · {ran} command{ran === 1 ? '' : 's'}
+          </span>
           <time>{clockLabel(event.at)}</time>
         </button>
-        {open && event.detail !== null && <pre className="sr-output">{event.detail}</pre>}
+        {open && (
+          <div className="sr-transcript">
+            {entries.map((entry, index) => {
+              if (entry.kind === 'say') {
+                return <p key={index} className="sr-transcript__say">{entry.text}</p>;
+              }
+              if (entry.kind === 'tool') {
+                return (
+                  <div key={index} className="sr-transcript__tool">
+                    <b>{entry.name}</b><code>{entry.summary}</code>
+                  </div>
+                );
+              }
+              return (
+                <p key={index}
+                  className={`sr-transcript__result${entry.failed ? ' is-failed' : ''}`}>
+                  {entry.failed ? 'Turn failed' : 'Turn complete'} · {entry.turns} turns ·{' '}
+                  {money(entry.costUsdMilli)}
+                </p>
+              );
+            })}
+          </div>
+        )}
       </>
     );
   }

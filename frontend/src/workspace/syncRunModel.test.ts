@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   durationLabel, syncLogGroups, syncNowLine, syncPhase, syncQueue, worktreeLabel,
+  parseTranscript,
 } from './syncRunModel';
 import type {
   UpstreamCherryPickCommitDto,
@@ -109,5 +110,52 @@ describe('sync run model', () => {
   it('shortens the worktree path to its last two segments', () => {
     expect(worktreeLabel(job.worktreePath)).toBe('…/upstream-cherry-pick/job-1');
     expect(worktreeLabel(null)).toBe('');
+  });
+});
+
+describe('agent transcript', () => {
+  const line = (value: unknown) => JSON.stringify(value);
+
+  it('reads the turn as what it said, ran, and cost', () => {
+    const raw = [
+      line({ type: 'assistant', message: { content: [
+        { type: 'text', text: 'Now validate the pom parses and resolves.' },
+        { type: 'tool_use', name: 'Bash', input: { command: 'cd /w && ./mvnw -pl core install' } },
+      ] } }),
+      line({ type: 'result', is_error: false, total_cost_usd: 0.5669, num_turns: 15 }),
+    ].join('\n');
+
+    expect(parseTranscript(raw)).toEqual([
+      { kind: 'say', text: 'Now validate the pom parses and resolves.' },
+      { kind: 'tool', name: 'Bash', summary: 'cd /w && ./mvnw -pl core install' },
+      { kind: 'result', failed: false, costUsdMilli: 567, turns: 15 },
+    ]);
+  });
+
+  it('keeps a huge tool payload from burying the reasoning', () => {
+    // One tool call can carry an entire pom.xml; only its first line reads.
+    const raw = line({ type: 'assistant', message: { content: [
+      { type: 'tool_use', name: 'Write', input: { file_path: 'pom.xml', content: 'x'.repeat(50_000) } },
+    ] } });
+
+    const [entry] = parseTranscript(raw);
+
+    expect(entry).toEqual({ kind: 'tool', name: 'Write', summary: 'pom.xml' });
+  });
+
+  it('survives the truncated tail of a capped transcript', () => {
+    // The stored transcript is a 64KB tail, so the first line is usually a
+    // fragment and the last one may be cut mid-object.
+    const raw = ['ckages>\\n  <package>org.apache', line({ type: 'result', is_error: true }),
+      '{"type":"assistant","message":{"content":['].join('\n');
+
+    expect(parseTranscript(raw)).toEqual([
+      { kind: 'result', failed: true, costUsdMilli: 0, turns: 0 },
+    ]);
+  });
+
+  it('is empty rather than throwing when there is nothing to read', () => {
+    expect(parseTranscript(null)).toEqual([]);
+    expect(parseTranscript('   ')).toEqual([]);
   });
 });

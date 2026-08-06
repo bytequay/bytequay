@@ -193,6 +193,7 @@ class TestProjectLearningStore
         return new PrEvidenceBundle("ws-1", "acme/widget", 7, "alice",
                 "Title", "Body", "base", "head", "merge", "repoSha",
                 List.of(), List.of(), List.of(new PullRequestCommit("c1", "alice", "alice",
+                        Instant.parse("2020-01-01T00:00:00Z"),
                         Instant.parse("2020-01-01T00:00:00Z"), "msg")),
                 List.of(), List.of(),
                 Map.of("reviews", completeness), completeness, refs, List.of());

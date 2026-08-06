@@ -30,7 +30,11 @@ public record GitHubPullRequestCommit(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CommitInfo(
             String message,
-            GitSignature author) {}
+            GitSignature author,
+            /** When the commit landed on this branch. A cherry-pick keeps
+             *  upstream's author date but takes a fresh committer date, so this
+             *  is the one that matches the order the branch actually has. */
+            GitSignature committer) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record GitSignature(

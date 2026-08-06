@@ -137,7 +137,7 @@ class TestPrPriorityScorer
 
     private static PullRequestCommit commit(String sha, String author, Instant at)
     {
-        return new PullRequestCommit(sha, author, author, at, "message " + sha);
+        return new PullRequestCommit(sha, author, author, at, at, "message " + sha);
     }
 
     private static PrReviewThreadMessage root(

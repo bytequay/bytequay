@@ -493,8 +493,10 @@ class TestPRSyncService
         when(prService.commits("pr-ext")).thenReturn(
                 List.of(new PRCommit("c1", "pr-ext", "aaa", "first", 0, 0, NOW, null)));
         when(pullRequests.getPullRequestCommits("acme/widget", 99)).thenReturn(List.of(
-                new PullRequestCommit("aaa", "octocat", "Octo Cat", NOW.minusSeconds(60), "first"),
-                new PullRequestCommit("bbb", "octocat", "Octo Cat", NOW.minusSeconds(30), "second")));
+                new PullRequestCommit("aaa", "octocat", "Octo Cat",
+                        NOW.minusSeconds(60), NOW.minusSeconds(60), "first"),
+                new PullRequestCommit("bbb", "octocat", "Octo Cat",
+                        NOW.minusSeconds(30), NOW.minusSeconds(30), "second")));
 
         service.syncPR("pr-ext");
 
@@ -569,5 +571,23 @@ class TestPRSyncService
 
         verify(prService).updateSyncSnapshot(eq("pr-ext"), argThat(snap ->
                 snap.mergeQueueEnabled() && "QUEUED".equals(snap.mergeQueueState())));
+    }
+
+    @Test
+    void aFixupLandsBesideItsPickRatherThanAfterEveryPick()
+            throws Exception
+    {
+        // A cherry-pick keeps upstream's author date, so a branch of picks and
+        // their fixups reads as three old commits then three new ones when it is
+        // ordered by author. The committer date is when each landed on the
+        // branch, which is the order GitHub itself shows.
+        Instant old = NOW.minusSeconds(86_400);
+        assertThat(PRSyncService.timelineOrderOf(new PullRequestCommit(
+                "pick", "dependabot", "dependabot", old, NOW.minusSeconds(300), "Bump x")))
+                .isEqualTo(NOW.minusSeconds(300));
+        // Nothing to fall back on for rows synced before we read the committer.
+        assertThat(PRSyncService.timelineOrderOf(new PullRequestCommit(
+                "legacy", "dependabot", "dependabot", old, null, "Bump y")))
+                .isEqualTo(old);
     }
 }

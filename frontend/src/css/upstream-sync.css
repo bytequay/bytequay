@@ -1133,3 +1133,21 @@
 .sr-transcript__result { color: #1a7f37; font-size: 11.5px; margin: 2px 0 0; }
 .sr-transcript__result.is-failed { color: #cf222e; }
 .sr-transcript__count { color: #8b949e; font-size: 10.5px; margin-left: auto; }
+
+/* The turn in flight, above the durable log. */
+.sr-live {
+  background: #fbfaff; border: 1px solid #e4dcff; border-radius: 10px;
+  display: grid; gap: 7px; margin: 10px 0 4px 26px; max-width: 900px; padding: 10px 12px;
+}
+.sr-live > header {
+  align-items: center; color: #8250df; display: flex; font-size: 10.5px;
+  font-weight: 700; gap: 7px; letter-spacing: .06em; text-transform: uppercase;
+}
+.sr-live__dot {
+  animation: sr-live-pulse 1.4s ease-in-out infinite; background: #8250df;
+  border-radius: 50%; height: 7px; width: 7px;
+}
+@keyframes sr-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) {
+  .sr-live__dot { animation: none; }
+}

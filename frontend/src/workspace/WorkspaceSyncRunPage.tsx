@@ -21,11 +21,13 @@ import WorkspaceSyncRunLog from './WorkspaceSyncRunLog';
 import WorkspaceSyncRunQueue from './WorkspaceSyncRunQueue';
 import {
   elapsedLabel, isClosedSync, isLiveSync, money, syncNowLine, syncPhase, syncQueue,
-  worktreeLabel,
+  transcriptEntries, worktreeLabel, type TranscriptEntry,
 } from './syncRunModel';
 import { workspaceApi, type UpstreamCherryPickRunDto } from './workspaceApi';
 
 const REFRESH_MS = 2_000;
+/** A long turn can run hundreds of tool calls; the panel shows the tail. */
+const MAX_LIVE_ENTRIES = 40;
 
 /**
  * The cockpit for one upstream sync run: the commit queue on the left, what the
@@ -48,6 +50,8 @@ export default function WorkspaceSyncRunPage({
   const [closing, setClosing] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
+  /** What the current agent turn has said and run, as it arrives. */
+  const [agentLive, setAgentLive] = useState<TranscriptEntry[]>([]);
 
   const load = useCallback(
     () => workspaceApi.upstreamCherryPickRun(workspaceId, jobId).then(setRun),
@@ -74,13 +78,33 @@ export default function WorkspaceSyncRunPage({
     return () => window.clearInterval(timer);
   }, [live, load]);
 
+  // The turn in flight. The run log only gains a line when a turn ends, so
+  // without this a pick that compiles for minutes looks like a stalled run.
+  useEffect(() => {
+    if (!live) {
+      setAgentLive([]);
+      return undefined;
+    }
+    return window.bridge.subscribeSyncRunStream(jobId, event => {
+      const entries = transcriptEntries(event.data);
+      if (entries.length === 0) return;
+      // A result line ends the turn; the durable transcript takes over from
+      // there, so the live panel clears rather than showing it twice.
+      if (entries.some(entry => entry.kind === 'result')) {
+        setAgentLive([]);
+        return;
+      }
+      setAgentLive(current => [...current, ...entries].slice(-MAX_LIVE_ENTRIES));
+    });
+  }, [live, jobId]);
+
   // Follow the log only while the reader is already at the end, so scrolling
   // back through a three-hour run is not yanked forward by the next command.
   useEffect(() => {
     const stream = streamRef.current;
     if (stream === null || !atBottomRef.current) return;
     stream.scrollTop = stream.scrollHeight;
-  }, [run]);
+  }, [run, agentLive]);
 
   const act = (call: () => Promise<unknown>) => {
     setBusy(true);
@@ -187,6 +211,35 @@ export default function WorkspaceSyncRunPage({
                   - element.clientHeight < 40;
               }}>
               <WorkspaceSyncRunLog events={run.events} commits={run.commits} />
+              {agentLive.length > 0 && (
+                // The turn in flight. Without this a pick that compiles for
+                // minutes reads as a stalled run — the log's next line only
+                // arrives when the turn is already over.
+                <section className="sr-live" aria-live="polite">
+                  <header>
+                    <span className="sr-live__dot" aria-hidden />
+                    Agent working
+                  </header>
+                  {agentLive.map((entry, index) => {
+                    if (entry.kind === 'say') {
+                      return <p key={index} className="sr-transcript__say">{entry.text}</p>;
+                    }
+                    if (entry.kind === 'tool') {
+                      return (
+                        <div key={index} className="sr-transcript__tool">
+                          <b>{entry.name}</b><code>{entry.summary}</code>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p key={index}
+                        className={`sr-transcript__result${entry.failed ? ' is-failed' : ''}`}>
+                        {entry.failed ? 'Turn failed' : 'Turn complete'} · {entry.turns} turns
+                      </p>
+                    );
+                  })}
+                </section>
+              )}
             </div>
 
             <div className="sr-composer">

@@ -29,7 +29,12 @@ function mount(run = syncRun()) {
     if (input.path.includes('/run?events=')) return run;
     return run.job;
   });
-  (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+  (window as unknown as { bridge: unknown }).bridge = {
+    workspaceApi: request,
+    // The live agent panel subscribes while the run is going; the stub returns
+    // its unsubscribe so the effect cleans up like the real bridge.
+    subscribeSyncRunStream: () => () => {},
+  };
   render(<WorkspaceSyncRunPage workspaceId="fork" jobId="job-1" />);
   return request;
 }

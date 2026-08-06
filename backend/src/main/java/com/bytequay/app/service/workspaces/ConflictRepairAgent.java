@@ -27,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -103,7 +104,8 @@ public class ConflictRepairAgent
             List<String> conflictPaths,
             String validateHint,
             long budgetMilliUsd,
-            String resumeSessionId)
+            String resumeSessionId,
+            Consumer<String> onLine)
     {
         requireNonNull(worktree, "worktree is null");
         WorkModel engine = engineFor(workspaceId);
@@ -125,7 +127,7 @@ public class ConflictRepairAgent
             CliReviewRunner.Result result = cli.run(
                     cliProvider(engine.agentOrProvider()), prompt, session, worktree, null,
                     toIntExact(Math.max(1, (budgetMilliUsd - spent) / 10)),
-                    CliReviewRunner.Sandbox.WRITE);
+                    CliReviewRunner.Sandbox.WRITE, onLine);
             spent += result.costUsdMilli();
             session = result.sessionId() == null ? session : result.sessionId();
             transcript = result.transcript() == null ? transcript : result.transcript();

@@ -88,6 +88,7 @@ public class UpstreamCherryPickService
     private final ObjectProvider<HarnessWatchHandoff> harnessHandoff;
     /** Optional by design: with no writer registered a merge simply tears down. */
     private final ObjectProvider<SyncRetrospectiveWriter> retrospective;
+    private final SyncRunStream stream;
     /** Optional by design: with no agent registered a conflict simply parks. */
     private final ObjectProvider<ConflictRepairAdvisor> repairAdvisor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
@@ -102,7 +103,8 @@ public class UpstreamCherryPickService
             PRSyncService prSync,
             ObjectProvider<HarnessWatchHandoff> harnessHandoff,
             ObjectProvider<SyncRetrospectiveWriter> retrospective,
-            ObjectProvider<ConflictRepairAdvisor> repairAdvisor)
+            ObjectProvider<ConflictRepairAdvisor> repairAdvisor,
+            SyncRunStream stream)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -113,6 +115,7 @@ public class UpstreamCherryPickService
         this.prSync = requireNonNull(prSync, "prSync is null");
         this.harnessHandoff = requireNonNull(harnessHandoff, "harnessHandoff is null");
         this.retrospective = requireNonNull(retrospective, "retrospective is null");
+        this.stream = requireNonNull(stream, "stream is null");
         this.repairAdvisor = requireNonNull(repairAdvisor, "repairAdvisor is null");
     }
 
@@ -1059,6 +1062,11 @@ public class UpstreamCherryPickService
                 }
                 applied.add(commit.sha());
                 picked.add(WorkspaceRelationService.normalizeSubject(commit.subject()));
+                // The pick is committed, so the index advances even if the repair
+                // below parks — otherwise a resume re-picks a commit that is
+                // already applied. It does mean the queue shows this pick done
+                // while its repair is still running, which is what the live agent
+                // panel and the "repairing" line are for.
                 index++;
                 progress(id, applied, skipped, conflicted, index);
 
@@ -1159,12 +1167,17 @@ public class UpstreamCherryPickService
         if (remaining <= 0) {
             return parked(id, index, commit, "the repair budget is spent");
         }
+        // Says who the agent is working on before it starts. The queue has
+        // already moved past this pick by now, and a turn can run for minutes.
+        record(id, index, "note", "Repairing " + commit.subject(),
+                "the agent is resolving this pick's conflict", null, null);
         long startedAt = System.currentTimeMillis();
         ConflictRepairAdvisor.Outcome outcome;
         try {
             outcome = advisor.repair(
                     worktree, row.workspaceId(), commit.subject(), conflictPaths,
-                    row.compileScript(), remaining, agentSessionId(id));
+                    row.compileScript(), remaining, agentSessionId(id),
+                    line -> stream.publish(id, line));
         }
         catch (RuntimeException e) {
             return parked(id, index, commit, e.getMessage() == null

@@ -15,6 +15,7 @@ package com.bytequay.app.service.workspaces;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Narrow seam from cherry-pick conflict repair into the agent that performs it,
@@ -49,7 +50,10 @@ public interface ConflictRepairAdvisor
             List<String> conflictPaths,
             String validateHint,
             long budgetMilliUsd,
-            String resumeSessionId);
+            String resumeSessionId,
+            /** Sees each JSONL line as the turn produces it, so a run being
+             *  watched shows the agent working rather than a four-minute gap. */
+            Consumer<String> onLine);
 
     /**
      * @param resolved  the agent reports the conflict resolved; false means it asked to

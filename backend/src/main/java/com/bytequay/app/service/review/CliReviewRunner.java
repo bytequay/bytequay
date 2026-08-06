@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Runs one review turn through a CLI agent ({@code claude -p} or
@@ -196,7 +197,9 @@ public class CliReviewRunner
     public Result run(
             Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
     {
-        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null, Sandbox.READ_ONLY);
+        return runOnce(
+                provider, prompt, resumeSessionId, workingDir, mcp, null,
+                Sandbox.READ_ONLY, null);
     }
 
     public Result run(
@@ -204,7 +207,8 @@ public class CliReviewRunner
             McpEndpoint mcp, int costCapCents)
     {
         return runOnce(
-                provider, prompt, resumeSessionId, workingDir, mcp, costCapCents, Sandbox.READ_ONLY);
+                provider, prompt, resumeSessionId, workingDir, mcp, costCapCents,
+                Sandbox.READ_ONLY, null);
     }
 
     /** As {@link #run(Provider, String, String, Path, McpEndpoint, int)}, but lets the
@@ -214,12 +218,26 @@ public class CliReviewRunner
             Provider provider, String prompt, String resumeSessionId, Path workingDir,
             McpEndpoint mcp, int costCapCents, Sandbox sandbox)
     {
-        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, costCapCents, sandbox);
+        return runOnce(
+                provider, prompt, resumeSessionId, workingDir, mcp, costCapCents, sandbox, null);
+    }
+
+    /**
+     * As above, but {@code onLine} sees each JSONL line as it arrives. A turn
+     * that compiles for minutes is otherwise invisible until it returns, which
+     * reads as a stalled run.
+     */
+    public Result run(
+            Provider provider, String prompt, String resumeSessionId, Path workingDir,
+            McpEndpoint mcp, int costCapCents, Sandbox sandbox, Consumer<String> onLine)
+    {
+        return runOnce(
+                provider, prompt, resumeSessionId, workingDir, mcp, costCapCents, sandbox, onLine);
     }
 
     private Result runOnce(
             Provider provider, String prompt, String resumeSessionId, Path workingDir,
-            McpEndpoint mcp, Integer costCapCents, Sandbox sandbox)
+            McpEndpoint mcp, Integer costCapCents, Sandbox sandbox, Consumer<String> onLine)
     {
         String binary = provider.binary();
         // Codex takes the prompt as a trailing argv arg; Claude reads it
@@ -257,6 +275,15 @@ public class CliReviewRunner
             String line;
             while ((line = reader.readLine()) != null) {
                 lines.add(line);
+                if (onLine != null) {
+                    try {
+                        onLine.accept(line);
+                    }
+                    catch (RuntimeException watcherGone) {
+                        // Nobody watching is not a reason to fail the turn.
+                        log.debug("live line listener failed: {}", watcherGone.getMessage());
+                    }
+                }
             }
         }
         catch (IOException e) {

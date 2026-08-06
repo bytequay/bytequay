@@ -1041,6 +1041,19 @@ public class UpstreamCherryPickService
                     git.stageAll(worktree);
                     GitRunner.CherryPickOutcome continued = git.continueCherryPick(worktree);
                     if (!continued.complete()) {
+                        // If git cleaned up CHERRY_PICK_HEAD with no conflicts, the
+                        // commit's changes are already present — auto-skip rather than park.
+                        if (!git.cherryPickInProgress(worktree)
+                                && continued.conflictPaths().isEmpty()) {
+                            skipped.add(commit.sha());
+                            record(id, index, "skip",
+                                    "Skipped " + commit.subject(),
+                                    "already applied — git cherry-pick was a no-op",
+                                    null, null);
+                            index++;
+                            progress(id, applied, skipped, conflicted, index);
+                            continue;
+                        }
                         pause(id, continued.conflictPaths(), continued.message());
                         record(id, index, "park",
                                 "Parked — git cannot finish this pick",
@@ -1338,10 +1351,19 @@ public class UpstreamCherryPickService
                 worktree,
                 row.baseRef() + "..HEAD",
                 row.specs().size() + 1);
-        if (branchCommits.size() == row.appliedShas().size()) {
+        // Each conflicted pick adds a fixup commit via repairConflictedPick on
+        // top of the cherry-picked markers commit, so the expected count is
+        // applied + conflicted. When repair is in progress the fixup is not yet
+        // on the branch, so expected - 1 (i.e. applied + conflicted - 1) is also
+        // valid and is treated as a no-crash steady state.
+        int expected = row.appliedShas().size() + row.conflictedShas().size();
+        if (branchCommits.size() == expected) {
             return row;
         }
-        if (branchCommits.size() != row.appliedShas().size() + 1
+        if (branchCommits.size() == expected - 1 && !row.conflictedShas().isEmpty()) {
+            return row;
+        }
+        if (branchCommits.size() != expected + 1
                 || row.nextCommitIndex() >= row.specs().size()) {
             throw new IllegalStateException(
                     "cherry-pick worktree history no longer matches durable progress");

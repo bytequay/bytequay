@@ -1151,3 +1151,30 @@
 @media (prefers-reduced-motion: reduce) {
   .sr-live__dot { animation: none; }
 }
+
+/* The run's agent session, and how to watch it from a terminal. */
+.sr-session {
+  align-items: center; border-bottom: 1px solid #eef0f2; color: #8b949e;
+  display: flex; gap: 9px; font-size: 10.5px; padding: 6px 18px;
+}
+.sr-session > span { font-weight: 700; letter-spacing: .06em; }
+.sr-session code {
+  color: #57606a; font-size: 11px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.sr-session__copy {
+  background: transparent; border: 0; color: #0969da; cursor: pointer;
+  font-size: 10.5px; margin-left: auto; padding: 2px 4px;
+}
+/* A tool row that can be opened, and what it opens to. */
+.sr-transcript__tool-wrap { display: grid; gap: 4px; min-width: 0; }
+.sr-transcript__tool {
+  align-items: baseline; background: transparent; border: 0; cursor: pointer;
+  display: flex; gap: 8px; min-width: 0; padding: 0; text-align: left; width: 100%;
+}
+.sr-transcript__tool:disabled { cursor: default; }
+.sr-transcript__full {
+  background: #24292f; border-radius: 7px; color: #e6edf3; font-size: 11px;
+  margin: 0 0 2px 44px; overflow-x: auto; padding: 9px 11px; white-space: pre-wrap;
+  word-break: break-all;
+}

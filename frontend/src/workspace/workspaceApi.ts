@@ -428,6 +428,8 @@ export type UpstreamCherryPickJobDto = {
   spentMilliUsd: number;
   /** The local compile could not run, so CI carries the verdict from here on. */
   localGateUnavailable: boolean;
+  /** The CLI session the whole run shares, null until the first turn. */
+  agentSessionId: string | null;
   conflictPaths: string[];
   worktreePath: string | null;
   prNumber: number | null;

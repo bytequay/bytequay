@@ -1712,6 +1712,7 @@ public class UpstreamCherryPickService
                 rs.getInt("repair_pending") != 0,
                 rs.getInt("local_gate_unavailable") != 0,
                 rs.getLong("spent_milli_usd"),
+                rs.getString("agent_session_id"),
                 prNumber,
                 rs.getString("pr_url"),
                 rs.getString("harness_watch_id"),
@@ -1940,6 +1941,9 @@ public class UpstreamCherryPickService
             long spentMilliUsd,
             /** The local compile could not run, so CI carries the verdict. */
             boolean localGateUnavailable,
+            /** The CLI session the whole run shares — the handle for reading its
+             *  own transcript on disk, or resuming it by hand. */
+            String agentSessionId,
             List<String> conflictPaths,
             String worktreePath,
             Integer prNumber,
@@ -2008,6 +2012,7 @@ public class UpstreamCherryPickService
             boolean repairPending,
             boolean localGateUnavailable,
             long spentMilliUsd,
+            String agentSessionId,
             Integer prNumber,
             String prUrl,
             String harnessWatchId,
@@ -2034,6 +2039,7 @@ public class UpstreamCherryPickService
                     budgetMilliUsd,
                     spentMilliUsd,
                     localGateUnavailable,
+                    agentSessionId,
                     conflictPaths,
                     worktreePath,
                     prNumber,

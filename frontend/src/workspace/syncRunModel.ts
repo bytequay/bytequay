@@ -190,7 +190,8 @@ export function money(milliUsd: number): string {
  */
 export type TranscriptEntry =
   | { kind: 'say'; text: string }
-  | { kind: 'tool'; name: string; summary: string }
+  /** `summary` is the readable one-liner; `full` is everything, for the expand. */
+  | { kind: 'tool'; name: string; summary: string; full: string }
   | { kind: 'result'; failed: boolean; costUsdMilli: number; turns: number };
 
 /** Tool arguments are unbounded; a command's first line is the readable part. */
@@ -230,10 +231,12 @@ export function transcriptEntries(value: unknown): TranscriptEntry[] {
           entries.push({ kind: 'say', text: (block.text ?? '').trim() });
         }
         if (block.type === 'tool_use') {
+          const full = toolFull(block.input);
           entries.push({
             kind: 'tool',
             name: block.name ?? 'tool',
-            summary: toolSummary(block.input),
+            summary: toolSummary(full),
+            full,
           });
         }
       }
@@ -250,14 +253,40 @@ export function transcriptEntries(value: unknown): TranscriptEntry[] {
   return entries;
 }
 
-function toolSummary(input: unknown): string {
+function toolFull(input: unknown): string {
   if (input === null || typeof input !== 'object') return '';
   const fields = input as Record<string, unknown>;
   // A command, a path, or whatever single field reads as the subject.
   const subject = fields.command ?? fields.file_path ?? fields.pattern ?? fields.path;
-  const text = typeof subject === 'string' ? subject : JSON.stringify(fields);
-  const firstLine = text.split('\n').find(part => part.trim().length > 0) ?? '';
-  return firstLine.length <= MAX_TOOL_SUMMARY
-    ? firstLine
-    : `${firstLine.slice(0, MAX_TOOL_SUMMARY)}…`;
+  return typeof subject === 'string' ? subject : JSON.stringify(fields, null, 2);
+}
+
+/**
+ * Every command the agent runs in a worktree starts by cd-ing into it, and the
+ * worktree path is ~120 characters of app data directory. Left in, the prefix
+ * is the only thing that fits on the line and every row looks identical.
+ */
+const WORKTREE_CD = /^cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*/;
+
+function toolSummary(full: string): string {
+  const firstLine = full.split('\n').find(part => part.trim().length > 0) ?? '';
+  const withoutCd = firstLine.replace(WORKTREE_CD, '');
+  return withoutCd.length <= MAX_TOOL_SUMMARY
+    ? withoutCd
+    : `${withoutCd.slice(0, MAX_TOOL_SUMMARY)}…`;
+}
+
+/**
+ * Where Claude Code keeps this session's own transcript. It escapes the working
+ * directory into the file name, so the path is derivable — which is the only
+ * way to watch the run from a terminal, since `--resume` continues a
+ * conversation rather than attaching to a running one.
+ */
+export function sessionTranscriptPath(
+  worktreePath: string | null,
+  sessionId: string | null,
+): string | null {
+  if (worktreePath === null || sessionId === null) return null;
+  const escaped = worktreePath.replace(/[/.]/g, '-');
+  return `~/.claude/projects/${escaped}/${sessionId}.jsonl`;
 }

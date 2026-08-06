@@ -14,7 +14,8 @@
 import { useState } from 'react';
 import { CheckIcon, ChevronIcon, TerminalIcon } from './WorkspaceSyncIcons';
 import {
-  clockLabel, durationLabel, money, parseTranscript, syncLogGroups, type SyncLogGroup,
+  clockLabel, durationLabel, money, parseTranscript, syncLogGroups,
+  type SyncLogGroup, type TranscriptEntry,
 } from './syncRunModel';
 import type {
   UpstreamCherryPickCommitDto,
@@ -85,6 +86,30 @@ function LogGroup({ group, commit }: {
   );
 }
 
+/** One tool call: the readable line, click for everything it actually ran. */
+export function TranscriptTool({ entry }: {
+  entry: Extract<TranscriptEntry, { kind: 'tool' }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const expandable = entry.full.trim() !== entry.summary.trim();
+  return (
+    <div className="sr-transcript__tool-wrap">
+      <button type="button" className="sr-transcript__tool" disabled={!expandable}
+        aria-expanded={expandable ? open : undefined}
+        onClick={() => setOpen(current => !current)}>
+        <b>{entry.name}</b>
+        <code>{entry.summary}</code>
+        {expandable && (
+          <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
+            <ChevronIcon size={9} />
+          </span>
+        )}
+      </button>
+      {open && <pre className="sr-transcript__full">{entry.full}</pre>}
+    </div>
+  );
+}
+
 function LogRow({ event }: { event: UpstreamCherryPickEventDto }) {
   const [open, setOpen] = useState(false);
   if (event.kind === 'command') {
@@ -138,11 +163,7 @@ function LogRow({ event }: { event: UpstreamCherryPickEventDto }) {
                 return <p key={index} className="sr-transcript__say">{entry.text}</p>;
               }
               if (entry.kind === 'tool') {
-                return (
-                  <div key={index} className="sr-transcript__tool">
-                    <b>{entry.name}</b><code>{entry.summary}</code>
-                  </div>
-                );
+                return <TranscriptTool key={index} entry={entry} />;
               }
               return (
                 <p key={index}

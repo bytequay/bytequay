@@ -32,7 +32,7 @@ const running: UpstreamCherryPickJobDto = {
   jobId: 'job-1', status: 'RUNNING', sourceBranch: 'master',
   resultBranch: 'upstream-9-9', baseRef: 'b'.repeat(40), requestedCount: 1,
   appliedCount: 0, skippedCount: 0, conflictedCount: 0, pauseRequested: false,
-  budgetMilliUsd: 5_000, spentMilliUsd: 0, localGateUnavailable: false, conflictPaths: [], worktreePath: '/tmp/job-1',
+  budgetMilliUsd: 5_000, spentMilliUsd: 0, localGateUnavailable: false, agentSessionId: null, conflictPaths: [], worktreePath: '/tmp/job-1',
   prNumber: null, prUrl: null, harnessWatchId: null, errorMessage: null,
   closedAt: null,
   createdAt: '2026-08-05T09:00:00Z', updatedAt: '2026-08-05T09:10:00Z',

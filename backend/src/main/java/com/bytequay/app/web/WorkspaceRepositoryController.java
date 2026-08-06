@@ -685,7 +685,7 @@ public class WorkspaceRepositoryController
     {
         WorkspaceRepositoryResolver.RepositoryIdentity repo =
                 resolver.resolve(workspaceId);
-        return interrupted(() -> local.fetch(repo.owner(), repo.repo()));
+        return interrupted(() -> local.refresh(repo.owner(), repo.repo()));
     }
 
     @GetMapping("/repository/meta")

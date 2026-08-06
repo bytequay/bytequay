@@ -59,6 +59,8 @@ const UNDO_DEPTH = 20;
 type Props = {
   workspaceId: string;
   branch: string;
+  /** Any change reloads the history — the page bumps it after a fetch. */
+  reloadKey?: number;
   /** Free-text match on the commit title, from the page's search box. */
   query: string;
   /** Author name, or 'all'. Both filters live in the page header. */
@@ -79,6 +81,7 @@ type Props = {
 export default function WorkspaceCommitEditor({
   workspaceId,
   branch,
+  reloadKey = 0,
   query,
   author,
   onAuthorsChange,
@@ -143,7 +146,9 @@ export default function WorkspaceCommitEditor({
       })
       .catch(reason => setError(message(reason)))
       .finally(() => setLoading(false));
-  }, [workspaceId, branch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reloadKey is the
+    // refresh trigger, not a value this callback reads.
+  }, [workspaceId, branch, reloadKey]);
 
   useEffect(() => { void load(); }, [load]);
 

@@ -123,7 +123,7 @@ export function UpstreamCherryPicker({
   onOpenHarness?: (watchId?: string) => void;
 }) {
   const byRange = fromSha !== undefined && toSha !== undefined;
-  const [targetBranch, setTargetBranch] = useState(() => suggestedTarget(snapshot, commits));
+  const [targetBranch, setTargetBranch] = useState(() => suggestedTarget(snapshot, commits, fromSha, toSha));
   const [openDraftPr, setOpenDraftPr] = useState(true);
   const [createHarnessWatch, setCreateHarnessWatch] = useState(true);
   const [budgetUsd, setBudgetUsd] = useState('5.00');
@@ -442,14 +442,35 @@ function splitTerms(value: string): string[] {
   return value.split(',').map(term => term.trim()).filter(term => term.length > 0);
 }
 
-function suggestedTarget(snapshot: UpstreamCommitsDto, commits: UpstreamCommitDto[]): string {
-  const tag = commits.find(commit => commit.tags.length > 0)?.tags[0];
-  // Without a version tag every range suggests the same name, so the second
-  // run collides with the first one's branch and the start is refused. The day
-  // stamp is enough to tell two runs apart without making the name unreadable.
-  const stamped = new Date().toISOString().slice(5, 10).replace('-', '');
-  const suffix = tag?.match(/\d+(?:\.\d+)*/)?.[0]?.replaceAll('.', '-') ?? `update-${stamped}`;
-  return `${snapshot.upstreamWorkspaceName.toLowerCase().replace(/[^a-z0-9-]/g, '-')}-${suffix}`;
+/**
+ * A branch name that is unique to the range it carries. The old name was built
+ * from the newest version tag in range, or the literal "update" when there was
+ * none — so every untagged range proposed the same branch and the second run
+ * was refused for a name the first one had taken. The end shas cannot collide
+ * unless the range really is the same range.
+ *
+ * Ordered oldest-to-newest, the direction the picks are applied.
+ */
+export function suggestedTarget(
+  snapshot: UpstreamCommitsDto,
+  commits: UpstreamCommitDto[],
+  fromSha?: string,
+  toSha?: string,
+): string {
+  const repo = (snapshot.upstreamRepoFullName.split('/').pop() ?? 'upstream')
+    .toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  // The list runs newest-first; a typed range is used as the user typed it.
+  const first = short(fromSha) ?? short(commits.at(-1)?.sha);
+  const last = short(toSha) ?? short(commits[0]?.sha);
+  if (first === null || last === null) return `bump-${repo}-update`;
+  return first === last
+    ? `bump-${repo}-${first}`
+    : `bump-${repo}-${first}-to-${last}`;
+}
+
+function short(sha: string | undefined): string | null {
+  const value = (sha ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{7,40}$/.test(value) ? value.slice(0, 7) : null;
 }
 
 function defaultBranch(repo: WorkspaceRepositoryDto): string {

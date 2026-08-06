@@ -379,6 +379,9 @@ export type UpstreamCommitsDto = {
   indexedCommitCount: number;
   notInForkCount: number;
   commits: UpstreamCommitDto[];
+  offset: number;
+  /** False stops the list asking for another page. */
+  hasMore: boolean;
 };
 
 /** A selection is either an explicit sha list or an inclusive from/to range. */
@@ -1087,11 +1090,11 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/relation/fetch`,
       method: 'POST',
     }),
-  upstreamCommits: (workspaceId: string, revision?: string, limit = 200) =>
+  upstreamCommits: (workspaceId: string, revision?: string, limit = 200, offset = 0) =>
     window.bridge.workspaceApi<UpstreamCommitsDto>({
       path: `/api/workspaces/${enc(workspaceId)}/upstream/commits?${
         revision === undefined ? '' : `revision=${enc(revision)}&`
-      }limit=${limit}`,
+      }limit=${limit}&offset=${offset}`,
     }),
   previewUpstreamCherryPick: (
     workspaceId: string,

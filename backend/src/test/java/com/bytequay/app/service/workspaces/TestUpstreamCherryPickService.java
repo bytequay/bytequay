@@ -968,6 +968,12 @@ class TestUpstreamCherryPickService
             Thread.sleep(10);
             job = service.require(workspaceId, jobId);
         }
+        // The status lands inside the worker, which then runs on for a few
+        // instructions. Waiting for the thread too keeps @TempDir from being
+        // deleted while something is still writing into it.
+        for (int idle = 0; idle < 200 && service.isWorking(jobId); idle++) {
+            Thread.sleep(20);
+        }
         return job;
     }
 

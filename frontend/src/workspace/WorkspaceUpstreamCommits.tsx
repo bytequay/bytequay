@@ -24,7 +24,10 @@ import {
   type WorkspaceRepositoryDto,
 } from './workspaceApi';
 
-export function UpstreamCommitHistory({ rows, query, loading, range, rangeExpanded, onExpandRange, onToggle }: {
+export function UpstreamCommitHistory({
+  rows, query, loading, range, rangeExpanded, onExpandRange, onToggle,
+  hasMore = false, paging = false, onLoadMore,
+}: {
   rows: UpstreamCommitDto[];
   query: string;
   loading: boolean;
@@ -32,6 +35,9 @@ export function UpstreamCommitHistory({ rows, query, loading, range, rangeExpand
   rangeExpanded: boolean;
   onExpandRange: () => void;
   onToggle: (index: number) => void;
+  hasMore?: boolean;
+  paging?: boolean;
+  onLoadMore?: () => void;
 }) {
   const needle = query.trim().toLowerCase();
   const shown = rows.map((commit, index) => ({ commit, index }))
@@ -40,7 +46,15 @@ export function UpstreamCommitHistory({ rows, query, loading, range, rangeExpand
   const hideMiddle = needle.length === 0 && range !== null && !rangeExpanded && range[1] - range[0] > 5;
   const hiddenCount = range === null ? 0 : Math.max(0, range[1] - range[0] - 3);
   return (
-    <div className="wu-upstream-commit-list">
+    <div
+      className="wu-upstream-commit-list"
+      onScroll={event => {
+        if (!hasMore || paging || onLoadMore === undefined) return;
+        const el = event.currentTarget;
+        // Ask early enough that the next page is usually there before the
+        // user reaches the end.
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) onLoadMore();
+      }}>
       {loading && <BodyMessage>Loading upstream commits…</BodyMessage>}
       {!loading && shown.map(({ commit, index }) => {
         if (hideMiddle && range !== null && index > range[0] + 1 && index < range[1] - 1) {
@@ -81,6 +95,14 @@ export function UpstreamCommitHistory({ rows, query, loading, range, rangeExpand
         );
       })}
       {!loading && shown.length === 0 && <BodyMessage>No upstream commits found.</BodyMessage>}
+      {paging && <BodyMessage>Loading more…</BodyMessage>}
+      {!loading && !paging && hasMore && onLoadMore !== undefined && (
+        // A visible fallback: a filter can leave the list too short to scroll,
+        // and then the scroll handler never fires.
+        <button type="button" className="wu-upstream-load-more" onClick={onLoadMore}>
+          Load more commits
+        </button>
+      )}
     </div>
   );
 }

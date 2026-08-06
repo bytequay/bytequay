@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  durationLabel, syncLogGroups, syncNowLine, syncPhase, syncQueue, worktreeLabel,
+  durationLabel, syncLogGroups, syncNowLine, syncPhase, syncQueue,
   parseTranscript,
   sessionTranscriptPath,
 } from './syncRunModel';
@@ -108,10 +108,6 @@ describe('sync run model', () => {
     expect(durationLabel(null)).toBe('');
   });
 
-  it('shortens the worktree path to its last two segments', () => {
-    expect(worktreeLabel(job.worktreePath)).toBe('…/upstream-cherry-pick/job-1');
-    expect(worktreeLabel(null)).toBe('');
-  });
 });
 
 describe('agent transcript', () => {

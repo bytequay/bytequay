@@ -20,7 +20,6 @@ import { useWorkspaceNav } from './useWorkspaceNav';
 import { useEffect, useState, type ReactNode } from 'react';
 import { TrunkWorkspaceSidebar } from './TrunkWorkspaceSidebar';
 import { workspaceApi, type WorkspaceRelationDto } from '../workspace/workspaceApi';
-import { useUpstreamSyncs } from '../workspace/useUpstreamSyncs';
 import { WORKSPACE_RELATION_CHANGED } from '../workspace/WorkspaceRelationsSettings';
 
 /**
@@ -37,7 +36,7 @@ export function WorkspaceNavShell({
   collapsed = false, onToggleCollapse,
   onResumeVisit, onOpenPr,
   onBack, onForward, backEnabled, forwardEnabled,
-  onNavigate, onOpenThread, onOpenTask, onOpenSync, onNewSync,
+  onNavigate, onOpenThread, onOpenTask,
   onSwitchWorkspace, onNewThread, onOpenRelation,
 }: {
   activeWorkspaceId: string | null;
@@ -63,9 +62,7 @@ export function WorkspaceNavShell({
   onOpenThread?: (id: string) => void;
   onOpenTask?: (threadId: string, taskId: string) => void;
   /** Open one upstream sync run's cockpit. */
-  onOpenSync?: (jobId: string) => void;
   /** Start a sync run — routes to the Commits page's range picker. */
-  onNewSync?: () => void;
   /** The switcher ▾ — lateral switch / back to the overview. */
   onSwitchWorkspace?: () => void;
   onNewThread?: () => void;
@@ -74,7 +71,6 @@ export function WorkspaceNavShell({
   const data = useWorkspaceNav(activeWorkspaceId);
   const [expandedWorkspaceId, setExpandedWorkspaceId] = useState<string | null>(null);
   const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
-  const syncs = useUpstreamSyncs(activeWorkspaceId);
   const ws = data.activeWorkspace;
   const counts = data.overview?.sidebarCounts;
   const visualFrame = typeof document === 'undefined'
@@ -132,7 +128,6 @@ export function WorkspaceNavShell({
           ?? workspaceSlug(ws?.name ?? 'Workspace', ws?.repos[0])}
         relation={relation}
         threads={data.rawThreads.filter(thread => thread.flow !== 'review')}
-        syncs={syncs}
         selectedThreadId={selectedThreadId}
         selectedTasks={tasks ?? []}
         counts={data.overview?.sidebarCounts}
@@ -147,8 +142,6 @@ export function WorkspaceNavShell({
         onNavigate={onNavigate}
         onOpenThread={onOpenThread}
         onOpenTask={onOpenTask}
-        onOpenSync={onOpenSync}
-        onNewSync={relation === null ? undefined : onNewSync}
         onSwitchWorkspace={onSwitchWorkspace}
         onNewThread={onNewThread}
         onOpenRelation={onOpenRelation}

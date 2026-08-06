@@ -17,12 +17,17 @@ import { workspaceApi, type UpstreamCherryPickJobDto } from './workspaceApi';
 const REFRESH_MS = 5_000;
 
 /**
- * The workspace's sync runs, newest first. Both entry points — the nav section
- * and the Today page — read them from here so a live run's progress ticks in
- * one place rather than two competing polls.
+ * The workspace's sync runs, newest first. Both entry points — Today and the CI
+ * Harness surface — read them from here so a live run's progress ticks in one
+ * place rather than two competing polls.
+ *
+ * @return null until the first answer arrives, so a caller can tell "none" from
+ *         "not yet" instead of flashing an empty state over a full list.
  */
-export function useUpstreamSyncs(workspaceId: string | null): UpstreamCherryPickJobDto[] {
-  const [syncs, setSyncs] = useState<UpstreamCherryPickJobDto[]>([]);
+export function useUpstreamSyncs(
+  workspaceId: string | null,
+): UpstreamCherryPickJobDto[] | null {
+  const [syncs, setSyncs] = useState<UpstreamCherryPickJobDto[] | null>(null);
 
   useEffect(() => {
     if (workspaceId === null) {

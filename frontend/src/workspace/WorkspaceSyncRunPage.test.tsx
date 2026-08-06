@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import type { ComponentProps, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceApiRequest } from '../types';
 import WorkspaceSyncRunPage from './WorkspaceSyncRunPage';
@@ -24,9 +25,12 @@ afterEach(() => {
 
 const flush = () => act(async () => { await Promise.resolve(); });
 
-function mount(run = syncRun()) {
+type Props = ComponentProps<typeof WorkspaceSyncRunPage>;
+
+function mount(run = syncRun(), harness?: unknown, rightPane?: ReactNode, extra?: Partial<Props>) {
   const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
     if (input.path.includes('/run?events=')) return run;
+    if (input.path.includes('/ci-harness/watches/')) return harness;
     return run.job;
   });
   (window as unknown as { bridge: unknown }).bridge = {
@@ -35,7 +39,8 @@ function mount(run = syncRun()) {
     // its unsubscribe so the effect cleans up like the real bridge.
     subscribeSyncRunStream: () => () => {},
   };
-  render(<WorkspaceSyncRunPage workspaceId="fork" jobId="job-1" />);
+  render(<WorkspaceSyncRunPage workspaceId="fork" jobId="job-1" rightPane={rightPane}
+    {...extra} />);
   return request;
 }
 
@@ -67,15 +72,17 @@ describe('sync run view', () => {
     expect(screen.getByText("Committed git's three-way resolution")).toBeTruthy();
     expect(document.querySelector('.sr-pick.is-carried')).toBeTruthy();
 
-    // The repair reads as a proposal the program applied, and the fixup it
-    // produced sits beside its pick.
+    // The repair reads as the agent's own work, and names the commit it made.
     expect(document.querySelector('.sr-guidance.is-agent .sr-guidance__label')?.textContent)
       .toBe('AGENT');
-    expect(document.querySelector('.sr-fixup code')?.textContent)
-      .toBe('fixup! Extract CoordinatorModule config into CoordinatorConfig');
+    expect(document.querySelector('.sr-fixup code')?.textContent).toBe('5d1ae74');
     expect(document.querySelector('.sr-fixup span:last-child')?.textContent)
-      .toContain('program applied and committed');
+      .toContain('fixup! Extract CoordinatorModule config');
     expect(screen.getByText('Repaired — the fixup compiles beside its pick')).toBeTruthy();
+
+    // The queue names that fixup too — knowing a pick once conflicted is not
+    // something the reader can act on; knowing which commit repaired it is.
+    expect(document.querySelector('.sr-queue__note-sha')?.textContent).toBe('5d1ae74');
   });
 
   it('offers a pause while running and never claims anything was pushed', async () => {
@@ -139,6 +146,134 @@ describe('sync run view', () => {
     expect(screen.queryByRole('button', { name: /Park now/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Close run/ })).toBeNull();
     expect(document.querySelector('.sr-now__label')?.textContent).toBe('CLOSED');
+  });
+
+  it('says what phase 2 is doing once the picks have landed', async () => {
+    const watching = syncRun();
+    watching.job = {
+      ...watching.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
+    };
+    mount(watching, {
+      watchId: 'watch-1', status: 'watching', activeCycle: null,
+      cycles: [{ ordinal: 1, startedAtMs: Date.now() - 60_000, finishedAtMs: null }],
+      runStatusTail: 'core / test — in progress',
+      handoff: null, runStatusTailAt: null,
+    });
+    await flush();
+
+    // A completed range is not a finished run — the harness is still driving it.
+    const phase2 = document.querySelector('.sr-queue__phase2');
+    expect(phase2?.querySelector('strong')?.textContent).toBe('Waiting for CI to finish');
+    expect(phase2?.className).toContain('is-wait');
+    expect(phase2?.textContent).toContain('core / test — in progress');
+    expect(document.querySelector('.sr-now__copy')?.textContent)
+      .toBe('Phase 2 — waiting for ci to finish');
+  });
+
+  it('can stop waiting for the board and fix what has already failed', async () => {
+    const watching = syncRun();
+    watching.job = {
+      ...watching.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
+    };
+    const request = mount(watching, {
+      watchId: 'watch-1', status: 'watching', activeCycle: null, cycles: [],
+      runStatusTail: 'pt (default, suite-iceberg): in progress', handoff: null,
+    });
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /Fix what has failed so far/ }));
+    await flush();
+
+    const call = request.mock.calls.find(([input]) => input.path.endsWith('/run'));
+    expect(call?.[0].method).toBe('POST');
+    expect(call?.[0].body).toEqual({ fixNow: true });
+  });
+
+  it('folds one pick’s conversation away without touching the others', async () => {
+    mount();
+    await flush();
+
+    const heads = document.querySelectorAll('.sr-pick__head');
+    const bodies = () => document.querySelectorAll('.sr-pick__body').length;
+    const before = bodies();
+    expect(heads.length).toBeGreaterThan(1);
+
+    fireEvent.click(heads[0]);
+    expect(bodies()).toBe(before - 1);
+    expect(heads[0].getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(heads[0]);
+    expect(bodies()).toBe(before);
+  });
+
+  it('shows the pull request beside the run rather than on github.com', async () => {
+    const pushed = syncRun();
+    pushed.job = {
+      ...pushed.job, prNumber: 3, harnessWatchId: 'watch-1',
+      prUrl: 'https://github.com/fork/repo/pull/3',
+    };
+    mount(pushed, { watchId: 'watch-1', status: 'watching', activeCycle: null, cycles: [],
+      runStatusTail: null, handoff: null }, <p>pull request #3</p>);
+    await flush();
+
+    // The pane is the pull request; the rail button hides and shows it, and
+    // nothing here hands the PR to a browser.
+    expect(screen.getByText('pull request #3')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /PR/ }));
+    expect(screen.queryByText('pull request #3')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /PR/ }));
+    expect(screen.getByText('pull request #3')).toBeTruthy();
+  });
+
+  it('lists the workspace\u2019s runs at the top of the run\u2019s own column', async () => {
+    const other = { ...syncRun().job, jobId: 'job-2', resultBranch: 'upstream-2-32' };
+    const onOpenSync = vi.fn();
+    mount(syncRun(), undefined, undefined, {
+      syncs: [syncRun().job, other], onOpenSync,
+    });
+    await flush();
+
+    const rows = document.querySelectorAll('.sr-queue__syncs .sync-nav__row');
+    expect(rows).toHaveLength(2);
+    // The list doubles as this column's title, so the open run is marked.
+    expect(rows[0].getAttribute('aria-current')).toBe('true');
+    expect(rows[1].getAttribute('aria-current')).toBeNull();
+
+    fireEvent.click(rows[1]);
+    expect(onOpenSync).toHaveBeenCalledWith('job-2');
+
+    // It folds away — four other runs are not what someone came here to read.
+    fireEvent.click(screen.getByRole('button', { name: /Syncs/ }));
+    expect(document.querySelectorAll('.sr-queue__syncs .sync-nav__row')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /Syncs/ }));
+    expect(document.querySelectorAll('.sr-queue__syncs .sync-nav__row')).toHaveLength(2);
+  });
+
+  it('says why a stopped harness stopped, and offers to restart it', async () => {
+    const stalled = syncRun();
+    stalled.job = {
+      ...stalled.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
+    };
+    const request = mount(stalled, {
+      watchId: 'watch-1', status: 'needs_attention', activeCycle: null, cycles: [],
+      runStatusTail: 'build-success: failure',
+      // `reason` is the machine code; the sentence is in `detail`.
+      handoff: { reason: 'needs_attention', failureId: null, command: null,
+        detail: 'No actionable log was available for the failed checks' },
+    });
+    await flush();
+
+    const phase2 = document.querySelector('.sr-queue__phase2');
+    expect(phase2?.querySelector('strong')?.textContent)
+      .toBe('Stopped — nothing runs until you restart it');
+    expect(phase2?.textContent).toContain('No actionable log was available');
+    expect(phase2?.textContent).not.toContain('needs_attention');
+
+    // Nothing polls a stopped watch, so the restart has to be reachable here.
+    fireEvent.click(screen.getByRole('button', { name: /Try again on what is failing/ }));
+    await flush();
+    const call = request.mock.calls.find(([input]) => input.path.endsWith('/run'));
+    expect(call?.[0].body).toEqual({ fixNow: true });
   });
 
   it('records steering guidance on the run', async () => {

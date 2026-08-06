@@ -115,8 +115,8 @@ export function syncRun(): UpstreamCherryPickRunDto {
       },
       {
         id: '7', ordinal: 7, pickIndex: 1, kind: 'fixup',
-        title: 'fixup! Extract CoordinatorModule config into CoordinatorConfig',
-        detail: '2 files · agent proposed · program applied and committed',
+        title: '5d1ae74',
+        detail: 'fixup! Extract CoordinatorModule config into CoordinatorConfig',
         exitCode: null, durationMs: null, at: '2026-08-05T14:07:00Z',
       },
       {

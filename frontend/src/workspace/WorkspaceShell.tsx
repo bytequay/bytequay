@@ -88,7 +88,6 @@ type Props = {
   issueNumber?: number;
   branchName?: string;
   onOpenBranch?: (branchName: string) => void;
-  onOpenHarness?: (watchId?: string) => void;
   /** Open one upstream sync run's cockpit from the Today page. */
   onOpenSync?: (jobId: string) => void;
   sessionId?: string;
@@ -121,7 +120,7 @@ function WorkspaceShell({
   onOpenIssue, prNumber, prId, agentColumn, issueNumber, branchName, onOpenBranch,
   sessionId, onOpenSession, onOpenReview,
   backlogKey, onOpenBacklog,
-  settingsSection, onSelectSettingsSection, onOpenHarness, onOpenSync,
+  settingsSection, onSelectSettingsSection, onOpenSync,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingBacklogStartKey, setPendingBacklogStartKey] = useState<string | null>(null);
@@ -164,7 +163,7 @@ function WorkspaceShell({
             onOpenIssue={number => onOpenIssue?.(number)}
             onOpenBranch={onOpenBranch}
             onOpenTrunk={onOpenThread}
-            onOpenHarness={onOpenHarness}
+            onOpenSync={onOpenSync}
             selectedNumber={activeSection === 'pull-requests' ? prNumber : issueNumber}
             selectedPrId={activeSection === 'pull-requests' ? prId : undefined}
             initialAgentView={activeSection === 'pull-requests' ? agentColumn : undefined}

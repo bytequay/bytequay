@@ -170,14 +170,7 @@ function renderFrame(frame: string): ReactNode {
     case 'rr-1a':
       return <AgentReviewConversationVisualFixture state="finished" />;
     case 'ci-handoff':
-      return (
-        <WorkspaceHarnessPage
-          workspaceId={VISUAL_WORKSPACE_ID}
-          watchId="visual-ci-watch"
-          workspaceName="bytequay-v3-test"
-          workspaceRepository="chenjian2664/ByteQuay"
-        />
-      );
+      return <WorkspaceHarnessPage workspaceId={VISUAL_WORKSPACE_ID} />;
     case '1c':
       return <FullWorkspaceFrame section="trunks" activeNav="trunks" />;
     case '2a':

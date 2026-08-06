@@ -12,20 +12,34 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import ResizeHandle from '../ResizeHandle';
+import { usePaneWidth } from '../ui/shell';
+import { useSidebarWidth } from '../ui/shell/useSidebarWidth';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
-  LocalBuildIcon, ParkIcon, PauseIcon, PlayIcon, PullRequestIcon,
-  SendIcon, ShieldIcon, SkipIcon,
+  ParkIcon, PauseIcon, PlayIcon, PullRequestIcon, SendIcon, SkipIcon,
 } from './WorkspaceSyncIcons';
 import WorkspaceSyncRunLog, { TranscriptTool } from './WorkspaceSyncRunLog';
 import WorkspaceSyncRunQueue from './WorkspaceSyncRunQueue';
 import {
-  elapsedLabel, isClosedSync, isLiveSync, money, syncNowLine, syncPhase, syncQueue,
-  sessionTranscriptPath, transcriptEntries, worktreeLabel, type TranscriptEntry,
+  elapsedLabel, fixupsByPick, isClosedSync, isLiveSync, isWatchingSync, money, syncNowLine,
+  syncPhase, syncQueue, sessionTranscriptPath, transcriptEntries,
+  type TranscriptEntry,
 } from './syncRunModel';
-import { workspaceApi, type UpstreamCherryPickRunDto } from './workspaceApi';
+import {
+  workspaceApi,
+  type CiHarnessWatchSnapshotDto,
+  type UpstreamCherryPickJobDto,
+  type UpstreamCherryPickRunDto,
+} from './workspaceApi';
 
 const REFRESH_MS = 2_000;
+/** The run's own columns, so a narrow pull request pane can be widened. */
+const QUEUE_WIDTH_KEY = 'bytequay.syncRun.queueWidth';
+const PR_WIDTH_KEY = 'bytequay.syncRun.prPaneWidth';
+const PR_WIDTH_DEFAULT = 460;
+const PR_WIDTH_MIN = 340;
+const PR_WIDTH_MAX = 1000;
 /** A long turn can run hundreds of tool calls; the panel shows the tail. */
 const MAX_LIVE_ENTRIES = 40;
 
@@ -35,12 +49,15 @@ const MAX_LIVE_ENTRIES = 40;
  * request it ends at on the right.
  */
 export default function WorkspaceSyncRunPage({
-  workspaceId, jobId, onBack, onOpenHarness, rightPane,
+  workspaceId, jobId, syncs = [], onBack, onOpenSync, onNewSync, rightPane,
 }: {
   workspaceId: string;
   jobId: string;
+  /** The workspace's other runs, listed at the top of the queue column. */
+  syncs?: UpstreamCherryPickJobDto[];
   onBack?: () => void;
-  onOpenHarness?: (watchId: string) => void;
+  onOpenSync?: (jobId: string) => void;
+  onNewSync?: () => void;
   /** Rendered beside the cockpit. The CI Harness passes its pull request pane
    *  here so one run reads as one page across both phases. */
   rightPane?: ReactNode;
@@ -55,6 +72,20 @@ export default function WorkspaceSyncRunPage({
   const atBottomRef = useRef(true);
   /** What the current agent turn has said and run, as it arrives. */
   const [agentLive, setAgentLive] = useState<TranscriptEntry[]>([]);
+  /** Phase 2's watch, so the run says what it is doing after the picks land. */
+  const [harness, setHarness] = useState<CiHarnessWatchSnapshotDto | null>(null);
+  const [prOpen, setPrOpen] = useState(true);
+  const { sidebarWidth: queueWidth, shellRef, onResize: onQueueResize } =
+    useSidebarWidth(QUEUE_WIDTH_KEY, 300);
+  const { paneWidth, bodyRef, onResize: onPaneResize } =
+    usePaneWidth(PR_WIDTH_KEY, PR_WIDTH_DEFAULT, PR_WIDTH_MIN, PR_WIDTH_MAX);
+  // Both drags measure the same element — the queue from its left edge, the
+  // pane from its right — so the two hooks share one ref.
+  const pageRef = useCallback((node: HTMLDivElement | null) => {
+    if (node === null) return;
+    shellRef.current = node;
+    bodyRef.current = node;
+  }, [bodyRef, shellRef]);
 
   const load = useCallback(
     () => workspaceApi.upstreamCherryPickRun(workspaceId, jobId).then(setRun),
@@ -71,15 +102,43 @@ export default function WorkspaceSyncRunPage({
   }, [load]);
 
   const live = run !== null && (isLiveSync(run.job) || run.job.pauseRequested);
+  // Phase 2 runs on after the picks land, so the refresh outlives phase 1.
+  const watchId = run !== null && isWatchingSync(run.job) ? run.job.harnessWatchId : null;
+  // A stopped watch is the one status nothing more happens under. Green is not:
+  // the harness keeps looking, and a branch can go red again under a green.
+  const harnessStatus = harness?.status ?? null;
+  const moving = live || (watchId !== null && harnessStatus !== 'stopped');
   useEffect(() => {
-    if (!live) return undefined;
+    if (!moving) return undefined;
     const timer = window.setInterval(() => {
       // A dropped poll keeps the last complete run on screen rather than
       // blanking a view someone may have walked away from.
       void load().catch(() => {});
-    }, REFRESH_MS);
+    // Phase 2 adds nothing to this log and can last hours; re-reading the whole
+    // run every two seconds through it is work nobody sees.
+    }, live ? REFRESH_MS : REFRESH_MS * 5);
     return () => window.clearInterval(timer);
-  }, [live, load]);
+  }, [moving, live, load]);
+
+  // What phase 2 is doing. Its own cadence is a cycle every 90 seconds, so this
+  // is deliberately slower than the run poll — the status word is all it feeds.
+  useEffect(() => {
+    if (watchId === null) {
+      setHarness(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const read = () => workspaceApi.harnessWatch(workspaceId, watchId)
+      .then(next => { if (!cancelled) setHarness(next); })
+      .catch(() => { /* keep the last status rather than blanking it */ });
+    void read();
+    if (harnessStatus === 'stopped') return () => { cancelled = true; };
+    const timer = window.setInterval(() => { void read(); }, REFRESH_MS * 2);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [watchId, workspaceId, harnessStatus]);
 
   // The turn in flight. The run log only gains a line when a turn ends, so
   // without this a pick that compiles for minutes looks like a stalled run.
@@ -140,21 +199,33 @@ export default function WorkspaceSyncRunPage({
   const outOfBudget = parked && job.spentMilliUsd >= job.budgetMilliUsd;
   const budgetStep = Math.max(100, job.budgetMilliUsd);
   const transcriptPath = sessionTranscriptPath(job.worktreePath, job.agentSessionId);
+  // The pull request belongs beside the run, never in a browser tab.
+  const canOpenPr = rightPane !== undefined;
+  const showRight = rightPane !== undefined && prOpen;
 
   return (
-    <div className={`sr-page${rightPane === undefined ? '' : ' with-right'}`}>
-      <WorkspaceSyncRunQueue job={job} commits={run.commits} onBack={onBack} />
+    <div
+      ref={pageRef}
+      className={`sr-page${showRight ? ' with-right' : ''}`}
+      style={{
+        gridTemplateColumns: showRight
+          ? `${queueWidth}px minmax(0, 1fr) ${paneWidth}px`
+          : `${queueWidth}px minmax(0, 1fr)`,
+      }}>
+      <WorkspaceSyncRunQueue job={job} commits={run.commits} onBack={onBack}
+        fixups={fixupsByPick(run.events)} harness={harness}
+        syncs={syncs} onOpenSync={onOpenSync} onNewSync={onNewSync}
+        onFixNow={watchId === null ? undefined : () => act(
+          () => workspaceApi.runHarnessWatch(workspaceId, watchId, true))} />
+      <ResizeHandle className="sr-resize" ariaLabel="Resize the commit queue"
+        onResize={onQueueResize} style={{ left: queueWidth - 2 }} />
       <div className="sr-main">
         <header className="sr-topbar">
+          {/* The branch and the worktree path are already the queue column's
+              title and footer; repeating them here only ate the top bar. */}
           <span className="sr-topbar__badge">SYNC RUN</span>
-          <strong>{job.sourceBranch} → {run.baseBranch} · {job.resultBranch}</strong>
           <span className="sr-topbar__grow" />
           <span className={`sr-phase is-${phaseTone(job.status)}`}>{syncPhase(job)}</span>
-          {job.worktreePath !== null && (
-            <code className="sr-topbar__worktree" title={job.worktreePath}>
-              {worktreeLabel(job.worktreePath)}
-            </code>
-          )}
           {running && (
             <button type="button" className="sr-topbar__action" disabled={busy || job.pauseRequested}
               onClick={() => act(() => workspaceApi.pauseUpstreamCherryPick(workspaceId, jobId))}>
@@ -217,7 +288,7 @@ export default function WorkspaceSyncRunPage({
               <span className="sr-now__label">
                 {closed ? 'CLOSED' : parked || failed ? 'PARKED' : 'NOW'}
               </span>
-              <span className="sr-now__copy">{syncNowLine(job, queue)}</span>
+              <span className="sr-now__copy">{syncNowLine(job, queue, harness)}</span>
               <span className="sr-now__meta">
                 {job.appliedCount} picked · {elapsedLabel(
                   job.createdAt, running ? undefined : job.updatedAt)}
@@ -315,39 +386,15 @@ export default function WorkspaceSyncRunPage({
 
           <aside className="sr-rail">
             <button type="button"
-              className={`sr-rail__item${job.prNumber === null ? ' is-idle' : ''}`}
-              disabled={job.prUrl === null}
-              title={job.prNumber === null
-                ? 'The draft PR opens once the range is picked and pushed'
-                : `Open draft PR #${job.prNumber}`}
-              onClick={() => {
-                if (job.prUrl !== null) void window.bridge.openInAppBrowser(job.prUrl);
-              }}>
+              className={`sr-rail__item${job.prNumber === null ? ' is-idle' : ''}${
+                prOpen ? ' is-on' : ''}`}
+              disabled={!canOpenPr}
+              title={prTitle(job.prNumber, canOpenPr, prOpen)}
+              onClick={() => setPrOpen(open => !open)}>
               <PullRequestIcon />
               <span>PR</span>
               <small>{job.prNumber === null ? 'after push' : `#${job.prNumber}`}</small>
             </button>
-            <span className="sr-rail__rule" />
-            <span className={`sr-rail__item is-static${job.localGateUnavailable ? ' is-idle' : ''}`}
-              title={job.localGateUnavailable
-                ? 'The local compile could not run here — CI carries the verdict'
-                : "Each conflicted pick is compiled locally, scoped to its module"}>
-              <LocalBuildIcon />
-              <span>{job.localGateUnavailable ? 'CI' : 'LOCAL'}</span>
-            </span>
-            <span className="sr-rail__item is-safe"
-              title="Isolated worktree · your checkout is never touched">
-              <ShieldIcon size={16} />
-              <span>SAFE</span>
-            </span>
-            {job.harnessWatchId !== null && (
-              <button type="button" className="sr-rail__item is-watch"
-                title="Open the CI Harness watch driving this PR green"
-                onClick={() => onOpenHarness?.(job.harnessWatchId as string)}>
-                <PlayIcon size={16} />
-                <span>CI</span>
-              </button>
-            )}
             <span className="sr-topbar__grow" />
             <span className="sr-rail__stat">
               <code>{elapsedLabel(job.createdAt, running ? undefined : job.updatedAt)}</code>
@@ -382,7 +429,13 @@ export default function WorkspaceSyncRunPage({
           }}
         />
       )}
-      {rightPane !== undefined && <aside className="sr-right">{rightPane}</aside>}
+      {showRight && (
+        <>
+          <ResizeHandle className="sr-resize" ariaLabel="Resize the pull request panel"
+            onResize={onPaneResize} style={{ right: paneWidth - 2 }} />
+          <aside className="sr-right">{rightPane}</aside>
+        </>
+      )}
     </div>
   );
 }
@@ -392,6 +445,12 @@ function CloseIcon() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
   );
+}
+
+function prTitle(prNumber: number | null, canOpen: boolean, open: boolean): string {
+  if (prNumber === null) return 'The draft pull request opens once the range is pushed';
+  if (!canOpen) return `Pull request #${prNumber} — not ready to show yet`;
+  return open ? `Hide pull request #${prNumber}` : `Show pull request #${prNumber} beside the run`;
 }
 
 function phaseTone(status: UpstreamCherryPickRunDto['job']['status']): string {

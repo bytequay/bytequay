@@ -17,20 +17,32 @@ import {
 } from './syncRunModel';
 import type { UpstreamCherryPickJobDto } from './workspaceApi';
 
-/** A sync run in the workspace nav — its own section, above the workspace list. */
-export function SyncNavRow({ job, onOpen }: {
+/**
+ * A sync run in the list at the top of the run's own column. One line: the
+ * branch is what a reader picks by, and a status word under every row turned
+ * the list into a wall. What still matters — running, or stopped and waiting
+ * on you — the dot carries.
+ */
+export function SyncNavRow({ job, selected = false, onOpen }: {
   job: UpstreamCherryPickJobDto;
+  /** The run the page is showing — the list doubles as its title. */
+  selected?: boolean;
   onOpen: () => void;
 }) {
   const live = isLiveSync(job);
+  const needsYou = !live && job.closedAt === null
+    && (job.status === 'PAUSED_CONFLICT' || job.status === 'FAILED');
   return (
-    <button type="button" className={`sync-nav__row${live ? ' is-live' : ''}`} onClick={onOpen}>
+    <button type="button" aria-current={selected ? 'true' : undefined}
+      title={`${job.resultBranch} — ${navSubtitle(job)}`}
+      className={`sync-nav__row${live ? ' is-live' : ''}${selected ? ' is-selected' : ''}`}
+      onClick={onOpen}>
       <span className="sync-nav__icon" aria-hidden><SyncIcon size={14} /></span>
       <span className="sync-nav__copy">
         <strong>{job.resultBranch}</strong>
-        <small>{navSubtitle(job)}</small>
       </span>
       {live && <span className="sync-nav__live" aria-label="running" />}
+      {needsYou && <span className="sync-nav__attention" aria-label="needs you" />}
     </button>
   );
 }

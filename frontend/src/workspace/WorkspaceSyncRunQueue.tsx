@@ -13,9 +13,14 @@
  */
 import { useState } from 'react';
 import { TrafficLights } from '../ui/shell';
-import { CheckIcon, ChevronIcon, ShieldIcon, SyncIcon } from './WorkspaceSyncIcons';
+import { usePersistentToggle } from '../ui/shell/usePersistentToggle';
+import { SyncNavRow } from './WorkspaceSyncCards';
+import {
+  CheckIcon, ChevronIcon, PlusIcon, ShieldIcon, SyncIcon,
+} from './WorkspaceSyncIcons';
 import {
   elapsedLabel,
+  harnessLine,
   isLiveSync,
   syncProgress,
   syncQueue,
@@ -23,6 +28,7 @@ import {
   type SyncQueue,
 } from './syncRunModel';
 import type {
+  CiHarnessWatchSnapshotDto,
   UpstreamCherryPickCommitDto,
   UpstreamCherryPickJobDto,
 } from './workspaceApi';
@@ -35,14 +41,28 @@ const COLLAPSED_DONE_ROWS = 6;
  * unbounded list — "done" collapses and "next" is a window.
  */
 export default function WorkspaceSyncRunQueue({
-  job, commits, onBack,
+  job, commits, fixups, harness, syncs, onOpenSync, onNewSync, onFixNow, onBack,
 }: {
   job: UpstreamCherryPickJobDto;
   commits: UpstreamCherryPickCommitDto[];
+  /** The fixup commit each repaired pick produced, by pick index. */
+  fixups: Map<number, string>;
+  /** Phase 2's watch, once there is one — null while phase 1 is still picking. */
+  harness: CiHarnessWatchSnapshotDto | null;
+  /** Every sync run in the workspace, so this column is also the way between them. */
+  syncs: UpstreamCherryPickJobDto[];
+  onOpenSync?: (jobId: string) => void;
+  onNewSync?: () => void;
+  /** Stop waiting for the board to settle and fix what has already failed. */
+  onFixNow?: () => void;
   onBack?: () => void;
 }) {
   const [doneOpen, setDoneOpen] = useState(true);
   const [allDone, setAllDone] = useState(false);
+  // Folded state outlives the page: someone working one run does not want the
+  // other four back every time they open it.
+  const { value: syncsOpen, toggle: toggleSyncs } =
+    usePersistentToggle('bytequay.syncRun.syncsOpen', true);
   const queue = syncQueue(commits);
   const progress = syncProgress(job);
   const doneRows = allDone ? queue.done : queue.done.slice(-COLLAPSED_DONE_ROWS);
@@ -50,16 +70,42 @@ export default function WorkspaceSyncRunQueue({
 
   return (
     <aside className="sr-queue">
-      <div className="sr-queue__top">
+      <div className={`sr-queue__top${syncs.length > 0 ? ' has-syncs' : ''}`}>
         <TrafficLights hideNavArrows />
         <button type="button" className="sr-queue__back" onClick={onBack}>
           <ChevronIcon direction="left" size={13} />
           <span>Back to workspace</span>
         </button>
-        <div className="sr-queue__identity">
-          <span className="sr-queue__badge" aria-hidden><SyncIcon size={13} /></span>
-          <strong>{syncTitle(job)}</strong>
-        </div>
+        {syncs.length > 0 ? (
+          // The list is this run's title as well as the way to its siblings, so
+          // the identity row below would only say the selected row again.
+          <div className={`sr-queue__syncs${syncsOpen ? '' : ' is-folded'}`}>
+            <div className="sync-nav__head">
+              <button type="button" className="sr-queue__syncs-toggle"
+                aria-expanded={syncsOpen} onClick={toggleSyncs}>
+                <span className={`sr-chevron${syncsOpen ? ' is-open' : ''}`} aria-hidden>
+                  <ChevronIcon size={11} />
+                </span>
+                <strong>Syncs</strong>
+                <small>{syncs.length}</small>
+              </button>
+              {onNewSync !== undefined && (
+                <button type="button" className="sync-nav__add"
+                  title="New sync run — pick an upstream range"
+                  aria-label="New sync run" onClick={onNewSync}><PlusIcon /></button>
+              )}
+            </div>
+            {syncsOpen && syncs.map(row => (
+              <SyncNavRow key={row.jobId} job={row} selected={row.jobId === job.jobId}
+                onOpen={() => onOpenSync?.(row.jobId)} />
+            ))}
+          </div>
+        ) : (
+          <div className="sr-queue__identity">
+            <span className="sr-queue__badge" aria-hidden><SyncIcon size={13} /></span>
+            <strong>{syncTitle(job)}</strong>
+          </div>
+        )}
         <div className="sr-queue__range">
           <code>{commits.at(0)?.shortSha ?? '—'}…{commits.at(-1)?.shortSha ?? '—'}</code>
           <span>{job.requestedCount} selected · {job.skippedCount} skipped</span>
@@ -95,7 +141,9 @@ export default function WorkspaceSyncRunQueue({
                 View all {queue.done.length}…
               </button>
             )}
-            {doneRows.map(commit => <DoneRow key={commit.sha} commit={commit} />)}
+            {doneRows.map(commit => (
+              <DoneRow key={commit.sha} commit={commit} fixup={fixups.get(commit.index)} />
+            ))}
           </div>
         )}
 
@@ -135,12 +183,54 @@ export default function WorkspaceSyncRunQueue({
         )}
       </div>
 
+      {harness !== null && <HarnessFooter harness={harness} onFixNow={onFixNow} />}
       <SafetyFooter job={job} queue={queue} />
     </aside>
   );
 }
 
-function DoneRow({ commit }: { commit: UpstreamCherryPickCommitDto }) {
+/**
+ * Phase 2, in the one place the reader is already watching. The picks stop
+ * moving once the range lands, and without this the run looks finished while
+ * the harness is still driving the pull request green.
+ */
+function HarnessFooter({ harness, onFixNow }: {
+  harness: CiHarnessWatchSnapshotDto;
+  onFixNow?: () => void;
+}) {
+  const line = harnessLine(harness);
+  // Two states worth a nudge: waiting on a suite that runs for an hour while
+  // other checks are already red, and stopped short — which nothing polls, so
+  // the run sits there until a person restarts it.
+  const waiting = harness.status === 'watching' || harness.status === 'handoff';
+  const stopped = harness.status === 'needs_attention';
+  return (
+    <div className={`sr-queue__phase2 is-${line.tone}`}>
+      <div className="sr-queue__phase2-head">
+        <span className="sr-queue__phase2-dot" aria-hidden />
+        <span>PHASE 2 · CI HARNESS</span>
+        {line.checkedAtMs !== null && (
+          <em>checked {elapsedLabel(new Date(line.checkedAtMs).toISOString())} ago</em>
+        )}
+      </div>
+      <strong>{line.label}</strong>
+      {line.detail !== null && line.detail.length > 0 && <span>{line.detail}</span>}
+      {(waiting || stopped) && onFixNow !== undefined && (
+        <button type="button" className="sr-queue__phase2-now" onClick={onFixNow}
+          title={stopped
+            ? 'Start another round on the checks that are red now'
+            : 'Do not wait for the checks still running — fix what has already failed'}>
+          {stopped ? 'Try again on what is failing' : 'Fix what has failed so far'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function DoneRow({ commit, fixup }: {
+  commit: UpstreamCherryPickCommitDto;
+  fixup?: string;
+}) {
   if (commit.state === 'skipped') {
     return (
       <div className="sr-queue__row is-skipped">
@@ -158,11 +248,13 @@ function DoneRow({ commit }: { commit: UpstreamCherryPickCommitDto }) {
         <code>{commit.shortSha}</code>
         <span title={commit.subject}>{commit.subject}</span>
       </div>
-      {carried && (
+      {carried && fixup !== undefined && (
+        // The repair's own commit. A repair that was a no-op made none, and
+        // naming the conflict instead told the reader nothing they could use.
         <div className="sr-queue__note">
           <span className="sr-queue__elbow" aria-hidden />
-          <code>conflict</code>
-          <span>resolution carried in the pick</span>
+          <code>fixup</code>
+          <code className="sr-queue__note-sha">{fixup}</code>
         </div>
       )}
     </>

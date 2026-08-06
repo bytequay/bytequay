@@ -39,7 +39,7 @@ export default function WorkspaceTodayPage({
 }: Props) {
   const [turns, setTurns] = useState<ThreadTurnDto[]>([]);
   const [onboarding, setOnboarding] = useState<WorkspaceOnboardingDto | null>(null);
-  const syncs = useUpstreamSyncs(workspace.id);
+  const syncs = useUpstreamSyncs(workspace.id) ?? [];
 
   useEffect(() => {
     let cancelled = false;

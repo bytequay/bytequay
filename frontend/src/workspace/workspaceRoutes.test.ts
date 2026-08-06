@@ -35,8 +35,6 @@ describe('workspaceRoutes', () => {
     { kind: 'branches', workspaceId: 'w1' },
     { kind: 'branches', workspaceId: 'w1', name: 'dev/clamp-fix' },
     { kind: 'commits', workspaceId: 'w1' },
-    { kind: 'ci-harness', workspaceId: 'w1' },
-    { kind: 'ci-harness', workspaceId: 'w1', watchId: 'watch/482' },
     { kind: 'sync', workspaceId: 'w1' },
     { kind: 'sync', workspaceId: 'w1', jobId: 'job/2 31' },
     { kind: 'memory', workspaceId: 'w1' },

@@ -106,7 +106,7 @@ import type {
   ThreadSignalDto,
 } from './types';
 
-type AgentStreamScope = 'thread' | 'stage' | 'sync';
+type AgentStreamScope = 'thread' | 'stage' | 'sync' | 'harness';
 
 function subscribeAgentStream(
   scope: AgentStreamScope,
@@ -1075,6 +1075,11 @@ const bridge: Bridge = {
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => subscribeAgentStream('sync', jobId, onEvent, onClose),
+  subscribeHarnessStream: (
+    watchId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => subscribeAgentStream('harness', watchId, onEvent, onClose),
 
   // ── Brain agent ──────────────────────────────────────────────────
   getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),

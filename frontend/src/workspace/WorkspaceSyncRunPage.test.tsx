@@ -38,6 +38,7 @@ function mount(run = syncRun(), harness?: unknown, rightPane?: ReactNode, extra?
     // The live agent panel subscribes while the run is going; the stub returns
     // its unsubscribe so the effect cleans up like the real bridge.
     subscribeSyncRunStream: () => () => {},
+    subscribeHarnessStream: () => () => {},
   };
   render(<WorkspaceSyncRunPage workspaceId="fork" jobId="job-1" rightPane={rightPane}
     {...extra} />);
@@ -274,6 +275,47 @@ describe('sync run view', () => {
     await flush();
     const call = request.mock.calls.find(([input]) => input.path.endsWith('/run'));
     expect(call?.[0].body).toEqual({ fixNow: true });
+  });
+
+  it('reads a harness round back in the log and steers it from the composer', async () => {
+    const watching = syncRun();
+    watching.job = {
+      ...watching.job, status: 'COMPLETED', harnessWatchId: 'watch-1', prNumber: 2,
+    };
+    const turn = JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Bumped the plugin to match upstream.' }] },
+    });
+    const request = mount(watching, {
+      watchId: 'watch-1', status: 'running', activeCycle: { phase: 'fix' }, cycles: [],
+      runStatusTail: null, handoff: null,
+      milestones: [
+        { id: 1, cycleId: 'c1', phase: 'fix', kind: 'phase_started',
+          message: 'Handing 6 failure(s) to the agent', detailJson: null,
+          createdAtMs: Date.parse('2026-08-06T17:20:00Z') },
+        { id: 2, cycleId: 'c1', phase: 'fix', kind: 'agent_log',
+          message: turn, detailJson: null,
+          createdAtMs: Date.parse('2026-08-06T17:22:00Z') },
+      ],
+    });
+    await flush();
+
+    // The round is in the same log as the picks, transcript and all — it used
+    // to be a black box between "handing over" and a one-line verdict.
+    expect(screen.getByText('Handing 6 failure(s) to the agent')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Agent transcript/ }));
+    expect(screen.getByText('Bumped the plugin to match upstream.')).toBeTruthy();
+
+    // Steering reaches phase 2's agent rather than the picks' guidance field.
+    fireEvent.change(screen.getByLabelText('Steer the run'), {
+      target: { value: 'skip the flaky iceberg suite' },
+    });
+    fireEvent.click(screen.getByLabelText('Send guidance'));
+    await flush();
+
+    const call = request.mock.calls.find(([input]) => input.path.endsWith('/run'));
+    expect(call?.[0].body).toEqual({ fixNow: true, steeringText: 'skip the flaky iceberg suite' });
+    expect(request.mock.calls.some(([input]) => input.path.endsWith('/guidance'))).toBe(false);
   });
 
   it('records steering guidance on the run', async () => {

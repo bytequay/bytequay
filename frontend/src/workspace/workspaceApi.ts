@@ -1174,11 +1174,13 @@ export const workspaceApi = {
     }),
   /** Run a harness cycle now. With fixNow the round works on the checks that
    *  have already failed instead of waiting for the board to settle. */
-  runHarnessWatch: (workspaceId: string, watchId: string, fixNow = false) =>
+  runHarnessWatch: (
+    workspaceId: string, watchId: string, fixNow = false, steeringText?: string,
+  ) =>
     window.bridge.workspaceApi<unknown>({
       path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/run`,
       method: 'POST',
-      body: { fixNow },
+      body: steeringText === undefined ? { fixNow } : { fixNow, steeringText },
     }),
   refreshRepository: (workspaceId: string) =>
     window.bridge.workspaceApi<LocalRepoStatusDto>({

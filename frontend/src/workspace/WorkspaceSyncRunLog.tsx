@@ -18,6 +18,7 @@ import {
   type SyncLogGroup, type TranscriptEntry,
 } from './syncRunModel';
 import type {
+  CiHarnessMilestoneDto,
   UpstreamCherryPickCommitDto,
   UpstreamCherryPickEventDto,
 } from './workspaceApi';
@@ -27,9 +28,11 @@ import type {
  * output, filed under the pick that produced it, plus the notes that explain
  * what the program did between commands.
  */
-export default function WorkspaceSyncRunLog({ events, commits }: {
+export default function WorkspaceSyncRunLog({ events, commits, harness }: {
   events: UpstreamCherryPickEventDto[];
   commits: UpstreamCherryPickCommitDto[];
+  /** Phase 2's own rounds, appended after the picks — same run, same log. */
+  harness?: CiHarnessMilestoneDto[];
 }) {
   const groups = syncLogGroups(events);
   const firstPick = groups.find(group => group.pickIndex !== null)?.pickIndex ?? 0;
@@ -53,9 +56,81 @@ export default function WorkspaceSyncRunLog({ events, commits }: {
         <LogGroup key={group.key} group={group}
           commit={group.pickIndex === null ? undefined : commits[group.pickIndex]} />
       ))}
+      {harness !== undefined && harness.length > 0 && (
+        <section className="sr-pick is-phase2">
+          <header className="sr-pick__head is-static">
+            <span className="sr-pick__ordinal">PHASE 2 · CI HARNESS</span>
+            <strong>driving the pull request green</strong>
+          </header>
+          <div className="sr-pick__body">
+            {harness.map(entry => <HarnessRow key={entry.id} entry={entry} />)}
+          </div>
+        </section>
+      )}
       {groups.length === 0 && (
         <p className="sr-log__empty">The run has not written anything yet.</p>
       )}
+    </div>
+  );
+}
+
+/** One line of a harness round, read the same way a pick's lines are. */
+function HarnessRow({ entry }: { entry: CiHarnessMilestoneDto }) {
+  const [open, setOpen] = useState(false);
+  const at = new Date(entry.createdAtMs).toISOString();
+  if (entry.kind === 'agent_log') {
+    const entries = parseTranscript(entry.message);
+    const said = entries.filter(part => part.kind === 'say').length;
+    const ran = entries.filter(part => part.kind === 'tool').length;
+    return (
+      <>
+        <button type="button" className="sr-cmd" aria-expanded={open}
+          disabled={entries.length === 0} onClick={() => setOpen(current => !current)}>
+          <span className={`sr-chevron${open ? ' is-open' : ''}`} aria-hidden>
+            {entries.length === 0 ? null : <ChevronIcon size={10} />}
+          </span>
+          <span className="sr-cmd__glyph" aria-hidden><TerminalIcon size={11} /></span>
+          <code>Agent transcript</code>
+          <span className="sr-transcript__count">
+            {said} note{said === 1 ? '' : 's'} · {ran} command{ran === 1 ? '' : 's'}
+          </span>
+          <time>{clockLabel(at)}</time>
+        </button>
+        {open && (
+          <div className="sr-transcript">
+            {entries.map((part, index) => {
+              if (part.kind === 'say') {
+                return <p key={index} className="sr-transcript__say">{part.text}</p>;
+              }
+              if (part.kind === 'tool') {
+                return <TranscriptTool key={index} entry={part} />;
+              }
+              return (
+                <p key={index}
+                  className={`sr-transcript__result${part.failed ? ' is-failed' : ''}`}>
+                  {part.failed ? 'Turn failed' : 'Turn complete'} · {part.turns} turns ·{' '}
+                  {money(part.costUsdMilli)}
+                </p>
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
+  }
+  if (entry.kind === 'agent_committed' || entry.kind === 'agent_finished') {
+    return (
+      <div className="sr-guidance is-agent">
+        <span className="sr-guidance__label">AGENT</span>
+        <time>{clockLabel(at)}</time>
+        <p>{entry.message}</p>
+      </div>
+    );
+  }
+  return (
+    <div className={`sr-note is-${entry.kind}`}>
+      <span className="sr-note__copy"><b>{entry.message}</b></span>
+      <time>{clockLabel(at)}</time>
     </div>
   );
 }

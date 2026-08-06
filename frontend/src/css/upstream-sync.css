@@ -642,6 +642,10 @@
 
 .sr-pick { margin-top: 10px; }
 
+.sr-pick.is-phase2 { border-left-color: rgba(124, 58, 237, 0.35); }
+.sr-pick__head.is-static { cursor: default; }
+.sr-pick__head.is-static strong { color: #6e747c; font-weight: 500; }
+
 /* A button so the whole pick folds; it must still read as the heading it was. */
 .sr-pick__head {
   align-items: center;

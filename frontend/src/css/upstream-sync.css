@@ -1178,3 +1178,13 @@
   margin: 0 0 2px 44px; overflow-x: auto; padding: 9px 11px; white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* With a pull request beside it, the cockpit becomes the middle column. */
+.sr-page.with-right { grid-template-columns: auto minmax(0, 1fr) auto; }
+.sr-right {
+  border-left: 1px solid #e7e9ec; display: flex; flex-direction: column;
+  min-width: 0; overflow: hidden; width: 460px;
+}
+@media (max-width: 1500px) {
+  .sr-right { width: 380px; }
+}

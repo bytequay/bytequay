@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
   LocalBuildIcon, ParkIcon, PauseIcon, PlayIcon, PullRequestIcon,
@@ -35,12 +35,15 @@ const MAX_LIVE_ENTRIES = 40;
  * request it ends at on the right.
  */
 export default function WorkspaceSyncRunPage({
-  workspaceId, jobId, onBack, onOpenHarness,
+  workspaceId, jobId, onBack, onOpenHarness, rightPane,
 }: {
   workspaceId: string;
   jobId: string;
   onBack?: () => void;
   onOpenHarness?: (watchId: string) => void;
+  /** Rendered beside the cockpit. The CI Harness passes its pull request pane
+   *  here so one run reads as one page across both phases. */
+  rightPane?: ReactNode;
 }) {
   const [run, setRun] = useState<UpstreamCherryPickRunDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -139,7 +142,7 @@ export default function WorkspaceSyncRunPage({
   const transcriptPath = sessionTranscriptPath(job.worktreePath, job.agentSessionId);
 
   return (
-    <div className="sr-page">
+    <div className={`sr-page${rightPane === undefined ? '' : ' with-right'}`}>
       <WorkspaceSyncRunQueue job={job} commits={run.commits} onBack={onBack} />
       <div className="sr-main">
         <header className="sr-topbar">
@@ -379,6 +382,7 @@ export default function WorkspaceSyncRunPage({
           }}
         />
       )}
+      {rightPane !== undefined && <aside className="sr-right">{rightPane}</aside>}
     </div>
   );
 }

@@ -15,10 +15,12 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -38,7 +40,7 @@ class TestConflictRepairAgent
     private final AiDefaultsService aiDefaults = mock(AiDefaultsService.class);
     private final CliReviewRunner cli = mock(CliReviewRunner.class);
     private final ConflictRepairAgent agent =
-            new ConflictRepairAgent(cli, engines, aiDefaults);
+            new ConflictRepairAgent(cli, engines, aiDefaults, new ObjectMapper());
 
     @Test
     void theWorkspacesOwnCiFixEngineWins()
@@ -107,46 +109,6 @@ class TestConflictRepairAgent
     }
 
     @Test
-    void theVerdictIsTheLastLineAndCarriesItsSessionForward()
-    {
-        ConflictRepairAdvisor.Outcome outcome = agent.read("""
-                Looked at the conflict, kept the fork's config prefix.
-                Ran the module build; it passes.
-                RESOLVED: carried upstream's retry budget under the fork's prefix
-                """, 120, "session-9");
-
-        assertThat(outcome.resolved()).isTrue();
-        assertThat(outcome.validated()).isTrue();
-        assertThat(outcome.detail())
-                .isEqualTo("carried upstream's retry budget under the fork's prefix");
-        assertThat(outcome.sessionId()).isEqualTo("session-9");
-        assertThat(outcome.costMilliUsd()).isEqualTo(120);
-    }
-
-    @Test
-    void aRepairThatCouldNotBeCheckedIsResolvedButNotValidated()
-    {
-        ConflictRepairAdvisor.Outcome outcome = agent.read(
-                "RESOLVED-UNVALIDATED: no maven wrapper and the internal registry is unreachable",
-                80, null);
-
-        assertThat(outcome.resolved()).isTrue();
-        // Not a failure — but the run log has to say the range was taken on trust.
-        assertThat(outcome.validated()).isFalse();
-        assertThat(outcome.detail()).startsWith("no maven wrapper");
-    }
-
-    @Test
-    void askingForAHumanParks()
-    {
-        ConflictRepairAdvisor.Outcome outcome = agent.read(
-                "PARKED: upstream dropped the setter this fork still calls", 80, null);
-
-        assertThat(outcome.resolved()).isFalse();
-        assertThat(outcome.detail()).isEqualTo("upstream dropped the setter this fork still calls");
-    }
-
-    @Test
     void aTurnThatNeverRanSaysSoRatherThanBlamingTheVerdict()
     {
         // A missing binary, a refused login, a rejected flag. The runner already
@@ -170,15 +132,28 @@ class TestConflictRepairAgent
     }
 
     @Test
-    void aTurnThatEndsWithoutAVerdictIsAParkAndNeverAnAssumedSuccess()
+    void eachVerdictStatusMapsToWhatTheRunDoesNext()
     {
-        // Out of budget, timed out, or simply wandered off. The program will
-        // not guess that a repair it cannot see the end of actually worked.
-        for (String ending : List.of("", "I'll start by reading the file.", "Done!")) {
-            ConflictRepairAdvisor.Outcome outcome = agent.read(ending, 10, null);
+        assertThat(outcome("resolved", "kept the fork's prefix").resolved()).isTrue();
+        assertThat(outcome("resolved", "kept the fork's prefix").validated()).isTrue();
+        // Not a failure — but the run log has to say the range was taken on trust.
+        assertThat(outcome("resolved_unvalidated", "no wrapper here").resolved()).isTrue();
+        assertThat(outcome("resolved_unvalidated", "no wrapper here").validated()).isFalse();
+        assertThat(outcome("parked", "upstream dropped the setter").resolved()).isFalse();
+    }
 
-            assertThat(outcome.resolved()).isFalse();
-            assertThat(outcome.detail()).contains("without a verdict");
-        }
+    @Test
+    void anUnknownStatusParksAndNamesWhatWasWritten()
+    {
+        ConflictRepairAdvisor.Outcome outcome = outcome("done", "all good");
+
+        assertThat(outcome.resolved()).isFalse();
+        assertThat(outcome.detail()).contains("unknown verdict status").contains("done");
+    }
+
+    private ConflictRepairAdvisor.Outcome outcome(String status, String summary)
+    {
+        return agent.outcomeOf(
+                new AgentVerdictFile.Verdict(status, summary), null, 120, "session-9");
     }
 }

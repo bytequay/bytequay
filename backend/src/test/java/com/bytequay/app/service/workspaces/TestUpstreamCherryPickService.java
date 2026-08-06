@@ -705,7 +705,16 @@ class TestUpstreamCherryPickService
 
         assertThat(service.run("fork-ws", started.jobId(), 100).events())
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickEventDto::kind)
-                .containsSubsequence("command", "note", "agent");
+                .containsSubsequence("command", "note", "agent", "fixup");
+        // The queue shows the pick its fixup rather than the fact it conflicted,
+        // so the commit the repair made has to be named.
+        assertThat(service.run("fork-ws", started.jobId(), 100).events())
+                .filteredOn(event -> "fixup".equals(event.kind()))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.title()).hasSize(7);
+                    assertThat(event.detail()).isEqualTo("fixup! Change the shared line");
+                });
     }
 
     @Test

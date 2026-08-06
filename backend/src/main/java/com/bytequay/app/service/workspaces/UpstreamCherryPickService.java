@@ -1207,7 +1207,24 @@ public class UpstreamCherryPickService
             return parked(id, index, commit,
                     "the repair left uncommitted changes in the worktree");
         }
+        recordFixup(id, index, worktree);
         return true;
+    }
+
+    /**
+     * Names the commit the repair produced, so the queue can show the pick's
+     * fixup rather than the fact it once conflicted. A repair that turned the
+     * pick into a no-op leaves HEAD on the pick itself and has nothing to name.
+     */
+    private void recordFixup(String id, int index, Path worktree)
+            throws IOException, InterruptedException
+    {
+        Optional<GitRunner.CommitDetailEntry> head = git.commitDetail(worktree, "HEAD");
+        if (head.isEmpty() || !head.get().subject().startsWith("fixup!")) {
+            return;
+        }
+        record(id, index, "fixup", shortSha(head.get().sha()), head.get().subject(),
+                null, null);
     }
 
     /** Parks and returns false, so a caller can {@code return} the call itself. */

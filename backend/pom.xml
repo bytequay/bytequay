@@ -13,7 +13,7 @@
 
     <groupId>com.bytequay</groupId>
     <artifactId>backend</artifactId>
-    <version>0.3.3</version>
+    <version>0.3.4</version>
     <name>bytequay-backend</name>
     <description>Local sidecar for the ByteQuay macOS app</description>
 

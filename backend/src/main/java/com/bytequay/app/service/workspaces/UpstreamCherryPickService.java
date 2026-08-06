@@ -657,6 +657,9 @@ public class UpstreamCherryPickService
     }
 
     private static final int MAX_EVENT_DETAIL = 8_000;
+    /** An agent transcript is the evidence behind every other line in the run,
+     *  so it gets room the ordinary log lines do not need. */
+    private static final int MAX_TRANSCRIPT_DETAIL = 64 * 1024;
 
     /**
      * Appends one line to the run log. The log is what the view renders, never
@@ -699,13 +702,43 @@ public class UpstreamCherryPickService
 
     private static String clampDetail(String detail)
     {
+        return clampDetail(detail, MAX_EVENT_DETAIL);
+    }
+
+    private static String clampDetail(String detail, int max)
+    {
         if (detail == null || detail.isBlank()) {
             return null;
         }
         String trimmed = detail.strip();
-        return trimmed.length() <= MAX_EVENT_DETAIL
+        return trimmed.length() <= max
                 ? trimmed
-                : trimmed.substring(0, MAX_EVENT_DETAIL) + "\n…";
+                : trimmed.substring(0, max) + "\n…";
+    }
+
+    /**
+     * The turn's own transcript — its conversation and tool calls — as its own
+     * log line, so the summary above it stays one sentence and the evidence is
+     * one click away. Written whether the turn succeeded or not: a turn that did
+     * not run is exactly the one worth reading.
+     */
+    private void recordTranscript(String jobId, Integer index, String transcript)
+    {
+        String text = clampDetail(transcript, MAX_TRANSCRIPT_DETAIL);
+        if (text == null) {
+            return;
+        }
+        try {
+            jdbc.update("""
+                    INSERT INTO upstream_cherry_pick_event (
+                        job_id, commit_index, kind, title, detail, exit_code,
+                        duration_ms, created_at_ms)
+                    VALUES (?, ?, 'agent_log', 'Agent transcript', ?, NULL, NULL, ?)
+                    """, jobId, index, text, now());
+        }
+        catch (DataAccessException e) {
+            log.warn("recording the agent transcript failed: {}", e.getMessage());
+        }
     }
 
     private static String shortSha(String sha)
@@ -1132,6 +1165,7 @@ public class UpstreamCherryPickService
         // One session for the whole run: later conflicts inherit what this one
         // established about the fork.
         rememberAgentSession(id, outcome.sessionId());
+        recordTranscript(id, index, outcome.transcript());
         record(id, index, "agent", outcome.detail(),
                 outcome.validated()
                         ? "agent resolved, committed and validated"

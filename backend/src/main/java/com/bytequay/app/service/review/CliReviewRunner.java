@@ -63,6 +63,11 @@ public class CliReviewRunner
      *  streaming timeout so a wedged CLI can't hang the pass. */
     private static final long DEFAULT_TIMEOUT_MS = 6 * 60 * 1000;
 
+    /** Enough of stderr to explain a refusal, not so much that a chatty run
+     *  fills the record with progress noise. */
+    private static final int MAX_STDERR_LINES = 40;
+    private static final int MAX_TRANSCRIPT = 64 * 1024;
+
     /** The local sidecar's base URL — the CLI subprocess reaches the
      *  review MCP server here. Matches server.port in application.properties. */
     private static final String SIDECAR_BASE_URL = "http://127.0.0.1:53123";
@@ -148,11 +153,25 @@ public class CliReviewRunner
      *  provider didn't announce one (then the next turn starts fresh). */
     public record Result(
             String text, String sessionId, long costUsdMilli,
-            String end, String errorMessage)
+            String end, String errorMessage, String transcript)
     {
         public Result(String text, String sessionId, long costUsdMilli)
         {
-            this(text, sessionId, costUsdMilli, "COMPLETED", null);
+            this(text, sessionId, costUsdMilli, "COMPLETED", null, null);
+        }
+
+        public Result(
+                String text, String sessionId, long costUsdMilli, String end, String errorMessage)
+        {
+            this(text, sessionId, costUsdMilli, end, errorMessage, null);
+        }
+
+        /** True when the turn never really happened — the binary would not start,
+         *  exited non-zero, or timed out. Distinct from a turn that ran and said
+         *  something the caller could not use. */
+        public boolean failed()
+        {
+            return !"COMPLETED".equals(end);
         }
     }
 
@@ -226,7 +245,8 @@ public class CliReviewRunner
         }
 
         deliverPrompt(process, provider, prompt);
-        Thread stderrDrain = drainStderr(process, binary);
+        List<String> stderr = new ArrayList<>();
+        Thread stderrDrain = drainStderr(process, binary, stderr);
 
         CliStreamParser parser = provider == Provider.CLAUDE
                 ? new StreamJsonParser(mapper)
@@ -259,7 +279,9 @@ public class CliReviewRunner
         }
         stderrDrain.interrupt();
 
-        return withProcessExit(assemble(parser, lines), process.exitValue(), costCapCents);
+        return withProcessExit(
+                assemble(parser, lines), process.exitValue(), costCapCents,
+                transcript(lines), stderr);
     }
 
     /** Whether {@code binary} resolves to an executable on PATH — the
@@ -455,16 +477,39 @@ public class CliReviewRunner
 
     static Result withProcessExit(Result result, int exitCode, Integer costCapCents)
     {
+        return withProcessExit(result, exitCode, costCapCents, null, List.of());
+    }
+
+    static Result withProcessExit(
+            Result result, int exitCode, Integer costCapCents,
+            String transcript, List<String> stderr)
+    {
         if (exitCode == 0 || !"COMPLETED".equals(result.end())) {
-            return result;
+            return new Result(
+                    result.text(), result.sessionId(), result.costUsdMilli(),
+                    result.end(), result.errorMessage(), transcript);
         }
         boolean capReached = costCapCents != null
                 && result.costUsdMilli() >= (long) costCapCents * 10;
+        // Without stderr an exit code says nothing a user can act on: "exited
+        // with code 1" is as true of a missing binary as of a refused login.
+        String detail = stderr.isEmpty()
+                ? "CLI agent exited with code " + exitCode
+                : "CLI agent exited with code " + exitCode + ": " + String.join(" / ", stderr);
         return new Result(
                 result.text(), result.sessionId(), result.costUsdMilli(),
                 capReached ? "ABORTED" : "ERRORED",
-                capReached ? "CLI review reached its budget cap"
-                        : "CLI reviewer exited with code " + exitCode);
+                capReached ? "CLI review reached its budget cap" : detail,
+                transcript);
+    }
+
+    /** The turn's own JSONL, kept so a failed or surprising run can be read back. */
+    private static String transcript(List<String> lines)
+    {
+        String joined = String.join("\n", lines);
+        return joined.length() <= MAX_TRANSCRIPT
+                ? joined
+                : joined.substring(joined.length() - MAX_TRANSCRIPT);
     }
 
     private static boolean isBudgetFailure(String message)
@@ -493,7 +538,7 @@ public class CliReviewRunner
 
     /** Drain stderr on a daemon thread so a chatty CLI can't deadlock by
      *  filling its stderr pipe while we read stdout. */
-    private static Thread drainStderr(Process process, String binary)
+    private static Thread drainStderr(Process process, String binary, List<String> sink)
     {
         Thread thread = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(
@@ -501,6 +546,13 @@ public class CliReviewRunner
                 String line;
                 while ((line = reader.readLine()) != null) {
                     log.debug("[{} stderr] {}", binary, line);
+                    // "codex: command not found", "not logged in", "unknown flag" —
+                    // when a turn does not happen, this is the only thing that says why.
+                    synchronized (sink) {
+                        if (sink.size() < MAX_STDERR_LINES) {
+                            sink.add(line);
+                        }
+                    }
                 }
             }
             catch (IOException ignored) {

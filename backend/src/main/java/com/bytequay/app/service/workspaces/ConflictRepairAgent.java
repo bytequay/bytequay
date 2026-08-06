@@ -120,7 +120,17 @@ public class ConflictRepairAgent
                 cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, worktree, null,
                 toIntExact(Math.max(1, budgetMilliUsd / 10)),
                 CliReviewRunner.Sandbox.WRITE);
-        return read(result.text(), result.costUsdMilli(), result.sessionId());
+        if (result.failed()) {
+            // The turn never happened — a missing binary, a refused login, a
+            // rejected flag. Reporting that as "no verdict" sends the reader
+            // looking for a model that never spoke.
+            return new Outcome(
+                    false, false,
+                    "the repair agent did not run: " + clamp(String.valueOf(result.errorMessage())),
+                    result.transcript(), result.costUsdMilli(), result.sessionId());
+        }
+        return read(
+                result.text(), result.costUsdMilli(), result.sessionId(), result.transcript());
     }
 
     /**
@@ -130,23 +140,28 @@ public class ConflictRepairAgent
      */
     Outcome read(String raw, long costMilliUsd, String sessionId)
     {
+        return read(raw, costMilliUsd, sessionId, null);
+    }
+
+    Outcome read(String raw, long costMilliUsd, String sessionId, String transcript)
+    {
         String last = lastLine(raw);
         String upper = last.toUpperCase(Locale.ROOT);
         if (upper.startsWith(RESOLVED)) {
-            return new Outcome(true, true, detail(last, RESOLVED), costMilliUsd, sessionId);
+            return new Outcome(true, true, detail(last, RESOLVED), transcript, costMilliUsd, sessionId);
         }
         if (upper.startsWith(UNVALIDATED)) {
-            return new Outcome(true, false, detail(last, UNVALIDATED), costMilliUsd, sessionId);
+            return new Outcome(true, false, detail(last, UNVALIDATED), transcript, costMilliUsd, sessionId);
         }
         if (upper.startsWith(PARKED)) {
-            return new Outcome(false, false, detail(last, PARKED), costMilliUsd, sessionId);
+            return new Outcome(false, false, detail(last, PARKED), transcript, costMilliUsd, sessionId);
         }
         return new Outcome(
                 false, false,
                 last.isBlank()
                         ? "the repair turn ended without a verdict"
                         : "the repair turn ended without a verdict: " + clamp(last),
-                costMilliUsd, sessionId);
+                transcript, costMilliUsd, sessionId);
     }
 
     private static String lastLine(String raw)

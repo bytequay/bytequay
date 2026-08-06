@@ -222,7 +222,47 @@ describe('UpstreamCherryPicker durable polling', () => {
     // with the branch the first one took.
     expect(screen.getByDisplayValue('bump-widget-aaaaaaa')).toBeTruthy();
   });
+
+  it('a parked run reports itself instead of holding the picker shut', async () => {
+    // Closing a run only stamped closedAt and left the status at
+    // PAUSED_CONFLICT, so a finished run looked parked forever — and a parked
+    // run replaced the picker with a view that has no way back to it.
+    const parked = { ...running, status: 'PAUSED_CONFLICT' as const, resultBranch: 'bump-a-to-b' };
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [parked];
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
+      commits={[commit]} onClose={() => {}} />);
+    await flush();
+
+    // The picker is available for this range, with the other run noted.
+    expect(screen.getByRole('button', { name: 'Start cherry-pick' })).toBeTruthy();
+    expect(screen.getByText(/parked on/)).toBeTruthy();
+    expect(screen.getByText('bump-a-to-b')).toBeTruthy();
+  });
+
+  it('a closed run is over whatever status it carries', async () => {
+    const closed = {
+      ...running, status: 'PAUSED_CONFLICT' as const, closedAt: '2026-08-06T10:19:00Z',
+    };
+    const request = vi.fn(async (input: WorkspaceApiRequest): Promise<unknown> => {
+      if (input.path === '/api/workspaces/fork/upstream/cherry-picks') return [closed];
+      throw new Error(`Unexpected request: ${input.path}`);
+    });
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    render(<UpstreamCherryPicker workspaceId="fork" repo={repository} snapshot={snapshot}
+      commits={[commit]} onClose={() => {}} />);
+    await flush();
+
+    expect(screen.getByRole('button', { name: 'Start cherry-pick' })).toBeTruthy();
+    expect(screen.queryByText(/parked on/)).toBeNull();
+  });
 });
+
 
 async function flush() {
   await act(async () => {

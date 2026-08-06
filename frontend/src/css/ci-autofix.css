@@ -427,6 +427,11 @@
 .wu-upstream-cherry__option small { color: #57606a; font-size: 11.5px; line-height: 1.45; }
 .wu-upstream-cherry__budget { color: #57606a; font: 10.5px ui-monospace, monospace; white-space: nowrap; }
 .wu-upstream-cherry__budget input { background: transparent; border: 0; border-bottom: 1px solid #c6cbd1; font: inherit; width: 36px; }
+.wu-upstream-cherry__note {
+  background: #f6f8fa; border: 1px solid #e1e5e9; border-radius: 8px; color: #57606a;
+  font-size: 11.5px; line-height: 1.5; margin: 4px 0 0; padding: 8px 11px;
+}
+.wu-upstream-cherry__note code { color: #24292f; font-weight: 600; }
 .wu-upstream-cherry__guard { color: #8b949e; font-size: 10.5px; margin: 0; }
 .wu-upstream-cherry__result { display: grid; gap: 8px; min-height: 130px; padding: 28px; text-align: center; }
 .wu-upstream-cherry__result > strong { font-size: 16px; }

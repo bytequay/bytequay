@@ -66,6 +66,12 @@ import static java.util.Objects.requireNonNull;
 public class HarnessOrchestrator
 {
     private static final Logger log = LoggerFactory.getLogger(HarnessOrchestrator.class);
+    /**
+     * The user asked to stop waiting for the board to settle. A suite that runs
+     * for an hour should not hold back the fix for six checks that already
+     * failed — this round works on what has failed so far and lets the rest run.
+     */
+    public static final String TRIGGER_FIX_NOW = "fix_now";
 
     private final HarnessStore store;
     private final HarnessService service;
@@ -248,7 +254,13 @@ public class HarnessOrchestrator
                 runRebaseRound(watch, cycle, result);
                 return;
             }
-            if (result.pending()) {
+            // Normally a half-finished board is no board at all: a check still
+            // running may yet fail, and fixing early wastes a push. The one
+            // exception is a round the user asked for by name, where whatever
+            // has already failed is evidence enough to work from.
+            boolean fixWhatFailedSoFar = TRIGGER_FIX_NOW.equals(cycle.triggerKind())
+                    && !result.failedJobs().isEmpty();
+            if (result.pending() && !fixWhatFailedSoFar) {
                 finishNoChange(watch, cycle, "CI is still running", result.runStatusTail());
                 return;
             }

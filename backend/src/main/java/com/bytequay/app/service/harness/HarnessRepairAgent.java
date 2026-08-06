@@ -57,6 +57,9 @@ public class HarnessRepairAgent
     private static final String COMMITTED = "committed";
     private static final String NOTHING = "nothing";
     private static final String PARKED = "parked";
+    /** What the conflict repair calls the same outcome, earlier in this session. */
+    private static final String PHASE_ONE_COMMITTED = "resolved";
+    private static final String PHASE_ONE_UNVALIDATED = "resolved_unvalidated";
     private static final int MAX_VERDICT_RETRIES = 2;
     private static final int MAX_DETAIL = 500;
     private static final int MAX_EXCERPT = 6_000;
@@ -254,7 +257,10 @@ public class HarnessRepairAgent
             long costMilliUsd, String sessionId)
     {
         return switch (verdict.status()) {
-            case COMMITTED -> new Outcome(
+            // The run is one agent session across both phases, and phase 1 spent
+            // it saying "resolved" for exactly this — commits are made, push
+            // them. Rejecting the word it was taught parks the whole run.
+            case COMMITTED, PHASE_ONE_COMMITTED, PHASE_ONE_UNVALIDATED -> new Outcome(
                     true, false, clamp(verdict.summary()), learned, costMilliUsd, sessionId);
             case NOTHING -> new Outcome(
                     false, true, clamp(verdict.summary()), learned, costMilliUsd, sessionId);

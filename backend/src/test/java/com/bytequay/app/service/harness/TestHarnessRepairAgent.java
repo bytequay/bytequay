@@ -68,6 +68,16 @@ class TestHarnessRepairAgent
     }
 
     @Test
+    void theWordPhaseOneTaughtThisSessionStillMeansPushIt()
+    {
+        // One agent session spans both phases, and the conflict repair spends
+        // it saying "resolved" for the same outcome. Rejecting that word here
+        // parked whole runs whose fix was already committed.
+        assertThat(outcome("resolved", "kept the fork's block").committed()).isTrue();
+        assertThat(outcome("resolved_unvalidated", "could not build here").committed()).isTrue();
+    }
+
+    @Test
     void nothingToDoIsDistinctFromBeingStuck()
     {
         assertThat(outcome("nothing", "all cloud-gated").nothing()).isTrue();

@@ -22,8 +22,8 @@ import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.settings.AiDefaultsService;
-import com.bytequay.app.service.settings.AiDefaultsService.AiDefaults;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -50,7 +50,7 @@ class TestGlobalReviewRunner
     @Test
     void usesConfiguredCliAndParsesReview()
     {
-        AiDefaultsService defaults = defaults("cli:codex");
+        WorkModelResolver defaults = defaults("cli:codex");
         CliReviewRunner cli = mock(CliReviewRunner.class);
         when(cli.run(
                 eq(CliReviewRunner.Provider.CODEX), anyString(), isNull(), any(Path.class), isNull()))
@@ -77,7 +77,7 @@ class TestGlobalReviewRunner
     @Test
     void usesConfiguredApiAccount()
     {
-        AiDefaultsService defaults = defaults("api:openai:work");
+        WorkModelResolver defaults = defaults("api:openai:work");
         CredentialService credentials = mock(CredentialService.class);
         TurnRunner turns = mock(TurnRunner.class);
         when(credentials.getSecret(CredentialType.AI, "openai", "work"))
@@ -99,7 +99,7 @@ class TestGlobalReviewRunner
     }
 
     private static GlobalReviewRunner runner(
-            AiDefaultsService defaults,
+            WorkModelResolver defaults,
             CredentialService credentials,
             Ds4LifecycleService ds4,
             TurnRunner turns,
@@ -109,13 +109,15 @@ class TestGlobalReviewRunner
                 defaults, credentials, ds4, turns, cli, new ObjectMapper());
     }
 
-    private static AiDefaultsService defaults(String globalReview)
+    private static WorkModelResolver defaults(String globalReview)
     {
-        AiDefaultsService defaults = mock(AiDefaultsService.class);
-        when(defaults.get()).thenReturn(new AiDefaults(
-                "cli:claude-code", "cli:claude-code", "cli:claude-code", globalReview,
-                "cli:codex", "cli:claude-code", "cli:claude-code"));
-        return defaults;
+        WorkModelResolver resolver = mock(WorkModelResolver.class);
+        when(resolver.resolveForWorkspace(isNull(), anyString())).thenReturn(
+                new WorkModelResolver.Resolved(
+                        WorkspaceEngineSettings.parseChoice(globalReview).orElseThrow(),
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.GLOBAL_DEFAULT, null, "test")));
+        return resolver;
     }
 
     private static ReviewRequest request()

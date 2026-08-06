@@ -17,8 +17,7 @@ import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.settings.AiDefaultsService;
-import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -33,8 +32,7 @@ class TestHarnessRepairAgent
 {
     private final HarnessRepairAgent agent = new HarnessRepairAgent(
             mock(CliReviewRunner.class),
-            mock(WorkspaceEngineSettings.class),
-            mock(AiDefaultsService.class),
+            mock(WorkModelResolver.class),
             mock(SessionKnowledgeProvider.class),
             new ObjectMapper());
 

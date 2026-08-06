@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AiReviewPage from './AiReviewPage';
-import type { AiDefaultsDto, AiLedgerDto, WorkModelOptionsDto } from '../../types';
+import type { AiLedgerDto, WorkModelOptionsDto } from '../../types';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
 
@@ -31,16 +31,6 @@ const LEDGER: AiLedgerDto = {
   apiByProvider: [],
 };
 
-const DEFAULTS: AiDefaultsDto = {
-  plan: 'cli:claude-code',
-  dev: 'cli:codex',
-  review: 'cli:claude-code',
-  globalReview: 'cli:codex',
-  ciFix: 'cli:codex',
-  triage: 'cli:claude-code',
-  perf: 'cli:claude-code',
-};
-
 const OPTIONS: WorkModelOptionsDto = {
   cliAgents: [
     { id: 'claude-code', displayName: 'Claude Code CLI', installed: true, authed: true, defaultModel: 'opus', models: [] },
@@ -50,16 +40,12 @@ const OPTIONS: WorkModelOptionsDto = {
 };
 
 function installEngineBridge(extra: Record<string, unknown> = {}) {
-  const setAiDefaults = vi.fn(async (next: AiDefaultsDto) => next);
   (window as unknown as { bridge: unknown }).bridge = {
-    getAiDefaults: vi.fn(async () => DEFAULTS),
-    setAiDefaults,
     getWorkModelOptions: vi.fn(async () => OPTIONS),
     refreshWorkModelOptions: vi.fn(async () => OPTIONS),
     getDs4Status: vi.fn(async () => ({ state: 'DISABLED' })),
     ...extra,
   };
-  return setAiDefaults;
 }
 
 describe('AiReviewPage', () => {
@@ -78,35 +64,4 @@ describe('AiReviewPage', () => {
     expect(getAiLedger).toHaveBeenCalled();
   });
 
-  it('persists an account default when a session kind picks a different engine', async () => {
-    const setAiDefaults = installEngineBridge();
-
-    render(<AiReviewPage />);
-
-    const picker = await screen.findByLabelText('Code writing & tests engine');
-    // The select exists before its loaded defaults arrive, so its value is
-    // briefly empty.
-    await waitFor(() => expect((picker as HTMLSelectElement).value).toBe('cli:codex'));
-
-    fireEvent.change(picker, { target: { value: 'cli:claude-code' } });
-
-    await waitFor(() => expect(setAiDefaults)
-      .toHaveBeenCalledWith({ ...DEFAULTS, dev: 'cli:claude-code' }));
-  });
-
-  it('offers the account-wide roles that have no workspace equivalent', async () => {
-    const setAiDefaults = installEngineBridge();
-
-    render(<AiReviewPage />);
-
-    expect(await screen.findByText('Global PR review')).toBeTruthy();
-    await waitFor(() => expect(screen.getByText('Issue triage')).toBeTruthy());
-    await waitFor(() => expect(screen.getByText('Performance investigator')).toBeTruthy());
-
-    fireEvent.change(screen.getByLabelText('Global PR review engine'), {
-      target: { value: 'cli:claude-code' },
-    });
-    await waitFor(() => expect(setAiDefaults)
-      .toHaveBeenCalledWith({ ...DEFAULTS, globalReview: 'cli:claude-code' }));
-  });
 });

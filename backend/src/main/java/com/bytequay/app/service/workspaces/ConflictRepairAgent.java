@@ -17,9 +17,8 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.agents.AgentVerdictFile;
 import com.bytequay.app.service.review.CliReviewRunner;
-import com.bytequay.app.service.settings.AiDefaultsService;
 import com.bytequay.app.service.workmodel.SessionAudience;
-import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -43,9 +42,8 @@ import static java.util.Objects.requireNonNull;
  * something the agent is better placed to decide. See "The upstream sync run"
  * in {@code docs/intermediate/ci-autofix-design.md}.
  *
- * <p>The engine is the workspace's own pick for CI-fix work, falling back to
- * the account default (a CLI agent, so nothing bills an API key unless the user
- * asked for one). It runs through {@link CliReviewRunner} in
+ * <p>The engine is whatever this workspace resolves for CI-fix work, through
+ * the one chain every other agent uses. It runs through {@link CliReviewRunner} in
  * {@link CliReviewRunner.Sandbox#WRITE}, keeping one session for the whole run
  * and resuming it by id, so a conflict late in a range still knows what the
  * fork decided about the ones before it.
@@ -64,33 +62,28 @@ public class ConflictRepairAgent
     private static final int MAX_VERDICT_RETRIES = 2;
 
     private final CliReviewRunner cli;
-    private final WorkspaceEngineSettings engines;
-    private final AiDefaultsService aiDefaults;
+    private final WorkModelResolver engines;
     private final AgentVerdictFile verdicts;
 
     public ConflictRepairAgent(
             CliReviewRunner cli,
-            WorkspaceEngineSettings engines,
-            AiDefaultsService aiDefaults,
+            WorkModelResolver engines,
             ObjectMapper mapper)
     {
         this.cli = requireNonNull(cli, "cli is null");
         this.engines = requireNonNull(engines, "engines is null");
-        this.aiDefaults = requireNonNull(aiDefaults, "aiDefaults is null");
         this.verdicts = new AgentVerdictFile(requireNonNull(mapper, "mapper is null"));
     }
 
     /**
-     * The workspace's engine for CI-fix work, then the account default, then a
-     * CLI agent. Never an API provider by accident: an unset preference used to
-     * fall through to OpenAI and fail for want of a key nobody had asked for.
+     * One chain, the same one threads and tasks use: this workspace's engine for
+     * the audience, then its default, then the catalog's first CLI agent. There
+     * used to be a second account-level chain here whose CI-fix fallback was
+     * codex, so this path silently disagreed with every other one.
      */
     WorkModel engineFor(String workspaceId)
     {
-        return engines.forAudience(workspaceId, SessionAudience.CI_FIX)
-                .map(WorkspaceEngineSettings.Engine::model)
-                .or(() -> WorkspaceEngineSettings.parseChoice(aiDefaults.get().ciFix()))
-                .orElseGet(() -> new WorkModel(WorkModelKind.CLI, "codex", null, null));
+        return engines.resolveForWorkspace(workspaceId, SessionAudience.CI_FIX).choice();
     }
 
     static CliReviewRunner.Provider cliProvider(String agent)

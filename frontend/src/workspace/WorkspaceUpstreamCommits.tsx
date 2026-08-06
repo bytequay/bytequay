@@ -14,6 +14,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import Avatar from '../Avatar';
 import { githubHandle } from './CommitEditorUi';
+import { message } from './WorkspaceRepoUi';
 import {
   workspaceApi,
   type CherryPickPlanDto,
@@ -171,7 +172,7 @@ export function UpstreamCherryPicker({
           })
           .catch(reason => {
             if (!cancelled) {
-              setError(errorMessage(reason));
+              setError(message(reason));
               poll();
             }
           });
@@ -204,7 +205,7 @@ export function UpstreamCherryPicker({
       sourceBranch: snapshot.revision,
       ...selection,
     }).then(setPlan)
-      .catch(reason => setPlanError(errorMessage(reason)))
+      .catch(reason => setPlanError(message(reason)))
       .finally(() => setPlanning(false));
   };
 
@@ -268,7 +269,9 @@ export function UpstreamCherryPicker({
                 if (!value) setCreateHarnessWatch(false);
               }} />
             <CherryOption label="Watch with CI Harness"
-              detail="Loops on CI, applies proposals, verifies every fix, and ends with a handoff. It never pushes."
+              detail="Reads each failed CI run, fixes what it can as a fixup on the pick that owns
+                it, pushes, and waits for the next run — until it is green, then parks for your
+                review. It never merges."
               checked={createHarnessWatch} disabled={!openDraftPr}
               extra={<label className="wu-upstream-cherry__budget">budget $<input aria-label="Harness budget in dollars"
                 aria-invalid={!budgetValid} inputMode="decimal" value={budgetUsd}
@@ -284,7 +287,8 @@ export function UpstreamCherryPicker({
                   <small>optional · provenance and trailers are appended automatically</small></span>
               </label>
             )}
-            <p className="wu-upstream-cherry__guard">⌾ Runs in an app-owned worktree, never your checkout · backup ref before history rewrites · conflicts pause for you.</p>
+            <p className="wu-upstream-cherry__guard">⌾ Runs in an app-owned worktree, never your checkout ·
+              conflicts are repaired and re-checked before the range moves on · it parks rather than guess.</p>
             {error !== null && <span className="wu-form-error">{error}</span>}
           </div>
         ) : (
@@ -322,7 +326,7 @@ export function UpstreamCherryPicker({
                   createHarnessWatch,
                   budgetMilliUsd: createHarnessWatch ? Math.round(parsedBudget * 1000) : null,
                 }).then(setJob)
-                  .catch(reason => setError(errorMessage(reason)))
+                  .catch(reason => setError(message(reason)))
                   .finally(() => setBusy(false));
               }}>{busy ? 'Starting…' : 'Start cherry-pick'}</button>
           )}
@@ -332,7 +336,7 @@ export function UpstreamCherryPicker({
               setError(null);
               void workspaceApi.resumeUpstreamCherryPick(workspaceId, job.jobId)
                 .then(setJob)
-                .catch(reason => setError(errorMessage(reason)))
+                .catch(reason => setError(message(reason)))
                 .finally(() => setBusy(false));
             }}>{busy ? 'Resuming…' : 'Resume after resolving'}</button>
           )}
@@ -348,7 +352,7 @@ export function UpstreamCherryPicker({
               setError(null);
               void workspaceApi.retryUpstreamCherryPick(workspaceId, job.jobId)
                 .then(setJob)
-                .catch(reason => setError(errorMessage(reason)))
+                .catch(reason => setError(message(reason)))
                 .finally(() => setBusy(false));
             }}>{busy ? 'Retrying…' : 'Retry cherry-pick'}</button>
           )}
@@ -440,7 +444,11 @@ function splitTerms(value: string): string[] {
 
 function suggestedTarget(snapshot: UpstreamCommitsDto, commits: UpstreamCommitDto[]): string {
   const tag = commits.find(commit => commit.tags.length > 0)?.tags[0];
-  const suffix = tag?.match(/\d+(?:\.\d+)*/)?.[0]?.replaceAll('.', '-') ?? 'update';
+  // Without a version tag every range suggests the same name, so the second
+  // run collides with the first one's branch and the start is refused. The day
+  // stamp is enough to tell two runs apart without making the name unreadable.
+  const stamped = new Date().toISOString().slice(5, 10).replace('-', '');
+  const suffix = tag?.match(/\d+(?:\.\d+)*/)?.[0]?.replaceAll('.', '-') ?? `update-${stamped}`;
   return `${snapshot.upstreamWorkspaceName.toLowerCase().replace(/[^a-z0-9-]/g, '-')}-${suffix}`;
 }
 
@@ -490,6 +498,3 @@ function relative(iso: string): string {
   return `${Math.floor(elapsed / 86_400_000)}d`;
 }
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
-}

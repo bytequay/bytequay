@@ -218,7 +218,9 @@ describe('UpstreamCherryPicker durable polling', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start another' }));
 
     expect(screen.getByRole('button', { name: 'Start cherry-pick' })).toBeTruthy();
-    expect(screen.getByDisplayValue('upstream-9-9')).toBeTruthy();
+    // Named after the range it carries, so a second run cannot collide
+    // with the branch the first one took.
+    expect(screen.getByDisplayValue('bump-widget-aaaaaaa')).toBeTruthy();
   });
 });
 

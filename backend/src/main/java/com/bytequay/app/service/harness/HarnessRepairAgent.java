@@ -32,6 +32,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -114,7 +115,8 @@ public class HarnessRepairAgent
             List<Failure> failures,
             long budgetMilliUsd,
             String resumeSessionId,
-            String steeringText)
+            String steeringText,
+            Consumer<String> onLine)
     {
         requireNonNull(worktree, "worktree is null");
         WorkModel engine = engineFor(workspaceId);
@@ -129,7 +131,8 @@ public class HarnessRepairAgent
                 + knowledge(workspaceId, failures)
                 + userPrompt(failures, steeringText, resuming);
         return drive(
-                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, budgetMilliUsd);
+                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId,
+                budgetMilliUsd, onLine);
     }
 
     /**
@@ -141,7 +144,7 @@ public class HarnessRepairAgent
      */
     public Outcome retrospective(
             Path worktree, String workspaceId, Integer prNumber,
-            long budgetMilliUsd, String resumeSessionId)
+            long budgetMilliUsd, String resumeSessionId, Consumer<String> onLine)
     {
         requireNonNull(worktree, "worktree is null");
         WorkModel engine = engineFor(workspaceId);
@@ -151,7 +154,8 @@ public class HarnessRepairAgent
         String prompt = RETROSPECTIVE_PROMPT
                 + (prNumber == null ? "" : "\n\nThe merged pull request was #" + prNumber + ".");
         return drive(
-                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, budgetMilliUsd);
+                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId,
+                budgetMilliUsd, onLine);
     }
 
     /**
@@ -159,7 +163,8 @@ public class HarnessRepairAgent
      * shape rules — only the job is different, so the prompt is too.
      */
     public Outcome rebaseOntoBase(
-            Path worktree, String workspaceId, long budgetMilliUsd, String resumeSessionId)
+            Path worktree, String workspaceId, long budgetMilliUsd, String resumeSessionId,
+            Consumer<String> onLine)
     {
         requireNonNull(worktree, "worktree is null");
         WorkModel engine = engineFor(workspaceId);
@@ -172,7 +177,8 @@ public class HarnessRepairAgent
         boolean resuming = resumeSessionId != null && !resumeSessionId.isBlank();
         String prompt = (resuming ? "" : systemPrompt() + "\n\n") + REBASE_PROMPT;
         return drive(
-                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId, budgetMilliUsd);
+                worktree, cliProvider(engine.agentOrProvider()), prompt, resumeSessionId,
+                budgetMilliUsd, onLine);
     }
 
     /**
@@ -211,18 +217,20 @@ public class HarnessRepairAgent
      */
     private Outcome drive(
             Path worktree, CliReviewRunner.Provider provider, String firstPrompt, String resume,
-            long budgetMilliUsd)
+            long budgetMilliUsd, Consumer<String> onLine)
     {
         verdicts.clear(worktree);
         String prompt = firstPrompt;
         String session = resume;
         long spent = 0;
+        String transcript = null;
         List<Learned> learned = List.of();
         for (int attempt = 0; attempt <= MAX_VERDICT_RETRIES; attempt++) {
             CliReviewRunner.Result result = cli.run(
                     provider, prompt, session, worktree, null,
                     toIntExact(Math.max(1, (budgetMilliUsd - spent) / 10)),
-                    CliReviewRunner.Sandbox.WRITE);
+                    CliReviewRunner.Sandbox.WRITE, onLine);
+            transcript = result.transcript();
             spent += result.costUsdMilli();
             session = result.sessionId() == null ? session : result.sessionId();
             if (!learned(result.text()).isEmpty()) {
@@ -232,11 +240,12 @@ public class HarnessRepairAgent
                 return new Outcome(
                         false, false,
                         "the agent did not run: " + clamp(String.valueOf(result.errorMessage())),
-                        learned, spent, session);
+                        learned, spent, session, transcript);
             }
             Optional<AgentVerdictFile.Verdict> verdict = verdicts.read(worktree);
             if (verdict.isPresent()) {
-                Outcome outcome = outcomeOf(verdict.orElseThrow(), learned, spent, session);
+                Outcome outcome = outcomeOf(verdict.orElseThrow(), learned, spent, session)
+                        .withTranscript(transcript);
                 verdicts.clear(worktree);
                 return outcome;
             }
@@ -249,7 +258,7 @@ public class HarnessRepairAgent
                 false, false,
                 "the agent finished without writing a verdict to "
                         + AgentVerdictFile.relativePath(),
-                learned, spent, session);
+                learned, spent, session, transcript);
     }
 
     Outcome outcomeOf(
@@ -471,13 +480,27 @@ public class HarnessRepairAgent
             String detail,
             List<Learned> learned,
             long costMilliUsd,
-            String sessionId)
+            String sessionId,
+            /** The turn's raw JSONL, so the run log can read the round back. */
+            String transcript)
     {
+        public Outcome(
+                boolean committed, boolean nothing, String detail,
+                List<Learned> learned, long costMilliUsd, String sessionId)
+        {
+            this(committed, nothing, detail, learned, costMilliUsd, sessionId, null);
+        }
+
         public Outcome(
                 boolean committed, boolean nothing, String detail,
                 long costMilliUsd, String sessionId)
         {
-            this(committed, nothing, detail, List.of(), costMilliUsd, sessionId);
+            this(committed, nothing, detail, List.of(), costMilliUsd, sessionId, null);
+        }
+
+        Outcome withTranscript(String value)
+        {
+            return new Outcome(committed, nothing, detail, learned, costMilliUsd, sessionId, value);
         }
     }
 

@@ -30,6 +30,7 @@ import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PrUpdatedEvent;
+import com.bytequay.app.service.workspaces.SyncRunStream;
 import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -72,6 +73,8 @@ public class HarnessOrchestrator
      * failed — this round works on what has failed so far and lets the rest run.
      */
     public static final String TRIGGER_FIX_NOW = "fix_now";
+    /** A turn's JSONL is unbounded; the log shows the head of it. */
+    private static final int MAX_TRANSCRIPT = 64_000;
 
     private final HarnessStore store;
     private final HarnessService service;
@@ -79,6 +82,7 @@ public class HarnessOrchestrator
     private final HarnessLogParser parser;
     private final HarnessRepairAgent agent;
     private final WorkspaceKnowledgeService knowledge;
+    private final SyncRunStream stream;
     private final HarnessGitSafety gitSafety;
     private final GitRunner git;
     private final PRStore prs;
@@ -94,6 +98,7 @@ public class HarnessOrchestrator
             HarnessLogParser parser,
             HarnessRepairAgent agent,
             WorkspaceKnowledgeService knowledge,
+            SyncRunStream stream,
             HarnessGitSafety gitSafety,
             GitRunner git,
             PRStore prs,
@@ -107,6 +112,7 @@ public class HarnessOrchestrator
         this.parser = requireNonNull(parser, "parser is null");
         this.agent = requireNonNull(agent, "agent is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
+        this.stream = requireNonNull(stream, "stream is null");
         this.gitSafety = requireNonNull(gitSafety, "gitSafety is null");
         this.git = requireNonNull(git, "git is null");
         this.prs = requireNonNull(prs, "prs is null");
@@ -184,6 +190,11 @@ public class HarnessOrchestrator
         String steering = normalizeSteering(steeringText);
         Cycle cycle = store.startCycle(
                 UUID.randomUUID().toString(), watch.id(), triggerKind, steering, now());
+        // A round already in flight is joined, not duplicated — so steering that
+        // came with this request has to be added to it or it is simply lost.
+        if (steering != null && !steering.equals(cycle.steeringText())) {
+            store.appendCycleSteering(cycle.id(), steering, now());
+        }
         schedule(cycle.id());
         return cycle;
     }
@@ -373,11 +384,13 @@ public class HarnessOrchestrator
                 "Handing " + failures.size() + " failure(s) to the agent");
         HarnessRepairAgent.Outcome outcome = agent.fix(
                 root, watch.workspaceId(), failures, remaining,
-                watch.agentSessionId(), cycle.steeringText());
+                watch.agentSessionId(), cycle.steeringText(),
+                line -> stream.publish(watch.id(), line));
         store.addWatchCost(watch.id(), outcome.costMilliUsd(), now());
         store.addCycleCost(cycle.id(), outcome.costMilliUsd(), now());
         // One session for the whole run — the next round resumes this one.
         store.updateWatchAgentSession(watch.id(), outcome.sessionId(), now());
+        recordTranscript(watch, cycle, outcome);
         store.appendEvent(watch.id(), cycle.id(), Phase.FIX,
                 outcome.committed() ? "agent_committed" : "agent_finished",
                 outcome.detail(), null, now());
@@ -437,7 +450,8 @@ public class HarnessOrchestrator
         ensureClean(root);
         phase(watch, cycle, Phase.FIX, "The base moved — rebasing onto it");
         HarnessRepairAgent.Outcome outcome = agent.rebaseOntoBase(
-                root, watch.workspaceId(), remaining, watch.agentSessionId());
+                root, watch.workspaceId(), remaining, watch.agentSessionId(),
+                line -> stream.publish(watch.id(), line));
         store.addWatchCost(watch.id(), outcome.costMilliUsd(), now());
         store.addCycleCost(cycle.id(), outcome.costMilliUsd(), now());
         store.updateWatchAgentSession(watch.id(), outcome.sessionId(), now());
@@ -624,6 +638,23 @@ public class HarnessOrchestrator
                 FailureStatus.ESCALATED, latest.targetSubject(), latest.diagnosisJson(),
                 latest.fixJson(), latest.verificationJson(), now());
         timeline(watch, current(cycle).phase(), "escalated", reason, watch.headSha());
+    }
+
+    /**
+     * The round's turn, as the log can read it back. Without this a round is a
+     * black box between "handing over N failures" and a one-line verdict — the
+     * picks show their whole conversation and this showed none of it.
+     */
+    private void recordTranscript(Watch watch, Cycle cycle, HarnessRepairAgent.Outcome outcome)
+    {
+        String transcript = outcome.transcript();
+        if (transcript == null || transcript.isBlank()) {
+            return;
+        }
+        store.appendEvent(watch.id(), cycle.id(), Phase.FIX, "agent_log",
+                transcript.length() <= MAX_TRANSCRIPT
+                        ? transcript : transcript.substring(0, MAX_TRANSCRIPT),
+                "{}", now());
     }
 
     private void handoff(

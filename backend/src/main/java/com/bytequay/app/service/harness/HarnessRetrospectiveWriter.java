@@ -60,7 +60,7 @@ public class HarnessRetrospectiveWriter
             return;
         }
         HarnessRepairAgent.Outcome outcome = agent.retrospective(
-                worktree, workspaceId, prNumber, budgetMilliUsd, resumeSessionId);
+                worktree, workspaceId, prNumber, budgetMilliUsd, resumeSessionId, null);
         for (HarnessRepairAgent.Learned entry : outcome.learned()) {
             try {
                 knowledge.saveKnowledge(

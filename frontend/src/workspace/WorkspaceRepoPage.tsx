@@ -34,6 +34,7 @@ import PullRequestBoardList from './PullRequestBoardList';
 import WorkspacePullsScreen from '../pulls/WorkspacePullsScreen';
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
 import WorkspaceCommitsPage from './WorkspaceCommitsPage';
+import { commitDate } from './CommitEditorUi';
 import {
   BodyMessage,
   BranchCheckIcon,
@@ -1231,7 +1232,7 @@ function BranchDetailPage({
                   onChange={() => toggleCommit(index)} />
                 <code>{commit.shortSha}</code>
                 <strong>{commit.subject}</strong>
-                <time>{commit.displayTime ?? (commit.authoredAt === null ? '' : relative(commit.authoredAt))}</time>
+                <time>{commit.displayTime ?? (commitDate(commit) === null ? '' : relative(commitDate(commit)!))}</time>
               </label>
             );
           })}

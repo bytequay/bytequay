@@ -38,6 +38,7 @@ function history(...rows: Array<[string, boolean]>): RewritableCommitDto[] {
     authorName: 'chenjian2664',
     authorEmail: 'c@example.com',
     authoredAt: '2026-07-29T10:00:00Z',
+    committedAt: '2026-07-29T10:00:00Z',
     additions: 10,
     deletions: 2,
     pushed,

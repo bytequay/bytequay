@@ -271,6 +271,7 @@ export type RewritableCommitDto = {
   authorName: string;
   authorEmail: string;
   authoredAt: string | null;
+  committedAt: string | null;
   additions: number;
   deletions: number;
   pushed: boolean;
@@ -361,11 +362,9 @@ export type WorkspaceRelationCandidateDto = {
 };
 
 /** The upstream mirror is read-only history someone else rebased before
- *  pushing, so it is dated by when the commit landed (committer date) —
- *  the same field github.com's commit list shows — not by when its author
- *  first wrote it. */
+ *  pushing, so it carries only the committer date — the same field
+ *  github.com's commit list shows. */
 export type UpstreamCommitDto = Omit<LocalCommitDto, 'authoredAt'> & {
-  committedAt: string | null;
   tags: string[];
   picked: boolean;
 };

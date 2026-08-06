@@ -16,7 +16,9 @@ import { unionCommitFiles } from '../diff/unionCommitFiles';
 import CommitFileCard from './CommitFileCard';
 import type { LocalCommitFileDto } from '../types';
 import type { EditableCommit } from './commitRewrite';
-import { CheckIcon, CommitAuthorAvatar, SquashIcon, selectionColour } from './CommitEditorUi';
+import {
+  CheckIcon, CommitAuthorAvatar, SquashIcon, commitDate, selectionColour,
+} from './CommitEditorUi';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 import { workspaceApi } from './workspaceApi';
 import { relative } from './WorkspaceRepoUi';
@@ -141,7 +143,7 @@ export default function CommitEditorDetail({
             <code>{head.shortSha}</code>
             <CommitAuthorAvatar commit={head} size={20} />
             <span>{head.authorName}</span>
-            <span>{head.authoredAt === null ? '' : relative(head.authoredAt)}</span>
+            <span>{commitDate(head) === null ? '' : relative(commitDate(head)!)}</span>
             <span className="wu-ce-stat"><b>+{totalAdds}</b> <em>−{totalDels}</em></span>
             {isLocal && <i className="wu-ce-local-badge">LOCAL</i>}
             <span className="wu-row-spacer" />

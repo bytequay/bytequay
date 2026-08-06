@@ -199,7 +199,7 @@ class TestUpstreamCherryPickService
         when(git.listCommits(worktree, "base-sha..HEAD", 3))
                 .thenReturn(List.of(new GitRunner.CommitEntry(
                         "picked-head", "picked", "Test", "test@example.com",
-                        "2026-08-05T00:00:00Z", "First")));
+                        "2026-08-05T00:00:00Z", "2026-08-05T00:00:00Z", "First")));
         when(relations.pickedCommitSubjects(resolved, "base-sha")).thenReturn(Set.of());
         when(git.cherryPick(worktree, List.of("commit-2"), true))
                 .thenReturn(new GitRunner.CherryPickOutcome(
@@ -388,7 +388,7 @@ class TestUpstreamCherryPickService
         when(git.listCommits(worktree, "base-sha..HEAD", 2))
                 .thenReturn(List.of(new GitRunner.CommitEntry(
                         "new-head", "new-head", "Test", "test@example.com",
-                        "2026-07-24T00:00:00Z", "Feature (#101)")));
+                        "2026-07-24T00:00:00Z", "2026-07-24T00:00:00Z", "Feature (#101)")));
         when(git.listCommits(target, "base-sha", 5_000)).thenReturn(List.of());
 
         UpstreamCherryPickService service = new UpstreamCherryPickService(
@@ -461,7 +461,7 @@ class TestUpstreamCherryPickService
         when(git.listCommits(worktree, "base-sha..HEAD", 3))
                 .thenReturn(List.of(new GitRunner.CommitEntry(
                         "picked-head", "picked", "Test", "test@example.com",
-                        "2026-07-24T00:00:00Z", "First")));
+                        "2026-07-24T00:00:00Z", "2026-07-24T00:00:00Z", "First")));
         List<GitRunner.DecoratedCommitEntry> history = List.of(
                 new GitRunner.DecoratedCommitEntry(
                         "commit-2", "commit-2", "Test", "test@example.com",
@@ -554,7 +554,7 @@ class TestUpstreamCherryPickService
                         List.of(),
                         List.of(new GitRunner.CommitEntry(
                                 "picked-head", "picked", "Test", "test@example.com",
-                                "2026-07-24T00:00:00Z", "Feature (#101)")));
+                                "2026-07-24T00:00:00Z", "2026-07-24T00:00:00Z", "Feature (#101)")));
         when(git.commitDetail(worktree, "HEAD"))
                 .thenReturn(Optional.of(new GitRunner.CommitDetailEntry(
                         "picked-head", "Feature (#101)", "")));

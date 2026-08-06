@@ -488,7 +488,7 @@ class TestGitHubUserRemoteActionGateway
         when(git.listCommits(worktree, "head-2", 1)).thenReturn(List.of(
                 new GitRunner.CommitEntry(
                         "head-2", "head-2", "ByteQuay", "app@example.test",
-                        AUTHORIZED.toString(),
+                        AUTHORIZED.toString(), AUTHORIZED.toString(),
                         "Re-trigger CI [bytequay:operation-1]")));
         when(git.diff(worktree, "head-1", "head-2", 1024)).thenReturn("");
     }

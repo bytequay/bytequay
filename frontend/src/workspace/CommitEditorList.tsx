@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { EditableCommit } from './commitRewrite';
-import { CommitAuthorAvatar, GripIcon, PencilIcon, dayLabel } from './CommitEditorUi';
+import { CommitAuthorAvatar, GripIcon, PencilIcon, commitDate, dayLabel } from './CommitEditorUi';
 import { relative } from './WorkspaceRepoUi';
 
 /** Where a drag would land: against a row's top/bottom edge to move, or
@@ -214,7 +214,7 @@ export default function CommitEditorList({
           </div>
         )}
         {pushedRows.map(commit => {
-          const day = dayLabel(commit.authoredAt);
+          const day = dayLabel(commitDate(commit));
           const heading = day === currentDay ? null : day;
           currentDay = day;
           return (
@@ -309,6 +309,7 @@ function CommitRow({
   const badge = commit.squashedFrom > 0
     ? `squashed ${commit.squashedFrom}`
     : commit.reworded ? 'reworded' : null;
+  const landedAt = commitDate(commit);
 
   return (
     <div className="wu-ce-rowwrap" role="presentation">
@@ -404,7 +405,7 @@ function CommitRow({
           </span>
           <CommitAuthorAvatar commit={commit} size={18} />
           <span className="wu-ce-author">{commit.authorName}</span>
-          <time>{commit.authoredAt === null ? '' : relative(commit.authoredAt)}</time>
+          <time>{landedAt === null ? '' : relative(landedAt)}</time>
         </span>
       </div>
       {drop === 'squash' && (

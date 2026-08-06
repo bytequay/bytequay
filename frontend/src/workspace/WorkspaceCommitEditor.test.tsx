@@ -41,6 +41,7 @@ function row(sha: string, subject: string, pushed: boolean): RewritableCommitDto
       ? 'lifeng-yuan@example.com'
       : '12345+chenjian2664@users.noreply.github.com',
     authoredAt: '2026-07-29T09:00:00Z',
+    committedAt: '2026-07-29T09:00:00Z',
     additions: 12,
     deletions: 3,
     pushed,

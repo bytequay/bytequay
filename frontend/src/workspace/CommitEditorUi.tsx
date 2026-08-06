@@ -28,6 +28,17 @@ export function selectionColour(index: number): string {
   return SELECTION_COLOURS[index % SELECTION_COLOURS.length];
 }
 
+/** When a commit is shown as having landed. The committer date, like
+ *  github.com's commit list: a maintainer who rebases a contribution
+ *  before pushing keeps the author date it was written with, which can
+ *  be days older than the moment it appeared on the branch. Falls back
+ *  to the author date for a payload that carries no committer date. */
+export function commitDate(
+  commit: { committedAt?: string | null; authoredAt?: string | null },
+): string | null {
+  return commit.committedAt ?? commit.authoredAt ?? null;
+}
+
 /** Day heading for the pushed section. Matches the Commits list's own
  *  grouping so the two surfaces read the same. */
 export function dayLabel(iso: string | null): string {

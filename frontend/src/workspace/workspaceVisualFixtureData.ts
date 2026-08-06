@@ -1154,6 +1154,7 @@ function commit(
       ? 'agent@bytequay.local'
       : '12345+chenjian2664@users.noreply.github.com',
     authoredAt: agoIso(ago),
+    committedAt: agoIso(ago),
     ...workspace,
   };
 }

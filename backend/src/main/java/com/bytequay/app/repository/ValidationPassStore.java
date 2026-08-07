@@ -30,17 +30,11 @@ public interface ValidationPassStore
 
     /** Insert a STARTED claim row. Empty on a claim-key conflict — the
      *  caller reloads via {@link #findByClaimKey} (idempotent claims). */
-    default Optional<Long> insertClaim(
+    Optional<Long> insertClaim(
             String claimKey, String taskId, String context, String roundId,
-            String codeFingerprint, Long throughSequence, String rootSetDigest, Instant startedAt)
-    {
-        throw new UnsupportedOperationException("insertClaim");
-    }
+            String codeFingerprint, Long throughSequence, String rootSetDigest, Instant startedAt);
 
-    default Optional<ValidationClaim> findByClaimKey(String claimKey)
-    {
-        throw new UnsupportedOperationException("findByClaimKey");
-    }
+    Optional<ValidationClaim> findByClaimKey(String claimKey);
 
     /** Newest accepted green claim for a task/context. Used only to bind a
      *  round opening to the validation evidence that admitted its phase. */
@@ -54,10 +48,7 @@ public interface ValidationPassStore
      * immutable after first binding, so retries can prove exact source
      * identity instead of treating an equal code fingerprint as the same
      * handoff. */
-    default boolean bindRoundIfUnbound(String claimKey, String roundId)
-    {
-        throw new UnsupportedOperationException("bindRoundIfUnbound");
-    }
+    boolean bindRoundIfUnbound(String claimKey, String roundId);
 
     /** Latest validation evidence for one round-owned context. */
     default Optional<ValidationClaim> findLatestByRoundAndContext(
@@ -68,68 +59,41 @@ public interface ValidationPassStore
 
     /** CAS ownership: succeeds only while the claim is live (not ended /
      *  cancelled / superseded) and unowned or lease-expired. */
-    default boolean acquireOwner(
-            String claimKey, String ownerId, String executorIdentity, Instant leaseUntil, Instant now)
-    {
-        throw new UnsupportedOperationException("acquireOwner");
-    }
+    boolean acquireOwner(
+            String claimKey, String ownerId, String executorIdentity, Instant leaseUntil, Instant now);
 
     /** Renew the owner's lease; false when ownership was lost. */
-    default boolean renewLease(String claimKey, String ownerId, Instant leaseUntil, Instant heartbeatAt)
-    {
-        throw new UnsupportedOperationException("renewLease");
-    }
+    boolean renewLease(String claimKey, String ownerId, Instant leaseUntil, Instant heartbeatAt);
 
     /** Terminal completion CAS: only the current owner of the exact
      *  fingerprint may finish the pass, exactly once. */
-    default boolean completeOwned(
+    boolean completeOwned(
             String claimKey, String ownerId, String codeFingerprint,
-            Instant endedAt, boolean passed, String failuresJson)
-    {
-        throw new UnsupportedOperationException("completeOwned");
-    }
+            Instant endedAt, boolean passed, String failuresJson);
 
     /** Durable cancellation request; the executor and the cancellation
      *  reconciler act on it. False when the claim is already terminal. */
-    default boolean requestCancel(String claimKey, Instant requestedAt, Instant deadline)
-    {
-        throw new UnsupportedOperationException("requestCancel");
-    }
+    boolean requestCancel(String claimKey, Instant requestedAt, Instant deadline);
 
     /** Mark a live claim superseded by a newer submission/fingerprint. */
-    default boolean markSuperseded(String claimKey, Instant at)
-    {
-        throw new UnsupportedOperationException("markSuperseded");
-    }
+    boolean markSuperseded(String claimKey, Instant at);
 
     /** STARTED claims with no live lease and no cancel/supersede mark —
      *  the startup/sweep resume set. */
-    default List<ValidationClaim> findResumableStarted(Instant now)
-    {
-        throw new UnsupportedOperationException("findResumableStarted");
-    }
+    List<ValidationClaim> findResumableStarted(Instant now);
 
     /** Every open (non-terminal, non-superseded) claim owned by one task,
      *  including cancellation-pending rows — the stop barrier's
      *  validation-liveness input. */
-    default List<ValidationClaim> findOpenByTask(String taskId)
-    {
-        throw new UnsupportedOperationException("findOpenByTask");
-    }
+    List<ValidationClaim> findOpenByTask(String taskId);
 
     /** Open claims with a live cancellation request — the cancellation
      *  reconciler's work set, carrying the identity its absence proof
      *  needs. */
-    default List<PendingValidationCancel> findCancelPending()
-    {
-        throw new UnsupportedOperationException("findCancelPending");
-    }
+    List<PendingValidationCancel> findCancelPending();
 
     /** Bump the durable interruption-attempt counter on one claim. */
-    default void incrementCancelAttempts(String claimKey)
-    {
-        throw new UnsupportedOperationException("incrementCancelAttempts");
-    }
+    void incrementCancelAttempts(String claimKey);
 
     /** A cancellation-pending claim as the reconciler sees it. */
     record PendingValidationCancel(

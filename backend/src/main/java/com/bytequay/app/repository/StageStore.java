@@ -73,10 +73,7 @@ public interface StageStore
      *  metadata columns — the stage machine composes the audit.
      *
      *  @return true when the row was updated */
-    default boolean updateStateIf(UUID stageId, StageState expected, StageState to, Instant closedAt)
-    {
-        throw new UnsupportedOperationException("updateStateIf");
-    }
+    boolean updateStateIf(UUID stageId, StageState expected, StageState to, Instant closedAt);
 
     Optional<StageInstance> findStageById(UUID stageId);
 

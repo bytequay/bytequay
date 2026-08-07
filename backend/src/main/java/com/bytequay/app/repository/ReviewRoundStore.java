@@ -27,49 +27,20 @@ public interface ReviewRoundStore
      *  carries an initial status. */
     ReviewRound insert(ReviewRound round);
 
-    /** Retained only so stale test doubles fail loudly instead of silently
-     * rewriting lifecycle columns. Production code must use {@link #insert}
-     * or a targeted command update. */
-    @Deprecated(forRemoval = true)
-    default ReviewRound save(ReviewRound round)
-    {
-        throw new UnsupportedOperationException("full-row review round save is retired");
-    }
-
-    /** Compare-and-set the status column alone: move to {@code to} only
-     *  while the row still holds {@code expected}. Never touches any
-     *  other column.
-     *
-     *  @return true when the row was updated */
-    @Deprecated(forRemoval = true)
-    default boolean updateStatusIf(String id, ReviewRoundState expected, ReviewRoundState to)
-    {
-        throw new UnsupportedOperationException("raw review round status writes are retired");
-    }
-
     /** Park one live state while preserving the exact state Resume must
      *  restore. */
-    default boolean parkIf(String id, ReviewRoundState expected)
-    {
-        throw new UnsupportedOperationException("parkIf");
-    }
+    boolean parkIf(String id, ReviewRoundState expected);
 
     /** Restore a parked round, clear its checkpoint, advance its durable
      *  kick identity, and clear a TRIAGING attempt's stale verdict. */
-    default boolean resumeIf(String id, ReviewRoundState pausedFrom)
-    {
-        throw new UnsupportedOperationException("resumeIf");
-    }
+    boolean resumeIf(String id, ReviewRoundState pausedFrom);
 
     /** Seal any expected non-terminal state and stamp its close time. */
-    default boolean sealIf(String id, ReviewRoundState expected, Instant closedAt)
-    {
-        throw new UnsupportedOperationException("sealIf");
-    }
+    boolean sealIf(String id, ReviewRoundState expected, Instant closedAt);
 
     /** Persist the complete result of one Brain pass without exposing a
      *  load-set-save lifecycle write to callers. */
-    default boolean concludeIf(
+    boolean concludeIf(
             String id,
             ReviewRoundState expected,
             ReviewRoundState to,
@@ -77,98 +48,59 @@ public interface ReviewRoundStore
             ReviewRound.ReviewRoundStats stats,
             String verdict,
             Instant gatedAt,
-            Instant closedAt)
-    {
-        throw new UnsupportedOperationException("concludeIf");
-    }
+            Instant closedAt);
 
     /** Adopt the exact green post-fix fingerprint and enter the next Brain
      *  pass. The iteration bump and delivery reset are one guarded write. */
-    default boolean finishAddressingIf(
+    boolean finishAddressingIf(
             String id,
             AttemptFence attempt,
             String validationClaimKey,
-            String codeFingerprint)
-    {
-        throw new UnsupportedOperationException("finishAddressingIf");
-    }
+            String codeFingerprint);
 
     /** Arm the exact human-reviewed gate revision/fingerprint once. */
-    default boolean authorizeGateIf(
+    boolean authorizeGateIf(
             String id,
             int expectedGateRevision,
             String codeFingerprint,
-            String activeGateToken)
-    {
-        throw new UnsupportedOperationException("authorizeGateIf");
-    }
+            String activeGateToken);
 
     /** Token-fenced final posting edge. */
-    default boolean postIf(String id, String activeGateToken, Instant postedAt)
-    {
-        throw new UnsupportedOperationException("postIf(token)");
-    }
+    boolean postIf(String id, String activeGateToken, Instant postedAt);
 
     /** Human gate revision before any effect has been claimed. */
-    default boolean requestGateChangesIf(String id, int additionalBudget)
-    {
-        throw new UnsupportedOperationException("requestGateChangesIf");
-    }
+    boolean requestGateChangesIf(String id, int additionalBudget);
 
     /** Revoke stale gate evidence after a pre-effect fingerprint mismatch. */
-    default boolean invalidateGateFingerprintIf(
-            String id, String activeToken)
-    {
-        throw new UnsupportedOperationException("invalidateGateFingerprintIf");
-    }
+    boolean invalidateGateFingerprintIf(
+            String id, String activeToken);
 
     /** Adopt a green gate-revalidation fingerprint without skipping the
      * Brain verification still owed by TRIAGING. */
-    default boolean acceptGateValidationIf(
-            String id, int expectedKickAttempt, String codeFingerprint)
-    {
-        throw new UnsupportedOperationException("acceptGateValidationIf");
-    }
+    boolean acceptGateValidationIf(
+            String id, int expectedKickAttempt, String codeFingerprint);
 
     /** Guarded verdict write for the currently-owned Brain attempt. */
-    default boolean updateBrainVerdictIf(
-            String id, ReviewRoundState expected, String verdict)
-    {
-        throw new UnsupportedOperationException("updateBrainVerdictIf");
-    }
+    boolean updateBrainVerdictIf(
+            String id, ReviewRoundState expected, String verdict);
 
     /** A failed/cancelled owned turn advances the durable kick identity and
      *  delivery counter together. */
-    default boolean recordDeliveryFailureIf(
-            String id, ReviewRoundState expected, int expectedKickAttempt)
-    {
-        throw new UnsupportedOperationException("recordDeliveryFailureIf");
-    }
+    boolean recordDeliveryFailureIf(
+            String id, ReviewRoundState expected, int expectedKickAttempt);
 
     /** A successfully admitted/reloaded current kick clears only its failure count. */
-    default boolean clearEnqueueFailuresIf(
-            String id, ReviewRoundState expected, int expectedKickAttempt)
-    {
-        throw new UnsupportedOperationException("clearEnqueueFailuresIf");
-    }
+    boolean clearEnqueueFailuresIf(
+            String id, ReviewRoundState expected, int expectedKickAttempt);
 
     /** Targeted stats write; never touches status. */
-    default void updateStats(String id, ReviewRound.ReviewRoundStats stats)
-    {
-        throw new UnsupportedOperationException("updateStats");
-    }
+    void updateStats(String id, ReviewRound.ReviewRoundStats stats);
 
     /** Targeted run-linkage write; never touches status. */
-    default void updateRunId(String id, String runId)
-    {
-        throw new UnsupportedOperationException("updateRunId");
-    }
+    void updateRunId(String id, String runId);
 
     /** Targeted gate-timestamp write; never touches status. */
-    default void updateGateTimes(String id, Instant gatedAt, Instant postedAt)
-    {
-        throw new UnsupportedOperationException("updateGateTimes");
-    }
+    void updateGateTimes(String id, Instant gatedAt, Instant postedAt);
 
     Optional<ReviewRound> findById(String id);
 

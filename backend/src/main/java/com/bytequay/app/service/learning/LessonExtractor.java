@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
@@ -529,10 +530,5 @@ public class LessonExtractor
     private static String shortSha(String sha)
     {
         return sha != null && sha.length() > 12 ? sha.substring(0, 12) : sha;
-    }
-
-    private static String nullToEmpty(String value)
-    {
-        return value == null ? "" : value;
     }
 }

@@ -53,6 +53,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -369,11 +370,6 @@ public class ProjectLearningService
         store.updateRun(current.id(), current.state(), current.snapshotSha(),
                 current.catalogCursor(), counts(current), current.completedAtMs(),
                 current.lastError(), Instant.now().toEpochMilli());
-    }
-
-    private static String nullToEmpty(String value)
-    {
-        return value == null ? "" : value;
     }
 
     // ── execution ───────────────────────────────────────────────────

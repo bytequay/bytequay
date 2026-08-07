@@ -462,7 +462,7 @@ public class DeepSeekReviewer
     {
         String json = extractJsonObject(text);
         try {
-            ParsedOutput parsed = objectMapper.readValue(json, ParsedOutput.class);
+            ReviewPrompt.ParsedOutput parsed = objectMapper.readValue(json, ReviewPrompt.ParsedOutput.class);
             List<ReviewOutput.LineComment> comments = Optional.ofNullable(parsed.comments())
                     .orElse(ImmutableList.of()).stream()
                     .map(comment -> new ReviewOutput.LineComment(
@@ -531,10 +531,4 @@ public class DeepSeekReviewer
         @JsonIgnoreProperties(ignoreUnknown = true)
         record ResponseMessage(String role, String content) {}
     }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ParsedOutput(String summary, List<ParsedComment> comments) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ParsedComment(String file, int line, String severity, String body) {}
 }

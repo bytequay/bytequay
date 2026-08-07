@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.AgentQuestion;
-import com.bytequay.app.repository.AgentQuestionStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,22 +25,21 @@ import java.util.List;
 import java.util.Optional;
 
 @Component
-class SqliteAgentQuestionStore
-        implements AgentQuestionStore
+public class AgentQuestionStore
 {
     private static final TypeReference<List<AgentQuestion.Option>> OPTION_LIST = new TypeReference<>() { };
 
     private final AgentQuestionJpaRepository repository;
     private final ObjectMapper mapper;
 
-    SqliteAgentQuestionStore(AgentQuestionJpaRepository repository, ObjectMapper mapper)
+    AgentQuestionStore(AgentQuestionJpaRepository repository, ObjectMapper mapper)
     {
         this.repository = repository;
         this.mapper = mapper;
     }
 
-    @Override
     @Transactional
+    /** Insert or update a question; returns the persisted row. */
     public AgentQuestion save(AgentQuestion question)
     {
         AgentQuestionEntity entity = new AgentQuestionEntity();
@@ -61,15 +59,15 @@ class SqliteAgentQuestionStore
         return toDomain(repository.save(entity));
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** One question by id. */
     public Optional<AgentQuestion> findById(String id)
     {
         return repository.findById(id).map(this::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** Open (unanswered) questions on a thread, oldest-first. */
     public List<AgentQuestion> findOpenByThread(String threadId)
     {
         return repository.findByThreadIdAndStatusOrderByCreatedAtMsAsc(threadId, AgentQuestion.STATUS_OPEN)

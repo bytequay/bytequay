@@ -17,7 +17,7 @@ import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.RepoWriteCollaboratorStore;
+import com.bytequay.app.repository.sqlite.RepoWriteCollaboratorStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;

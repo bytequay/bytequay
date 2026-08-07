@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.SurfaceType;
 import com.bytequay.app.domain.SurfaceVisit;
-import com.bytequay.app.repository.SurfaceVisitStore;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,17 +25,16 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
-public class SqliteSurfaceVisitStore
-        implements SurfaceVisitStore
+public class SurfaceVisitStore
 {
     private final SurfaceVisitJpaRepository jpaRepository;
 
-    public SqliteSurfaceVisitStore(SurfaceVisitJpaRepository jpaRepository)
+    public SurfaceVisitStore(SurfaceVisitJpaRepository jpaRepository)
     {
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
     }
 
-    @Override
+    /** Persists a visit and returns the stored row. */
     public SurfaceVisit record(SurfaceVisit visit)
     {
         requireNonNull(visit, "visit is null");
@@ -50,7 +48,8 @@ public class SqliteSurfaceVisitStore
         return toDomain(saved);
     }
 
-    @Override
+    /** Visits in the half-open window {@code [startInclusive, endExclusive)},
+    *  ordered oldest-first. Used to build a calendar-day trail. */
     public List<SurfaceVisit> findVisitedBetween(Instant startInclusive, Instant endExclusive)
     {
         requireNonNull(startInclusive, "startInclusive is null");
@@ -59,12 +58,14 @@ public class SqliteSurfaceVisitStore
                 .findByVisitedAtMsGreaterThanEqualAndVisitedAtMsLessThanOrderByVisitedAtMsAsc(
                         startInclusive.toEpochMilli(), endExclusive.toEpochMilli())
                 .stream()
-                .map(SqliteSurfaceVisitStore::toDomain)
+                .map(SurfaceVisitStore::toDomain)
                 .collect(toImmutableList());
     }
 
-    @Override
     @Transactional
+    /** Delete every visit to a thread's own surface or any of its task surfaces.
+    *  Task surfaces use a "{threadId}/{taskId}" surface id, so a prefix match
+    *  on "{threadId}/" plus the exact thread id covers both. Returns the count. */
     public int deleteByThread(String threadId)
     {
         requireNonNull(threadId, "threadId is null");

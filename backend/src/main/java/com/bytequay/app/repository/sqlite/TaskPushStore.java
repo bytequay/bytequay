@@ -16,7 +16,6 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.TaskPushAuthorization;
 import com.bytequay.app.domain.TaskPushEffect;
-import com.bytequay.app.repository.TaskPushStore;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,13 +27,12 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Repository
-class SqliteTaskPushStore
-        implements TaskPushStore
+public class TaskPushStore
 {
     private final TaskPushAuthorizationJpaRepository authorizations;
     private final TaskPushEffectJpaRepository effects;
 
-    SqliteTaskPushStore(
+    TaskPushStore(
             TaskPushAuthorizationJpaRepository authorizations,
             TaskPushEffectJpaRepository effects)
     {
@@ -42,8 +40,8 @@ class SqliteTaskPushStore
         this.effects = requireNonNull(effects, "effects is null");
     }
 
-    @Override
     @Transactional
+    /** Insert the immutable authorization and all PENDING effects together. */
     public void insert(
             TaskPushAuthorization authorization, List<String> effectKeys, int attemptLimit)
     {
@@ -82,60 +80,61 @@ class SqliteTaskPushStore
         effects.flush();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<TaskPushAuthorization> findAuthorization(String token)
     {
-        return authorizations.findById(token).map(SqliteTaskPushStore::toDomain);
+        return authorizations.findById(token).map(TaskPushStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<TaskPushAuthorization> findActiveByTask(String taskId)
     {
         return authorizations
                 .findFirstByTaskIdAndRevokedAtMsIsNullAndConsumedAtMsIsNull(taskId)
-                .map(SqliteTaskPushStore::toDomain);
+                .map(TaskPushStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** Runnable tokens whose first incomplete cursor is due (or whose effects
+    * are all complete and only need finalization). Parked/backoff tokens must
+    * not starve newer crash recovery behind the bounded sweep. */
     public List<TaskPushAuthorization> findRecoverable(Instant now, int limit)
     {
         return authorizations.findRecoverable(
                         now.toEpochMilli(), PageRequest.of(0, limit))
                 .stream()
-                .map(SqliteTaskPushStore::toDomain)
+                .map(TaskPushStore::toDomain)
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** Awaiting-push tasks whose task-origin PR already has a remote identity,
+    * but which have no active saga authorization. The persistence query must
+    * apply those predicates before its limit so unrelated tasks cannot starve
+    * pre-authorization crash recovery. */
     public List<String> findOrphanedRemotePullRequestTaskIds(int limit)
     {
         return authorizations.findOrphanedRemotePullRequestTaskIds(
                 PageRequest.of(0, limit));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<TaskPushEffect> findEffects(String token)
     {
         return effects.findByTokenOrderByIdAsc(token).stream()
-                .map(SqliteTaskPushStore::toDomain)
+                .map(TaskPushStore::toDomain)
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<TaskPushEffect> findEffect(String token, String effectKey)
     {
         return effects.findByTokenAndEffectKey(token, effectKey)
-                .map(SqliteTaskPushStore::toDomain);
+                .map(TaskPushStore::toDomain);
     }
 
-    @Override
     @Transactional
+    /** Claim a due effect and atomically spend one attempt. */
     public boolean claimEffect(
             String token, String effectKey, String owner, Instant now, Instant leaseUntil)
     {
@@ -143,7 +142,6 @@ class SqliteTaskPushStore
                 token, effectKey, owner, now.toEpochMilli(), leaseUntil.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean completeEffect(
             String token, String effectKey, String owner, String evidenceJson, Instant completedAt)
@@ -152,8 +150,10 @@ class SqliteTaskPushStore
                 token, effectKey, owner, evidenceJson, completedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
+    /** Stamp an exact remote fact observed outside this saga (for example a
+    * matching remote-open event). The effect is marked ever-attempted so a
+    * partially externalized authorization can no longer be revoked. */
     public boolean completeObservedEffect(
             String token, String effectKey, String evidenceJson, Instant completedAt)
     {
@@ -161,7 +161,6 @@ class SqliteTaskPushStore
                 token, effectKey, evidenceJson, completedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean failEffect(
             String token,
@@ -181,8 +180,9 @@ class SqliteTaskPushStore
                 epoch(nextAttemptAt)) == 1;
     }
 
-    @Override
     @Transactional
+    /** Re-arm exactly one parked permanent/bound-exhausted cursor. The new
+    * limit is the attempts already spent plus the positive allowance. */
     public boolean rearmEffect(
             String token, String effectKey, int addedAllowance, Instant retryAt)
     {
@@ -193,22 +193,22 @@ class SqliteTaskPushStore
                 token, effectKey, addedAllowance, retryAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
+    /** Revoke only a token whose effects have never been claimed. */
     public boolean revokeIfUnclaimed(String token, String outcome, Instant revokedAt)
     {
         return authorizations.revokeIfUnclaimed(token, outcome, revokedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
+    /** Terminal task sealing revokes an active cursor regardless of attempts. */
     public boolean sealActive(String taskId, String outcome, Instant revokedAt)
     {
         return authorizations.sealActive(taskId, outcome, revokedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
+    /** Consume only after every effect is durably complete. */
     public boolean consumeIfComplete(String token, String outcome, Instant consumedAt)
     {
         return authorizations.consumeIfComplete(token, outcome, consumedAt.toEpochMilli()) == 1;

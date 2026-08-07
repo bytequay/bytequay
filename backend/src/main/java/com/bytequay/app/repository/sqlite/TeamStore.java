@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.Team;
-import com.bytequay.app.repository.TeamStore;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,20 +28,23 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Local persistence for teams. Member rosters are stored in a separate
+ * table; the store presents them as a single {@link Team} record so callers
+ * never juggle two collections.
+ */
 @Repository
-public class SqliteTeamStore
-        implements TeamStore
+public class TeamStore
 {
     private final TeamJpaRepository teamRepo;
     private final TeamMemberJpaRepository memberRepo;
 
-    public SqliteTeamStore(TeamJpaRepository teamRepo, TeamMemberJpaRepository memberRepo)
+    public TeamStore(TeamJpaRepository teamRepo, TeamMemberJpaRepository memberRepo)
     {
         this.teamRepo = requireNonNull(teamRepo, "teamRepo is null");
         this.memberRepo = requireNonNull(memberRepo, "memberRepo is null");
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<Team> findAll()
     {
@@ -51,15 +53,15 @@ public class SqliteTeamStore
                 .collect(toImmutableList());
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<Team> find(long id)
     {
         return teamRepo.findById(id).map(this::toDomain);
     }
 
-    @Override
     @Transactional
+    /** Creates a new team with the given roster. Throws if {@code name} is
+    *  already in use. {@code description} may be null. */
     public Team create(String name, String avatar, String color, String description, Set<String> members)
     {
         validateRequired(name, "name");
@@ -78,8 +80,9 @@ public class SqliteTeamStore
         return toDomain(saved);
     }
 
-    @Override
     @Transactional
+    /** Renames / re-colours / re-describes an existing team without touching
+    *  its roster. {@code description} may be null. */
     public Team update(long id, String name, String avatar, String color, String description)
     {
         validateRequired(name, "name");
@@ -112,8 +115,8 @@ public class SqliteTeamStore
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    @Override
     @Transactional
+    /** Replaces the entire roster. Logins are normalised to lowercase. */
     public Team replaceMembers(long id, Set<String> members)
     {
         TeamEntity team = teamRepo.findById(id)
@@ -123,7 +126,6 @@ public class SqliteTeamStore
         return toDomain(team);
     }
 
-    @Override
     @Transactional
     public void delete(long id)
     {

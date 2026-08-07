@@ -14,7 +14,7 @@
 package com.bytequay.app.service.signal;
 
 import com.bytequay.app.domain.ThreadSignal;
-import com.bytequay.app.repository.ThreadSignalStore;
+import com.bytequay.app.repository.sqlite.ThreadSignalStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

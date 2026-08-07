@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.gmail;
 
-import com.bytequay.app.repository.EmailMutedSenderStore;
+import com.bytequay.app.repository.sqlite.EmailMutedSenderStore;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;

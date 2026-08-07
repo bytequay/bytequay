@@ -22,7 +22,6 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -41,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
-class TestSqliteIterationStore
+class TestIterationStore
 {
     @Autowired
     private IterationStore iterationStore;

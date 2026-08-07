@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.TaskStageIteration;
-import com.bytequay.app.repository.IterationStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,18 +26,17 @@ import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteIterationStore
-        implements IterationStore
+public class IterationStore
 {
     private final TaskStageIterationJpaRepository iterations;
 
-    SqliteIterationStore(TaskStageIterationJpaRepository iterations)
+    IterationStore(TaskStageIterationJpaRepository iterations)
     {
         this.iterations = requireNonNull(iterations, "iterations is null");
     }
 
-    @Override
     @Transactional
+    /** Insert or update an iteration by id. */
     public void save(TaskStageIteration iteration)
     {
         TaskStageIterationEntity entity = iterations.findById(iteration.id().toString())
@@ -58,25 +56,24 @@ class SqliteIterationStore
         iterations.save(entity);
     }
 
-    @Override
     public Optional<TaskStageIteration> findById(UUID id)
     {
-        return iterations.findById(id.toString()).map(SqliteIterationStore::toIteration);
+        return iterations.findById(id.toString()).map(IterationStore::toIteration);
     }
 
-    @Override
+    /** The iteration tracking a given monitor turn, if any. */
     public Optional<TaskStageIteration> findByTurnId(String turnId)
     {
-        return iterations.findFirstByTurnId(turnId).map(SqliteIterationStore::toIteration);
+        return iterations.findFirstByTurnId(turnId).map(IterationStore::toIteration);
     }
 
-    @Override
+    /** The iteration whose summary is being solicited by a follow-up turn. */
     public Optional<TaskStageIteration> findBySummaryRequestTurnId(String turnId)
     {
-        return iterations.findFirstBySummaryRequestTurnId(turnId).map(SqliteIterationStore::toIteration);
+        return iterations.findFirstBySummaryRequestTurnId(turnId).map(IterationStore::toIteration);
     }
 
-    @Override
+    /** Next 1-based iteration number for a stage. */
     public int nextIterationNumber(UUID stageId)
     {
         return iterations.findFirstByStageIdOrderByIterationNumberDesc(stageId.toString())
@@ -84,21 +81,23 @@ class SqliteIterationStore
                 .orElse(1);
     }
 
-    @Override
+    /** All iterations of a stage, oldest-first — drives the stage-detail
+    *  iteration bands. */
     public List<TaskStageIteration> findByStage(UUID stageId)
     {
         return iterations.findByStageIdOrderByIterationNumberAsc(stageId.toString()).stream()
-                .map(SqliteIterationStore::toIteration)
+                .map(IterationStore::toIteration)
                 .toList();
     }
 
-    @Override
+    /** Most-recent summarised iterations for a task, newest-first — the
+    *  cross-agent context hook a later milestone reads. */
     public List<TaskStageIteration> findRecentSummaries(String taskId, int limit)
     {
         return iterations
                 .findBySummaryTextIsNotNullAndTaskIdOrderByStartedAtMsDesc(taskId, firstPage(limit))
                 .stream()
-                .map(SqliteIterationStore::toIteration)
+                .map(IterationStore::toIteration)
                 .toList();
     }
 

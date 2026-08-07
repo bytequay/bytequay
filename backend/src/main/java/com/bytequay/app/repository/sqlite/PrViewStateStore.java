@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PrViewState;
-import com.bytequay.app.repository.PrViewStateStore;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -25,17 +24,16 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Repository
-public class SqlitePrViewStateStore
-        implements PrViewStateStore
+public class PrViewStateStore
 {
     private final PrViewStateJpaRepository jpaRepository;
 
-    public SqlitePrViewStateStore(PrViewStateJpaRepository jpaRepository)
+    public PrViewStateStore(PrViewStateJpaRepository jpaRepository)
     {
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
     }
 
-    @Override
+    /** Returns all view-state rows, keyed by PR id. */
     public Map<Long, PrViewState> findAll()
     {
         return jpaRepository.findAll().stream()
@@ -51,7 +49,8 @@ public class SqlitePrViewStateStore
                                 e.getHandledAction())));
     }
 
-    @Override
+    /** Park the PR until {@code until}. Replaces any existing snooze and
+    *  clears any pending wake reason. */
     public void snooze(long prId, Instant until)
     {
         requireNonNull(until, "until is null");
@@ -64,7 +63,9 @@ public class SqlitePrViewStateStore
         jpaRepository.save(entity);
     }
 
-    @Override
+    /** Wake a snoozed PR. {@code wakeReason} is recorded so the UI can
+    *  surface the just-woke alert; pass null on user-initiated wake
+    *  ("Wake now") to skip the alert. */
     public void unsnooze(long prId, String wakeReason)
     {
         jpaRepository.findById(prId).ifPresent(entity -> {
@@ -75,7 +76,7 @@ public class SqlitePrViewStateStore
         });
     }
 
-    @Override
+    /** Drop a stored wake reason once the user has acknowledged it. */
     public void clearWakeReason(long prId)
     {
         jpaRepository.findById(prId).ifPresent(entity -> {
@@ -86,7 +87,7 @@ public class SqlitePrViewStateStore
         });
     }
 
-    @Override
+    /** Records that the user viewed this PR for the first time. Idempotent. */
     public void markViewed(long prId)
     {
         PrViewStateEntity entity = jpaRepository.findById(prId).orElseGet(() -> newEntity(prId));
@@ -96,7 +97,7 @@ public class SqlitePrViewStateStore
         }
     }
 
-    @Override
+    /** Records that the user handled this PR with the given action. */
     public void markReviewed(long prId, HandledAction action)
     {
         requireNonNull(action, "action is null");
@@ -110,7 +111,7 @@ public class SqlitePrViewStateStore
         jpaRepository.save(entity);
     }
 
-    @Override
+    /** Clears the reviewed timestamp and action so the PR returns to the Inbox. */
     public void reopen(long prId)
     {
         jpaRepository.findById(prId).ifPresent(entity -> {

@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.IssueOrigin;
-import com.bytequay.app.repository.IssueOriginStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -27,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
-class TestSqliteIssueOriginStore
+class TestIssueOriginStore
 {
     @Autowired
     private IssueOriginStore origins;

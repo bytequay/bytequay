@@ -17,7 +17,6 @@ import com.bytequay.app.domain.DevReport;
 import com.bytequay.app.domain.DevReport.Decision;
 import com.bytequay.app.domain.DevReport.TestMapEntry;
 import com.bytequay.app.domain.DevReport.TrickySpot;
-import com.bytequay.app.repository.DevReportStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,21 +33,19 @@ import java.util.UUID;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteDevReportStore
-        implements DevReportStore
+public class DevReportStore
 {
-    private static final Logger log = LoggerFactory.getLogger(SqliteDevReportStore.class);
+    private static final Logger log = LoggerFactory.getLogger(DevReportStore.class);
 
     private final DevReportJpaRepository reports;
     private final ObjectMapper mapper;
 
-    SqliteDevReportStore(DevReportJpaRepository reports, ObjectMapper mapper)
+    DevReportStore(DevReportJpaRepository reports, ObjectMapper mapper)
     {
         this.reports = requireNonNull(reports, "reports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    @Override
     @Transactional
     public DevReport save(DevReport report)
     {
@@ -65,7 +62,6 @@ class SqliteDevReportStore
         return toDomain(reports.save(e));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<DevReport> findByTask(String taskId)
     {

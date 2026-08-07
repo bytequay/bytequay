@@ -17,7 +17,6 @@ import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;

@@ -17,7 +17,7 @@ import com.bytequay.app.domain.FootprintStop;
 import com.bytequay.app.domain.FootprintsTrail;
 import com.bytequay.app.domain.SurfaceType;
 import com.bytequay.app.domain.SurfaceVisit;
-import com.bytequay.app.repository.SurfaceVisitStore;
+import com.bytequay.app.repository.sqlite.SurfaceVisitStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

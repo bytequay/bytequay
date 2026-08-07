@@ -15,7 +15,7 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.DevReport;
 import com.bytequay.app.domain.DevReport.Decision;
-import com.bytequay.app.repository.DevReportStore;
+import com.bytequay.app.repository.sqlite.DevReportStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;

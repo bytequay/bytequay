@@ -14,7 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.CiFixingLogQueryMarkerStore;
+import com.bytequay.app.repository.sqlite.CiFixingLogQueryMarkerStore;
 import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.IterationService.CiFixingSummaryEntry;
 import org.springframework.stereotype.Component;

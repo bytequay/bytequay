@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.repository.EmailMutedSenderStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,18 +22,17 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteEmailMutedSenderStore
-        implements EmailMutedSenderStore
+public class EmailMutedSenderStore
 {
     private final EmailMutedSenderJpaRepository repo;
 
-    SqliteEmailMutedSenderStore(EmailMutedSenderJpaRepository repo)
+    EmailMutedSenderStore(EmailMutedSenderJpaRepository repo)
     {
         this.repo = requireNonNull(repo, "repo is null");
     }
 
-    @Override
     @Transactional
+    /** Adds a mute. Idempotent — re-muting refreshes the timestamp. */
     public void mute(String accountEmail, String senderEmail, Instant mutedAt)
     {
         EmailMutedSenderEntity entity = new EmailMutedSenderEntity();
@@ -43,14 +41,14 @@ class SqliteEmailMutedSenderStore
         repo.save(entity);
     }
 
-    @Override
     @Transactional
+    /** Removes a mute. No-op when the row doesn't exist. */
     public void unmute(String accountEmail, String senderEmail)
     {
         repo.deleteById(new EmailMutedSenderEntity.EmailMutedSenderKey(accountEmail, senderEmail));
     }
 
-    @Override
+    /** Returns the muted addresses for an account, undefined order. */
     public List<String> listMuted(String accountEmail)
     {
         return repo.findByIdAccountEmail(accountEmail).stream()

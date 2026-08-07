@@ -16,7 +16,7 @@ package com.bytequay.app.service;
 import com.bytequay.app.domain.IssueOrigin;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.IssueOriginStore;
+import com.bytequay.app.repository.sqlite.IssueOriginStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

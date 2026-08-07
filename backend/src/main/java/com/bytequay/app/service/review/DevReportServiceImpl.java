@@ -17,7 +17,7 @@ import com.bytequay.app.domain.DevReport;
 import com.bytequay.app.domain.DevReport.Decision;
 import com.bytequay.app.domain.DevReport.TestMapEntry;
 import com.bytequay.app.domain.DevReport.TrickySpot;
-import com.bytequay.app.repository.DevReportStore;
+import com.bytequay.app.repository.sqlite.DevReportStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 

@@ -26,7 +26,6 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.PRStore;
-import com.bytequay.app.repository.TaskPushStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;

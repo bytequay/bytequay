@@ -41,13 +41,13 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.RoundGateStore;
 import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.repository.TaskPushStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
+import com.bytequay.app.repository.sqlite.RoundGateStore;
+import com.bytequay.app.repository.sqlite.TaskPushStore;
 import com.bytequay.app.service.localpr.PRService;
 import org.springframework.context.ApplicationContext;
 

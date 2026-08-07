@@ -31,7 +31,7 @@ import java.util.function.Supplier;
  * keeps its own {@code Map<RepoRef, CachedValue<T>>} with a dedicated
  * TTL — short for activity (it's a "what's happening now" feed),
  * longer for issues. {@code /meta} doesn't live here: it's persisted
- * to {@link com.bytequay.app.repository.RepoMetaStore} so it survives
+ * to {@link com.bytequay.app.repository.sqlite.RepoMetaStore} so it survives
  * a backend restart.
  *
  * <p>The pulls cache holds the raw GitHub-derived list. The viewState

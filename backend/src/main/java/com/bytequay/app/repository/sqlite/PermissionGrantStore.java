@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.PermissionGrant;
-import com.bytequay.app.repository.PermissionGrantStore;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,38 +22,43 @@ import java.util.List;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Read/write access to {@code permission_grant} rows. The
+ * PermissionResolver only reads (per-scope lookups while walking the
+ * cascade); create / delete exist so a settings surface can manage
+ * grants later.
+ */
 @Repository
-public class SqlitePermissionGrantStore
-        implements PermissionGrantStore
+public class PermissionGrantStore
 {
     private final PermissionGrantJpaRepository repo;
 
-    public SqlitePermissionGrantStore(PermissionGrantJpaRepository repo)
+    public PermissionGrantStore(PermissionGrantJpaRepository repo)
     {
         this.repo = requireNonNull(repo, "repo is null");
     }
 
-    @Override
+    /** Grants attached to the global scope (scope_id is null). */
     public List<PermissionGrant> findGlobal()
     {
         return repo.findByScopeKindAndScopeIdIsNull("global").stream()
-                .map(SqlitePermissionGrantStore::toDomain)
+                .map(PermissionGrantStore::toDomain)
                 .collect(toImmutableList());
     }
 
-    @Override
+    /** Grants attached to a narrower scope, keyed by its id. */
     public List<PermissionGrant> findForScope(String scopeKind, String scopeId)
     {
         if (scopeKind == null || scopeId == null || scopeId.isBlank()) {
             return List.of();
         }
         return repo.findByScopeKindAndScopeId(scopeKind, scopeId).stream()
-                .map(SqlitePermissionGrantStore::toDomain)
+                .map(PermissionGrantStore::toDomain)
                 .collect(toImmutableList());
     }
 
-    @Override
     @Transactional
+    /** Insert a grant. Returns the persisted row. */
     public PermissionGrant create(
             String scopeKind,
             String scopeId,
@@ -71,15 +75,15 @@ public class SqlitePermissionGrantStore
         return toDomain(repo.save(e));
     }
 
-    @Override
     @Transactional
+    /** Hard-delete by id. No-op when the id doesn't exist. */
     public void delete(long id)
     {
         repo.deleteById(id);
     }
 
-    @Override
     @Transactional
+    /** Delete every grant at a narrower scope (workspace/thread/task). Returns the count removed. */
     public int deleteForScope(String scopeKind, String scopeId)
     {
         if (scopeKind == null || scopeId == null || scopeId.isBlank()) {

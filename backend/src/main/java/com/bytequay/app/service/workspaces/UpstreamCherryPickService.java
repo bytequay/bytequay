@@ -39,6 +39,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.util.FileSystemUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -431,6 +432,32 @@ public class UpstreamCherryPickService
     }
 
     /**
+     * Closes the run and then forgets it: same teardown as {@link #close}, plus
+     * the run's own record and log. For a run whose result is already on the
+     * remote there is nothing left worth keeping locally, and the sync list is
+     * where a finished range otherwise piles up.
+     *
+     * <p>A run with a worker still on it is closed but not deleted — the worker
+     * writes to these rows as it winds down. Closing sets it on the path to
+     * removal; deleting again once it has stopped finishes the job.
+     */
+    public void delete(String workspaceId, String id)
+    {
+        JobRow row = requireOwned(workspaceId, id);
+        closeRun(row, "at your request");
+        if (activeJobs.contains(id)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "the run is still stopping; it can be deleted in a moment");
+        }
+        // The log is declared ON DELETE CASCADE, but that only fires when the
+        // connection has foreign keys switched on. Deleting it outright keeps
+        // the run from leaving its events behind if that pragma ever changes.
+        jdbc.update("DELETE FROM upstream_cherry_pick_event WHERE job_id = ?", id);
+        jdbc.update("DELETE FROM upstream_cherry_pick_job WHERE id = ?", id);
+    }
+
+    /**
      * A run closes for exactly two reasons: the user closed it, or the pull
      * request it produced was merged or closed on the remote. Either way the
      * picker stops, the watch stops, and the worktree goes.
@@ -459,6 +486,85 @@ public class UpstreamCherryPickService
         stopWatch(row);
         if (!activeJobs.contains(row.id())) {
             removeWorktree(requireRow(row.id()));
+        }
+        releaseResources(row);
+    }
+
+    /**
+     * Everything a run accumulated outside its own log: the agent's on-disk
+     * session, its transcripts, and the local branch. A closed run is over, and
+     * these are the parts that keep costing disk after it is.
+     *
+     * <p>Each step is best-effort and independently guarded — the run is already
+     * closed by the time this runs, so a resource that cannot be released is
+     * worth a log line, never a failed close the user cannot retry.
+     */
+    private void releaseResources(JobRow row)
+    {
+        removeAgentSession(row);
+        // The transcripts are by far the biggest thing in the log, and the run
+        // they explain is finished. The agent's one-line summaries stay.
+        jdbc.update("""
+                DELETE FROM upstream_cherry_pick_event
+                WHERE job_id = ? AND kind = 'agent_log'
+                """, row.id());
+        deleteResultBranch(row);
+    }
+
+    /**
+     * Deletes the CLI agent's on-disk session for this run's worktree. Claude
+     * keys a session directory by the working directory it ran in, with every
+     * non-alphanumeric character replaced by a dash — so the name is derived,
+     * never stored, and the substitution itself is what keeps the result a
+     * single path segment that cannot escape {@code ~/.claude/projects}.
+     *
+     * <p>Only a worktree path this service built is ever encoded, which is what
+     * the job-id check establishes. Codex keeps its sessions elsewhere and is
+     * left alone.
+     */
+    private void removeAgentSession(JobRow row)
+    {
+        if (row.worktreePath() == null || !row.worktreePath().endsWith(row.id())) {
+            return;
+        }
+        Path projects = Path.of(System.getProperty("user.home"), ".claude", "projects");
+        Path session = projects.resolve(
+                row.worktreePath().replaceAll("[^a-zA-Z0-9]", "-"));
+        try {
+            if (Files.isDirectory(session)) {
+                FileSystemUtils.deleteRecursively(session);
+            }
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("removing agent session {} failed: {}", session, e.getMessage());
+        }
+    }
+
+    /**
+     * Drops the local result branch. Gated on the run having opened a pull
+     * request: that is the proof the picks reached the remote. A run closed
+     * before it pushed keeps its branch, because the branch is then the only
+     * copy of the work and deleting it would be unrecoverable.
+     */
+    private void deleteResultBranch(JobRow row)
+    {
+        if (row.prNumber() == null || row.resultBranch() == null) {
+            return;
+        }
+        try {
+            WorkspaceRelationService.ResolvedRelation relation =
+                    relations.requireResolved(row.workspaceId());
+            if (git.refExists(relation.targetClone(), row.resultBranch())) {
+                git.deleteBranches(relation.targetClone(), List.of(row.resultBranch()));
+            }
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("deleting sync branch {} was interrupted", row.resultBranch());
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("deleting sync branch {} failed: {}",
+                    row.resultBranch(), e.getMessage());
         }
     }
 

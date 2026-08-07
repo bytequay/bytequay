@@ -125,15 +125,34 @@ describe('sync run view', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Close run/ }));
     const dialog = screen.getByRole('dialog');
-    expect(dialog.textContent).toContain('worktree is removed');
-    // The branch it built is kept — say so before asking for the click.
+    // Everything a close now releases, named before the click asks for it.
+    expect(dialog.textContent).toContain('isolated worktree');
+    expect(dialog.textContent).toContain('session and stored transcripts');
+    expect(dialog.textContent).toContain('cached CI logs');
+    // This fixture never pushed, so its branch is the only copy and is kept.
     expect(dialog.textContent).toContain('upstream-2-31');
+    expect(dialog.textContent).toContain('Nothing was pushed');
     expect(request.mock.calls.some(([input]) => input.path.endsWith('/close'))).toBe(false);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close run' }));
     await flush();
     expect(request.mock.calls.some(([input]) => input.path.endsWith('/close')
       && input.method === 'POST')).toBe(true);
+  });
+
+  it('deletes the run and leaves the page once it is gone', async () => {
+    const request = mount();
+    await flush();
+
+    fireEvent.click(screen.getByRole('button', { name: /Delete run/ }));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.textContent).toContain('its log is gone for good');
+    expect(request.mock.calls.some(([input]) => input.method === 'DELETE')).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete run' }));
+    await flush();
+    expect(request.mock.calls.some(([input]) => input.method === 'DELETE'
+      && input.path.endsWith('/upstream/cherry-picks/job-1'))).toBe(true);
   });
 
   it('drops every action once the run is closed', async () => {

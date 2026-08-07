@@ -300,6 +300,7 @@ public class HarnessService
                 "watch stopped by user", now));
         store.appendEvent(watch.id(), null, Phase.DONE, "watch_stopped",
                 "Watch stopped; no remote state was changed", "{}", now);
+        store.purgeLogCache(watch.id());
         return get(workspaceId, watchId);
     }
 

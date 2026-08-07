@@ -499,6 +499,19 @@ public class WorkspaceRepositoryController
         return upstreamCherryPicks.close(workspaceId, jobId);
     }
 
+    /**
+     * Closes the run and forgets it: the same teardown as close, plus the run's
+     * record and log. Nothing on the remote is touched.
+     */
+    @DeleteMapping("/upstream/cherry-picks/{jobId}")
+    public ResponseEntity<Void> deleteUpstreamCherryPick(
+            @PathVariable String workspaceId,
+            @PathVariable String jobId)
+    {
+        upstreamCherryPicks.delete(workspaceId, jobId);
+        return ResponseEntity.noContent().build();
+    }
+
     /** Records a steering note on the run, shown in its log. */
     @PostMapping("/upstream/cherry-picks/{jobId}/guidance")
     public UpstreamCherryPickService.UpstreamCherryPickJobDto guideUpstreamCherryPick(

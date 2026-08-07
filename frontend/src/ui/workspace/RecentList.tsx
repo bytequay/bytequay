@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FootprintStopDto, PullRequestDto, SurfaceType, WorkUnitTaskDto } from '../../types';
 import { relativeTime } from '../../relativeTime';
 import { taskLabel } from '../../threads/taskLabel';
+import { isToday } from '../../format';
 
 const MAX_ROWS = 4;
 // ponytail: a flat cap per bucket rather than a "+N more" overflow affordance —
@@ -25,14 +26,6 @@ type RecentStop = FootprintStopDto & {
   recentRepo?: string;
   recentNumber?: number | null;
 };
-
-function isToday(iso: string): boolean {
-  const d = new Date(iso);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear()
-    && d.getMonth() === now.getMonth()
-    && d.getDate() === now.getDate();
-}
 
 /** How recently (today) the user engaged with a PR — reviewed/approved or
  *  just opened it. 0 means not engaged today. */

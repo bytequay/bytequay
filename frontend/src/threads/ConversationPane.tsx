@@ -21,6 +21,7 @@ import { PermissionCard } from './PermissionCard';
 import { formatDuration, ToolOutputBody } from './StructuredConversation';
 import { threadModelLabel } from './threadDisplay';
 import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
+import { formatCost, truncate } from '../format';
 
 export type PendingPermission = {
   callId: string;
@@ -665,16 +666,6 @@ function formatToolOutput(v: unknown): string {
     return String(v);
   }
 }
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
-
-function formatCost(milli: number | null): string {
-  if (!milli) return '$0.00';
-  return `$${(milli / 1000).toFixed(milli < 100 ? 4 : 2)}`;
-}
-
 
 function formatNum(n: number): string {
   if (n < 1_000) return String(n);

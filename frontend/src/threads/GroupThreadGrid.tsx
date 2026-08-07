@@ -22,6 +22,7 @@ import {
 } from './threadTurnSummary';
 import { findPendingPermission } from './permissions';
 import { threadModelLabel, threadTokenLabel } from './threadDisplay';
+import { formatCost } from '../format';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
@@ -631,11 +632,6 @@ function formatAge(iso: string): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
-}
-
-function formatCost(milli: number): string {
-  if (!milli) return '$0.00';
-  return `$${(milli / 1000).toFixed(milli < 100 ? 4 : 2)}`;
 }
 
 // ────────────────────────────────────────────────────────────────────

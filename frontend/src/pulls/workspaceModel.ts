@@ -15,6 +15,7 @@ import type { PullRequestDto } from '../types';
 import type { DashboardPR } from '../types/dashboardPr';
 import { toRow } from './model';
 import type { PullRow } from './model';
+import { isToday } from '../format';
 
 /**
  * View model for the workspace Pull-requests surface (Board|List + detail
@@ -40,15 +41,6 @@ export function filterCounts(rows: PullRequestDto[]): { review: number; mine: nu
     mine: open.filter(pr => pr.origin === 'AUTHORED').length,
     open: open.length,
   };
-}
-
-function isToday(iso: string | null): boolean {
-  if (iso === null) return false;
-  const date = new Date(iso);
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate();
 }
 
 export function bucketFor(pr: PullRequestDto): Bucket {

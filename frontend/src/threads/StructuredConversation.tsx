@@ -21,6 +21,7 @@ import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard, type PermissionDecideHandler } from './PermissionCard';
 import { threadModelLabel } from './threadDisplay';
 import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
+import { formatCost, truncate } from '../format';
 
 type Props = {
   messages: ThreadMessageDto[];
@@ -871,7 +872,6 @@ function LifecycleLine({
   return null;
 }
 
-
 // ────────────────────────────────────────────────────────────────────
 // Helpers — duplicated from ConversationPane intentionally so this
 // renderer can evolve without churning the terminal view.
@@ -952,15 +952,6 @@ function formatToolOutput(v: unknown): string {
   if (typeof v === 'string') return v;
   try { return JSON.stringify(v, null, 2); }
   catch { return String(v); }
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
-}
-
-function formatCost(milli: number | null): string {
-  if (!milli) return '$0.00';
-  return `$${(milli / 1000).toFixed(milli < 100 ? 4 : 2)}`;
 }
 
 export function formatDuration(ms: number | null): string {

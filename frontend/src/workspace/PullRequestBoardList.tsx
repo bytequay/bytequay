@@ -13,6 +13,7 @@
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import type { PullRequestDto } from '../types';
+import { isToday } from '../format';
 
 type View = 'board' | 'list';
 type Filter = 'review' | 'mine' | 'all';
@@ -353,15 +354,6 @@ function labelTone(label: string): string {
   if (label === 'notable') return 'green';
   if (label === 'exasol') return 'pink';
   return '';
-}
-
-function isToday(iso: string | null): boolean {
-  if (iso === null) return false;
-  const date = new Date(iso);
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate();
 }
 
 function relative(iso: string): string {

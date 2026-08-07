@@ -79,9 +79,12 @@ export function syncProgress(job: UpstreamCherryPickJobDto): {
   percent: number;
 } {
   const total = Math.max(job.requestedCount, 0);
+  // A skipped commit is off the queue for good, so it counts as settled — the
+  // bar, the label, and the DONE list all have to agree on that or the run
+  // reads as further behind than it is.
   const done = Math.min(job.appliedCount + job.skippedCount, total);
   return {
-    done: job.appliedCount,
+    done,
     total,
     percent: total === 0 ? 0 : Math.round((done / total) * 100),
   };

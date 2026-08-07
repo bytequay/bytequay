@@ -55,7 +55,7 @@ describe('sync run view', () => {
       .toBe('DONE · 2');
     expect(document.querySelector('.sr-queue__current-subject')?.textContent)
       .toBe('Refactor expression visitors to a registry');
-    expect(screen.getByText('2 of 5 picked')).toBeTruthy();
+    expect(screen.getByText('2 of 5 settled')).toBeTruthy();
 
     // The centre column says what is happening, not that something is.
     expect(document.querySelector('.sr-now__copy')?.textContent)

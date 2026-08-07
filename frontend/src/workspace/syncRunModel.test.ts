@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  durationLabel, syncLogGroups, syncNowLine, syncPhase, syncQueue,
+  durationLabel, syncLogGroups, syncNowLine, syncPhase, syncProgress, syncQueue,
   parseTranscript,
   sessionTranscriptPath,
 } from './syncRunModel';
@@ -58,6 +58,13 @@ describe('sync run model', () => {
     expect(queue.next.map(commit => commit.sha)).toEqual(['e5']);
     expect(queue.cleanCount).toBe(1);
     expect(queue.carriedCount).toBe(1);
+  });
+
+  it('counts skipped picks as settled so the label matches the done list', () => {
+    const progress = syncProgress(job);
+    expect(progress.done).toBe(syncQueue(commits).done.length);
+    expect(progress.total).toBe(5);
+    expect(progress.percent).toBe(60);
   });
 
   it('caps the waiting window and counts the rest rather than listing them', () => {

@@ -28,7 +28,7 @@ context, tools, review, and guardrails—is what makes them effective. ByteQuay'
 end goal is to replace cloud agents from OpenAI and Anthropic with open-source
 agents running entirely on your machine.
 
-**v0.3.6 is pre-1.0 and actively developed. ByteQuay currently supports macOS only.**
+**v0.3.7 is pre-1.0 and actively developed. ByteQuay currently supports macOS only.**
 
 ## Highlights
 

@@ -39,73 +39,49 @@ public interface AgentRunStore
      *  row still holds {@code expected}. Never touches metadata.
      *
      *  @return true when the row was updated */
-    default boolean updateStatusIf(String runId, String expected, String to, Instant finishedAt)
-    {
-        throw new UnsupportedOperationException("updateStatusIf");
-    }
+    boolean updateStatusIf(String runId, String expected, String to, Instant finishedAt);
 
     /** Compare-and-set the complete lifecycle projection. This is the
      *  restart/pause/terminal form: all status-derived columns move in the
      *  same statement, so a crash cannot leave a queued run looking
      *  completed or a terminal run looking paused. */
-    default boolean transitionIf(
+    boolean transitionIf(
             String runId,
             String expected,
             String to,
             Instant finishedAt,
             String pauseReason,
-            String outcome)
-    {
-        throw new UnsupportedOperationException("transitionIf");
-    }
+            String outcome);
 
     /** Targeted progress write (iterations + usage); never touches
      *  status. */
-    default void updateProgress(String runId, int iterations, long costUsdMilli, long tokensIn, long tokensOut)
-    {
-        throw new UnsupportedOperationException("updateProgress");
-    }
+    void updateProgress(String runId, int iterations, long costUsdMilli, long tokensIn, long tokensOut);
 
     /** Targeted budget write; never touches status. */
-    default void updateBudget(String runId, Integer budget)
-    {
-        throw new UnsupportedOperationException("updateBudget");
-    }
+    void updateBudget(String runId, Integer budget);
 
     /** Targeted headline/outcome write; never touches status. */
-    default void updateHeadline(String runId, String headline, String outcome)
-    {
-        throw new UnsupportedOperationException("updateHeadline");
-    }
+    void updateHeadline(String runId, String headline, String outcome);
 
     /** Targeted ownership/session linkage write; never touches lifecycle. */
-    default void updateOwnership(
+    void updateOwnership(
             String runId,
             String workspaceId,
             String threadId,
             String provider,
             String model,
-            String launchInput)
-    {
-        throw new UnsupportedOperationException("updateOwnership");
-    }
+            String launchInput);
 
     /** Targeted metrics payload write; never touches lifecycle. */
-    default void updateMetrics(String runId, String metricsJson)
-    {
-        throw new UnsupportedOperationException("updateMetrics");
-    }
+    void updateMetrics(String runId, String metricsJson);
 
     /** Targeted usage/cursor write; never touches lifecycle. */
-    default void updateAccounting(
+    void updateAccounting(
             String runId,
             long costUsdMilli,
             long tokensIn,
             long tokensOut,
-            int stepCursor)
-    {
-        throw new UnsupportedOperationException("updateAccounting");
-    }
+            int stepCursor);
 
     Optional<AgentRun> findById(String id);
 

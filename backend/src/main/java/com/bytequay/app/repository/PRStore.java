@@ -42,15 +42,9 @@ public interface PRStore
      *  value. Entity-managed — {@link #save} never resets it. Every
      *  submitted local review advances it; validation claims bound to
      *  an older epoch are superseded. */
-    default long incrementLocalReviewEpoch(String prId)
-    {
-        throw new UnsupportedOperationException("incrementLocalReviewEpoch");
-    }
+    long incrementLocalReviewEpoch(String prId);
 
-    default long localReviewEpoch(String prId)
-    {
-        throw new UnsupportedOperationException("localReviewEpoch");
-    }
+    long localReviewEpoch(String prId);
 
     Optional<PR> findByTaskId(String taskId);
 

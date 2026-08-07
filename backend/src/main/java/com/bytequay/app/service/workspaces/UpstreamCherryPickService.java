@@ -915,9 +915,11 @@ public class UpstreamCherryPickService
                     "upstream cherry-pick is not paused for a conflict");
         }
         if (row.pauseRequested() || row.repairPending()) {
-            // Both parks happen at a commit boundary — one requested, one after a
-            // repair could not be verified. Either way the current commit was
-            // never started, so there is nothing to continue or reconcile.
+            // Both parks happen at a commit boundary, so the current commit was
+            // never started and there is nothing to continue or reconcile. A
+            // repair park leaves repair_pending set through this: the pick before
+            // the boundary is committed but unrepaired, and the worker owes it a
+            // retry before it picks anything else.
             clearPauseRequest(id);
             record(id, currentPickIndex(row), "note", "Resumed", null, null, null);
             queue(id);
@@ -1139,6 +1141,11 @@ public class UpstreamCherryPickService
             List<String> skipped = new ArrayList<>(row.skippedShas());
             List<String> conflicted = new ArrayList<>(row.conflictedShas());
             int index = row.nextCommitIndex();
+            if (row.repairPending() && index > 0
+                    && !retryPendingRepair(
+                            id, worktree, index - 1, row.specs().get(index - 1))) {
+                return;
+            }
             while (index < row.specs().size()) {
                 String stop = stopReason(id);
                 if ("closed".equals(stop)) {
@@ -1305,6 +1312,36 @@ public class UpstreamCherryPickService
     }
 
     /**
+     * Finishes the repair the run parked on before it picks anything else. The
+     * pick itself is already committed — the index advanced past it so a resume
+     * would not apply it twice — which is exactly why a resume used to sail past
+     * the unrepaired conflict and push git's markers to the pull request.
+     *
+     * <p>The park did not keep the conflicted paths, so they are read back off
+     * the tree. Nothing left carrying a marker means the conflict was settled in
+     * the worktree by hand, and the run simply carries on.
+     *
+     * @return false when the retry parked again and the worker must stop
+     */
+    private boolean retryPendingRepair(
+            String id, Path worktree, int index, CommitSpec commit)
+            throws IOException, InterruptedException
+    {
+        List<String> unrepaired = git.pathsWithConflictMarkers(worktree, List.of());
+        if (unrepaired.isEmpty()) {
+            clearRepairPending(id);
+            return true;
+        }
+        record(id, index, "note", "Retrying the repair of " + commit.subject(),
+                "the run parked here before its conflict was resolved", null, null);
+        if (!repairConflictedPick(id, worktree, index, commit, unrepaired)) {
+            return false;
+        }
+        clearRepairPending(id);
+        return true;
+    }
+
+    /**
      * The per-commit handoff. A conflicted pick is committed with git's own
      * resolution, markers and all; the agent then repairs it, commits the
      * fixup and validates it. The program's part is starting that turn,
@@ -1373,6 +1410,15 @@ public class UpstreamCherryPickService
         if (git.hasUncommittedChanges(worktree)) {
             return parked(id, index, commit,
                     "the repair left uncommitted changes in the worktree");
+        }
+        // The one thing the verdict cannot be taken on trust for. Git's own
+        // three-way output is already committed by the time the agent starts, so
+        // a file it reported resolved but never edited keeps its markers, and
+        // from here nothing else reads the diff before the branch is pushed.
+        List<String> unresolved = git.pathsWithConflictMarkers(worktree, conflictPaths);
+        if (!unresolved.isEmpty()) {
+            return parked(id, index, commit,
+                    "the repair left conflict markers in " + String.join(", ", unresolved));
         }
         recordFixup(id, index, worktree);
         return true;
@@ -2020,7 +2066,21 @@ public class UpstreamCherryPickService
     {
         jdbc.update("""
                 UPDATE upstream_cherry_pick_job
-                SET pause_requested = 0, repair_pending = 0, updated_at_ms = ?
+                SET pause_requested = 0, updated_at_ms = ?
+                WHERE id = ?
+                """, now(), id);
+    }
+
+    /**
+     * Only once the repair that parked the run has actually been made. This used
+     * to be cleared alongside the pause request, which let a resume walk straight
+     * past a pick whose conflict was never resolved.
+     */
+    private void clearRepairPending(String id)
+    {
+        jdbc.update("""
+                UPDATE upstream_cherry_pick_job
+                SET repair_pending = 0, updated_at_ms = ?
                 WHERE id = ?
                 """, now(), id);
     }

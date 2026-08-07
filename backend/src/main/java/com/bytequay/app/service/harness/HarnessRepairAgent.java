@@ -37,7 +37,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -62,6 +61,14 @@ public class HarnessRepairAgent
     private static final String PHASE_ONE_COMMITTED = "resolved";
     private static final String PHASE_ONE_UNVALIDATED = "resolved_unvalidated";
     private static final int MAX_VERDICT_RETRIES = 2;
+    /**
+     * A runaway guard on a single turn, not the watch's budget — that one is
+     * enforced by adding up what each turn reports and checking before the next
+     * one starts. Capping a turn at whatever is left kills turns that have
+     * barely begun, and the engine only notices it is over once it is, so the
+     * money is spent either way and the round comes back with nothing.
+     */
+    private static final int TURN_COST_CAP_CENTS = 10_000;
     private static final int MAX_DETAIL = 500;
     /** Matches what the parser stores, so nothing is kept and then withheld. The
      * old half-size cut a long cause chain off at the root cause's first line. */
@@ -228,10 +235,15 @@ public class HarnessRepairAgent
         String transcript = null;
         List<Learned> learned = List.of();
         for (int attempt = 0; attempt <= MAX_VERDICT_RETRIES; attempt++) {
+            if (spent >= budgetMilliUsd) {
+                return new Outcome(
+                        false, false,
+                        "the repair budget ran out after " + attempt + " turns",
+                        learned, spent, session, transcript);
+            }
             CliReviewRunner.Result result = cli.run(
                     provider, prompt, session, worktree, null,
-                    toIntExact(Math.max(1, (budgetMilliUsd - spent) / 10)),
-                    CliReviewRunner.Sandbox.WRITE, onLine);
+                    TURN_COST_CAP_CENTS, CliReviewRunner.Sandbox.WRITE, onLine);
             transcript = result.transcript();
             spent += result.costUsdMilli();
             session = result.sessionId() == null ? session : result.sessionId();

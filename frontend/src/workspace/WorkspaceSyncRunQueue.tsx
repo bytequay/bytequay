@@ -65,7 +65,7 @@ export default function WorkspaceSyncRunQueue({
     usePersistentToggle('bytequay.syncRun.syncsOpen', true);
   const queue = syncQueue(commits);
   const progress = syncProgress(job);
-  const doneRows = allDone ? queue.done : queue.done.slice(-COLLAPSED_DONE_ROWS);
+  const doneRows = allDone ? queue.done : collapsedDone(queue.done);
   const hiddenDone = queue.done.length - doneRows.length;
 
   return (
@@ -225,6 +225,19 @@ function HarnessFooter({ harness, onFixNow }: {
       )}
     </div>
   );
+}
+
+/**
+ * The tail of DONE, but of the picks — a range full of dependency bumps ends
+ * in a run of skips, and a window that lands on them reads as "everything was
+ * skipped". The skips are counted in the section meta and are all there behind
+ * "View all", which is where a reader who wants them looks.
+ */
+function collapsedDone(
+  done: UpstreamCherryPickCommitDto[],
+): UpstreamCherryPickCommitDto[] {
+  const picks = done.filter(commit => commit.state !== 'skipped');
+  return (picks.length > 0 ? picks : done).slice(-COLLAPSED_DONE_ROWS);
 }
 
 function DoneRow({ commit, fixup }: {

@@ -86,6 +86,33 @@ describe('sync run view', () => {
     expect(document.querySelector('.sr-queue__note-sha')?.textContent).toBe('5d1ae74');
   });
 
+  it('collapses done to the picks, not to a tail that is all skips', async () => {
+    const bumps = syncRun();
+    bumps.commits = [
+      ...bumps.commits.slice(0, 2),
+      ...Array.from({ length: 8 }, (unused, offset) => ({
+        index: 10 + offset,
+        sha: `bump${offset}`,
+        shortSha: `bump${offset}`,
+        subject: `Bump some dependency ${offset}`,
+        state: 'skipped' as const,
+      })),
+      ...bumps.commits.slice(2),
+    ];
+    bumps.job = { ...bumps.job, requestedCount: 13, skippedCount: 8 };
+    mount(bumps);
+    await flush();
+
+    expect(document.querySelector('.sr-queue__section-label')?.textContent)
+      .toBe('DONE · 10');
+    const collapsed = document.querySelectorAll('.sr-queue__done .sr-queue__row');
+    expect(collapsed).toHaveLength(2);
+    expect(document.querySelector('.sr-queue__done .is-skipped')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /View all 10/ }));
+    expect(document.querySelectorAll('.sr-queue__done .is-skipped')).toHaveLength(8);
+  });
+
   it('offers a pause while running and never claims anything was pushed', async () => {
     const request = mount();
     await flush();

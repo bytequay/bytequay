@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
-import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowCanaryRoute;
 import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowInvariantAuditor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.bytequay.app.testing.SqliteTestPools;
@@ -29,13 +28,13 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @ExtendWith(SqliteTestPools.class)
-class TestDevelopmentFlowCanaryGuardsMigration
+class TestDevelopmentFlowDiagnosticsMigration
 {
     @TempDir
     private Path tempDir;
 
     @Test
-    void exposesFailClosedCanaryControlsAndEmptyDatabaseDiagnostics()
+    void exposesEmptyDatabaseDiagnosticsAndLegacyDrain()
     {
         String url = migrated("diagnostics.db");
         DataSource dataSource = SqliteTestPools.open(url);
@@ -68,13 +67,6 @@ class TestDevelopmentFlowCanaryGuardsMigration
         assertThat(auditor.legacyDrainStatus().nonterminalTasks()).isOne();
         jdbc.update("UPDATE tasks SET status = 'COMPLETED' WHERE id = 'legacy-task'");
         assertThat(auditor.legacyDrainStatus().drained()).isTrue();
-
-        DevelopmentFlowCanaryRoute route = new DevelopmentFlowCanaryRoute();
-        assertThat(route.routesNewTaskToV2("workspace-1")).isTrue();
-        assertThat(route.routesNewTaskToV2("workspace-3")).isTrue();
-        assertThat(route.routesNewTaskToV2(" ")).isFalse();
-        assertThat(route.routesNewTaskToV2(null)).isFalse();
-        assertThat(route.snapshot().v2Only()).isTrue();
     }
 
     private String migrated(String name)
@@ -93,5 +85,4 @@ class TestDevelopmentFlowCanaryGuardsMigration
     {
         MigratedSqliteDatabase.migrate(url);
     }
-
 }

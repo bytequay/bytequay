@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.developmentflow;
 
-import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowCanaryRoute;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
 import org.junit.jupiter.api.Test;
@@ -90,14 +89,9 @@ class TestLegacyExecutionRetirement
     }
 
     @Test
-    void permanentRouteAndRetiredSchedulerAreFailClosed()
+    void retiredSchedulerIsFailClosed()
             throws IOException
     {
-        DevelopmentFlowCanaryRoute route = new DevelopmentFlowCanaryRoute();
-        assertThat(route.routesNewTaskToV2("workspace")).isTrue();
-        assertThat(route.routesNewTaskToV2(" ")).isFalse();
-        assertThat(route.snapshot().v2Only()).isTrue();
-
         Path scheduler = MAIN.resolve(
                 "java/com/bytequay/app/service/threads/RetiredThreadTurnScheduler.java");
         String contents = Files.readString(scheduler);

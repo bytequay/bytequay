@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowCanaryRoute;
 import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowInvariantAuditor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,14 +26,11 @@ import static java.util.Objects.requireNonNull;
 public final class DevelopmentFlowDiagnosticsController
 {
     private final DevelopmentFlowInvariantAuditor auditor;
-    private final DevelopmentFlowCanaryRoute route;
 
     public DevelopmentFlowDiagnosticsController(
-            DevelopmentFlowInvariantAuditor auditor,
-            DevelopmentFlowCanaryRoute route)
+            DevelopmentFlowInvariantAuditor auditor)
     {
         this.auditor = requireNonNull(auditor, "auditor is null");
-        this.route = requireNonNull(route, "route is null");
     }
 
     @GetMapping("/diagnostics")
@@ -47,11 +43,5 @@ public final class DevelopmentFlowDiagnosticsController
     public DevelopmentFlowInvariantAuditor.DrainStatus legacyDrain()
     {
         return auditor.legacyDrainStatus();
-    }
-
-    @GetMapping("/route")
-    public DevelopmentFlowCanaryRoute.Snapshot route()
-    {
-        return route.snapshot();
     }
 }

@@ -963,7 +963,7 @@ function formatCost(milli: number | null): string {
   return `$${(milli / 1000).toFixed(milli < 100 ? 4 : 2)}`;
 }
 
-function formatDuration(ms: number | null): string {
+export function formatDuration(ms: number | null): string {
   if (!ms) return '0ms';
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;

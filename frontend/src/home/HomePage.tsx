@@ -17,13 +17,13 @@ import type { DashboardPR } from '../types/dashboardPr';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
-import { relativeTime } from '../notificationDisplay';
 import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
 import InboxSection from './InboxSection';
 import TeamsGrid from './TeamsGrid';
 import WatchedReposGrid from './WatchedReposGrid';
+import { relativeTime } from '../relativeTime';
 
 // The GitHub-sourced flows (profile, recent/following events, orgs) used
 // to be cached client-side via getCached/setCached for instant-paint on
@@ -288,7 +288,7 @@ function HomePage({
                   event={e}
                   actor={null}
                   showActorName={false}
-                  formatTime={iso => relativeTime(iso).replace(' ago', '')}
+                  formatTime={iso => relativeTime(iso, { suffix: false })}
                   onOpenUrl={handleActivityLink}
                 />
               ))}
@@ -314,7 +314,7 @@ function HomePage({
                     }
                     : null}
                   showActorName={true}
-                  formatTime={iso => relativeTime(iso).replace(' ago', '')}
+                  formatTime={iso => relativeTime(iso, { suffix: false })}
                   onOpenUrl={handleActivityLink}
                 />
               ))}

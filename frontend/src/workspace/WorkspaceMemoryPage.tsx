@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { MarkdownProse } from '../threads/MarkdownProse';
+import { relativeTime } from '../relativeTime';
 import {
   workspaceApi,
   type DistillOperationDto,
@@ -625,15 +626,6 @@ function provenance(entry: KnowledgeEntryDto): string {
   if (typeof entry.provenance.display === 'string') return entry.provenance.display;
   const source = entry.provenance.source ?? entry.provenance.distillOperation;
   return source === undefined ? 'workspace knowledge' : `from ${String(source)}`;
-}
-
-function relativeTime(epochMs: number): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - epochMs) / 60_000));
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function message(reason: unknown): string {

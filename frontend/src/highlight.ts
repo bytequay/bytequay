@@ -92,7 +92,7 @@ function colorizeTypes(html: string): string {
       : (text ?? '').replace(/\b[A-Z][A-Za-z0-9_]*\b/g, m => `<span class="hljs-type">${m}</span>`));
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')

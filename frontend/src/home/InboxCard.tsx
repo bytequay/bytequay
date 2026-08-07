@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import type { DashboardPR } from '../types/dashboardPr';
-import { relativeTime } from '../notificationDisplay';
 import { RepoAv } from '../pulls/atoms';
 import { prRefFromNotification } from '../threads/notificationNav';
 import RepoAvatar from '../threads/RepoAvatar';
+import { relativeTime } from '../relativeTime';
 import { workspaceRouteHash } from '../workspace/workspaceRoutes';
 import type { InboxItem } from './inboxItems';
 

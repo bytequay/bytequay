@@ -15,8 +15,8 @@ import type { WorkUnitTaskDto } from '../types';
 import type { TaskCardData } from '../ui/pane';
 import type { TaskStatus } from '../ui/conv';
 import type { PrGlyphState } from '../ui/primitives';
+import { relativeTime } from '../relativeTime';
 import { taskLabel } from './taskLabel';
-import { relativeTime } from '../notificationDisplay';
 
 /** Terminal work-unit statuses — the task has landed (COMPLETED/merged) or been
  *  closed/reaped (CANCELED / ARCHIVED). A terminal task folds into the trunk's

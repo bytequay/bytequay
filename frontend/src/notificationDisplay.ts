@@ -136,19 +136,6 @@ function actionLabel(action: string | null): string {
   }
 }
 
-/** Relative-time string for the row's right-side meta column.
- *  Pulled into the helper module so all the display code lives
- *  together. */
-export function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return '';
-  const deltaSec = Math.round((Date.now() - then) / 1000);
-  if (deltaSec < 60) return 'just now';
-  if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m ago`;
-  if (deltaSec < 86400) return `${Math.round(deltaSec / 3600)}h ago`;
-  return `${Math.round(deltaSec / 86400)}d ago`;
-}
-
 /** True when the row should show a Review button that expands the
  *  publish gate pane. The allow-list mirrors PUBLISH_GATE_ACTIONS so
  *  every action PublishService can resolve gets an entry point; a

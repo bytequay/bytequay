@@ -19,6 +19,7 @@ import {
   type WorkspaceTrunkDto,
 } from './workspaceApi';
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
+import { relativeTime } from '../relativeTime';
 
 type BacklogFilter = 'all' | 'open' | 'in-progress' | 'resolved';
 type BacklogTrunk = Pick<WorkspaceTrunkDto, 'id' | 'title' | 'description' | 'status' | 'kind'>;
@@ -244,7 +245,7 @@ function BacklogRow({
                     {sourceLabel(item.source, threadName)}
                   </span>
                 )}
-                <span>· {relativeTime(item.createdAt)}</span>
+                <span>· {relativeTime(item.createdAt, { suffix: false })}</span>
               </>
             )}
           {item.key.length > 0 && <span className="wu-visually-hidden">{item.key}</span>}
@@ -677,7 +678,7 @@ export function BacklogEditor({
                   Created by <CreationOriginBadge origin={item.origin} />
                   {' · '}{threadNames.get(item.threadId) ?? 'trunk'}
                 </span>
-                <span>Created {relativeTime(item.createdAt)} ago</span>
+                <span>Created {relativeTime(item.createdAt)}</span>
               </div>
             )}
           </aside>
@@ -880,17 +881,6 @@ function sourceLabel(source: string, threadName?: string): string {
 
 function taskNumber(taskId: string): string {
   return taskId.match(/(?:\.k|task-)(\d+)$/)?.[1] ?? taskId.replace(/^task-/, '');
-}
-
-function relativeTime(timestamp: number): string {
-  const elapsed = Math.max(0, Date.now() - timestamp);
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
 }
 
 function linkLabel(

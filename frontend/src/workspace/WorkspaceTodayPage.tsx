@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ThreadDto, ThreadTurnDto, WorkspaceCardDto } from '../types';
 import { SyncTodayCard } from './WorkspaceSyncCards';
+import { relativeTime } from '../relativeTime';
 import { useUpstreamSyncs } from './useUpstreamSyncs';
 import {
   workspaceApi,
@@ -156,7 +157,7 @@ export default function WorkspaceTodayPage({
                   icon={<span className="wu-running-dot" />}
                   title={turn?.input ? `${thread.title} — ${shortInput(turn.input)}` : thread.title}
                   meta={`${thread.model || thread.provider} · ${formatSpend(thread.costUsdMilli)} · ${
-                    elapsed(thread.updatedAt)} elapsed`}
+                    compactRelativeTime(thread.updatedAt)} elapsed`}
                   action="Watch"
                   onOpen={() => onOpenThread?.(thread.id)}
                   monospaceMeta
@@ -483,20 +484,8 @@ function formatToday(): string {
   }).format(new Date());
 }
 
-function relativeTime(iso: string): string {
-  const milliseconds = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(milliseconds) || milliseconds < 60_000) return 'now';
-  if (milliseconds < 3_600_000) return `${Math.floor(milliseconds / 60_000)}m ago`;
-  if (milliseconds < 86_400_000) return `${Math.floor(milliseconds / 3_600_000)}h ago`;
-  return `${Math.floor(milliseconds / 86_400_000)}d ago`;
-}
-
 function compactRelativeTime(iso: string): string {
-  return relativeTime(iso).replace(' ago', '');
-}
-
-function elapsed(iso: string): string {
-  return relativeTime(iso).replace(' ago', '');
+  return relativeTime(iso, { suffix: false });
 }
 
 function shortInput(input: string): string {

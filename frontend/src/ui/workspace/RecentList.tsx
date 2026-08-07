@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { FootprintStopDto, PullRequestDto, SurfaceType, WorkUnitTaskDto } from '../../types';
-import { relativeTime } from '../../notificationDisplay';
+import { relativeTime } from '../../relativeTime';
 import { taskLabel } from '../../threads/taskLabel';
 
 const MAX_ROWS = 4;

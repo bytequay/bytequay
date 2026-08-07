@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { marked, Renderer } from 'marked';
-import { highlightToHtml } from './highlight';
+import { escapeHtml, highlightToHtml } from './highlight';
 import { lookupEmoji } from './emoji';
 
 /** Unified-diff hunk header, e.g. {@code @@ -140,20 +140,16 @@}. Its
@@ -37,13 +37,6 @@ function diffLineClass(line: string): string {
   return 'bq-diff-ctx';
 }
 
-function escapeHtml(s: string): string {
-  return s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-}
 
 /** Render a fenced diff as a `<pre class="bq-diff">` of per-line spans
  *  so CSS can paint added / removed / hunk / meta rows the same way the

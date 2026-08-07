@@ -14,6 +14,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DiffFileTreePane, type FilesPaneMode } from '../diff/DiffFileTreePane';
 import { parseUnifiedDiff } from '../diffParse';
+import { relativeTime } from '../relativeTime';
 import { statusBadgeFromLetter } from '../diffStatusBadge';
 import type {
   ThreadCommitDto,
@@ -729,7 +730,7 @@ function CommitsPanel({
               >
                 <span style={commitShaStyle}>{c.shortSha}</span>
                 <span style={commitSubjectStyle}>{c.subject}</span>
-                <span style={commitMetaStyle}>{relativeTime(c.authoredAt)}</span>
+                <span style={commitMetaStyle}>{relativeTime(c.authoredAt) || c.authoredAt}</span>
               </button>
             ))}
           </div>
@@ -924,16 +925,6 @@ function DiffBody({
       ))}
     </div>
   );
-}
-
-function relativeTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return iso;
-  const deltaSec = Math.max(1, Math.round((Date.now() - t) / 1000));
-  if (deltaSec < 60) return `${deltaSec}s ago`;
-  if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m ago`;
-  if (deltaSec < 86400) return `${Math.round(deltaSec / 3600)}h ago`;
-  return `${Math.round(deltaSec / 86400)}d ago`;
 }
 
 // ─── Styles — only the bits that aren't covered by the shared CSS ──

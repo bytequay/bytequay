@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { TrunkIcon } from '../ui/primitives';
 import { isAutomatedOrigin } from '../ui/CreationOriginBadge';
 import type { ThreadDto, WorkUnitTaskDto } from '../types';
+import { relativeTime } from '../relativeTime';
 
 type TrunkFilter = 'all' | 'active' | 'needs-you' | 'automated' | 'idle';
 
@@ -250,7 +251,7 @@ function ThreadCard({
             {prCount} {prCount === 1 ? 'PR' : 'PRs'}
           </span>
         )}
-        <span className="wu-trunk-time">{relativeTime(thread.updatedAt)}</span>
+        <span className="wu-trunk-time">{relativeTime(thread.updatedAt, { suffix: false })}</span>
         <i className={thread.unread ?? (isNeedsYou(thread) || thread.status === 'RUNNING')
           ? 'wu-trunk-unread'
           : 'wu-trunk-unread is-empty'} />
@@ -325,16 +326,6 @@ function isIdle(thread: ThreadDto): boolean {
 
 function isOpenTrunk(thread: ThreadDto): boolean {
   return thread.status !== 'COMPLETED' && thread.status !== 'ARCHIVED';
-}
-
-function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return '';
-  const deltaSec = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (deltaSec < 60) return 'now';
-  if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m`;
-  if (deltaSec < 86_400) return `${Math.round(deltaSec / 3600)}h`;
-  return `${Math.round(deltaSec / 86_400)}d`;
 }
 
 function SearchIcon() {

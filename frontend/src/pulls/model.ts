@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import type { DashboardPR } from '../types/dashboardPr';
-import { relativeTime } from '../notificationDisplay';
 import { labelChipColors } from './atoms';
+import { relativeTime } from '../relativeTime';
 
 /**
  * View model for the redesigned PR screens. The shapes mirror the DC

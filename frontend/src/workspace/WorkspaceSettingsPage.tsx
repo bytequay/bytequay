@@ -526,13 +526,7 @@ export default function WorkspaceSettingsPage({
                 }} />
             </SettingsCard>
           )}
-          {section === 'relations' ? null : visualFrame === '6c' ? (
-            <span className="wu-settings__source-note">
-              Notifications section carries the mute rules from <a>3j</a> · Sync = cadence,
-              watched branches, PR/issue scope · Memory = char budget, distill interval,
-              KB permissions · Danger zone = re-clone and detach.
-            </span>
-          ) : (
+          {section === 'relations' ? null : (
             <footer className="wu-settings__save">
               <span>{!maxRunningTasksValid
                 ? 'Max running tasks must be empty or a whole number greater than zero.'

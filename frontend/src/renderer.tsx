@@ -29,26 +29,4 @@ if (!container) {
 
 const root = createRoot(container);
 
-async function render(): Promise<void> {
-    const frame = (window.location.protocol === 'http:' || window.location.protocol === 'https:')
-        ? new URLSearchParams(window.location.search).get('workspaceVisual')
-        : null;
-    if (frame !== null && frame.length > 0) {
-        const [{ default: WorkspaceVisualFixture }, { installWorkspaceVisualBridge }] =
-            await Promise.all([
-                import('./workspace/WorkspaceVisualFixture'),
-                import('./workspace/workspaceVisualFixtureData'),
-            ]);
-        window.localStorage.clear();
-        applyTheme(loadTheme());
-        window.localStorage.setItem('bytequay.workspace.active', 'workspace-bytequay');
-        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(SIDEBAR_DEFAULT_WIDTH));
-        document.documentElement.dataset.workspaceVisualFrame = frame;
-        installWorkspaceVisualBridge(frame);
-        root.render(<WorkspaceVisualFixture frame={frame} />);
-        return;
-    }
-    root.render(<App />);
-}
-
-void render();
+root.render(<App />);

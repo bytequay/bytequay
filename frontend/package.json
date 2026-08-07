@@ -12,9 +12,6 @@
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "vitest run",
-    "visual:workspace:references": "electron scripts/workspace-visual-harness.mjs references --source '../docs/mockups/design/workspace-unification/Workspace Redesign.html' --out '../docs/mockups/design/workspace-unification/frames'",
-    "visual:workspace:capture": "electron scripts/workspace-visual-harness.mjs capture-suite --url-template 'http://127.0.0.1:4178/?workspaceVisual={frame}' --out '.visual-workspace/actual'",
-    "visual:workspace:compare": "electron scripts/workspace-visual-harness.mjs compare-suite --reference '../docs/mockups/design/workspace-unification/frames' --actual '.visual-workspace/actual' --diff '.visual-workspace/diff'",
     "check:licenses": "license-checker-rseidelsohn --production --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;CC-BY-4.0;CC-BY-3.0;Python-2.0;Unlicense;BlueOak-1.0.0' --excludePackagesStartingWith 'bytequay'"
   },
   "keywords": [],

@@ -28,13 +28,75 @@ import type {
   WorkspaceOnboardingDto,
   WorkspaceSessionDto,
 } from './workspaceApi';
-import {
-  VISUAL_ISSUE_NUMBER,
-  VISUAL_WORKSPACE_ID,
-  visualIssueDetail,
-  visualRepository,
-  visualTrunks,
-} from './workspaceVisualFixtureData';
+import type { IssueDetailDto } from '../types';
+import type { WorkspaceRepositoryDto, WorkspaceTrunkDto } from './workspaceApi';
+
+const VISUAL_WORKSPACE_ID = 'workspace-bytequay';
+const VISUAL_TRUNK_ID = 'trunk-codex-v2';
+const VISUAL_ISSUE_NUMBER = 30311;
+const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+
+const visualRepository: WorkspaceRepositoryDto = {
+  owner: 'chenjian2664',
+  repo: 'ByteQuay',
+  fullName: 'chenjian2664/ByteQuay',
+  defaultBaseBranch: 'master',
+  local: {
+    owner: 'chenjian2664',
+    repo: 'ByteQuay',
+    localClonePath: '/Users/chenjian2664/ByteQuay',
+    state: 'CLEAN',
+    currentBranch: 'dev/clamp-fix',
+    dirtyFileCount: 0,
+    errorMessage: null,
+    upstreamRemoteName: null,
+    defaultBranch: 'master',
+    viewFocus: 'fork',
+  },
+};
+
+const visualIssueDetail = {
+  id: VISUAL_ISSUE_NUMBER,
+  number: VISUAL_ISSUE_NUMBER,
+  title: 'Regression in 482: SELECT on Iceberg $partitions fails for wide tables',
+  body: 'Since upgrading to 482, querying the `$partitions` metadata table throws.',
+  author: 'guyco33',
+  authorAvatarUrl: null,
+  state: 'open',
+  htmlUrl: `https://github.com/chenjian2664/ByteQuay/issues/${VISUAL_ISSUE_NUMBER}`,
+  createdAt: fourDaysAgo,
+  updatedAt: fourDaysAgo,
+  closedAt: null,
+  labels: [{ name: 'RELEASE-BLOCKER', color: 'cf222e' }],
+  assignees: [],
+  milestone: { title: '482', state: 'open' },
+  comments: [],
+  timeline: [],
+  subscribed: true,
+  origin: 'user',
+  participants: ['mderoy', 'guyco33'],
+  linkedWork: [],
+} as unknown as IssueDetailDto;
+
+const visualTrunks: WorkspaceTrunkDto[] = [
+  {
+    id: VISUAL_TRUNK_ID,
+    workspaceId: VISUAL_WORKSPACE_ID,
+    title: 'Fix $partitions regression',
+    kind: 'dev',
+    status: 'running',
+    provider: 'anthropic',
+    model: 'claude-opus-5',
+    prRef: null,
+    costUsdMilli: 0,
+    tokensIn: 0,
+    tokensOut: 0,
+    createdAt: Date.parse(fourDaysAgo),
+    updatedAt: Date.parse(fourDaysAgo),
+    endedAt: null,
+    taskCount: 0,
+  },
+];
 
 afterEach(() => {
   cleanup();

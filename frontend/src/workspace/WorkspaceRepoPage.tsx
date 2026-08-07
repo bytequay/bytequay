@@ -594,8 +594,7 @@ function IssueDetailPage({
   const [detail, setDetail] = useState<IssueDetailDto | null>(null);
   const [trunks, setTrunks] = useState<WorkspaceTrunkDto[]>([]);
   const [linked, setLinked] = useState<string[]>([]);
-  const [picker, setPicker] = useState<'start' | 'backlog' | null>(() =>
-    document.documentElement.dataset.workspaceVisualFrame === '5b' ? 'start' : null);
+  const [picker, setPicker] = useState<'start' | 'backlog' | null>(null);
   const [comment, setComment] = useState('');
   const [showAllComments, setShowAllComments] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -862,10 +861,7 @@ function TrunkPicker({
   onCreate: () => void;
   onClose: () => void;
 }) {
-  const visualSelection = document.documentElement.dataset.workspaceVisualFrame === '5b'
-    ? 'trunk-clean-code'
-    : null;
-  const [selectedId, setSelectedId] = useState<string | null>(visualSelection);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   return (
     <div className="wu-modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="wu-trunk-picker" role="dialog" aria-modal="true" onMouseDown={event => event.stopPropagation()}>
@@ -1121,11 +1117,7 @@ function BranchDetailPage({
       .then(value => {
         if (cancelled) return;
         setComparison(value);
-        setSelected(value.commits.length === 0
-          ? null
-          : document.documentElement.dataset.workspaceVisualFrame === '4d'
-            ? [0, Math.min(1, value.commits.length - 1)]
-            : [0, 0]);
+        setSelected(value.commits.length === 0 ? null : [0, 0]);
       })
       .catch(reason => { if (!cancelled) setLocalError(message(reason)); });
     return () => { cancelled = true; };
@@ -1135,10 +1127,7 @@ function BranchDetailPage({
     if (branch === null) return;
     const fallback = repo.local.defaultBranch ?? repo.defaultBaseBranch;
     const candidates = branches.filter(candidate => !candidate.remoteOnly && candidate.name !== branch.name);
-    const visualTarget = document.documentElement.dataset.workspaceVisualFrame === '4d'
-      ? candidates.find(candidate => candidate.name === 'release/482')?.name
-      : undefined;
-    setTarget(visualTarget ?? (fallback !== null && fallback !== branch.name
+    setTarget((fallback !== null && fallback !== branch.name
       ? fallback.replace(/^origin\//, '')
       : candidates[0]?.name) ?? '');
   }, [branch, branches, repo]);

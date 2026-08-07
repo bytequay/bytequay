@@ -425,6 +425,28 @@ CI is the correctness net, and human review after the last park is the final one
 
 ## Open items
 
+- **Give the repair agent the full job log through a tool, and wire MCP for Codex
+  (2026-08-07).** A round hands the agent an excerpt around each failure. When that is
+  not enough — the cause is upstream of where it surfaced, or two failures share a root —
+  it has no way to ask for more: its CLI seat is passed no MCP endpoint, so it has no
+  tools beyond files and shell, and the complete logs live in this app's database. The
+  interim measure drops each failed job's whole log into `logs/` in the worktree, excluded
+  via the checkout's `info/exclude` so `git status` stays clean. The intended shape is a
+  tool call instead: a harness MCP controller scoped by watch and cycle, exposing a
+  `read_ci_log` that reads `ci_harness_log_cache` directly — no files, and no cleanup to
+  write, because that table is already purged when a watch stops. A 1.3 MB log is far past
+  a context window, so the tool needs a grep argument and a bounded window rather than
+  whole-log reads.
+
+  Doing that means feeding MCP to Codex, which the CLI runner does not do today: it
+  bridges an endpoint with Claude's `--mcp-config` flag and passes Codex nothing. That is
+  a limit of our wiring, not of Codex — `codex mcp add <name> --url` takes streamable HTTP
+  servers, which is what our MCP endpoints already are, and `-c mcp_servers.<name>={url=…}`
+  injects one per invocation. `codex exec resume` accepts `-c` as well, which matters here
+  because the repair lane resumes one session for every round after the first. Two things
+  to verify before promising it works: whether an MCP tool call in `codex exec` needs
+  explicit approval the way Claude's seat needs `--allowedTools`, and whether the seat can
+  reach a localhost server from inside `workspace-write`.
 - Surface naming in nav ("CI Harness"? "Autofix"?) — resolved: "CI Harness".
 - M4 detail: where escalations live — resolved: columns on `ci_harness_failure`, no
   separate table.

@@ -34,12 +34,16 @@ import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -424,6 +428,63 @@ class TestHarnessOrchestrator
         verify(agent, never()).fix(any(), any(), any(), anyLong(), any(), any(), any());
         // The budget is the one hard stop, and the park says it can be lifted.
         verify(service).notifyNeedsAttention(any(), anyString(), contains("Raise it"));
+    }
+
+    /**
+     * The full logs land where the agent can read them, and — the part that
+     * would break a run if it were wrong — git does not see them. Untracked
+     * files count as changes to {@code git status --porcelain}, so an unexcluded
+     * {@code logs/} would fail the next round's clean check and read as the
+     * agent having left the worktree dirty.
+     */
+    @Test
+    void jobLogsLandInTheWorktreeWithoutDirtyingIt(@TempDir Path root)
+            throws Exception
+    {
+        Path clone = root.resolve("clone");
+        Path worktree = root.resolve("wt");
+        run(root, "init", "-b", "main", clone.toString());
+        Files.writeString(clone.resolve("README.md"), "hello\n");
+        run(clone, "add", "README.md");
+        run(clone, "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-m", "base");
+        run(clone, "worktree", "add", "--detach", worktree.toString(), "HEAD");
+
+        HarnessOrchestrator real = new HarnessOrchestrator(
+                store, service, probe, parser, agent, knowledge, new SyncRunStream(),
+                gitSafety, new GitRunner(), prs, mock(ApplicationEventPublisher.class),
+                mapper, Runnable::run);
+        real.writeJobLogs(worktree, new ProbeResult(
+                "head", "base", "feature", false, false,
+                List.of(
+                        new FailedJob("5", 1, "test (plugin/trino-postgresql)", "failure", false, "the whole log"),
+                        new FailedJob("5", 2, "maven-checks 25.0.2", "failure", false, "")),
+                ""));
+
+        Path logs = worktree.resolve("logs");
+        assertThat(logs.resolve("test-plugin-trino-postgresql.log")).hasContent("the whole log");
+        // A job with no log at all leaves no file to mislead the agent.
+        assertThat(logs.resolve("maven-checks-25.0.2.log")).doesNotExist();
+        assertThat(run(worktree, "status", "--porcelain")).isEmpty();
+
+        // Running it again must not stack a second exclude entry per round.
+        real.writeJobLogs(worktree, new ProbeResult(
+                "head", "base", "feature", false, false, List.of(), ""));
+        assertThat(Files.readAllLines(new GitRunner().gitInfoExcludePath(worktree)))
+                .containsOnlyOnce("/logs/");
+    }
+
+    private static String run(Path workingDir, String... args)
+            throws Exception
+    {
+        List<String> command = new ArrayList<>(List.of("git"));
+        command.addAll(List.of(args));
+        Process process = new ProcessBuilder(command)
+                .directory(workingDir.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), UTF_8);
+        assertThat(process.waitFor()).describedAs(output).isZero();
+        return output.strip();
     }
 
     private static Watch watch(WatchStatus status, String head, String handoff)

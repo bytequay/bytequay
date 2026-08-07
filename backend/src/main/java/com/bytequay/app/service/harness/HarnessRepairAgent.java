@@ -63,7 +63,9 @@ public class HarnessRepairAgent
     private static final String PHASE_ONE_UNVALIDATED = "resolved_unvalidated";
     private static final int MAX_VERDICT_RETRIES = 2;
     private static final int MAX_DETAIL = 500;
-    private static final int MAX_EXCERPT = 6_000;
+    /** Matches what the parser stores, so nothing is kept and then withheld. The
+     * old half-size cut a long cause chain off at the root cause's first line. */
+    private static final int MAX_EXCERPT = 12_000;
     private static final int MAX_FAILURES = 40;
     private static final int MAX_LEARNED = 5;
     private static final int MAX_TITLE = 200;
@@ -352,6 +354,14 @@ public class HarnessRepairAgent
             }
             prompt.append("</failure>\n");
         }
+        // Each excerpt is the section around one failure, not the job. When that
+        // is not enough — the cause is upstream of where it surfaced, or two
+        // failures share a root — the whole log is on disk to be read.
+        prompt.append("\nThe complete log of every job above is in ")
+                .append(HarnessOrchestrator.LOG_DIRECTORY)
+                .append("/ in this worktree, one file per job. Read one when an excerpt")
+                .append(" leaves you guessing. The directory is not part of the tree and")
+                .append(" must never be committed.\n");
         if (steeringText != null && !steeringText.isBlank()) {
             prompt.append("\nThe person watching this run added:\n<steer>\n")
                     .append(steeringText.strip()).append("\n</steer>\n");

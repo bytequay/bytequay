@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { CherryPickResultDto } from './workspaceApi';
+import { isToday } from '../format';
 
 /** Headline for a cherry-pick outcome. Shared so the Commits tab and the
  *  branch detail page describe the same result the same way. */
@@ -119,15 +120,6 @@ export function relative(iso: string): string {
   return `${Math.floor(delta / 86_400_000)}d`;
 }
 
-export function isToday(iso: string | null): boolean {
-  if (iso === null) return false;
-  const date = new Date(iso);
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate();
-}
-
 export function prInitials(name: string): string {
   const known: Record<string, string> = {
     chenjian2664: 'CJ',
@@ -191,3 +183,5 @@ export function BranchCheckIcon() {
     </svg>
   );
 }
+
+export { isToday };

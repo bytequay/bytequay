@@ -17,6 +17,7 @@ import type { PendingPermission } from './ConversationPane';
 import { CodexUpdateAction } from './CodexUpdateAction';
 import { isShellTool, shellCommand } from './toolDisplay';
 import { ToolOutputBody } from './StructuredConversation';
+import { truncate } from '../format';
 
 /** Locally re-declared so this file doesn't depend on a private
  *  type alias inside ConversationPane. Matches the inline shape
@@ -459,10 +460,6 @@ function formatToolOutput(v: unknown): string {
   if (typeof v === 'string') return v;
   try { return JSON.stringify(v, null, 2); }
   catch { return String(v); }
-}
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
 function paragraphs(text: string): string[] {

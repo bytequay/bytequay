@@ -14,7 +14,6 @@
 package com.bytequay.app.developmentflow.task.creation;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
-import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowCanaryRoute;
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.domain.Task;
@@ -55,7 +54,6 @@ public final class V2TaskCreationService
 {
     private static final int CONCURRENT_CREATION_ATTEMPTS = 8;
 
-    private final DevelopmentFlowCanaryRoute route;
     private final TaskCreationHandoff handoff;
     private final TaskCommandExecutor commands;
     private final JdbcTemplate jdbc;
@@ -71,7 +69,6 @@ public final class V2TaskCreationService
     private final V2DevelopmentFlowProjection projection;
 
     public V2TaskCreationService(
-            DevelopmentFlowCanaryRoute route,
             TaskCreationHandoff handoff,
             TaskCommandExecutor commands,
             JdbcTemplate jdbc,
@@ -86,7 +83,6 @@ public final class V2TaskCreationService
             ObjectMapper json,
             V2DevelopmentFlowProjection projection)
     {
-        this.route = requireNonNull(route, "route is null");
         this.handoff = requireNonNull(handoff, "handoff is null");
         this.commands = requireNonNull(commands, "commands is null");
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
@@ -104,9 +100,11 @@ public final class V2TaskCreationService
         this.projection = requireNonNull(projection, "projection is null");
     }
 
+    /** Creation is permanently cut over to V2; the only precondition left
+     *  is that the caller named a Workspace. */
     public boolean routes(String workspaceId)
     {
-        return route.routesNewTaskToV2(workspaceId);
+        return workspaceId != null && !workspaceId.isBlank();
     }
 
     /** Repairs Trunks promoted before complete engine snapshots were required. */

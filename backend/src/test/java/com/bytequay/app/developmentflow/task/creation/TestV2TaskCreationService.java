@@ -15,7 +15,6 @@ package com.bytequay.app.developmentflow.task.creation;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.CommandResult;
-import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowCanaryRoute;
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
@@ -96,7 +95,6 @@ class TestV2TaskCreationService
         WorkModelResolver resolver = engineResolver();
         WorkModelService freezer = engineFreezer();
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
                 mock(ThreadStore.class), mock(TaskStore.class), engines,
                 resolver, freezer, mock(WorkspaceRepositoryResolver.class),
@@ -132,7 +130,6 @@ class TestV2TaskCreationService
                 .thenThrow(new IllegalStateException("no plan engine"));
         ThreadEngineOverrides engines = mock(ThreadEngineOverrides.class);
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
                 mock(ThreadStore.class), mock(TaskStore.class), engines,
                 resolver, engineFreezer(), mock(WorkspaceRepositoryResolver.class),
@@ -166,7 +163,6 @@ class TestV2TaskCreationService
         ThreadEngineOverrides engines = new ThreadEngineOverrides(
                 jdbc, mapper, mock(EntityManager.class));
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
                 mock(ThreadStore.class), mock(TaskStore.class), engines,
                 engineResolver(), engineFreezer(),
@@ -230,7 +226,6 @@ class TestV2TaskCreationService
         ThreadEngineOverrides engines = new ThreadEngineOverrides(
                 jdbc, mapper, mock(EntityManager.class));
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
                 mock(ThreadStore.class), mock(TaskStore.class), engines,
                 engineResolver(), engineFreezer(),
@@ -264,7 +259,6 @@ class TestV2TaskCreationService
         ThreadEngineOverrides engines = spy(new ThreadEngineOverrides(
                 jdbc, mapper, mock(EntityManager.class)));
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
                 mock(ThreadStore.class), mock(TaskStore.class), engines,
                 engineResolver(), engineFreezer(),
@@ -307,7 +301,6 @@ class TestV2TaskCreationService
             return choice.model() == null ? PLAN_MODEL : choice;
         });
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 mock(TaskCreationHandoff.class), commands(jdbc), jdbc,
                 mock(ThreadStore.class), mock(TaskStore.class), engines,
                 engineResolver(), freezer,
@@ -371,7 +364,6 @@ class TestV2TaskCreationService
         });
 
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 handoff, commands(jdbc), jdbc, threads, tasks, engines,
                 engineResolver(), engineFreezer(), repositories, relations,
                 mock(ReviewBuildSelectionStore.class), new ObjectMapper(), projection);
@@ -426,7 +418,7 @@ class TestV2TaskCreationService
         when(relations.find(WORKSPACE)).thenReturn(Optional.empty());
 
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(), handoff, commands(jdbc), jdbc,
+                handoff, commands(jdbc), jdbc,
                 mock(ThreadStore.class), mock(TaskStore.class), engines,
                 engineResolver(), engineFreezer(), repositories, relations,
                 mock(ReviewBuildSelectionStore.class), new ObjectMapper(),
@@ -481,7 +473,7 @@ class TestV2TaskCreationService
         });
 
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(), handoff, commands(jdbc), jdbc,
+                handoff, commands(jdbc), jdbc,
                 threads, tasks, engines, engineResolver(), engineFreezer(), repositories,
                 relations, mock(ReviewBuildSelectionStore.class), new ObjectMapper(),
                 projection);
@@ -554,7 +546,6 @@ class TestV2TaskCreationService
         when(projection.project(raw)).thenReturn(raw);
 
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 handoff, commands(jdbc), jdbc, threads, tasks, engines,
                 engineResolver(), engineFreezer(), repositories, relations,
                 selections, new ObjectMapper(), projection);
@@ -612,7 +603,6 @@ class TestV2TaskCreationService
         when(selections.find(TRUNK)).thenReturn(Optional.of(selection));
         when(selections.matchesCurrent(selection)).thenReturn(false);
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 handoff, commands(jdbc), jdbc, mock(ThreadStore.class), mock(TaskStore.class),
                 mock(ThreadEngineOverrides.class), engineResolver(), engineFreezer(), repositories,
                 mock(WorkspaceRelationService.class), selections, new ObjectMapper(),
@@ -658,7 +648,6 @@ class TestV2TaskCreationService
                                 "review-pass", "finding-1", 1, "{}", "digest")),
                         Instant.ofEpochMilli(2))));
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(),
                 handoff, commands(jdbc), jdbc, mock(ThreadStore.class), mock(TaskStore.class),
                 mock(ThreadEngineOverrides.class), engineResolver(), engineFreezer(), repositories,
                 mock(WorkspaceRelationService.class), selections, new ObjectMapper(),

@@ -26,6 +26,7 @@ import { ConvIndex } from './ConvIndex';
 import { PermissionCard } from './PermissionCard';
 import { findPendingPermission } from './permissions';
 import type { PendingPermission } from './ConversationPane';
+import { relativeTime } from '../relativeTime';
 import { useThreadTasks } from './useThreadTasks';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
@@ -1525,7 +1526,7 @@ export function TaskCard({
           </span>
         )}
         <span style={metaChipStyle} title={`Created ${task.createdAt}`}>
-          <span style={metaIconStyle}>◷</span>{relativeTime(task.createdAt)}
+          <span style={metaIconStyle}>◷</span>{relativeTime(task.createdAt) || '—'}
         </span>
         <span style={taskStatusPillStyle(displayStatus(task))}>
           {statusLabel(displayStatus(task))}
@@ -1621,19 +1622,6 @@ function taskLabel(task: WorkUnitTaskDto): string {
     return humanizeBranch(task.branchName);
   }
   return `Task ${task.seq}`;
-}
-
-function relativeTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return '—';
-  const delta = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (delta < 60) return `${delta}s ago`;
-  const m = Math.floor(delta / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
 }
 
 function humanizeBranch(branch: string): string {

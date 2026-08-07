@@ -18,7 +18,7 @@ import { AskQuestionCard } from './AskQuestionCard';
 import { CodexUpdateAction } from './CodexUpdateAction';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
-import { ToolOutputBody } from './StructuredConversation';
+import { formatDuration, ToolOutputBody } from './StructuredConversation';
 import { threadModelLabel } from './threadDisplay';
 import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
 
@@ -675,13 +675,6 @@ function formatCost(milli: number | null): string {
   return `$${(milli / 1000).toFixed(milli < 100 ? 4 : 2)}`;
 }
 
-function formatDuration(ms: number | null): string {
-  if (!ms) return '0ms';
-  if (ms < 1000) return `${ms}ms`;
-  const s = ms / 1000;
-  if (s < 60) return `${s.toFixed(1)}s`;
-  return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
-}
 
 function formatNum(n: number): string {
   if (n < 1_000) return String(n);

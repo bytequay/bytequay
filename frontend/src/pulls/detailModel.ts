@@ -16,7 +16,7 @@ import type { PullRequestCreatedData } from '../types/brainView';
 import type { PullRow } from './model';
 import { agoLabel, displayName } from '../pr/localpr/prViewMeta';
 import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
-import { relativeTime } from '../notificationDisplay';
+import { relativeTime } from '../relativeTime';
 import { shortCount } from './atoms';
 
 /**

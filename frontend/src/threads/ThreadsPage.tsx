@@ -35,6 +35,7 @@ import ThreadsLeftRail, {
   type RepoFilter,
   type StatusFilter,
 } from './ThreadsLeftRail';
+import { relativeTime } from '../relativeTime';
 import { threadCompactNumber, threadDisplayBranch } from './threadDisplay';
 
 /** Card-grid sort options. {@code newest} is the default — the user
@@ -852,7 +853,7 @@ function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, hasUnrea
           <div style={cardMetaLineStyle}>
             {repoName && <span style={cardMetaRepoStyle}>{repoName}</span>}
             {repoName && <span style={cardMetaSepStyle}>·</span>}
-            <span>{formatRelative(thread.updatedAt)}</span>
+            <span>{thread.updatedAt ? `started ${relativeTime(thread.updatedAt)}` : ''}</span>
             {displayBranch && (
               <>
                 <span style={cardMetaSepStyle}>·</span>
@@ -981,19 +982,6 @@ function formatRuntime(thread: ThreadDto): string {
   return `${s}s`;
 }
 
-function formatRelative(iso: string): string {
-  const d = Date.parse(iso);
-  if (!Number.isFinite(d)) return iso;
-  const ms = Date.now() - d;
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `started ${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `started ${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `started ${hr}h ago`;
-  const day = Math.round(hr / 24);
-  return `started ${day}d ago`;
-}
 
 const layoutStyle: React.CSSProperties = {
   display: 'flex',

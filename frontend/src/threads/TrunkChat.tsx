@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { relativeTime } from '../relativeTime';
 import { renderChatMarkdown } from '../markdown';
 import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { assistantLabel, type AssistantLabel } from './assistantLabel';
@@ -596,17 +597,6 @@ function humanizeBranch(branch: string): string {
   const spaced = rest.replace(/[-_]+/g, ' ').trim();
   if (spaced.length === 0) return branch;
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-function relativeTime(ts: number): string {
-  const diffMs = Date.now() - ts;
-  if (diffMs < 60_000) return 'now';
-  const mins = Math.floor(diffMs / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
 }
 
 /* ── Styles ────────────────────────────────────────────────────────── */

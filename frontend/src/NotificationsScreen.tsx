@@ -16,10 +16,10 @@ import {
   isPublishGateNotification,
   kindIcon,
   previewFor,
-  relativeTime,
   titleFor,
 } from './notificationDisplay';
 import PublishGatePane from './PublishGatePane';
+import { relativeTime } from './relativeTime';
 import type { NotificationDto } from './types';
 
 type Props = {

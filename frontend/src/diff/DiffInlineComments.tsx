@@ -16,12 +16,12 @@ import Avatar from '../Avatar';
 import { getCached } from '../dataCache';
 import MarkdownComposer from '../MarkdownComposer';
 import { MarkdownProse } from '../threads/MarkdownProse';
-import { relativeTime } from '../notificationDisplay';
 import type { ReviewCommentDto, UserProfileDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 import { AgentFindingContent, presentFinding, type AgentFindingPresentation } from '../review/AgentEvidence';
 import type { AgentReviewData } from '../review/agentReviewTypes';
 import { QUICK_REVIEW_AUTHOR, workflowActorRole } from '../pr/localpr/prViewMeta';
+import { relativeTime } from '../relativeTime';
 
 export function initials(author: string): string {
   const cleaned = author.replace(/^@/, '');

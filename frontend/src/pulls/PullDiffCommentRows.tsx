@@ -13,8 +13,8 @@
  */
 import { useEffect, useState } from 'react';
 import CurrentUserAvatar from '../CurrentUserAvatar';
+import { relativeTime } from '../relativeTime';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
-import { relativeTime } from '../notificationDisplay';
 import PolishButtons from '../ai/PolishButtons';
 import type { InlineCommentTarget } from '../pr/prCapabilities';
 import type { ReviewThreadDto } from '../types';

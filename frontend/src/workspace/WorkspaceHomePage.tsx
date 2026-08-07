@@ -14,6 +14,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import type { ReviewThreadPrSummaryDto, ThreadDto, WorkUnitTaskDto } from '../types';
 import type { WorkspaceSection } from './WorkspaceShell';
+import { relativeTime } from '../relativeTime';
 
 type Props = {
   /** Active workspace id. Routes the thread-list + memory fetches so
@@ -515,16 +516,6 @@ function formatMilliUsd(milli: number): string {
   return `$${dollars.toFixed(2)}`;
 }
 
-function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return '';
-  const deltaSec = Math.round((Date.now() - then) / 1000);
-  if (deltaSec < 60) return 'now';
-  if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m ago`;
-  if (deltaSec < 86400) return `${Math.round(deltaSec / 3600)}h ago`;
-  return `${Math.round(deltaSec / 86400)}d ago`;
-}
-
 type MemorySection = { heading: string; bullets: string[] };
 
 /** Pull a couple of bullets from the Decisions + Blockers sections —
@@ -718,7 +709,6 @@ const threadRightStyle: React.CSSProperties = {
   textAlign: 'right',
   flexShrink: 0,
 };
-
 
 const taskBodyStyle: React.CSSProperties = {
   flex: 1,

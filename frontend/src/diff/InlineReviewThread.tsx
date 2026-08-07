@@ -17,18 +17,9 @@ import { getCached } from '../dataCache';
 import { renderMarkdown } from '../markdown';
 import MarkdownComposer from '../MarkdownComposer';
 import PolishButtons from '../ai/PolishButtons';
+import { relativeTime } from '../relativeTime';
 import type { ReviewMessageDto, ReviewThreadDto, UserProfileDto } from '../types';
 
-function formatRelative(iso: string | null): string {
-  if (!iso) return '';
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
 
 const THREAD_REACTION_EMOJI: Record<string, string> = {
   plusOne: '👍', minusOne: '👎', laugh: '😄', hooray: '🎉',
@@ -225,7 +216,7 @@ export function InlineReviewThread({
                     <span className="diff-thread__msg-role">Author</span>
                   )}
                   {msg.createdAt && (
-                    <span className="diff-thread__msg-time">{formatRelative(msg.createdAt)}</span>
+                    <span className="diff-thread__msg-time">{relativeTime(msg.createdAt)}</span>
                   )}
                 </header>
                 {msg.body && (() => {

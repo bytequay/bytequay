@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+
+import { relativeTime } from '../relativeTime';
 import {
   workspaceApi,
   type CanonicalNotificationDto,
@@ -107,7 +109,7 @@ export default function WorkspaceNotificationsPage({
               <span className="wu-notification-copy">
                 {notificationCopy(item, visualFrame === '3j')}
               </span>
-              <span className="wu-notification-time">{relativeTime(item.createdAt)}</span>
+              <span className="wu-notification-time">{relativeTime(item.createdAt, { suffix: false })}</span>
               {item.status === 'UNREAD' && <span className="wu-unread-dot" />}
             </div>
           ))}
@@ -238,12 +240,3 @@ function MuteIcon() {
   );
 }
 
-function relativeTime(iso: string): string {
-  const elapsed = Math.max(0, Date.now() - Date.parse(iso));
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}

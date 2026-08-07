@@ -14,6 +14,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { SkillDto, SkillInput } from '../../types';
 import SkillEditorModal, { classify, type ScopeBucket } from './skills/SkillEditorModal';
+import { relativeTime } from '../../relativeTime';
 
 type Branch = 'development' | 'review';
 
@@ -354,7 +355,7 @@ function SkillRow({
             </>
           )}
           <span style={dotStyle}>·</span>
-          <span>edited {relativeTime(row.updatedAt)}</span>
+          <span>edited {relativeTime(row.updatedAt) || '—'}</span>
         </div>
       </div>
       <div style={rowActionsStyle}>
@@ -404,19 +405,6 @@ function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function relativeTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return '—';
-  const delta = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (delta < 60) return `${delta}s ago`;
-  const m = Math.floor(delta / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
 }
 
 const layoutStyle: React.CSSProperties = {

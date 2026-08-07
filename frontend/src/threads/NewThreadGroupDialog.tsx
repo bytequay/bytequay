@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ThreadDto, ThreadGroupDto } from '../types';
+import { relativeTime } from '../relativeTime';
 
 type Props = {
   onClose: () => void;
@@ -313,18 +314,6 @@ function humanStatus(status: string): string {
   if (status === 'COMPLETED') return 'completed';
   if (status === 'ERRORED') return 'errored';
   return status.toLowerCase();
-}
-
-function relativeTime(iso: string): string {
-  const start = Date.parse(iso);
-  if (!Number.isFinite(start)) return '';
-  const diff = Date.now() - start;
-  if (diff < 60_000) return 'just now';
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 /* ── Styles ────────────────────────────────────────────────────── */

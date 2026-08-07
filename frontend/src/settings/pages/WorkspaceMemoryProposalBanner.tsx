@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { relativeTime } from '../../notificationDisplay';
 import type { MemoryItemDto, WorkspaceMemoryProposalDto } from '../../types';
+import { relativeTime } from '../../relativeTime';
 
 type Props = {
   workspaceId: string;

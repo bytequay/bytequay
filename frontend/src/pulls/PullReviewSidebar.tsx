@@ -14,8 +14,8 @@
 import { useState } from 'react';
 import CurrentUserAvatar from '../CurrentUserAvatar';
 import { commentLineLabel } from '../diff/DiffInlineComments';
+import { relativeTime } from '../relativeTime';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
-import { relativeTime } from '../notificationDisplay';
 import { QUICK_REVIEW_AUTHOR } from '../pr/localpr/prViewMeta';
 import { MarkdownProse } from '../threads/MarkdownProse';
 import type { ActivityItemDto, DiffFileDto } from '../types';

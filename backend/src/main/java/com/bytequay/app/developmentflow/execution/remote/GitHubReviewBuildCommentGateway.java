@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 /** GitHub adapter for one immutable, exact-head review publication. */
@@ -299,11 +300,6 @@ public final class GitHubReviewBuildCommentGateway
             default -> throw new IllegalArgumentException(
                     "unsupported review action " + action);
         };
-    }
-
-    private static String nullToEmpty(String value)
-    {
-        return value == null ? "" : value;
     }
 
     private static String requireText(String value, String name)

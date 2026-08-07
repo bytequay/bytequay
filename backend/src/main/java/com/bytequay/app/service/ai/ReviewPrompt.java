@@ -15,6 +15,9 @@ package com.bytequay.app.service.ai;
 
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.service.skills.CavemanPrompt;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import java.util.List;
 
 import static java.util.Objects.requireNonNullElse;
 
@@ -109,4 +112,15 @@ final class ReviewPrompt
                         body.isBlank() ? "(no description)" : body,
                         diff);
     }
+
+    /**
+     * The JSON shape {@link #systemPrompt} asks every provider to produce.
+     * Lives beside the prompt that defines it so the contract is stated once;
+     * each reviewer used to carry its own byte-identical copy of this pair.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ParsedOutput(String summary, List<ParsedComment> comments) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ParsedComment(String file, int line, String severity, String body) {}
 }

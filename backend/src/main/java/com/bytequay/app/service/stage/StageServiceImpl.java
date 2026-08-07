@@ -69,6 +69,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -1431,11 +1432,6 @@ public class StageServiceImpl
             case REVIEW_ROUND_STAGE -> "Review round";
             case BRANCH_GUARD_STAGE -> "Branch guard";
         };
-    }
-
-    private static String nullToEmpty(String value)
-    {
-        return value == null ? "" : value;
     }
 
     private static ResponseStatusException notFound(String message)

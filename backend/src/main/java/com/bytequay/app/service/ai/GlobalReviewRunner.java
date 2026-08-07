@@ -30,7 +30,6 @@ import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelCatalog;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -199,7 +198,7 @@ public class GlobalReviewRunner
             if (start < 0 || end <= start) {
                 throw new IllegalStateException("No JSON object in model response");
             }
-            ParsedOutput parsed = mapper.readValue(raw.substring(start, end + 1), ParsedOutput.class);
+            ReviewPrompt.ParsedOutput parsed = mapper.readValue(raw.substring(start, end + 1), ReviewPrompt.ParsedOutput.class);
             List<ReviewOutput.LineComment> comments = Optional.ofNullable(parsed.comments())
                     .orElse(List.of()).stream()
                     .map(comment -> new ReviewOutput.LineComment(
@@ -222,10 +221,4 @@ public class GlobalReviewRunner
     }
 
     private record Endpoint(TurnSpec.Transport transport, String url, String token) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ParsedOutput(String summary, List<ParsedComment> comments) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ParsedComment(String file, int line, String severity, String body) {}
 }

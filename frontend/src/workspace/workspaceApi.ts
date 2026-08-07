@@ -1161,6 +1161,12 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/close`,
       method: 'POST',
     }),
+  // Close plus forget: same teardown, and the run's record and log go too.
+  deleteUpstreamCherryPick: (workspaceId: string, jobId: string) =>
+    window.bridge.workspaceApi<void>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}`,
+      method: 'DELETE',
+    }),
   guideUpstreamCherryPick: (workspaceId: string, jobId: string, text: string) =>
     window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
       path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/guidance`,

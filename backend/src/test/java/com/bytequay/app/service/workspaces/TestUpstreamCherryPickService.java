@@ -993,7 +993,8 @@ class TestUpstreamCherryPickService
         verify(handoff).stopWatch("fork-ws", "watch-1");
         verify(git).worktreeRemove(target, worktree);
         verify(git).worktreePrune(target);
-        // What the run committed is never touched by a close.
+        // This run never pushed, so its branch holds the only copy of the picks
+        // and the teardown must leave it alone.
         verify(git, never()).deleteBranches(any(), anyList());
         assertThat(service.run("fork-ws", "job-1", 100).events())
                 .extracting(UpstreamCherryPickService.UpstreamCherryPickEventDto::kind)
@@ -1012,6 +1013,100 @@ class TestUpstreamCherryPickService
         // The slot is free again: a closed run no longer blocks the next sync.
         insertJob(jdbc, "job-2", "fork-ws", "QUEUED", root.resolve("next"));
         assertThat(service.list("fork-ws", 10)).hasSize(2);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void deleteReleasesEveryResourceAndForgetsTheRun(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        Path worktree = Files.createDirectory(root.resolve("worktree"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        // A run that pushed: its picks live on the remote, so the local branch
+        // is the teardown's to remove.
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    harness_watch_id, pr_number, created_at_ms, updated_at_ms)
+                VALUES ('job-1', 'fork-ws', 'upstream-ws', 'COMPLETED',
+                    'main', 'origin/main', 'main', 'base-sha',
+                    'pick-release',
+                    '[{"sha":"commit-1","subject":"First"}]',
+                    '["commit-1"]', '[]', 1, '[]', ?,
+                    1, 1, 5000, 'watch-1', 7, 1, 1)
+                """, worktree.toString());
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_event (
+                    id, job_id, ordinal, kind, title, detail, created_at_ms)
+                VALUES ('e1', 'job-1', 1, 'agent_log', 'Agent transcript', 'a lot of text', 1)
+                """);
+
+        GitRunner git = mock(GitRunner.class);
+        when(git.refExists(target, "pick-release")).thenReturn(true);
+        ObjectProvider<HarnessWatchHandoff> provider = mock(ObjectProvider.class);
+        HarnessWatchHandoff handoff = mock(HarnessWatchHandoff.class);
+        when(provider.getIfAvailable()).thenReturn(handoff);
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations(target, upstream), git,
+                mock(PatResolver.class), mock(PullRequestRepository.class),
+                mock(PRSyncService.class), provider, mock(ObjectProvider.class),
+                mock(ObjectProvider.class), new SyncRunStream());
+
+        service.delete("fork-ws", "job-1");
+
+        verify(handoff).stopWatch("fork-ws", "watch-1");
+        verify(git).worktreeRemove(target, worktree);
+        verify(git).worktreePrune(target);
+        // Pushed, so the local branch is redundant and goes with the rest.
+        verify(git).deleteBranches(target, List.of("pick-release"));
+        // The run and its whole log are gone.
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM upstream_cherry_pick_job", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM upstream_cherry_pick_event", Integer.class)).isZero();
+        assertThatThrownBy(() -> service.require("fork-ws", "job-1"))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void closeDropsTheAgentTranscriptsItNoLongerNeeds(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        Path worktree = Files.createDirectory(root.resolve("worktree"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        insertJob(jdbc, "job-1", "fork-ws", "COMPLETED", worktree);
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_event (
+                    id, job_id, ordinal, kind, title, detail, created_at_ms)
+                VALUES ('e1', 'job-1', 1, 'agent_log', 'Agent transcript', 'a lot of text', 1),
+                       ('e2', 'job-1', 2, 'agent', 'Kept the fork line', 'summary', 2)
+                """);
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations(target, upstream), mock(GitRunner.class),
+                mock(PatResolver.class), mock(PullRequestRepository.class),
+                mock(PRSyncService.class), mock(ObjectProvider.class),
+                mock(ObjectProvider.class), mock(ObjectProvider.class), new SyncRunStream());
+
+        service.close("fork-ws", "job-1");
+
+        // The bulky transcripts go; the agent's one-line summary stays, so a
+        // closed run still says what each repair decided.
+        assertThat(service.run("fork-ws", "job-1", 100).events())
+                .extracting(UpstreamCherryPickService.UpstreamCherryPickEventDto::kind)
+                .contains("agent")
+                .doesNotContain("agent_log");
     }
 
     @Test

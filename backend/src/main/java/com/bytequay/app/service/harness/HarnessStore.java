@@ -504,6 +504,16 @@ public class HarnessStore
                 """, String.class, watchId, headSha, checkRunId).stream().findFirst();
     }
 
+    /**
+     * Drops a watch's cached CI logs. Raw job logs are the bulkiest thing a
+     * watch accumulates and the only one that is pure cache — a stopped watch
+     * runs no further cycles, so nothing will read them again.
+     */
+    public void purgeLogCache(String watchId)
+    {
+        jdbc.update("DELETE FROM ci_harness_log_cache WHERE watch_id = ?", watchId);
+    }
+
     public void cacheLog(String watchId, String headSha, long checkRunId, String logText, long nowMs)
     {
         jdbc.update("""

@@ -68,6 +68,7 @@ export default function WorkspaceSyncRunPage({
   const [busy, setBusy] = useState(false);
   const [guidance, setGuidance] = useState('');
   const [closing, setClosing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   /** What the current agent turn has said and run, as it arrives. */
@@ -276,11 +277,16 @@ export default function WorkspaceSyncRunPage({
           )}
           {!closed && (
             <button type="button" className="sr-topbar__action" disabled={busy}
-              title="Stop the run, stop its watch, and remove its worktree"
+              title="Stop the run, stop its watch, and release everything it holds"
               onClick={() => setClosing(true)}>
               <CloseIcon />Close run
             </button>
           )}
+          <button type="button" className="sr-topbar__action" disabled={busy}
+            title="Close the run and remove it from the list"
+            onClick={() => setDeleting(true)}>
+            <TrashIcon />Delete run
+          </button>
         </header>
 
         {job.agentSessionId !== null && (
@@ -436,12 +442,11 @@ export default function WorkspaceSyncRunPage({
           title="Close this sync run?"
           body={'The picker stops at the next commit boundary'
             + (job.harnessWatchId === null ? '' : ', its CI Harness watch is stopped')
-            + ', and its isolated worktree is removed.'
+            + ', and everything it holds locally is released: its isolated worktree,'
+            + ' the agent\u2019s session and stored transcripts, and its cached CI logs.'
             + '\n\n'
-            + `Anything it committed is kept: ${job.resultBranch}`
-            + (job.prNumber === null ? '' : ` and draft PR #${job.prNumber}`)
-            + ' and this run\u2019s log all survive. A conflict you were resolving by hand in'
-            + ' the worktree does not.'}
+            + closeKeeps(job)
+            + ' A conflict you were resolving by hand in the worktree does not survive.'}
           confirmLabel={busy ? 'Closing…' : 'Close run'}
           destructive
           busy={busy}
@@ -449,6 +454,29 @@ export default function WorkspaceSyncRunPage({
           onConfirm={() => {
             setClosing(false);
             act(() => workspaceApi.closeUpstreamCherryPick(workspaceId, jobId));
+          }}
+        />
+      )}
+      {deleting && (
+        <ConfirmDialog
+          title="Delete this sync run?"
+          body={'Everything closing the run does, and then the run itself: it leaves the'
+            + ' sync list and its log is gone for good.'
+            + '\n\n'
+            + closeKeeps(job)
+            + ' Nothing on the remote is touched.'}
+          confirmLabel={busy ? 'Deleting…' : 'Delete run'}
+          destructive
+          busy={busy}
+          onCancel={() => setDeleting(false)}
+          onConfirm={() => {
+            setDeleting(false);
+            setBusy(true);
+            setError(null);
+            void workspaceApi.deleteUpstreamCherryPick(workspaceId, jobId)
+              .then(() => onBack?.())
+              .catch(reason => setError(errorMessage(reason)))
+              .finally(() => setBusy(false));
           }}
         />
       )}
@@ -468,6 +496,28 @@ function CloseIcon() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="2.2" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6 6 18" /></svg>
   );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+      <path d="M4 7h16M10 7V5h4v2M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
+/**
+ * What survives the teardown. A run that pushed keeps only what is on the
+ * remote — its local branch goes with the rest. One that never pushed keeps
+ * its branch, because that is then the only copy of the picks.
+ */
+function closeKeeps(job: UpstreamCherryPickJobDto): string {
+  return job.prNumber === null
+    ? `Nothing was pushed, so ${job.resultBranch} is kept — it holds the only copy`
+      + ' of what was picked.'
+    : `Draft PR #${job.prNumber} and its pushed commits are kept. The local`
+      + ` ${job.resultBranch} is deleted; the remote copy is the one that matters.`;
 }
 
 function prTitle(prNumber: number | null, canOpen: boolean, open: boolean): string {

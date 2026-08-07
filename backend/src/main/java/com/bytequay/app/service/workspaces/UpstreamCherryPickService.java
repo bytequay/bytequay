@@ -932,6 +932,24 @@ public class UpstreamCherryPickService
         if (git.cherryPickInProgress(worktree)) {
             GitRunner.CherryPickOutcome continued = git.continueCherryPick(worktree);
             if (!continued.complete()) {
+                // An empty pick can never be continued, so resuming one used to
+                // park it again and leave the run with no way forward at all.
+                // Drop it and carry on, exactly as the picker now does.
+                if (isEmptyPick(worktree, continued)) {
+                    git.skipCherryPick(worktree);
+                    record(row.id(), row.nextCommitIndex(), "skip",
+                            "Skipped " + current.subject(),
+                            "already applied — the pick came out empty", null, null);
+                    progress(
+                            row.id(),
+                            row.appliedShas(),
+                            append(row.skippedShas(), current.sha()),
+                            row.nextCommitIndex() + 1);
+                    clearPauseRequest(row.id());
+                    queue(row.id());
+                    launch(row.id());
+                    return require(workspaceId, id);
+                }
                 pause(row.id(), continued.conflictPaths(), continued.message());
                 return require(workspaceId, id);
             }
@@ -1172,14 +1190,19 @@ public class UpstreamCherryPickService
                     git.stageAll(worktree);
                     GitRunner.CherryPickOutcome continued = git.continueCherryPick(worktree);
                     if (!continued.complete()) {
-                        // If git cleaned up CHERRY_PICK_HEAD with no conflicts, the
-                        // commit's changes are already present — auto-skip rather than park.
-                        if (!git.cherryPickInProgress(worktree)
-                                && continued.conflictPaths().isEmpty()) {
+                        // A pick the branch already carries. Git will not record an
+                        // empty commit: it holds the sequencer open and rejects
+                        // --continue until the pick is skipped or forced through.
+                        // Nothing is unresolved and there is nothing to commit, so
+                        // this is not a conflict and must not park a human.
+                        if (isEmptyPick(worktree, continued)) {
+                            if (git.cherryPickInProgress(worktree)) {
+                                git.skipCherryPick(worktree);
+                            }
                             skipped.add(commit.sha());
                             record(id, index, "skip",
                                     "Skipped " + commit.subject(),
-                                    "already applied — git cherry-pick was a no-op",
+                                    "already applied — the pick came out empty",
                                     null, null);
                             index++;
                             progress(id, applied, skipped, conflicted, index);
@@ -1508,6 +1531,20 @@ public class UpstreamCherryPickService
                 row.skippedShas(),
                 row.nextCommitIndex() + 1);
         return requireRow(row.id());
+    }
+
+    /**
+     * Whether a pick that would not finish came out empty rather than
+     * conflicted. Read off the worktree, not off git's message: after the
+     * three-way stage there is nothing unresolved and nothing to commit only
+     * when the branch already carries this change.
+     */
+    private boolean isEmptyPick(Path worktree, GitRunner.CherryPickOutcome continued)
+            throws IOException, InterruptedException
+    {
+        return continued.conflictPaths().isEmpty()
+                && git.unresolvedPaths(worktree).isEmpty()
+                && !git.hasUncommittedChanges(worktree);
     }
 
     /** Anything git itself will fold away on an autosquash — never a pick. */

@@ -45,6 +45,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -60,6 +61,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
+import static java.nio.file.StandardOpenOption.APPEND;
+import static java.nio.file.StandardOpenOption.CREATE;
 import static java.util.Objects.requireNonNull;
 
 /** Durable watch/cycle phase machine. Model calls run inside this bounded owner. */
@@ -75,6 +78,9 @@ public class HarnessOrchestrator
     public static final String TRIGGER_FIX_NOW = "fix_now";
     /** A turn's JSONL is unbounded; the log shows the head of it. */
     private static final int MAX_TRANSCRIPT = 64_000;
+    /** Where a round leaves the full log of every job it found red, relative to
+     * the worktree the agent runs in. Named in the agent's prompt. */
+    static final String LOG_DIRECTORY = "logs";
 
     private final HarnessStore store;
     private final HarnessService service;
@@ -380,6 +386,7 @@ public class HarnessOrchestrator
             return;
         }
         ensureClean(root);
+        writeJobLogs(root, probeResult);
         phase(watch, cycle, Phase.FIX,
                 "Handing " + failures.size() + " failure(s) to the agent");
         HarnessRepairAgent.Outcome outcome = agent.fix(
@@ -544,6 +551,70 @@ public class HarnessOrchestrator
                 "Pushed the round; waiting for the next CI run", null, now());
         timeline(watch, Phase.DONE, "pushed",
                 "Pushed the round; waiting for the next CI run", probeResult.headSha());
+    }
+
+    /**
+     * Drops each failed job's whole log into {@code logs/} in the worktree, so
+     * an agent that finds the excerpt too narrow can read the rest with the
+     * tools it already has. It has no other route to them: its CLI seat is
+     * wired to no MCP server, and the logs live in this app's database.
+     *
+     * <p>The directory is excluded rather than cleaned up afterwards. Excluding
+     * it is what keeps a {@code git add -A} from sweeping it into a fixup —
+     * deleting it after the round would leave that window open — and the
+     * worktree is app-owned and thrown away with the run anyway.
+     */
+    void writeJobLogs(Path root, ProbeResult probeResult)
+    {
+        Path directory = root.resolve(LOG_DIRECTORY);
+        try {
+            excludeLogDirectory(root);
+            Files.createDirectories(directory);
+            for (FailedJob job : probeResult.failedJobs()) {
+                if (job.log() == null || job.log().isBlank()) {
+                    continue;
+                }
+                Files.writeString(directory.resolve(logFileName(job.jobName())), job.log());
+            }
+        }
+        // The excerpts are what the round runs on; the full logs are a courtesy,
+        // so every way of failing to write them is swallowed — an unwritable
+        // path and an unreadable git dir included. Losing them must never cost a
+        // cycle that would otherwise have fixed something.
+        catch (IOException | InterruptedException | RuntimeException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn("CI harness could not write job logs to {}", directory, e);
+        }
+    }
+
+    /**
+     * Git reads {@code info/exclude} from the common directory only — a linked
+     * worktree's own copy is never consulted — so the entry has to go there,
+     * which is what {@link GitRunner#gitInfoExcludePath} resolves. It is
+     * anchored, so it hides this one directory at the checkout root and no
+     * {@code logs/} the project itself may carry deeper in the tree.
+     */
+    private void excludeLogDirectory(Path root)
+            throws IOException, InterruptedException
+    {
+        Path exclude = git.gitInfoExcludePath(root);
+        String entry = "/" + LOG_DIRECTORY + "/";
+        if (Files.exists(exclude) && Files.readAllLines(exclude).contains(entry)) {
+            return;
+        }
+        Files.createDirectories(exclude.getParent());
+        Files.writeString(exclude, entry + System.lineSeparator(), CREATE, APPEND);
+    }
+
+    /** Predictable enough that the agent can find a job's log by its name. */
+    static String logFileName(String jobName)
+    {
+        String cleaned = (jobName == null ? "job" : jobName)
+                .replaceAll("[^A-Za-z0-9._-]+", "-")
+                .replaceAll("^-+|-+$", "");
+        return (cleaned.isBlank() ? "job" : cleaned) + ".log";
     }
 
     private void ensureClean(Path root)

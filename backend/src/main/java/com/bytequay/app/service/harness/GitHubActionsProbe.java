@@ -39,7 +39,13 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitHubActionsProbe
 {
-    private static final int MAX_LOG_BYTES = 200_000;
+    // The whole log is kept. It used to be cut to its last 200 KB, which on any
+    // suite that logs through its own teardown threw away the failures: surefire
+    // prints each failing test's stack where it happened, thousands of lines
+    // before the tail, and the parser cannot find a section that is not there.
+    // The fetch caps at 8 MiB, so that is the real bound.
+    // ponytail: cached as raw text; store the parsed evidence instead if the
+    // cache table ever grows enough to matter.
     private static final Pattern RUN_ID = Pattern.compile("/actions/runs/(\\d+)");
 
     private final PullRequestRepository github;
@@ -136,8 +142,13 @@ public class GitHubActionsProbe
                         pat, PullRequestRef.of(watch.owner(), watch.repo(), watch.prNumber()).repoRef(),
                         check.githubId()))
                 .orElse("");
-        if (value.length() > MAX_LOG_BYTES) {
-            value = value.substring(value.length() - MAX_LOG_BYTES);
+        if (value.isBlank()) {
+            // Nothing to cache, and caching it would be worse than nothing: the
+            // key is the head SHA, so a log GitHub had not flushed yet would read
+            // as a cache hit for the rest of this SHA's life and every later
+            // cycle would defer the failure as undiagnosable. Costs one refetch
+            // per cycle for a log that really is gone.
+            return "";
         }
         store.cacheLog(watch.id(), headSha, check.githubId(), value, Instant.now().toEpochMilli());
         return value;

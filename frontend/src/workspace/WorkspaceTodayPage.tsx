@@ -92,7 +92,6 @@ export default function WorkspaceTodayPage({
     job.status === 'QUEUED' || job.status === 'RUNNING');
   const syncsLanded = openSyncs.filter(job =>
     job.status === 'COMPLETED' && isToday(job.updatedAt));
-  const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
   const firstSyncRunning = onboarding !== null && onboarding.syncState !== 'ready';
 
   return (
@@ -101,7 +100,7 @@ export default function WorkspaceTodayPage({
         <span className="wu-today__title">Today</span>
         {firstSyncRunning
           ? <span className="wu-today__syncing"><i />first sync running</span>
-          : <span className="wu-today__date">{visualFrame === '2b' ? 'Thursday, Jul 16' : formatToday()}</span>}
+          : <span className="wu-today__date">{formatToday()}</span>}
         <span className="wu-today__header-spacer" />
         <button type="button" className="wu-primary-button" onClick={onNewThread}>
           <PlusIcon />
@@ -205,7 +204,7 @@ export default function WorkspaceTodayPage({
               {syncsRunning.length > 0
                 ? <><b>{syncsRunning.length}</b> sync{syncsRunning.length === 1 ? '' : 's'} running</>
                 : <><b>{workspace.activeThreadCount}</b>{' '}
-                  {visualFrame === '2b' ? 'threads' : 'trunks'} active</>}
+                  trunks active</>}
             </span>
             <span className="wu-today__stats-spacer" />
             <a
@@ -248,10 +247,7 @@ function WorkspaceOnboarding({
     ? 0
     : Math.min(100, Math.round(state.syncCurrent / state.syncTotal * 100));
 
-  const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
-  const cloneReadyDetail = visualFrame === '6a'
-    ? 'forked to chenjian2664/trino-python-client · managed clone ready'
-    : 'managed clone ready';
+  const cloneReadyDetail = 'managed clone ready';
 
   return (
     <>
@@ -278,9 +274,7 @@ function WorkspaceOnboarding({
             <span className="wu-onboarding-progress"><i style={{ width: `${progress}%` }} /></span>
             <code>{state.syncState === 'ready'
               ? 'first sync complete'
-              : visualFrame === '6a'
-                ? '14 / 38 PRs · issues queued'
-                : `${state.syncCurrent} / ${state.syncTotal || 3} steps`}</code>
+              : `${state.syncCurrent} / ${state.syncTotal || 3} steps`}</code>
           </span>
         </div>
       </div>
@@ -319,9 +313,7 @@ function WorkspaceOnboarding({
           <div><span>Syncing in</span><i /></div>
           <div className="wu-onboarding-incoming__row">
             <PullRequestIcon />
-            <p>{visualFrame === '6a'
-              ? "2 PRs already request your review — they'll surface here when sync lands"
-              : 'Pull requests and issues already needing you will surface here when sync lands'}</p>
+            <p>Pull requests and issues already needing you will surface here when sync lands</p>
             <time>~1 min</time>
           </div>
         </div>

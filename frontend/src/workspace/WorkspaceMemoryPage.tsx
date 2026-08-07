@@ -26,9 +26,6 @@ import {
 const audienceOptions = ['plan', 'dev', 'review', 'ci-fix'] as const;
 
 export default function WorkspaceMemoryPage({ workspaceId }: { workspaceId: string }) {
-  const visualFrame = typeof document === 'undefined'
-    ? undefined
-    : document.documentElement.dataset.workspaceVisualFrame;
   const [memory, setMemory] = useState<WorkspaceMemoryDto | null>(null);
   const [preview, setPreview] = useState<DistillRunDto | null>(null);
   const [markdownOpen, setMarkdownOpen] = useState(false);
@@ -89,187 +86,164 @@ export default function WorkspaceMemoryPage({ workspaceId }: { workspaceId: stri
   if (memory === null) return <section className="wu-memory"><div className="wu-body-message error">{error ?? 'Memory is unavailable.'}</div></section>;
 
   const usage = Math.min(100, (memory.characters / Math.max(1, memory.characterBudget)) * 100);
-  const compact = visualFrame === '3h';
   return (
-    <section className={`wu-memory${compact ? ' is-compact' : ''}`}>
+    <section className="wu-memory">
       <header className="wu-memory__header">
         <h1>Memory</h1>
         <span className="wu-memory__budget"><i><b style={{ width: `${usage}%` }} /></i>
           {memory.characters.toLocaleString()} / {memory.characterBudget.toLocaleString()}
-          {compact && ' chars'}</span>
+</span>
         <span className="wu-spacer" />
         <button type="button" className="wu-icon-button" onClick={() => setMarkdownOpen(true)}>
           Edit markdown
         </button>
         <button type="button" className="wu-primary-button" disabled={acting}
-          onClick={() => { void startDistill(); }}><BrainIcon />{compact ? 'Distill now' : 'Distill…'}</button>
+          onClick={() => { void startDistill(); }}><BrainIcon />Distill…</button>
       </header>
       {error !== null && <div className="wu-memory__error">{error}</div>}
-      {compact ? (
-        <div className="wu-memory-compact">
-          <span>Auto-distills every 30 min while threads are active · last run {
-            memory.distillRuns[0] === undefined ? 'never' : relativeTime(memory.distillRuns[0].createdAt)
-          }</span>
-          <article>
-            {memory.blocks.map(block => (
-              <section key={block.id}>
-                <header>
-                  <h2>{block.category}</h2>
-                  <small className={block.provenance.startsWith('edited') ? 'is-user' : ''}>
-                    {!block.provenance.startsWith('edited') && <TrunkSourceIcon />}
-                    {block.provenance.startsWith('edited') ? block.provenance : `from ${block.provenance}`}
-                  </small>
-                </header>
-                <p>{renderInlineText(block.body)}</p>
-              </section>
-            ))}
-          </article>
-        </div>
-      ) : (
-        <div className="wu-memory__grid">
-          <main className="wu-memory__main">
-            {memory.blocks.map(block => (
-              <article className="wu-brain-card" key={block.id}>
-                <header>
-                  <h2>{block.category}</h2>
-                  <small><TrunkSourceIcon />from {block.provenance}</small>
-                  <button type="button" onClick={() => setMarkdownOpen(true)}
-                    aria-label={`Edit ${block.category}`}><PencilIcon /></button>
-                </header>
-                <p>{renderInlineText(block.body)}</p>
-              </article>
-            ))}
-            {memory.blocks.length === 0 && (
-              <div className="wu-memory-empty">
-                <strong>No brain blocks yet</strong>
-                <span>Distill active trunks or seed from the repository.</span>
-                <button type="button" className="wu-icon-button" onClick={() => {
-                  setActing(true);
-                  void workspaceApi.seedMemory(workspaceId)
-                    .then(run => setPreview(run))
-                    .catch(reason => setError(message(reason)))
-                    .finally(() => setActing(false));
-                }}>Seed from repository</button>
-              </div>
-            )}
-            <div className="wu-kb-heading">
-              <h2>Knowledge base</h2>
-              <span>structured docs agents read at session start</span>
-              <button type="button" onClick={() => setKnowledgeEdit({
-                title: '', body: '', audience: ['plan', 'dev', 'review', 'ci-fix'],
-              })}>+ New entry</button>
+      <div className="wu-memory__grid">
+        <main className="wu-memory__main">
+          {memory.blocks.map(block => (
+            <article className="wu-brain-card" key={block.id}>
+              <header>
+                <h2>{block.category}</h2>
+                <small><TrunkSourceIcon />from {block.provenance}</small>
+                <button type="button" onClick={() => setMarkdownOpen(true)}
+                  aria-label={`Edit ${block.category}`}><PencilIcon /></button>
+              </header>
+              <p>{renderInlineText(block.body)}</p>
+            </article>
+          ))}
+          {memory.blocks.length === 0 && (
+            <div className="wu-memory-empty">
+              <strong>No brain blocks yet</strong>
+              <span>Distill active trunks or seed from the repository.</span>
+              <button type="button" className="wu-icon-button" onClick={() => {
+                setActing(true);
+                void workspaceApi.seedMemory(workspaceId)
+                  .then(run => setPreview(run))
+                  .catch(reason => setError(message(reason)))
+                  .finally(() => setActing(false));
+              }}>Seed from repository</button>
             </div>
-            {memory.knowledge.map(entry => (
-              <article className="wu-kb-card" key={entry.id}>
-                <header>
-                  <span className={`wu-kb-icon ${entry.audience.length === 1 ? 'review' : 'plan'}`}>
-                    {entry.audience.length === 1 ? <BookIcon /> : <ModuleMapIcon />}
-                  </span>
-                  <h3>{entry.title}</h3>
-                  <span className={`wu-kb-audience ${entry.audience.length === 1 ? 'review' : 'plan'}`}>
-                    {audienceLabel(entry)}
-                  </span>
-                  <button type="button" onClick={() => setKnowledgeEdit(entry)}
-                    aria-label={`Edit ${entry.title}`}><PencilIcon /></button>
-                </header>
-                <p>{renderInlineText(entry.body)}</p>
-                {provenance(entry) !== '' && <small>{provenance(entry)}</small>}
-              </article>
-            ))}
-            {learned.length > 0 && (
-              <>
-                <div className="wu-kb-heading">
-                  <h2>Learned from merged PRs</h2>
-                  <span>lessons distilled from this repository&apos;s history</span>
-                </div>
-                <div className="wu-learned-filters">
-                  {(['pending', 'active', 'decayed', 'retired'] as const).map(lifecycle => {
-                    const count = learned.filter(row => row.lifecycle === lifecycle).length;
-                    return (
-                      <button
-                        key={lifecycle}
-                        type="button"
-                        className={`wu-icon-button${learnedFilter === lifecycle ? ' is-active' : ''}`}
-                        onClick={() => setLearnedFilter(lifecycle)}
-                      >
-                        {lifecycle} ({count})
-                      </button>
-                    );
-                  })}
-                </div>
-                {learned.filter(row => row.lifecycle === learnedFilter).map(row => (
-                  <article className="wu-kb-card" key={row.id}>
-                    <header>
-                      <span className="wu-kb-icon plan"><BookIcon /></span>
-                      <h3>{row.title ?? row.statement}</h3>
-                      <span className="wu-kb-audience plan">{row.kind}</span>
-                      <span className="wu-kb-audience review">{row.confidence}</span>
-                    </header>
-                    <p>{renderInlineText(row.statement)}</p>
-                    {row.rationale !== null && row.rationale !== '' && (
-                      <p className="wu-muted">{renderInlineText(row.rationale)}</p>
-                    )}
-                    <small>
-                      {row.sources.map(source =>
-                        source.url !== undefined ? (
-                          <a key={`${source.kind}:${source.ref}`} href={source.url}
-                            target="_blank" rel="noreferrer">
-                            {source.kind} {source.ref}
-                          </a>
-                        ) : (
-                          <span key={`${source.kind}:${source.ref}`}>
-                            {source.kind} {source.ref}
-                          </span>
-                        )).reduce<ReactNode[]>((out, node, index) =>
-                          index === 0 ? [node] : [...out, ' · ', node], [])}
-                    </small>
-                    {(row.lifecycle === 'pending' || row.lifecycle === 'decayed') && (
-                      <footer className="wu-learned-actions">
-                        <button type="button" disabled={acting}
-                          onClick={() => decideLearned(row.id, 'activate')}>Accept</button>
-                        <button type="button" disabled={acting}
-                          onClick={() => decideLearned(row.id, 'retire')}>Skip</button>
-                      </footer>
-                    )}
-                    {row.lifecycle === 'active' && (
-                      <footer className="wu-learned-actions">
-                        <button type="button" disabled={acting}
-                          onClick={() => decideLearned(row.id, 'retire')}>Retire</button>
-                      </footer>
-                    )}
-                  </article>
-                ))}
-                {learned.filter(row => row.lifecycle === learnedFilter).length === 0 && (
-                  <p className="wu-muted">No {learnedFilter} lessons.</p>
-                )}
-              </>
-            )}
-          </main>
-          <aside className="wu-distill-history">
-            <h2>Distill history</h2>
-            <div>
-              {memory.distillRuns.map(run => (
-                <article className={run.status === 'no-changes' ? 'is-muted' : ''} key={run.id}>
-                  <header><strong>{relativeTime(run.createdAt)} · {run.trigger}</strong>
-                    <span className={historyTone(run)}>{historyLabel(run)}</span></header>
-                  <p>{runSummary(run)}</p>
-                  {(run.status === 'pending' || run.status === 'applied') && (
-                    <footer>
-                      {run.status === 'pending' ? (
-                      <button type="button" onClick={() => setPreview(run)}>Review changes</button>
+          )}
+          <div className="wu-kb-heading">
+            <h2>Knowledge base</h2>
+            <span>structured docs agents read at session start</span>
+            <button type="button" onClick={() => setKnowledgeEdit({
+              title: '', body: '', audience: ['plan', 'dev', 'review', 'ci-fix'],
+            })}>+ New entry</button>
+          </div>
+          {memory.knowledge.map(entry => (
+            <article className="wu-kb-card" key={entry.id}>
+              <header>
+                <span className={`wu-kb-icon ${entry.audience.length === 1 ? 'review' : 'plan'}`}>
+                  {entry.audience.length === 1 ? <BookIcon /> : <ModuleMapIcon />}
+                </span>
+                <h3>{entry.title}</h3>
+                <span className={`wu-kb-audience ${entry.audience.length === 1 ? 'review' : 'plan'}`}>
+                  {audienceLabel(entry)}
+                </span>
+                <button type="button" onClick={() => setKnowledgeEdit(entry)}
+                  aria-label={`Edit ${entry.title}`}><PencilIcon /></button>
+              </header>
+              <p>{renderInlineText(entry.body)}</p>
+              {provenance(entry) !== '' && <small>{provenance(entry)}</small>}
+            </article>
+          ))}
+          {learned.length > 0 && (
+            <>
+              <div className="wu-kb-heading">
+                <h2>Learned from merged PRs</h2>
+                <span>lessons distilled from this repository&apos;s history</span>
+              </div>
+              <div className="wu-learned-filters">
+                {(['pending', 'active', 'decayed', 'retired'] as const).map(lifecycle => {
+                  const count = learned.filter(row => row.lifecycle === lifecycle).length;
+                  return (
+                    <button
+                      key={lifecycle}
+                      type="button"
+                      className={`wu-icon-button${learnedFilter === lifecycle ? ' is-active' : ''}`}
+                      onClick={() => setLearnedFilter(lifecycle)}
+                    >
+                      {lifecycle} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+              {learned.filter(row => row.lifecycle === learnedFilter).map(row => (
+                <article className="wu-kb-card" key={row.id}>
+                  <header>
+                    <span className="wu-kb-icon plan"><BookIcon /></span>
+                    <h3>{row.title ?? row.statement}</h3>
+                    <span className="wu-kb-audience plan">{row.kind}</span>
+                    <span className="wu-kb-audience review">{row.confidence}</span>
+                  </header>
+                  <p>{renderInlineText(row.statement)}</p>
+                  {row.rationale !== null && row.rationale !== '' && (
+                    <p className="wu-muted">{renderInlineText(row.rationale)}</p>
+                  )}
+                  <small>
+                    {row.sources.map(source =>
+                      source.url !== undefined ? (
+                        <a key={`${source.kind}:${source.ref}`} href={source.url}
+                          target="_blank" rel="noreferrer">
+                          {source.kind} {source.ref}
+                        </a>
                       ) : (
-                      <button type="button" onClick={() => setPreview(run)}>View diff · Edit</button>
-                      )}
+                        <span key={`${source.kind}:${source.ref}`}>
+                          {source.kind} {source.ref}
+                        </span>
+                      )).reduce<ReactNode[]>((out, node, index) =>
+                        index === 0 ? [node] : [...out, ' · ', node], [])}
+                  </small>
+                  {(row.lifecycle === 'pending' || row.lifecycle === 'decayed') && (
+                    <footer className="wu-learned-actions">
+                      <button type="button" disabled={acting}
+                        onClick={() => decideLearned(row.id, 'activate')}>Accept</button>
+                      <button type="button" disabled={acting}
+                        onClick={() => decideLearned(row.id, 'retire')}>Skip</button>
+                    </footer>
+                  )}
+                  {row.lifecycle === 'active' && (
+                    <footer className="wu-learned-actions">
+                      <button type="button" disabled={acting}
+                        onClick={() => decideLearned(row.id, 'retire')}>Retire</button>
                     </footer>
                   )}
                 </article>
               ))}
-              {memory.distillRuns.length === 0 && <p className="wu-muted">No distill runs yet.</p>}
-            </div>
-            <p>Auto-distill every 30 min while threads are active. Every applied run is reversible from its diff.</p>
-          </aside>
-        </div>
-      )}
+              {learned.filter(row => row.lifecycle === learnedFilter).length === 0 && (
+                <p className="wu-muted">No {learnedFilter} lessons.</p>
+              )}
+            </>
+          )}
+        </main>
+        <aside className="wu-distill-history">
+          <h2>Distill history</h2>
+          <div>
+            {memory.distillRuns.map(run => (
+              <article className={run.status === 'no-changes' ? 'is-muted' : ''} key={run.id}>
+                <header><strong>{relativeTime(run.createdAt)} · {run.trigger}</strong>
+                  <span className={historyTone(run)}>{historyLabel(run)}</span></header>
+                <p>{runSummary(run)}</p>
+                {(run.status === 'pending' || run.status === 'applied') && (
+                  <footer>
+                    {run.status === 'pending' ? (
+                    <button type="button" onClick={() => setPreview(run)}>Review changes</button>
+                    ) : (
+                    <button type="button" onClick={() => setPreview(run)}>View diff · Edit</button>
+                    )}
+                  </footer>
+                )}
+              </article>
+            ))}
+            {memory.distillRuns.length === 0 && <p className="wu-muted">No distill runs yet.</p>}
+          </div>
+          <p>Auto-distill every 30 min while threads are active. Every applied run is reversible from its diff.</p>
+        </aside>
+      </div>
       {markdownOpen && (
         <EditorModal
           title="Edit memory markdown"

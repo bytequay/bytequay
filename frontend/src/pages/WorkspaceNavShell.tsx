@@ -73,12 +73,6 @@ export function WorkspaceNavShell({
   const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
   const ws = data.activeWorkspace;
   const counts = data.overview?.sidebarCounts;
-  const visualFrame = typeof document === 'undefined'
-    ? undefined
-    : document.documentElement.dataset.workspaceVisualFrame;
-  const sourceLegacyHub = visualFrame === '1c';
-  const sourceSync = visualFrame === '6a';
-  const sourceUsesThreadCopy = visualFrame === '1c' || visualFrame === '2b' || sourceSync;
   const developmentTrunks = data.threads.filter(thread => thread.flow !== 'review');
   const reviewTrunks = data.threads.filter(thread => thread.flow === 'review');
   const trunksExpanded = expandedWorkspaceId === activeWorkspaceId;
@@ -159,22 +153,21 @@ export function WorkspaceNavShell({
           onSwitch={onSwitchWorkspace}
         />
         <div className="ws-destinations">
-          {!sourceLegacyHub && (
+          {(
             <WorkspaceDestination
               navKey="today"
               label="Today"
               icon={<WorkspaceIcon kind="today" />}
               active={activeNav === 'today'}
-              count={sourceSync ? undefined : counts?.todayNeedsYou ?? ws.needsAttentionCount}
-              attention={!sourceSync}
+              count={counts?.todayNeedsYou ?? ws.needsAttentionCount}
+              attention
               onNavigate={onNavigate}
             />
           )}
           <WorkspaceGroup label="Work">
-            <WorkspaceDestination navKey="trunks" label={sourceUsesThreadCopy ? 'Threads' : 'Trunks'}
+            <WorkspaceDestination navKey="trunks" label="Trunks"
               icon={<WorkspaceIcon kind="trunks" />}
-              active={activeNav === 'trunks'} count={sourceSync ? undefined : counts?.trunks ?? data.threads.length}
-              trailing={sourceSync ? <WorkspaceCount>0</WorkspaceCount> : undefined}
+              active={activeNav === 'trunks'} count={counts?.trunks ?? data.threads.length}
               onNavigate={onNavigate} />
             {showingSelectedTrunk && (
               <div className="ws-selected-trunks">
@@ -221,23 +214,19 @@ export function WorkspaceNavShell({
             )}
             <WorkspaceDestination navKey="pull-requests" label="Pull requests"
               icon={<WorkspaceIcon kind="pull-requests" />} active={activeNav === 'pull-requests'}
-              count={sourceSync ? undefined : counts?.pullRequests}
-              trailing={sourceSync ? <WorkspaceSyncMeta>14…</WorkspaceSyncMeta> : undefined}
+              count={counts?.pullRequests}
               onNavigate={onNavigate} />
             <WorkspaceDestination navKey="issues" label="Issues" icon={<WorkspaceIcon kind="issues" />}
-              active={activeNav === 'issues'} count={sourceSync ? undefined : counts?.issues}
-              trailing={sourceSync ? <WorkspaceSyncMeta>queued</WorkspaceSyncMeta> : undefined}
+              active={activeNav === 'issues'} count={counts?.issues}
               onNavigate={onNavigate} />
             <WorkspaceDestination navKey="backlog" label="Backlog" icon={<WorkspaceIcon kind="backlog" />}
-              active={activeNav === 'backlog'} count={sourceSync ? undefined : counts?.backlog}
-              trailing={sourceSync ? <WorkspaceCount>0</WorkspaceCount> : undefined}
+              active={activeNav === 'backlog'} count={counts?.backlog}
               disabled disabledTitle="Backlog is managed inside each trunk"
               onNavigate={onNavigate} />
           </WorkspaceGroup>
           <WorkspaceGroup label="Repo">
             <WorkspaceDestination navKey="branches" label="Branches" icon={<WorkspaceIcon kind="branches" />}
-              active={activeNav === 'branches'} count={sourceSync ? undefined : counts?.branches ?? ws.repos.length}
-              trailing={sourceSync ? <WorkspaceCount>1</WorkspaceCount> : undefined}
+              active={activeNav === 'branches'} count={counts?.branches ?? ws.repos.length}
               onNavigate={onNavigate} />
             <WorkspaceDestination navKey="commits" label="Commits" icon={<WorkspaceIcon kind="commits" />}
               active={activeNav === 'commits'} onNavigate={onNavigate} />
@@ -251,7 +240,7 @@ export function WorkspaceNavShell({
               active={activeNav === 'insights'} onNavigate={onNavigate} />
           </WorkspaceGroup>
         </div>
-        {!showingSelectedTrunk && !sourceLegacyHub && !sourceSync && (
+        {!showingSelectedTrunk && (
           <ThreadList
             threads={pinnedTrunks.length > 0 ? pinnedTrunks : developmentTrunks.slice(0, 5)}
             selectedId={selectedThreadId}
@@ -262,7 +251,7 @@ export function WorkspaceNavShell({
               if (selectedThreadId !== undefined) onOpenTask?.(selectedThreadId, taskId);
             }}
             onNewThread={onNewThread}
-            heading={sourceUsesThreadCopy ? 'Pinned threads' : 'Pinned trunks'}
+            heading="Pinned trunks"
             showActions={false}
           />
         )}
@@ -281,7 +270,7 @@ export function WorkspaceNavShell({
       backEnabled={backEnabled}
       forwardEnabled={forwardEnabled}
       workspaceMode={ws !== null}
-      hideBottomNav={showingSelectedTrunk || sourceSync}
+      hideBottomNav={showingSelectedTrunk}
     >
       {body}
     </WorkspaceNavSidebar>

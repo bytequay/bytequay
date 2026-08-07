@@ -57,13 +57,9 @@ export default function WorkspaceCommitsPage({
   onOpenSync,
   onOpenIssue,
 }: Props) {
-  const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
-  const visualCommitStudy = visualFrame === '3g' || visualFrame === '4a';
   const [linkOpen, setLinkOpen] = useState(false);
   const [branches, setBranches] = useState<WorkspaceBranchDto[]>([]);
-  const [branch, setBranch] = useState(visualCommitStudy
-    ? 'master'
-    : repo.local.currentBranch
+  const [branch, setBranch] = useState(repo.local.currentBranch
     ?? repo.local.defaultBranch?.replace(/^origin\//, '')
     ?? repo.defaultBaseBranch?.replace(/^origin\//, '')
     ?? 'HEAD');
@@ -153,9 +149,9 @@ export default function WorkspaceCommitsPage({
   // own branches stay one click away in the same picker.
   useEffect(() => {
     const head = upstreamRefs?.defaultBranch;
-    if (head === null || head === undefined || branchPicked || visualCommitStudy) return;
+    if (head === null || head === undefined || branchPicked) return;
     setBranch(head);
-  }, [upstreamRefs, branchPicked, visualCommitStudy]);
+  }, [upstreamRefs, branchPicked]);
 
   useEffect(() => {
     if (source !== 'upstream') return undefined;

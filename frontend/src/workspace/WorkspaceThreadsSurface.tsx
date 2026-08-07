@@ -34,8 +34,6 @@ export function WorkspaceThreadsSurface({
   const [filter, setFilter] = useState<TrunkFilter>('all');
   const [query, setQuery] = useState('');
   const [showAll, setShowAll] = useState(false);
-  const sourceUsesThreadCopy = typeof document !== 'undefined'
-    && document.documentElement.dataset.workspaceVisualFrame === '1c';
   const openThreads = threads
     .filter(thread => thread.flow !== 'review')
     .filter(isOpenTrunk);
@@ -43,7 +41,7 @@ export function WorkspaceThreadsSurface({
   const active = openThreads.filter(thread => thread.status === 'RUNNING').length;
   const agentRunning = openThreads.filter(thread => thread.status === 'RUNNING').length;
   const needsYou = openThreads.filter(isNeedsYou).length;
-  const publicNoun = sourceUsesThreadCopy ? 'Threads' : 'Trunks';
+  const publicNoun = 'Trunks';
   const publicNounLower = publicNoun.toLowerCase();
 
   const filtered = useMemo(() => {
@@ -68,22 +66,15 @@ export function WorkspaceThreadsSurface({
           {loading ? 'Loading…' : `${openThreads.length} open · ${active} active`}
         </span>
         <span className="wu-trunks__header-spacer" />
-        {sourceUsesThreadCopy ? (
-          <div className="wu-search wu-trunks__search">
-            <SearchIcon />
-            <span>Search {publicNounLower}…</span>
-          </div>
-        ) : (
-          <label className="wu-search wu-trunks__search">
-            <SearchIcon />
-            <input
-              value={query}
-              onChange={event => setQuery(event.target.value)}
-              placeholder={`Search ${publicNounLower}…`}
-              aria-label={`Search ${publicNounLower}`}
-            />
-          </label>
-        )}
+        <label className="wu-search wu-trunks__search">
+          <SearchIcon />
+          <input
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder={`Search ${publicNounLower}…`}
+            aria-label={`Search ${publicNounLower}`}
+          />
+        </label>
         <button type="button" className="wu-primary-button" onClick={onNewThread}>
           <PlusIcon />
           New trunk
@@ -173,8 +164,8 @@ export function WorkspaceThreadsSurface({
           {!showAll && hidden > 0 && (
             <span className="wu-show-all">
               {hidden} more idle {hidden === 1
-                ? (sourceUsesThreadCopy ? 'thread' : 'trunk')
-                : (sourceUsesThreadCopy ? 'threads' : 'trunks')} ·{' '}
+                ? 'trunk'
+                : 'trunks'} ·{' '}
               <a
                 role="button"
                 tabIndex={0}

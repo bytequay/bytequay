@@ -767,20 +767,6 @@
   color: var(--bq-text-4);
 }
 
-.workspace-visual-frame-1c .ws-switcher-avatar {
-  border-color: rgba(0, 0, 0, .07);
-  background: linear-gradient(135deg, #eef2f6, #dde3ea);
-  color: #1f2328;
-}
-
-.workspace-visual-frame-1c .shell.shell-rail.workspace-mode .sb-traffic {
-  height: auto;
-}
-
-.workspace-visual-frame-1c .ws-destination-group:first-child .ws-destination-group__label {
-  padding-top: 6px;
-}
-
 .workspace-redesign .ws-destinations {
   display: flex;
   flex-direction: column;
@@ -1167,10 +1153,6 @@
   color: #8c959f;
   font-size: var(--left-nav-meta-font-size);
   white-space: nowrap;
-}
-
-.workspace-visual-frame-5a .ws-destination.active {
-  background: transparent;
 }
 
 .workspace-redesign .shell .sb-nav--bottom {
@@ -1754,15 +1736,6 @@
 
 @keyframes wu-spin {
   to { transform: rotate(360deg); }
-}
-
-.workspace-visual-frame-6a .wu-today__body {
-  gap: 18px;
-}
-
-.workspace-visual-frame-6a .ws-switcher-avatar {
-  border-color: rgba(0, 0, 0, .10);
-  background: linear-gradient(135deg, #4b8bbe, #306998);
 }
 
 .workspace-redesign .wu-today-section {
@@ -7225,32 +7198,6 @@ button.workspace-redesign .wu-table-row,
   font-weight: 400;
 }
 
-/* Home Inbox only — source frame 6b; the rest of Home remains untouched. */
-.workspace-visual-inbox-study {
-  display: flex;
-  height: 100%;
-  flex-direction: column;
-}
-
-.workspace-visual-inbox-note {
-  display: flex;
-  padding: 11px 20px;
-  align-items: center;
-  gap: 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, .07);
-  background: #fcfcfd;
-  color: #8c959f;
-  font-size: 11px;
-}
-
-.workspace-visual-inbox-study .home-inbox {
-  display: flex;
-  margin: 0;
-  padding: 16px 20px 22px;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .workspace-redesign .home-inbox {
   margin-top: 0;
 }
@@ -8846,149 +8793,6 @@ button.workspace-redesign .wu-table-row,
   letter-spacing: inherit;
 }
 
-/* Development-only visual catalog. The wrapper values are copied from the
- * archived source nodes so production and source are captured in the same
- * 1440×880 Electron viewport. */
-.workspace-visual-canvas {
-  position: relative;
-  width: 1440px;
-  height: 880px;
-  overflow: hidden;
-  background: #e9ebee;
-}
-
-.workspace-visual-full-shell,
-.workspace-visual-study {
-  box-sizing: border-box;
-  overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, .12);
-  border-radius: 12px;
-  background: #fff;
-}
-
-.workspace-visual-full-shell {
-  width: 1440px;
-  height: 880px;
-  box-shadow:
-    0 18px 50px rgba(15, 23, 42, .10),
-    0 2px 6px rgba(15, 23, 42, .05);
-}
-
-.workspace-visual-study {
-  position: relative;
-  box-shadow:
-    0 14px 40px rgba(15, 23, 42, .09),
-    0 2px 6px rgba(15, 23, 42, .05);
-}
-
-.workspace-visual-study > .wu-page,
-.workspace-visual-study > .wu-memory,
-.workspace-visual-study > .wu-backlog,
-.workspace-visual-study > .surface,
-.workspace-visual-study .wu-page {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-}
-
-.workspace-visual-frame-4f .workspace-visual-study,
-.workspace-visual-frame-5d .workspace-visual-study {
-  background:
-    linear-gradient(rgba(15, 23, 42, .42), rgba(15, 23, 42, .42)),
-    #eef0f3;
-  box-shadow: 0 14px 40px rgba(15, 23, 42, .09);
-}
-
-.workspace-visual-frame-3a .wu-pr-view-toggle {
-  display: none;
-}
-
-.workspace-visual-frame-3a .wu-pr-page-title {
-  top: 0;
-}
-
-.workspace-visual-frame-5b .workspace-visual-study,
-.workspace-visual-frame-6d .workspace-visual-study {
-  background: #f6f8fa;
-  box-shadow: 0 14px 40px rgba(15, 23, 42, .09);
-}
-
-.workspace-visual-frame-4f .wu-memory {
-  min-width: 0;
-  height: 100%;
-  background: transparent;
-}
-
-.workspace-visual-frame-4f .wu-memory > :not(.wu-modal-backdrop) {
-  visibility: hidden;
-}
-
-.workspace-visual-frame-4f .wu-modal-backdrop,
-.workspace-visual-frame-5b .wu-modal-backdrop {
-  position: absolute;
-  inset: 0;
-  width: auto;
-  height: auto;
-}
-
-.workspace-visual-frame-4f .wu-modal-backdrop {
-  padding: 0;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-}
-
-.workspace-visual-frame-4f .wu-distill-modal {
-  width: 560px;
-  max-height: none;
-  border-radius: 14px;
-}
-
-.workspace-visual-frame-5b .wu-page > :not(.wu-modal-backdrop) {
-  visibility: hidden;
-}
-
-.workspace-visual-frame-5b .wu-modal-backdrop {
-  padding: 27px;
-  background: transparent;
-}
-
-.workspace-visual-frame-5b .wu-trunk-picker {
-  width: 405px;
-  border-color: rgba(9, 105, 218, .3);
-}
-
-.workspace-visual-frame-5b .wu-trunk-picker > header button {
-  display: none;
-}
-
-.workspace-visual-frame-5d .wu-backlog > :not(.wu-backlog-modal) {
-  visibility: hidden;
-}
-
-.workspace-visual-frame-5d .wu-backlog {
-  background: transparent;
-}
-
-.workspace-visual-frame-5d .wu-backlog-modal {
-  position: absolute;
-  inset: 0;
-  padding: 0;
-  background: transparent;
-  backdrop-filter: none;
-}
-
-.workspace-visual-frame-5d .wu-backlog-editor {
-  width: 680px;
-  max-height: none;
-}
-
-.workspace-visual-frame-6d .wu-creation-toasts {
-  position: absolute;
-  top: 26px;
-  right: 26px;
-}
-
 /* Exact pull-request detail surface (frame 5e). */
 .workspace-redesign .wu-pr-detail {
   display: flex;
@@ -9562,8 +9366,6 @@ button.workspace-redesign .wu-table-row,
 }
 
 .workspace-redesign .wu-pr-detail .wu-timeline-event b { font-weight: 600; }
-
-.workspace-visual-frame-5e .wu-pr-detail__body { overflow: hidden; }
 
 /* ── Exact issue list, issue detail, and shared start-work picker ─────── */
 
@@ -10442,14 +10244,6 @@ button.workspace-redesign .wu-table-row,
 
 .workspace-redesign .wu-trunk-picker__note code {
   font: 10px ui-monospace, "SF Mono", Menlo, monospace;
-}
-
-.workspace-visual-frame-5b .wu-modal-backdrop {
-  padding: 26px;
-}
-
-.workspace-visual-frame-5b .wu-trunk-picker {
-  width: 100%;
 }
 
 /* A workspace row whose engine differs from the account-level default in

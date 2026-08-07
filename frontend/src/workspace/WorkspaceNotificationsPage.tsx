@@ -57,7 +57,6 @@ export default function WorkspaceNotificationsPage({
   }, [refresh]);
 
   const unread = items.filter(item => item.status === 'UNREAD').length;
-  const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
   const completionMuted = mutes.some(rule =>
     rule.publicType === 'agent-update' && rule.muted);
 
@@ -79,7 +78,7 @@ export default function WorkspaceNotificationsPage({
     <section className="wu-page wu-notifications">
       <header className="wu-page-header">
         <span className="wu-notification-title">Notifications</span>
-        <span className="wu-notification-count">{visualFrame === '3j' ? 8 : unread}</span>
+        <span className="wu-notification-count">{unread}</span>
         <span className="wu-notification-header-spacer" />
         <button type="button" className="wu-icon-button" onClick={() => { void markAllRead(); }}>
           Mark all read
@@ -107,7 +106,7 @@ export default function WorkspaceNotificationsPage({
                 {notificationIcon(item.publicType)}
               </span>
               <span className="wu-notification-copy">
-                {notificationCopy(item, visualFrame === '3j')}
+                {notificationCopy(item, false)}
               </span>
               <span className="wu-notification-time">{relativeTime(item.createdAt, { suffix: false })}</span>
               {item.status === 'UNREAD' && <span className="wu-unread-dot" />}

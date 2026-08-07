@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.ThreadSignal;
-import com.bytequay.app.repository.ThreadSignalStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,18 +22,17 @@ import java.util.List;
 import java.util.Optional;
 
 @Component
-class SqliteThreadSignalStore
-        implements ThreadSignalStore
+public class ThreadSignalStore
 {
     private final ThreadSignalJpaRepository repository;
 
-    SqliteThreadSignalStore(ThreadSignalJpaRepository repository)
+    ThreadSignalStore(ThreadSignalJpaRepository repository)
     {
         this.repository = repository;
     }
 
-    @Override
     @Transactional
+    /** Insert or update a signal; returns the persisted row. */
     public ThreadSignal save(ThreadSignal signal)
     {
         ThreadSignalEntity entity = new ThreadSignalEntity();
@@ -51,20 +49,20 @@ class SqliteThreadSignalStore
         return toDomain(repository.save(entity));
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** Signals on a thread, newest-first. */
     public List<ThreadSignal> findByThread(String threadId)
     {
         return repository.findByThreadIdOrderByCreatedAtMsDesc(threadId).stream()
-                .map(SqliteThreadSignalStore::toDomain)
+                .map(ThreadSignalStore::toDomain)
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** One signal by id. */
     public Optional<ThreadSignal> findById(String id)
     {
-        return repository.findById(id).map(SqliteThreadSignalStore::toDomain);
+        return repository.findById(id).map(ThreadSignalStore::toDomain);
     }
 
     private static ThreadSignal toDomain(ThreadSignalEntity e)

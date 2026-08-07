@@ -14,7 +14,7 @@
 package com.bytequay.app.service.distillation;
 
 import com.bytequay.app.domain.DistillationSignal;
-import com.bytequay.app.repository.DistillationSignalStore;
+import com.bytequay.app.repository.sqlite.DistillationSignalStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

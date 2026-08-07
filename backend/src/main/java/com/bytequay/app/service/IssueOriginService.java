@@ -17,7 +17,7 @@ import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.IssueOrigin;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.repository.IssueOriginStore;
+import com.bytequay.app.repository.sqlite.IssueOriginStore;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;

@@ -15,9 +15,9 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
 import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.RoundGateStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.RoundGateStore;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;

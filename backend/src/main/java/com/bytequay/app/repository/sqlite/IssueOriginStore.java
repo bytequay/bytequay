@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.repository.IssueOriginStore;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -21,18 +20,17 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
+/** Immutable local attribution for GitHub issues known to this installation. */
 @Repository
-public class SqliteIssueOriginStore
-        implements IssueOriginStore
+public class IssueOriginStore
 {
     private final JdbcTemplate jdbc;
 
-    public SqliteIssueOriginStore(JdbcTemplate jdbc)
+    public IssueOriginStore(JdbcTemplate jdbc)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
 
-    @Override
     public Optional<String> find(long issueId)
     {
         return jdbc.queryForList(
@@ -43,7 +41,7 @@ public class SqliteIssueOriginStore
                 .findFirst();
     }
 
-    @Override
+    /** Records the first known origin; later calls never rewrite it. */
     public void saveIfAbsent(long issueId, int issueNumber, String origin)
     {
         jdbc.update("""

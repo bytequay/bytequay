@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.repository.TaskReviewMarkerStore;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -21,37 +20,45 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Persists the per-task "last queried the CI-fixing log" marker for the
+ * {@code get_new_updated_ci_fixing_log} read tool. The marker is the
+ * timestamp of the newest CI-fixing iteration summary the caller has
+ * already been handed; comparing live summaries against it is how the tool
+ * returns only genuinely newer rows on a later call.
+ */
 @Repository
-public class SqliteTaskReviewMarkerStore
-        implements TaskReviewMarkerStore
+public class CiFixingLogQueryMarkerStore
 {
-    private final TaskReviewMarkerJpaRepository jpaRepository;
+    private final CiFixingLogQueryMarkerJpaRepository jpaRepository;
 
-    public SqliteTaskReviewMarkerStore(TaskReviewMarkerJpaRepository jpaRepository)
+    public CiFixingLogQueryMarkerStore(CiFixingLogQueryMarkerJpaRepository jpaRepository)
     {
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
     }
 
-    @Override
+    /** The marker for {@code taskId}, or empty when none has been
+    *  recorded (the caller has never queried — every summary is new). */
     public Optional<Instant> find(String taskId)
     {
         requireNonNull(taskId, "taskId is null");
         return jpaRepository.findById(taskId)
-                .map(TaskReviewMarkerEntity::getLastAddressedReviewAt);
+                .map(CiFixingLogQueryMarkerEntity::getLastQueriedAt);
     }
 
-    @Override
-    public void mark(String taskId, Instant addressedThrough)
+    /** Records {@code queriedThrough} as the marker for {@code taskId},
+    *  upserting the row. Idempotent. */
+    public void mark(String taskId, Instant queriedThrough)
     {
         requireNonNull(taskId, "taskId is null");
-        requireNonNull(addressedThrough, "addressedThrough is null");
-        TaskReviewMarkerEntity entity = jpaRepository.findById(taskId)
+        requireNonNull(queriedThrough, "queriedThrough is null");
+        CiFixingLogQueryMarkerEntity entity = jpaRepository.findById(taskId)
                 .orElseGet(() -> {
-                    TaskReviewMarkerEntity fresh = new TaskReviewMarkerEntity();
+                    CiFixingLogQueryMarkerEntity fresh = new CiFixingLogQueryMarkerEntity();
                     fresh.setTaskId(taskId);
                     return fresh;
                 });
-        entity.setLastAddressedReviewAt(addressedThrough);
+        entity.setLastQueriedAt(queriedThrough);
         jpaRepository.save(entity);
     }
 }

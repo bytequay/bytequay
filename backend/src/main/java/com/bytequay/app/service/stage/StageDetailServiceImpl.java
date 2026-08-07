@@ -50,11 +50,11 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadTurnStatus;
-import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.sqlite.IterationStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BranchGuardService;
 import com.bytequay.app.service.review.ReviewRoundService;
@@ -83,6 +83,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -1112,10 +1113,5 @@ public class StageDetailServiceImpl
     private static boolean isDraft(String prState)
     {
         return prState != null && prState.toLowerCase(Locale.ROOT).contains("draft");
-    }
-
-    private static String nullToEmpty(String value)
-    {
-        return value == null ? "" : value;
     }
 }

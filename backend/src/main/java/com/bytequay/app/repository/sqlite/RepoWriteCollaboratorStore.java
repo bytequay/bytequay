@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.repository.RepoWriteCollaboratorStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,18 +22,18 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteRepoWriteCollaboratorStore
-        implements RepoWriteCollaboratorStore
+public class RepoWriteCollaboratorStore
 {
     private final RepoWriteCollaboratorJpaRepository repo;
 
-    SqliteRepoWriteCollaboratorStore(RepoWriteCollaboratorJpaRepository repo)
+    RepoWriteCollaboratorStore(RepoWriteCollaboratorJpaRepository repo)
     {
         this.repo = requireNonNull(repo, "repo is null");
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** The cached write verdict for {@code (repoFullName, login)} if it was
+    *  fetched at or after {@code freshAfter}; empty when absent or stale. */
     public Optional<Boolean> find(String repoFullName, String login, Instant freshAfter)
     {
         return repo.findById(RepoWriteCollaboratorEntity.idOf(repoFullName, login))
@@ -42,8 +41,8 @@ class SqliteRepoWriteCollaboratorStore
                 .map(RepoWriteCollaboratorEntity::isCanWrite);
     }
 
-    @Override
     @Transactional
+    /** Upsert the write verdict, stamped with {@code fetchedAt}. */
     public void save(String repoFullName, String login, boolean canWrite, Instant fetchedAt)
     {
         RepoWriteCollaboratorEntity entity = new RepoWriteCollaboratorEntity();

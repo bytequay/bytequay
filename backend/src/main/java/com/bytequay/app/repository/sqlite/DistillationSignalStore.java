@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.DistillationSignal;
-import com.bytequay.app.repository.DistillationSignalStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,18 +21,17 @@ import java.time.Instant;
 import java.util.List;
 
 @Component
-class SqliteDistillationSignalStore
-        implements DistillationSignalStore
+public class DistillationSignalStore
 {
     private final DistillationSignalJpaRepository repository;
 
-    SqliteDistillationSignalStore(DistillationSignalJpaRepository repository)
+    DistillationSignalStore(DistillationSignalJpaRepository repository)
     {
         this.repository = repository;
     }
 
-    @Override
     @Transactional
+    /** Append one decision signal. */
     public DistillationSignal save(DistillationSignal signal)
     {
         DistillationSignalEntity entity = new DistillationSignalEntity();
@@ -49,17 +47,18 @@ class SqliteDistillationSignalStore
         return toDomain(repository.save(entity));
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** Signals of one event type, oldest-first. Exists for the (future)
+    *  memory read path + tests; v1 has no production reader. */
     public List<DistillationSignal> findByEventType(String eventType)
     {
         return repository.findByEventTypeOrderByCreatedAtMsAsc(eventType).stream()
-                .map(SqliteDistillationSignalStore::toDomain)
+                .map(DistillationSignalStore::toDomain)
                 .toList();
     }
 
-    @Override
     @Transactional
+    /** Delete signals attached to a thread. Returns the count removed. */
     public int deleteByThread(String threadId)
     {
         if (threadId == null || threadId.isBlank()) {
@@ -68,8 +67,8 @@ class SqliteDistillationSignalStore
         return (int) repository.deleteByThreadId(threadId);
     }
 
-    @Override
     @Transactional
+    /** Delete signals attached to a workspace. Returns the count removed. */
     public int deleteByWorkspace(String workspaceId)
     {
         if (workspaceId == null || workspaceId.isBlank()) {

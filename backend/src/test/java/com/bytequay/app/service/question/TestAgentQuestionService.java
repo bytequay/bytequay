@@ -14,7 +14,7 @@
 package com.bytequay.app.service.question;
 
 import com.bytequay.app.domain.AgentQuestion;
-import com.bytequay.app.repository.AgentQuestionStore;
+import com.bytequay.app.repository.sqlite.AgentQuestionStore;
 import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

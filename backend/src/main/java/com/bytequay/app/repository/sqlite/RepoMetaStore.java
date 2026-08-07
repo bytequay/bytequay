@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.StoredRepoMeta;
-import com.bytequay.app.repository.RepoMetaStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Repository;
@@ -28,25 +27,32 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Local store for repo-level metadata (description, license, topics,
+ * languages, counts). Backs the Repository overview / About panel and
+ * lets the frontend paint instantly from the local row instead of
+ * waiting on GitHub on every page mount.
+ *
+ * <p>Reads return the stored {@link RepoMeta} together with the
+ * {@code synced_at} timestamp so the service layer can decide whether
+ * the row is fresh enough or needs a background refresh.
+ */
 @Repository
-public class SqliteRepoMetaStore
-        implements RepoMetaStore
+public class RepoMetaStore
 {
     private final RepoMetaJpaRepository repo;
 
-    public SqliteRepoMetaStore(RepoMetaJpaRepository repo)
+    public RepoMetaStore(RepoMetaJpaRepository repo)
     {
         this.repo = requireNonNull(repo, "repo is null");
     }
 
-    @Override
     public Optional<StoredRepoMeta> find(String owner, String repo)
     {
         return this.repo.findById(new RepoMetaEntity.RepoMetaKey(owner, repo))
-                .map(SqliteRepoMetaStore::toStored);
+                .map(RepoMetaStore::toStored);
     }
 
-    @Override
     @Transactional
     public void save(String owner, String repo, RepoMeta meta, Instant syncedAt)
     {

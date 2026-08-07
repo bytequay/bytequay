@@ -16,7 +16,6 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.RoundGateAuthorization;
 import com.bytequay.app.domain.RoundGateEffect;
-import com.bytequay.app.repository.RoundGateStore;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,13 +27,12 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Repository
-class SqliteRoundGateStore
-        implements RoundGateStore
+public class RoundGateStore
 {
     private final RoundGateAuthorizationJpaRepository authorizations;
     private final RoundGateEffectJpaRepository effects;
 
-    SqliteRoundGateStore(
+    RoundGateStore(
             RoundGateAuthorizationJpaRepository authorizations,
             RoundGateEffectJpaRepository effects)
     {
@@ -42,7 +40,6 @@ class SqliteRoundGateStore
         this.effects = requireNonNull(effects, "effects is null");
     }
 
-    @Override
     @Transactional
     public void insert(
             RoundGateAuthorization authorization, List<String> effectKeys, int attemptLimit)
@@ -79,60 +76,55 @@ class SqliteRoundGateStore
         effects.flush();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<RoundGateAuthorization> findAuthorization(String token)
     {
-        return authorizations.findById(token).map(SqliteRoundGateStore::toDomain);
+        return authorizations.findById(token).map(RoundGateStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<RoundGateAuthorization> findActiveByRound(String roundId)
     {
         return authorizations
                 .findFirstByRoundIdAndRevokedAtMsIsNullAndConsumedAtMsIsNull(roundId)
-                .map(SqliteRoundGateStore::toDomain);
+                .map(RoundGateStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<RoundGateAuthorization> findActiveByTask(String taskId)
     {
         return authorizations
                 .findFirstByTaskIdAndRevokedAtMsIsNullAndConsumedAtMsIsNull(taskId)
-                .map(SqliteRoundGateStore::toDomain);
+                .map(RoundGateStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
+    /** Runnable tokens whose first incomplete cursor is due (or whose effects
+    * are all complete and only need finalization). */
     public List<RoundGateAuthorization> findRecoverable(Instant now, int limit)
     {
         return authorizations.findRecoverable(
                         now.toEpochMilli(), PageRequest.of(0, limit))
                 .stream()
-                .map(SqliteRoundGateStore::toDomain)
+                .map(RoundGateStore::toDomain)
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<RoundGateEffect> findEffects(String token)
     {
         return effects.findByTokenOrderByIdAsc(token).stream()
-                .map(SqliteRoundGateStore::toDomain)
+                .map(RoundGateStore::toDomain)
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<RoundGateEffect> findEffect(String token, String effectKey)
     {
         return effects.findByTokenAndEffectKey(token, effectKey)
-                .map(SqliteRoundGateStore::toDomain);
+                .map(RoundGateStore::toDomain);
     }
 
-    @Override
     @Transactional
     public boolean claimEffect(
             String token, String effectKey, String owner, Instant now, Instant leaseUntil)
@@ -141,7 +133,6 @@ class SqliteRoundGateStore
                 token, effectKey, owner, now.toEpochMilli(), leaseUntil.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean completeEffect(
             String token, String effectKey, String owner, String evidenceJson, Instant completedAt)
@@ -150,8 +141,8 @@ class SqliteRoundGateStore
                 token, effectKey, owner, evidenceJson, completedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
+    /** Record an effect found remotely after an ambiguous prior attempt. */
     public boolean completeProbedEffect(
             String token, String effectKey, String evidenceJson, Instant completedAt)
     {
@@ -159,7 +150,6 @@ class SqliteRoundGateStore
                 token, effectKey, evidenceJson, completedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean failEffect(
             String token,
@@ -179,7 +169,6 @@ class SqliteRoundGateStore
                 epoch(nextAttemptAt)) == 1;
     }
 
-    @Override
     @Transactional
     public boolean markExhausted(
             String token, String effectKey, String errorClass, String error)
@@ -187,7 +176,6 @@ class SqliteRoundGateStore
         return effects.markExhausted(token, effectKey, errorClass, error) == 1;
     }
 
-    @Override
     @Transactional
     public boolean rearmEffect(
             String token, String effectKey, int addedAllowance, Instant retryAt)
@@ -199,15 +187,14 @@ class SqliteRoundGateStore
                 token, effectKey, addedAllowance, retryAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean revokeIfUnclaimed(String token, String outcome, Instant revokedAt)
     {
         return authorizations.revokeIfUnclaimed(token, outcome, revokedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
+    /** Advance the human-reviewed payload revision without changing round state. */
     public boolean bumpGateRevision(
             String taskId, String roundId, int expectedRevision, String activeToken)
     {
@@ -215,14 +202,12 @@ class SqliteRoundGateStore
                 taskId, roundId, expectedRevision, activeToken) == 1;
     }
 
-    @Override
     @Transactional
     public boolean sealActive(String taskId, String outcome, Instant revokedAt)
     {
         return authorizations.sealActive(taskId, outcome, revokedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean consumeIfComplete(String token, String outcome, Instant consumedAt)
     {

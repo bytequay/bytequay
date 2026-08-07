@@ -14,10 +14,10 @@
 package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.MemoryItemScopeKind;
-import com.bytequay.app.repository.DistillationSignalStore;
 import com.bytequay.app.repository.MemoryItemStore;
-import com.bytequay.app.repository.PermissionGrantStore;
-import com.bytequay.app.repository.SurfaceVisitStore;
+import com.bytequay.app.repository.sqlite.DistillationSignalStore;
+import com.bytequay.app.repository.sqlite.PermissionGrantStore;
+import com.bytequay.app.repository.sqlite.SurfaceVisitStore;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

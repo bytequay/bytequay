@@ -14,8 +14,8 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.TaskStageIteration;
-import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.sqlite.IterationStore;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;

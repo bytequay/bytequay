@@ -41,10 +41,12 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.RepoMetaStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.workspaces.WatchedRepoPurger;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -106,6 +108,7 @@ public class RepoService
     private final AppSettingsStore settingsStore;
     private final PatResolver patResolver;
     private final IssueOriginService issueOrigins;
+    private final WatchedRepoPurger watchedRepoPurger;
     private final Executor ioExecutor;
     private final Map<String, CachedContributionCalendar> contributionCalendarCache = new ConcurrentHashMap<>();
 
@@ -119,6 +122,7 @@ public class RepoService
             AppSettingsStore settingsStore,
             PatResolver patResolver,
             IssueOriginService issueOrigins,
+            @Lazy WatchedRepoPurger watchedRepoPurger,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
@@ -130,6 +134,7 @@ public class RepoService
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.issueOrigins = requireNonNull(issueOrigins, "issueOrigins is null");
+        this.watchedRepoPurger = requireNonNull(watchedRepoPurger, "watchedRepoPurger is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
@@ -143,9 +148,15 @@ public class RepoService
         return watchedRepoStore.add(owner, repo);
     }
 
+    /**
+     * Un-watch a repo and retire everything derived from it — the
+     * attached workspace with its threads, tasks, sync runs and agent
+     * logs, the repo-keyed caches, and the managed clone plus its
+     * worktrees on disk. See {@link WatchedRepoPurger}.
+     */
     public void removeWatchedRepo(String owner, String repo)
     {
-        watchedRepoStore.remove(owner, repo);
+        watchedRepoPurger.purge(owner, repo);
     }
 
     /**

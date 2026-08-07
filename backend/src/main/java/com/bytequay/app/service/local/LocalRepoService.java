@@ -214,13 +214,23 @@ public class LocalRepoService
     }
 
     /**
+     * Root every app-managed clone lives under:
+     * {@code ~/Library/Application Support/ByteQuay/repos}. Anything
+     * outside it was pointed at by the user and is never ours to delete.
+     */
+    public static Path managedReposRoot()
+    {
+        String home = System.getProperty("user.home");
+        return Path.of(home, "Library", "Application Support", "ByteQuay", "repos");
+    }
+
+    /**
      * App-managed destination for the repo:
      * {@code ~/Library/Application Support/ByteQuay/repos/{owner}/{repo}}.
      */
     public static Path defaultClonePath(String owner, String repo)
     {
-        String home = System.getProperty("user.home");
-        return Path.of(home, "Library", "Application Support", "ByteQuay", "repos", owner, repo);
+        return managedReposRoot().resolve(owner).resolve(repo);
     }
 
     public ManagedClonePlan managedClonePlan(String owner, String repo)

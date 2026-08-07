@@ -108,14 +108,14 @@ export default function WorkspaceSyncRunQueue({
         )}
         <div className="sr-queue__range">
           <code>{commits.at(0)?.shortSha ?? '—'}…{commits.at(-1)?.shortSha ?? '—'}</code>
-          <span>{job.requestedCount} selected · {job.skippedCount} skipped</span>
+          <span>{job.requestedCount} selected</span>
         </div>
         <div className="sr-queue__progress">
           <span className="sr-progress-bar">
             <i style={{ width: `${progress.percent}%` }} />
           </span>
           <span className="sr-queue__progress-meta">
-            <strong>{progress.done} of {progress.total} picked</strong>
+            <strong>{progress.done} of {progress.total} settled</strong>
             <em>{elapsedLabel(job.createdAt, isLiveSync(job) ? undefined : job.updatedAt)}</em>
           </span>
         </div>
@@ -131,7 +131,7 @@ export default function WorkspaceSyncRunQueue({
           </span>
           <span className="sr-queue__section-label">DONE · {queue.done.length}</span>
           <span className="sr-queue__section-meta">
-            {queue.cleanCount} clean · {queue.carriedCount} carried
+            {queue.cleanCount} clean · {queue.carriedCount} carried · {job.skippedCount} skipped
           </span>
         </button>
         {doneOpen && (

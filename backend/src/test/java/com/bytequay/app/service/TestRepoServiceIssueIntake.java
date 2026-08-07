@@ -23,6 +23,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.RepoMetaStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.workspaces.WatchedRepoPurger;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -100,6 +101,7 @@ class TestRepoServiceIssueIntake
                     mock(AppSettingsStore.class),
                     pats,
                     origins,
+                    mock(WatchedRepoPurger.class),
                     Runnable::run);
         }
     }

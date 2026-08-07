@@ -81,7 +81,11 @@ function WatchedReposPage({ workspaceId }: Props) {
 
   const handleRemove = async (owner: string, repo: string) => {
     const fullName = `${owner}/${repo}`;
-    if (!confirm(`Stop watching ${fullName}? ByteQuay will no longer poll its pull requests.`)) return;
+    if (!confirm(
+      `Remove ${fullName}?\n\nThis deletes its workspace and everything under it — `
+      + 'threads, tasks, sync runs, agent logs — plus the local clone and its worktrees. '
+      + 'This cannot be undone.',
+    )) return;
     setRemoving(fullName);
     try {
       await window.bridge.removeWatchedRepo(owner, repo);

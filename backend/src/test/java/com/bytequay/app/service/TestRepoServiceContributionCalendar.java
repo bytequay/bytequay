@@ -21,6 +21,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.RepoMetaStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.workspaces.WatchedRepoPurger;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -85,6 +86,7 @@ class TestRepoServiceContributionCalendar
                 mock(AppSettingsStore.class),
                 patResolver,
                 mock(IssueOriginService.class),
+                mock(WatchedRepoPurger.class),
                 Runnable::run);
     }
 

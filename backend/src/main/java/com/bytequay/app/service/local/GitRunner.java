@@ -899,6 +899,19 @@ public class GitRunner
                 false, 0, null, unresolvedPaths(workingDir), detail);
     }
 
+    /**
+     * {@code git cherry-pick --skip} — drops the commit the sequencer is
+     * stopped on and moves to the next. This is the only way out of a pick
+     * whose changes the branch already has: git refuses to record an empty
+     * commit, keeps {@code CHERRY_PICK_HEAD}, and rejects {@code --continue}
+     * until the pick is either skipped or forced through with an empty commit.
+     */
+    public void skipCherryPick(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        run(List.of("git", "cherry-pick", "--skip"), workingDir, 60).requireSuccess();
+    }
+
     public record CherryPickOutcome(
             boolean complete,
             int appliedCount,

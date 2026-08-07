@@ -1017,6 +1017,55 @@ class TestUpstreamCherryPickService
 
     @Test
     @SuppressWarnings("unchecked")
+    void aPickTheForkAlreadyCarriesIsSkippedRatherThanParked(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        initialise(target);
+        initialise(upstream);
+        commit(upstream, "shared.txt", "base\n", "Shared base");
+        commit(upstream, "shared.txt", "fixed\n", "Fix the shared line");
+        String duplicate = output(upstream, "rev-parse", "HEAD");
+        commit(upstream, "later.txt", "later\n", "A commit that still applies");
+        String last = output(upstream, "rev-parse", "HEAD");
+        // The fork already has the same content under a different subject, so
+        // the subject check cannot see it and the pick comes out empty.
+        commit(target, "shared.txt", "base\n", "Shared base, our wording");
+        commit(target, "shared.txt", "fixed\n", "Backport: fix the shared line");
+
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        UpstreamCherryPickService service = service(
+                jdbc, new Conflict(target, upstream, last), mock(ConflictRepairAdvisor.class));
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "empty-pick", null, duplicate, last, null,
+                        null, null, false, false, null));
+        UpstreamCherryPickService.UpstreamCherryPickJobDto done = awaitStatus(
+                service, "fork-ws", started.jobId(),
+                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+
+        // git refuses to record the empty commit and holds the sequencer open;
+        // the run must skip it and carry on rather than park a human on a pick
+        // no resolution can ever finish.
+        assertThat(done.status()).isEqualTo("COMPLETED");
+        assertThat(done.skippedCount()).isEqualTo(1);
+        assertThat(done.appliedCount()).isEqualTo(1);
+        assertThat(service.run("fork-ws", started.jobId(), 100).events())
+                .filteredOn(event -> "skip".equals(event.kind()))
+                .singleElement()
+                .satisfies(event -> assertThat(event.detail())
+                        .isEqualTo("already applied — the pick came out empty"));
+        assertThat(output(target, "log", "--format=%s", "main..empty-pick")
+                .lines().toList())
+                .containsExactly("A commit that still applies");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void deleteReleasesEveryResourceAndForgetsTheRun(@TempDir Path root)
             throws Exception
     {

@@ -28,7 +28,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestConflictRepairAgent
@@ -86,6 +89,30 @@ class TestConflictRepairAgent
         assertThat(outcome.detail())
                 .contains("did not run")
                 .contains("command not found");
+    }
+
+    @Test
+    void theBudgetStopsTheNextTurnRatherThanCuttingOffTheOneRunning()
+    {
+        // The engine is handed a fixed runaway cap and reports what it spent; the
+        // ceiling is checked here, between turns. Handing the engine whatever was
+        // left instead killed turns seconds in — the money went anyway and the
+        // pick came back unrepaired.
+        engine(new WorkModel(WorkModelKind.CLI, "claude-code", null, null));
+        when(cli.run(any(), any(), any(), any(), any(), anyInt(), any(), any()))
+                .thenReturn(new CliReviewRunner.Result("", "session-1", 1_200));
+
+        ConflictRepairAdvisor.Outcome outcome = agent.repair(
+                Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null, null);
+
+        // No verdict was written, so the agent would normally be asked again — but
+        // the turn overshot the 1000 available, so there is no second turn. The
+        // one that ran was never cut short, and its whole cost is reported.
+        assertThat(outcome.resolved()).isFalse();
+        assertThat(outcome.detail()).contains("budget ran out");
+        assertThat(outcome.costMilliUsd()).isEqualTo(1_200);
+        verify(cli, times(1))
+                .run(any(), any(), any(), any(), any(), eq(10_000), any(), any());
     }
 
     @Test

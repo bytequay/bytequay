@@ -875,6 +875,40 @@ public class GitRunner
                 .toList();
     }
 
+    /**
+     * Which of {@code paths} still carry a conflict marker at HEAD.
+     *
+     * <p>A conflicted pick is committed with git's own three-way output before it
+     * is repaired, so the markers sit in real history until the repair takes them
+     * out. A repair reported as done that missed a file leaves them there, and
+     * nothing further down reads the diff — the branch is pushed and the markers
+     * turn up in the pull request.
+     *
+     * <p>Only the opening and closing markers are matched: {@code =======} alone
+     * is an ordinary underline in far too much prose to mean anything here.
+     *
+     * @param paths the files to look at, or empty to search the whole tree —
+     *         which is what a resumed run has to do, because the park that
+     *         stopped it did not keep the list
+     */
+    public List<String> pathsWithConflictMarkers(Path workingDir, List<String> paths)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(paths, "paths is null");
+        List<String> argv = new ArrayList<>(List.of(
+                "git", "grep", "-l", "-I", "-E", "-e", "^(<<<<<<<|>>>>>>>) ", "HEAD", "--"));
+        argv.addAll(paths);
+        GitResult result = run(argv, workingDir, 60);
+        if (result.exitCode() == 1) {
+            return List.of();
+        }
+        result.requireSuccess();
+        return result.stdout().lines()
+                .map(line -> line.startsWith("HEAD:") ? line.substring("HEAD:".length()) : line)
+                .filter(line -> !line.isBlank())
+                .toList();
+    }
+
     /** Continues a human-resolved cherry-pick without opening an editor. */
     public CherryPickOutcome continueCherryPick(Path workingDir)
             throws IOException, InterruptedException

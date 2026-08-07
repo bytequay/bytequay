@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -61,6 +60,18 @@ public class ConflictRepairAgent
     /** One corrective turn is usually enough: the work is already committed and
      *  the session still remembers it, so all that is missing is the file. */
     private static final int MAX_VERDICT_RETRIES = 2;
+    /**
+     * A runaway guard on a single turn, not the run's budget. The run's ceiling
+     * is enforced here and by the caller, by adding up what each turn reports
+     * and checking before the next one starts.
+     *
+     * <p>This used to be whatever the run had left, which meant a nearly-spent
+     * run handed a turn $1.80 for work whose fixed cost — resuming a session
+     * that already carried a dozen conflicts — was more than that. The engine
+     * only notices it is over budget once it is, so the turn died a few seconds
+     * in, having spent the money anyway, and the pick parked unrepaired.
+     */
+    private static final int TURN_COST_CAP_CENTS = 10_000;
 
     private final CliReviewRunner cli;
     private final WorkModelResolver engines;
@@ -124,10 +135,17 @@ public class ConflictRepairAgent
         long spent = 0;
         String transcript = null;
         for (int attempt = 0; attempt <= MAX_VERDICT_RETRIES; attempt++) {
+            if (spent >= budgetMilliUsd) {
+                // Checked before the turn rather than imposed on it, so what stops
+                // is the next turn and not one already halfway through the work.
+                return new Outcome(
+                        false, false,
+                        "the repair budget ran out after " + attempt + " turns",
+                        transcript, spent, session);
+            }
             CliReviewRunner.Result result = cli.run(
                     cliProvider(engine.agentOrProvider()), prompt, session, worktree, null,
-                    toIntExact(Math.max(1, (budgetMilliUsd - spent) / 10)),
-                    CliReviewRunner.Sandbox.WRITE, onLine);
+                    TURN_COST_CAP_CENTS, CliReviewRunner.Sandbox.WRITE, onLine);
             spent += result.costUsdMilli();
             session = result.sessionId() == null ? session : result.sessionId();
             transcript = result.transcript() == null ? transcript : result.transcript();

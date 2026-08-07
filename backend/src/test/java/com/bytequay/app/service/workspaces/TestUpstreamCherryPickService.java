@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -813,6 +814,94 @@ class TestUpstreamCherryPickService
 
         assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
         assertThat(parked.errorMessage()).contains("uncommitted changes");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aResumeFinishesTheRepairItParkedOnBeforePickingAnythingElse(@TempDir Path root)
+            throws Exception
+    {
+        Conflict setup = conflictingRepositories(root);
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        AtomicInteger turns = new AtomicInteger();
+        // The first turn never gets going — a spent budget, a dead binary — and
+        // the run parks with git's own three-way output committed. The pick's
+        // index has already advanced, so the resume used to walk straight past
+        // it and push the markers.
+        when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
+                .thenAnswer(invocation -> {
+                    if (turns.incrementAndGet() == 1) {
+                        return new ConflictRepairAdvisor.Outcome(
+                                false, false, "the repair agent did not run: turn failed",
+                                100, "session-1");
+                    }
+                    Path worktree = invocation.getArgument(0);
+                    String subject = invocation.getArgument(2);
+                    Files.writeString(worktree.resolve("conflict.txt"), "fork and upstream\n");
+                    run(worktree, "add", "conflict.txt");
+                    run(worktree, "commit", "-m", "fixup! " + subject);
+                    return new ConflictRepairAdvisor.Outcome(
+                            true, true, "kept the fork's line and upstream's change",
+                            120, "session-1");
+                });
+        UpstreamCherryPickService service = service(jdbc, setup, advisor);
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "retried-pick", List.of(setup.upstreamSha()),
+                        null, null, null, null, null, false, false, null));
+        assertThat(awaitStatus(service, "fork-ws", started.jobId(),
+                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT")).status())
+                .isEqualTo("PAUSED_CONFLICT");
+
+        service.resume("fork-ws", started.jobId());
+        UpstreamCherryPickService.UpstreamCherryPickJobDto done = awaitStatus(
+                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+
+        assertThat(done.status()).isEqualTo("COMPLETED");
+        assertThat(turns).hasValue(2);
+        // The pick the run parked on is repaired, not carried past.
+        assertThat(Files.readString(Path.of(done.worktreePath()).resolve("conflict.txt")))
+                .doesNotContain("<<<<<<<");
+        assertThat(output(setup.target(), "log", "--reverse", "--format=%s",
+                "main..retried-pick").lines().toList())
+                .containsExactly("Change the shared line", "fixup! Change the shared line");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aRepairThatLeavesConflictMarkersBehindParksRatherThanPushThem(@TempDir Path root)
+            throws Exception
+    {
+        Conflict setup = conflictingRepositories(root);
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        // Reports the conflict resolved without touching the conflicted file.
+        // The worktree is clean — git's own three-way output was committed
+        // before the agent started — so nothing else would notice, and the
+        // markers used to be pushed and turn up in the pull request's diff.
+        when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
+                .thenReturn(new ConflictRepairAdvisor.Outcome(
+                        true, true, "took upstream's version", 100, "session-1"));
+        UpstreamCherryPickService service = service(jdbc, setup, advisor);
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "marker-pick", List.of(setup.upstreamSha()),
+                        null, null, null, null, null, false, false, null));
+        UpstreamCherryPickService.UpstreamCherryPickJobDto parked = awaitStatus(
+                service, "fork-ws", started.jobId(),
+                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+
+        assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
+        assertThat(parked.errorMessage())
+                .contains("conflict markers")
+                .contains("conflict.txt");
     }
 
     @Test

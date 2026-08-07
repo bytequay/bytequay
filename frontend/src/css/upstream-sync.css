@@ -1275,7 +1275,9 @@
 /* The turn in flight, above the durable log. */
 .sr-live {
   background: #fbfaff; border: 1px solid #e4dcff; border-radius: 10px;
-  display: grid; gap: 7px; margin: 10px 0 4px 26px; max-width: 900px; padding: 10px 12px;
+  /* Centred on the same column as the log above it; pinned left it drifted
+     away from the run it belongs to on a wide window. */
+  display: grid; gap: 7px; margin: 10px auto 4px; max-width: 820px; padding: 10px 12px;
 }
 .sr-live > header {
   align-items: center; color: #8250df; display: flex; font-size: 10.5px;

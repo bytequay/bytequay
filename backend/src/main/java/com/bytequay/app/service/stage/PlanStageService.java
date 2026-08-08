@@ -291,7 +291,7 @@ public class PlanStageService
         stageMachine.closeInCommand(taskId, plan.id(), "plan_approved");
         // A no-op unless the local PR already exists (e.g. a replan after
         // dev started) — the usual first approval is backfilled onto the
-        // timeline once PRServiceImpl.createForTask creates the row instead.
+        // timeline once PRService.createForTask creates the row instead.
         prService.recordPlanApproved(taskId, plan.id().toString());
 
         // PLANNING ▶ IMPLEMENTING: StageLifecycle's reconcile opens the

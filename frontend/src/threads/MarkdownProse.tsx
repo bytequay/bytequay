@@ -21,13 +21,7 @@ import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
 /**
- * Renders assistant prose as GitHub-flavored markdown. We use this in
- * two places:
- *  • {@link StructuredConversation}'s ProseRow — light "card" variant
- *    that picks up the assistant-card background.
- *  • {@link ConversationPane}'s ProseBlock — terminal variant that
- *    reads the {@code --term-*} CSS variables so the chat-style view
- *    keeps its dark/light theming.
+ * Renders assistant prose as sanitized GitHub-flavored markdown.
  *
  * User-typed messages don't go through markdown — they're rendered
  * with the simpler {@code renderInline} helper. The model occasionally
@@ -35,27 +29,22 @@ import remarkGfm from 'remark-gfm';
  * between items; we splice in a blank line before each list marker so
  * react-markdown sees a proper list block.
  */
-type Variant = 'card' | 'terminal';
-
 type Props = {
   text: string;
-  variant?: Variant;
 };
 
 const monoFont = 'var(--font-mono)';
 
-// Memoized (and the components map built once per variant at module
-// scope) so a streaming card's per-token updates don't force every
-// other prose block in the transcript to re-parse its markdown.
-export const MarkdownProse = memo(function MarkdownProse({ text, variant = 'card' }: Props) {
-  const styles = variant === 'terminal' ? terminalStyles : cardStyles;
-  const components = variant === 'terminal' ? terminalComponents : cardComponents;
+// Memoized (and the components map built once at module scope) so a
+// streaming card's per-token updates don't force every other prose
+// block in the transcript to re-parse its markdown.
+export const MarkdownProse = memo(function MarkdownProse({ text }: Props) {
   return (
-    <div style={styles.root}>
+    <div style={cardStyles.root}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
-        components={components}
+        components={cardComponents}
       >
         {normalizeForMarkdown(text)}
       </ReactMarkdown>
@@ -405,103 +394,4 @@ const cardStyles: StyleBundle = {
   },
 };
 
-const terminalStyles: StyleBundle = {
-  root: { color: 'var(--term-text)' },
-  para: { margin: '0 0 10px', lineHeight: 1.7, color: 'var(--term-text)' },
-  h1: { fontSize: 16, fontWeight: 700, margin: '14px 0 8px', color: 'var(--term-text-bright)' },
-  h2: { fontSize: 14, fontWeight: 700, margin: '12px 0 6px', color: 'var(--term-text-bright)' },
-  h3: { fontSize: 13, fontWeight: 700, margin: '10px 0 4px', color: 'var(--term-text-bright)' },
-  h4: { fontSize: 13, fontWeight: 600, margin: '8px 0 4px', color: 'var(--term-text-bright)' },
-  list: { margin: '4px 0 10px', paddingLeft: 22, color: 'var(--term-text)' },
-  li: { margin: '2px 0', lineHeight: 1.65 },
-  link: { color: 'var(--term-user)', textDecoration: 'underline' },
-  inlineCode: {
-    fontFamily: monoFont, fontSize: '0.92em',
-    background: 'var(--term-kbd-bg)',
-    padding: '1px 5px', borderRadius: 3,
-    color: 'var(--term-text-bright)',
-  },
-  classCode: {
-    fontFamily: monoFont, fontSize: '0.92em',
-    background: 'var(--term-kbd-bg)',
-    padding: '1px 5px', borderRadius: 3,
-    color: 'var(--term-user)', fontWeight: 600,
-  },
-  codeInBlock: {
-    fontFamily: monoFont, fontSize: 12,
-    color: 'var(--term-text)',
-    background: 'transparent', padding: 0,
-  },
-  codeBlock: {
-    margin: '8px 0',
-    padding: '8px 10px',
-    background: 'var(--term-user-bg)',
-    border: '1px solid var(--term-border)',
-    borderRadius: 6,
-    fontFamily: monoFont, fontSize: 12,
-    lineHeight: 1.55,
-    overflowX: 'auto',
-    whiteSpace: 'pre',
-  },
-  codeLine: { display: 'flex' },
-  codeLineNo: {
-    flex: '0 0 auto', minWidth: 22, marginRight: 12,
-    textAlign: 'right', color: 'var(--term-text-dim)', userSelect: 'none',
-  },
-  codeLineText: { whiteSpace: 'pre', flex: 1 },
-  blockquote: {
-    margin: '8px 0',
-    padding: '4px 12px',
-    borderLeft: '3px solid var(--term-border)',
-    color: 'var(--term-text-dim)',
-    fontStyle: 'italic',
-  },
-  table: {
-    margin: '8px 0', borderCollapse: 'collapse',
-    fontSize: 12.5,
-    width: '100%', tableLayout: 'auto',
-  },
-  tableHeader: {
-    border: '1px solid var(--term-border)',
-    padding: '4px 8px',
-    background: 'var(--term-user-bg)',
-    fontWeight: 600, textAlign: 'left',
-    color: 'var(--term-text-bright)',
-    whiteSpace: 'nowrap', verticalAlign: 'top',
-  },
-  tableCell: {
-    border: '1px solid var(--term-border)',
-    padding: '4px 8px',
-    verticalAlign: 'top', overflowWrap: 'anywhere',
-  },
-  hr: { border: 'none', borderTop: '1px dashed var(--term-border)', margin: '10px 0' },
-  strong: { color: 'var(--term-text-bright)', fontWeight: 700 },
-  em: { fontStyle: 'italic' },
-  prChip: {
-    display: 'inline-flex', alignItems: 'center', gap: 5,
-    padding: '1px 9px', margin: '0 1px',
-    border: '1px solid var(--term-user)', borderRadius: 999,
-    background: 'var(--term-kbd-bg)', color: 'var(--term-user)',
-    fontSize: '0.9em', fontWeight: 600, lineHeight: 1.5,
-    textDecoration: 'none', whiteSpace: 'nowrap', verticalAlign: 'baseline',
-  },
-  commitChip: {
-    fontFamily: monoFont, fontSize: '0.9em',
-    background: 'var(--term-kbd-bg)', border: '1px solid var(--term-border)',
-    padding: '1px 6px', borderRadius: 4,
-    color: 'var(--term-text)', whiteSpace: 'nowrap',
-  },
-  metaDetails: { margin: '4px 0 10px' },
-  metaSummary: {
-    cursor: 'pointer', color: 'var(--term-text-dim)',
-    fontSize: 12.5, fontWeight: 600, padding: '2px 0',
-  },
-  htmlDetails: { margin: '6px 0' },
-  htmlSummary: {
-    cursor: 'pointer', color: 'var(--term-text)',
-    fontSize: 13, fontWeight: 600, padding: '4px 0',
-  },
-};
-
 const cardComponents = buildComponents(cardStyles);
-const terminalComponents = buildComponents(terminalStyles);

@@ -66,7 +66,7 @@ class TestWorkModelResolver
     private final WorkspaceEngineSettings engineSettings = mock(WorkspaceEngineSettings.class);
     private final ThreadEngineOverrides threadEngines = mock(ThreadEngineOverrides.class);
 
-    private final WorkModelResolver resolver = new WorkModelResolverImpl(
+    private final WorkModelResolver resolver = new WorkModelResolver(
             threadStore, taskStore, workspaceStore, stageStore, engineSettings, threadEngines);
 
     @Test

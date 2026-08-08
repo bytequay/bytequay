@@ -30,7 +30,6 @@ import java.io.IOException;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -48,31 +47,18 @@ class TestConceptToolHandlers
     private AgentToolRegistry toolRegistry;
     private ConceptToolHandlers handlers;
     private final ObjectMapper mapper = new ObjectMapper();
-    private final PermissionResolver permissions = new PermissionResolver()
-    {
-        @Override
-        public AgentRole roleFor(String threadId, String agentKey)
-        {
-            return AgentRole.TRUNK;
-        }
-
-        @Override
-        public Set<SecurityType> grants(String threadId, String agentKey)
-        {
-            return EnumSet.allOf(SecurityType.class);
-        }
-
-        @Override
-        public RunningScope runningScope(String threadId, String agentKey)
-        {
-            return RunningScope.NONE;
-        }
-    };
+    private final PermissionResolver permissions = Mockito.mock(PermissionResolver.class);
 
     @BeforeEach
     void boot()
             throws IOException
     {
+        Mockito.when(permissions.roleFor(Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(AgentRole.TRUNK);
+        Mockito.when(permissions.grants(Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(EnumSet.allOf(SecurityType.class));
+        Mockito.when(permissions.runningScope(Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(PermissionResolver.RunningScope.NONE);
         registry = new ConceptRegistry();
         registry.scan();
         // ConceptToolHandlers calls tools.byName(...) when filtering

@@ -22,5 +22,4 @@ export type StatusFilter =
   | 'AWAITING_ME';
 
 export type ProviderFilter = string | null;
-export type GroupFilter = string | null;
 export type RepoFilter = string | null;

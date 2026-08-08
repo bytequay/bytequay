@@ -49,6 +49,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -84,6 +85,8 @@ public class HarnessOrchestrator
      * board green.
      */
     private static final int WIDE_FAILURE_JOBS = 10;
+    /** Far more than any range this drives; a bound, not a policy. */
+    private static final int MAX_BRANCH_COMMITS = 2_000;
     private static final long WIDE_FAILURE_GRACE_MS = 3_600_000;
     private static final long ANY_FAILURE_GRACE_MS = 7_200_000;
     /** A turn's JSONL is unbounded; the log shows the head of it. */
@@ -249,7 +252,7 @@ public class HarnessOrchestrator
             }
             phase(watch, cycle, Phase.PROBE, "Probing the latest GitHub Actions checks");
             BootstrapProfile profile = service.profile(watch.bootstrapProfileJson());
-            ProbeResult result = probe.probe(watch, profile);
+            ProbeResult result = probe.probe(watch, profile, fixupsBySupersededSha(watch));
             if (!store.updateWatchHeadAndPoll(
                     watch.id(), result.headSha(), result.branch(), now())) {
                 throw new CycleCancelledException();
@@ -319,6 +322,48 @@ public class HarnessOrchestrator
         catch (RuntimeException failure) {
             failCycle(watch, cycle, failure);
         }
+    }
+
+    /**
+     * Each commit on the branch that the very next commit is a {@code fixup!}
+     * for, mapped to that fixup. The per-commit CI job judges commits as they
+     * stand, but a pick and its fixup become one commit when the branch is
+     * autosquashed, so a pick that only builds once its fixup lands is not
+     * broken — and the probe uses this to tell the two cases apart.
+     *
+     * <p>Read from the harness's own checkout, which is where the fixups were
+     * committed and pushed from. Anything unreadable answers "no fixups", so
+     * the strict reading — every red check is real — is the fallback.
+     */
+    Map<String, String> fixupsBySupersededSha(Watch watch)
+    {
+        if (watch.localPath() == null || watch.branch() == null) {
+            return Map.of();
+        }
+        List<GitRunner.CommitEntry> commits;
+        try {
+            commits = git.listCommits(
+                    Path.of(watch.localPath()), watch.branch(), MAX_BRANCH_COMMITS);
+        }
+        catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return Map.of();
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("CI harness could not read {} for fixup pairs: {}",
+                    watch.branch(), e.getMessage());
+            return Map.of();
+        }
+        // Newest first, so a commit's parent is the next element along.
+        Map<String, String> fixups = new HashMap<>();
+        for (int index = 0; index + 1 < commits.size(); index++) {
+            GitRunner.CommitEntry fixup = commits.get(index);
+            GitRunner.CommitEntry target = commits.get(index + 1);
+            if (fixup.subject().equals("fixup! " + target.subject())) {
+                fixups.put(target.sha(), fixup.sha());
+            }
+        }
+        return Map.copyOf(fixups);
     }
 
     /**

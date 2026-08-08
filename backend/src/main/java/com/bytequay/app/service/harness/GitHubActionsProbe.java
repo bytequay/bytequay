@@ -27,9 +27,12 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +50,9 @@ public class GitHubActionsProbe
     // ponytail: cached as raw text; store the parsed evidence instead if the
     // cache table ever grows enough to matter.
     private static final Pattern RUN_ID = Pattern.compile("/actions/runs/(\\d+)");
+    /** The per-commit job this repository runs to keep history bisectable. */
+    private static final Pattern CHECK_COMMIT =
+            Pattern.compile("check-commit \\(([0-9a-fA-F]{7,40})\\)");
 
     private final PullRequestRepository github;
     private final PatResolver pats;
@@ -61,6 +67,22 @@ public class GitHubActionsProbe
 
     public ProbeResult probe(Watch watch, BootstrapProfile profile)
     {
+        return probe(watch, profile, Map.of());
+    }
+
+    /**
+     * @param fixupBySupersededSha commit sha to the sha of the {@code fixup!}
+     *         that immediately follows it on the branch. A per-commit check that
+     *         failed on a commit whose fixup then passed is not a defect: the
+     *         two are one commit once the branch is autosquashed, so the red is
+     *         an artifact of history that has not been rewritten yet. Such a
+     *         check is dropped here rather than downstream, so the board can
+     *         still be green and no round is spent diagnosing it.
+     */
+    public ProbeResult probe(
+            Watch watch, BootstrapProfile profile, Map<String, String> fixupBySupersededSha)
+    {
+        requireNonNull(fixupBySupersededSha, "fixupBySupersededSha is null");
         String repoFullName = watch.owner() + "/" + watch.repo();
         String pat = pats.resolve(repoFullName);
         PullRequestRef ref = PullRequestRef.of(watch.owner(), watch.repo(), watch.prNumber());
@@ -74,6 +96,7 @@ public class GitHubActionsProbe
         boolean green = !checks.isEmpty();
         List<FailedJob> failed = new ArrayList<>();
         List<String> tail = new ArrayList<>();
+        Set<String> passed = passedCheckNames(checks);
 
         for (PrCheckRunState check : checks) {
             String name = check.name() == null ? "unnamed check" : check.name();
@@ -89,6 +112,12 @@ public class GitHubActionsProbe
                 continue;
             }
             if (isSuccess(conclusion)) {
+                continue;
+            }
+            if (supersededByAPassingFixup(name, fixupBySupersededSha, passed)) {
+                // The commit this check judged no longer exists on its own: its
+                // fixup is the next commit and its own check is green. The status
+                // tail above still shows the red so nothing is hidden.
                 continue;
             }
             green = false;
@@ -152,6 +181,41 @@ public class GitHubActionsProbe
         }
         store.cacheLog(watch.id(), headSha, check.githubId(), value, Instant.now().toEpochMilli());
         return value;
+    }
+
+    /**
+     * True when {@code name} is the per-commit check of a commit that a passing
+     * {@code fixup!} supersedes. Deliberately strict on both halves: the fixup
+     * must be the very next commit, and its own per-commit check must have
+     * completed successfully — a fixup still queued forgives nothing.
+     */
+    private static boolean supersededByAPassingFixup(
+            String name, Map<String, String> fixupBySupersededSha, Set<String> passed)
+    {
+        Matcher matcher = CHECK_COMMIT.matcher(name);
+        if (!matcher.matches()) {
+            return false;
+        }
+        String fixup = fixupBySupersededSha.get(matcher.group(1));
+        return fixup != null && passed.contains(checkCommitName(fixup));
+    }
+
+    private static Set<String> passedCheckNames(List<PrCheckRunState> checks)
+    {
+        Set<String> passed = new HashSet<>();
+        for (PrCheckRunState check : checks) {
+            if (check.name() != null
+                    && "completed".equals(normalized(check.status()))
+                    && isSuccess(normalized(check.conclusion()))) {
+                passed.add(check.name());
+            }
+        }
+        return passed;
+    }
+
+    private static String checkCommitName(String sha)
+    {
+        return "check-commit (" + sha + ")";
     }
 
     private static boolean isSuccess(String conclusion)

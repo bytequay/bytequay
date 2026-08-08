@@ -41,12 +41,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -61,6 +63,10 @@ import static org.mockito.Mockito.when;
 
 class TestHarnessOrchestrator
 {
+    private static final String PICK_SHA = "281482c3c20aad84cf2ad3991f0af5ff59679c5d";
+    private static final String FIXUP_SHA = "345068df1033c9178d1bf7df8116c54372d2c362";
+    private static final String OTHER_SHA = "550db638b3f388d4f3f1db8e0498b44ff32853dd";
+
     private final HarnessStore store = mock(HarnessStore.class);
     private final HarnessService service = mock(HarnessService.class);
     private final GitHubActionsProbe probe = mock(GitHubActionsProbe.class);
@@ -120,7 +126,7 @@ class TestHarnessOrchestrator
                 eq(cycle.id()), eq(CycleStatus.NO_CHANGE), eq(Phase.PROBE),
                 eq(0L), isNull(), isNull(), eq("green"), isNull(), anyLong()))
                 .thenReturn(true);
-        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+        when(probe.probe(eq(watch), eq(BootstrapProfile.empty()), any())).thenReturn(new ProbeResult(
                 "same", "base", "feature", true, false, List.of(), "green"));
 
         orchestrator.runCycle(cycle.id());
@@ -148,7 +154,7 @@ class TestHarnessOrchestrator
                 eq(cycle.id()), eq(CycleStatus.NO_CHANGE), eq(Phase.PROBE),
                 eq(0L), isNull(), isNull(), eq("green"), isNull(), anyLong()))
                 .thenReturn(true);
-        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+        when(probe.probe(eq(watch), eq(BootstrapProfile.empty()), any())).thenReturn(new ProbeResult(
                 "same", "base", "feature", true, false, List.of(), "green"));
 
         orchestrator.runCycle(cycle.id());
@@ -235,7 +241,7 @@ class TestHarnessOrchestrator
                 isNull(), isNull(), isNull(), isNull(), anyLong())).thenReturn(true);
         FailedJob job = new FailedJob(
                 "run", 7, "build", "failure", false, "plan mismatch");
-        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+        when(probe.probe(eq(watch), eq(BootstrapProfile.empty()), any())).thenReturn(new ProbeResult(
                 "new", "base", "feature", false, false, List.of(job), "build: failure"));
         ParsedFailure parsed = new ParsedFailure(
                 "run", 7, "build", "root", null, null, "plan mismatch", "plan mismatch");
@@ -379,6 +385,51 @@ class TestHarnessOrchestrator
         verify(agent, never()).fix(any(), any(), anyList(), anyLong(), any(), any(), any());
     }
 
+    @Test
+    void aPickSupersededByAPassingFixupIsNotOfferedToTheProbeAsBroken()
+            throws Exception
+    {
+        // The per-commit job judges commits as they stand. A pick that only
+        // builds once its fixup lands is red on its own and green with it, and
+        // the two are one commit after autosquash — so the probe is told which
+        // commit each fixup covers and drops the artefact itself.
+        Watch watch = watch(WatchStatus.RUNNING, "old", null);
+        stubAgentDiagnosis(watch);
+        when(git.listCommits(Path.of(watch.localPath()), "feature", 2_000)).thenReturn(List.of(
+                commit(FIXUP_SHA, "fixup! Migrate UI to bun"),
+                commit(PICK_SHA, "Migrate UI to bun"),
+                commit(OTHER_SHA, "Update airlift")));
+
+        orchestrator.runCycle(cycle.id());
+
+        // Full shas both sides: the probe matches these against the sha inside
+        // "check-commit (<sha>)", so an abbreviation here would match nothing.
+        verify(probe).probe(eq(watch), eq(BootstrapProfile.empty()),
+                eq(Map.of(PICK_SHA, FIXUP_SHA)));
+    }
+
+    @Test
+    void aCommitWithNoFixupAfterItCoversNothing()
+            throws Exception
+    {
+        Watch watch = watch(WatchStatus.RUNNING, "old", null);
+        stubAgentDiagnosis(watch);
+        // A fixup naming a different subject is not this commit's fixup, and the
+        // oldest commit has nothing before it to cover.
+        when(git.listCommits(Path.of(watch.localPath()), "feature", 2_000)).thenReturn(List.of(
+                commit(FIXUP_SHA, "fixup! Something else"),
+                commit(PICK_SHA, "Migrate UI to bun")));
+
+        orchestrator.runCycle(cycle.id());
+
+        verify(probe).probe(eq(watch), eq(BootstrapProfile.empty()), eq(Map.of()));
+    }
+
+    private static GitRunner.CommitEntry commit(String sha, String subject)
+    {
+        return new GitRunner.CommitEntry(sha, sha, "a", "a@b", "t", "t", subject);
+    }
+
     /** A half-finished board with {@code failures} checks already red. */
     private void stubPendingBoard(Watch watch, int failures)
     {
@@ -386,7 +437,7 @@ class TestHarnessOrchestrator
                 .mapToObj(index -> new FailedJob(
                         "run", 7, "build", "failure", false, "plan mismatch"))
                 .toList();
-        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+        when(probe.probe(eq(watch), eq(BootstrapProfile.empty()), any())).thenReturn(new ProbeResult(
                 "new", "base", "feature", false, true, red, "build: failure"));
         when(store.finishCycleIfLive(
                 eq(cycle.id()), eq(CycleStatus.NO_CHANGE), eq(Phase.PROBE), anyLong(),
@@ -441,7 +492,7 @@ class TestHarnessOrchestrator
     /** Six checks red, one suite still going — the shape that used to stall. */
     private void stubStillRunningBoard(Watch watch)
     {
-        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+        when(probe.probe(eq(watch), eq(BootstrapProfile.empty()), any())).thenReturn(new ProbeResult(
                 "new", "base", "feature", false, true,
                 List.of(new FailedJob("run", 7, "build", "failure", false, "plan mismatch")),
                 "build: failure"));
@@ -553,6 +604,62 @@ class TestHarnessOrchestrator
                 "head", "base", "feature", false, false, List.of(), ""));
         assertThat(Files.readAllLines(new GitRunner().gitInfoExcludePath(worktree)))
                 .containsOnlyOnce("/logs/");
+    }
+
+    /**
+     * The pairing against real git rather than a stubbed list. Everything else
+     * about this rule rests on {@code git log} being newest-first: read the
+     * other way round every pick would be paired with the commit before it, and
+     * a mock returning whatever order the test author assumed proves nothing.
+     */
+    @Test
+    void fixupPairsAreReadFromRealGitHistoryInTheRightDirection(@TempDir Path root)
+            throws Exception
+    {
+        Path repo = root.resolve("repo");
+        run(root, "init", "-b", "feature", repo.toString());
+        commitFile(repo, "a.txt", "Migrate UI to bun");
+        commitFile(repo, "b.txt", "fixup! Migrate UI to bun");
+        commitFile(repo, "c.txt", "Update airlift");
+        String pick = run(repo, "rev-parse", "HEAD~2");
+        String fixup = run(repo, "rev-parse", "HEAD~1");
+
+        HarnessOrchestrator real = new HarnessOrchestrator(
+                store, service, probe, parser, agent, knowledge, new SyncRunStream(),
+                gitSafety, new GitRunner(), prs, mock(ApplicationEventPublisher.class),
+                mapper, Runnable::run);
+
+        assertThat(real.fixupsBySupersededSha(watchAt(repo)))
+                .containsExactly(entry(pick, fixup));
+    }
+
+    @Test
+    void anUnreadableCheckoutPairsNothingRatherThanFailingTheCycle(@TempDir Path root)
+    {
+        // No repository there at all. The strict reading — every red check is
+        // real — has to be what a missing checkout falls back to.
+        HarnessOrchestrator real = new HarnessOrchestrator(
+                store, service, probe, parser, agent, knowledge, new SyncRunStream(),
+                gitSafety, new GitRunner(), prs, mock(ApplicationEventPublisher.class),
+                mapper, Runnable::run);
+
+        assertThat(real.fixupsBySupersededSha(watchAt(root.resolve("nowhere")))).isEmpty();
+    }
+
+    private static Watch watchAt(Path localPath)
+    {
+        return new Watch("watch", "ws", "acme", "widget", 7, null,
+                localPath.toString(), "feature", "PR",
+                WatchStatus.RUNNING, "head", "ready", "{}", 10_000, 0, null,
+                1, 1, null, null, null);
+    }
+
+    private static void commitFile(Path repo, String name, String subject)
+            throws Exception
+    {
+        Files.writeString(repo.resolve(name), subject + "\n");
+        run(repo, "add", name);
+        run(repo, "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-m", subject);
     }
 
     private static String run(Path workingDir, String... args)

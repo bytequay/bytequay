@@ -16,10 +16,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { TrunkPage } from './TrunkPage';
 import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
-import { ReviewThreadPage } from './ReviewThreadPage';
-import { ChangesPage } from './ChangesPage';
-import { CIStatusPage } from './CIStatusPage';
-import { CILogView } from '../ui/fullpage';
 
 // jsdom lacks scrollIntoView; the shared conversation may call it.
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
@@ -36,8 +32,6 @@ beforeEach(() => {
   };
 });
 
-const composer = { value: '', onChange: () => {}, onSubmit: () => {} };
-
 /** Every V3 surface mounts on the shared shell without throwing — the
  *  automated end-to-end smoke across the redesigned task surfaces. */
 describe('V3 surfaces smoke', () => {
@@ -48,7 +42,7 @@ describe('V3 surfaces smoke', () => {
         thread={{ title: 'Thread' }}
         sidebar={<aside />}
         conversation={<div>conv</div>}
-        composer={composer}
+        composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
         tasks={{ active: [], closed: [] }}
       />,
     );
@@ -67,46 +61,5 @@ describe('V3 surfaces smoke', () => {
       <StageDetailRoute threadId="t1" taskId="task-1" stageId="s1" />,
     );
     expect(container.querySelector('.shell')).toBeTruthy();
-  });
-
-  it('ReviewThreadPage mounts', () => {
-    const { container } = render(
-      <ReviewThreadPage
-        thread={{ title: 'Review' }}
-        sidebar={<aside />}
-        conversation={<div>conv</div>}
-        prTab={<div>pr</div>}
-        composer={composer}
-        onSubmitReview={() => {}}
-      />,
-    );
-    expect(container.querySelector('.shell')).toBeTruthy();
-  });
-
-  it('ChangesPage mounts', () => {
-    const { container } = render(
-      <ChangesPage
-        sidebar={<aside />}
-        conversation={<div>conv</div>}
-        composer={composer}
-        fileTree={<div>tree</div>}
-        diff={<div>diff</div>}
-      />,
-    );
-    expect(container.querySelector('.shell.sidebar-collapsed')).toBeTruthy();
-  });
-
-  it('CIStatusPage mounts', () => {
-    const { container } = render(
-      <CIStatusPage
-        sidebar={<aside />}
-        conversation={<div>conv</div>}
-        composer={composer}
-        current={{ title: 'CI', checks: [] }}
-        iterationGroups={[]}
-        log={<CILogView text="log" />}
-      />,
-    );
-    expect(container.querySelector('.shell.sidebar-collapsed')).toBeTruthy();
   });
 });

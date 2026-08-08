@@ -13,25 +13,15 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.service.hello.HelloService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import static java.util.Objects.requireNonNull;
 
 @RestController
 public class HelloController
 {
-    private final HelloService service;
-
-    public HelloController(HelloService service)
-    {
-        this.service = requireNonNull(service, "service is null");
-    }
-
     @GetMapping("/hello")
     public String hello()
     {
-        return service.hello();
+        return "ByteQuay-backend ok";
     }
 }

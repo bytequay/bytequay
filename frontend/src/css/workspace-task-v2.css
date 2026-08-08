@@ -244,16 +244,6 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
 .workspace-task-stage__status-icon.is-planning > i,
 .workspace-task-stage__status-icon.is-monitoring > i { background: #2da44e; animation: working-pulse 2s infinite; }
 .workspace-task-stage__status-icon.is-awaiting > i { background: #bf8700; }
-.workspace-task-stage__owner {
-  width: 15px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  color: #8b949e;
-  font-size: 11px;
-  line-height: 1;
-}
 .workspace-task-stage__owner.is-stage { font-size: 12px; }
 .workspace-task-stage__owner.is-gate { color: #bf8700; }
 .workspace-task-stage__plan {
@@ -340,16 +330,6 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.workspace-task-header__branch {
-  padding: 2px 8px;
-  flex-shrink: 0;
-  border: 1px solid #eceef0;
-  border-radius: 5px;
-  background: #f6f8fa;
-  color: #57606a;
-  font: 400 10px/normal "SF Mono", Menlo, ui-monospace, monospace;
-  white-space: nowrap;
-}
 .workspace-task-header__pr {
   display: inline-flex;
   align-items: center;
@@ -365,17 +345,6 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   font-weight: 700;
 }
 .workspace-task-header__grow { flex: 1; }
-.workspace-task-header__state {
-  padding: 4px 10px;
-  flex-shrink: 0;
-  border-radius: 6px;
-  background: #f0f2f4;
-  color: #57606a;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-}
 .workspace-task-header__submit {
   display: inline-flex;
   align-items: center;
@@ -762,20 +731,9 @@ button.workspace-task-artifact-pill:hover { background: #f6f8fa; }
 .workspace-task-artifact-pill .is-del { color: #cf222e; font: 400 11px/normal "SF Mono", Menlo, ui-monospace, monospace; }
 .workspace-task-artifact-pill .is-muted { color: #8b949e; }
 .workspace-task-artifact-pill__pr { color: var(--accent); display: inline-flex; }
-.workspace-task-artifact-pill__stage {
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-  background: #0969da;
-  transform: rotate(45deg);
-}
 .task-brain.workspace-task-v2 .shell .workspace-composer-meta .plan-reminder {
   width: auto;
   margin: 0;
   padding: 4px 12px;
   font-size: 11.5px;
-}
-
-@media (max-width: 1120px) {
-  .workspace-task-header__branch { display: none; }
 }

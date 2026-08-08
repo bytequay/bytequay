@@ -317,13 +317,6 @@
   border-radius: var(--radius-sm);
 }
 
-.avatar--repo-small {
-  border-radius: 3px;
-  margin-right: 2px;
-  position: relative;
-  top: 1px;
-}
-
 /* ── Base ────────────────────────────────────────────────── */
 
 :root {
@@ -544,27 +537,6 @@ samp {
   -webkit-app-region: no-drag;
 }
 
-.global-topbar {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  /* Left navigation rail. The 30px top reserve clears the inset macOS
-     traffic-light buttons (close/minimize/zoom) that sit at the window's
-     top-left in place of the hidden native title bar.
-     -webkit-app-region:drag turns the rail into a window drag handle;
-     interactive children below opt out via no-drag. */
-  padding: 30px 10px 10px;
-  width: 212px;
-  height: 100vh;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  background: var(--bg);
-  -webkit-app-region: drag;
-  user-select: none;
-  position: relative;
-  gap: var(--space-2);
-}
-
 /* Brand mark fills the 78px traffic-light reserve when the window is
    in macOS native fullscreen and the inset lights are hidden — without
    it, "ByteQuay" floats with an empty gap on its left. Absolutely
@@ -572,182 +544,24 @@ samp {
    wordmark stays at its current x — only the previously-empty zone is
    filled. Renders as a button (Home shortcut), so it opts out of the
    topbar's drag region and grows a hover tint. */
-.global-topbar__mark {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 78px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  appearance: none;
-  background: transparent;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-  border-radius: var(--radius-md);
-  transition: background 120ms ease;
-}
-.global-topbar__mark:hover {
-  background: var(--accent-a7);
-}
-.global-topbar__mark:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
 
 /* Restore pointer interactions for any clickable element inside the
    topbar — without this, drag swallows clicks and the brand / nav
    buttons stop responding. */
-.global-topbar__brand--btn,
-.global-topbar__breadcrumb,
-.global-topbar__extra > button,
-.global-nav-btn {
-  -webkit-app-region: no-drag;
-}
-
-.global-topbar__left {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
-  min-width: 0;
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border);
-}
-
-.global-topbar__brand {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: -0.01em;
-  flex-shrink: 0;
-}
-
-.global-topbar__brand--btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  font-family: inherit;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  /* Reset for the <a> variant — without it the GithubMark sits under
-     the default underline. The button variant is unaffected. */
-  text-decoration: none;
-  color: var(--accent);
-}
-
-.global-topbar__brand--btn:hover {
-  background: var(--accent-a7);
-}
 
 /* Pill-shaped breadcrumb buttons in the global topbar — both the
    built-in "← owner/repo" and the portalled "← Back to kanban" share
    this look so they read as the same affordance class. The tinted
    background makes them stand out against the topbar without
    competing with the brand. */
-.global-topbar__breadcrumb,
-.global-topbar__extra > button {
-  background: var(--accent-a7);
-  border: 1px solid var(--accent-a10);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  cursor: pointer;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-pill);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
-  font-family: inherit;
-  font-weight: 500;
-}
-
-.global-topbar__breadcrumb:hover,
-.global-topbar__extra > button:hover {
-  background: var(--accent-a10);
-  color: var(--accent);
-  border-color: var(--accent-a40);
-}
 
 /* Portal slot — children mount here. display:contents so the slot
    itself is invisible and its child sits next to the breadcrumb as
    if it were a sibling. */
-.global-topbar__extra {
-  display: contents;
-}
-
-.global-topbar__nav {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.global-nav-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-md);
-  color: var(--text-2);
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  font-weight: 500;
-}
-
-.global-nav-btn:hover {
-  background: var(--accent-a7);
-  color: var(--accent);
-}
-
-.global-nav-btn--active {
-  background: var(--accent-a10);
-  color: var(--accent);
-}
-
-.global-nav-btn__badge {
-  margin-left: auto;
-}
 
 /* Spacer pushes the bottom nav group (Settings) to the foot of the rail. */
-.global-topbar__spacer {
-  flex: 1;
-  min-height: var(--space-2);
-}
 
 /* Threads section in the rail — the current thread shown as selected. */
-.global-threads {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-top: var(--space-2);
-  margin-top: var(--space-1);
-  border-top: 1px solid var(--border);
-  -webkit-app-region: no-drag;
-}
-.global-threads__h {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-3);
-  letter-spacing: 0.02em;
-  padding: var(--space-1) var(--space-3);
-}
-.global-threads__item .global-threads__nm {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
 
 .settings-page {
   height: 100%;
@@ -1016,59 +830,10 @@ samp {
 /* ── Pending-approval banner (task brain + stage pages) ───────────────────
    Surfaces a parked publish proposal (AWAITING_REVIEW) where the agent runs,
    so the publish gate is reachable without hunting for the Notifications bell. */
-.approval-toast {
-  margin: 10px 22px 0;
-  border: 1.5px solid #f97316;
-  border-left: 5px solid #ea580c;
-  border-radius: 10px;
-  /* Bright orange so a parked publish proposal can't be missed. */
-  background: linear-gradient(135deg, rgba(249, 115, 22, 0.22), rgba(251, 146, 60, 0.12));
-  box-shadow: 0 3px 12px rgba(234, 88, 12, 0.28);
-  overflow: hidden;
-}
-.approval-toast__bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 13px;
-}
 /* 🔥 flickers to read as a live, attention-demanding state. */
-.approval-toast__icon {
-  font-size: 18px;
-  flex-shrink: 0;
-  transform-origin: center bottom;
-  animation: approval-flicker 1.1s ease-in-out infinite;
-}
 @keyframes approval-flicker {
   0%, 100% { transform: scale(1) rotate(-3deg); filter: brightness(1); }
   50%      { transform: scale(1.18) rotate(3deg); filter: brightness(1.25); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .approval-toast__icon { animation: none; }
-}
-.approval-toast__msg { flex: 1; min-width: 0; font-size: 13px; color: #9a3412; }
-.approval-toast__msg strong { font-weight: 800; color: #7c2d12; }
-.approval-toast__btn {
-  flex-shrink: 0;
-  padding: 6px 14px;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #fb923c, #ea580c);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: .02em;
-  cursor: pointer;
-  font-family: inherit;
-  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.40);
-}
-.approval-toast__btn:hover { filter: brightness(1.06); }
-.approval-toast__gate {
-  border-top: 1px solid rgba(245, 158, 11, 0.32);
-  background: rgba(255, 255, 255, 0.7);
-  padding: 12px 13px;
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 /* ── Attachment preview ───────────────────────────────────────
@@ -1095,3 +860,13 @@ samp {
   cursor: zoom-out;
 }
 .img-preview::backdrop { background: rgba(0, 0, 0, 0.72); }
+.repo-loading,
+.repo-error {
+  padding: var(--space-4) var(--space-3);
+  font-size: var(--font-size-md);
+  color: var(--text-3);
+}
+
+.repo-error {
+  color: #b00020;
+}

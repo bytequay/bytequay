@@ -173,212 +173,27 @@
 
 /* ── Left rail ─────────────────────────────────────────────────── */
 
-.workspace-rail {
-  width: var(--ws-rail-width);
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 16px 12px;
-  background: var(--ws-rail-bg);
-  backdrop-filter: blur(12px);
-  border-right: 1px solid var(--ws-rail-edge);
-  box-sizing: border-box;
-}
-
 /* Brand chip is a card per the workspace-home mockup — solid white
  * fill, soft shadow, and a 12 px radius so it reads as a distinct
  * pill against the rail's translucent backdrop. Doubles as the
  * workspace switcher (the ▾ chevron). */
-.workspace-rail__brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  margin: 0 0 14px;
-  background: var(--ws-brand-bg);
-  border: 1px solid var(--ws-card-border);
-  border-radius: 12px;
-  box-shadow: var(--ws-card-shadow);
-  transition: box-shadow var(--ws-fast), transform var(--ws-fast);
-}
-
-.workspace-rail__brand:hover {
-  box-shadow: var(--ws-card-shadow);
-  transform: translateY(-1px);
-}
-
-.workspace-rail__brand-badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: var(--ws-accent);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.workspace-rail__brand-text {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  flex: 1;
-  min-width: 0;
-}
-
-.workspace-rail__brand-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ws-text-1);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Immutable workspace id directly under the renameable name. Mono
  * so it reads as a stable handle, muted so it doesn't compete with
  * the display name above. Title attribute on the span gives full id
  * on hover when truncated by ellipsis. */
-.workspace-rail__brand-id {
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  color: var(--ws-text-3);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 1px;
-}
-
-.workspace-rail__brand-chevron {
-  color: var(--ws-text-3);
-  font-size: 12px;
-}
-
-.workspace-rail__commandbar {
-  margin: 6px 0 14px;
-  padding: 7px 10px;
-  font-size: 12px;
-  color: var(--ws-text-3);
-  background: var(--ws-commandbar-bg);
-  border: 1px solid var(--ws-card-border);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: text;
-  transition: background var(--ws-fast), border-color var(--ws-fast);
-}
-
-.workspace-rail__commandbar:hover {
-  background: var(--ws-commandbar-hover-bg);
-  border-color: var(--ws-card-border);
-}
-
-.workspace-rail__commandbar-key {
-  font-size: 10px;
-  color: var(--ws-text-3);
-  padding: 1px 5px;
-  background: var(--ws-accent-soft);
-  border-radius: 3px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-}
-
-.workspace-rail__section-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ws-text-3);
-  padding: 8px 8px 6px;
-}
-
-.workspace-rail__items {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.workspace-rail__item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  /* Taller hit area + larger label per the workspace-home mockup —
-   * the rail's nav items are the highest-frequency click target in
-   * the shell, so they earn more height + a more legible font size
-   * than the 13 px / 7 px combo the rail used to ship. */
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  font-size: 14px;
-  color: var(--ws-text-2);
-  cursor: pointer;
-  text-align: left;
-  transition: background var(--ws-fast), color var(--ws-fast);
-}
-
-.workspace-rail__item:hover {
-  background: var(--ws-accent-soft);
-  color: var(--ws-text-1);
-}
-
-.workspace-rail__item--active {
-  background: var(--ws-accent-soft);
-  color: var(--ws-accent-deep);
-  font-weight: 600;
-}
 
 /* Right-edge status dot on a rail nav item. The live variant pulses
  * green when at least one thread is currently RUNNING; the unread
  * variant is a solid purple dot when something needs attention but
  * nothing is actively running. Mutually exclusive — live wins. */
-.workspace-rail__item-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.workspace-rail__item-dot--live {
-  background: #16a34a;
-  animation: ws-pulse 1.8s ease-in-out infinite;
-}
-
-.workspace-rail__item-dot--unread {
-  background: var(--ws-accent);
-}
 
 @keyframes ws-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.45); }
   60%      { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0); }
 }
 
-.workspace-rail__item-icon {
-  font-size: 16px;
-  width: 20px;
-  display: inline-flex;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
 /* ── Content area ──────────────────────────────────────────────── */
-
-.workspace-content {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  /* No top padding: each page's first child is .workspace-pageheader,
-   * which extends edge-to-edge and must touch the workspace area's
-   * top boundary. Horizontal padding is the side gutter for cards
-   * below; the header escapes it via negative left/right margin. */
-  padding: 0 28px 32px;
-}
 
 /* The page header is a flat full-width bar pinned to the top of the
  * content area, not a card — per docs/mockups/issue/tasks/home-bar.png.
@@ -413,13 +228,6 @@
  * mockup ("ByteQuay  3 active threads · 2 tasks in flight · $1.84
  * today"). Meta wraps under the title only when the viewport gets
  * too narrow to keep both inline. */
-.workspace-pageheader__heading {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  min-width: 0;
-}
 
 .workspace-pageheader__title {
   margin: 0;
@@ -437,14 +245,6 @@
 /* Numbers and dollar amounts in the meta line read as bolder darker
  * text against the muted labels — matches the workspace-home mockup's
  * "3 active threads · 2 tasks in flight · $1.84 today" treatment. */
-.workspace-pageheader__meta-num {
-  color: var(--ws-text-1);
-  font-weight: 600;
-}
-
-.workspace-pageheader__meta-sep {
-  color: var(--ws-text-3);
-}
 
 /* + New thread button: flat purple pill with the label on the left
  * and a slightly dimmer ⌘N inline on the right. No divider chip — the
@@ -482,14 +282,6 @@
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
-}
-
-.workspace-pageheader__action-kbd {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.72);
-  letter-spacing: 0.02em;
 }
 
 .workspace-card {
@@ -538,88 +330,17 @@
   border-radius: 999px;
 }
 
-.workspace-card__link {
-  font-size: 12px;
-  color: var(--ws-accent);
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-weight: 500;
-  padding: 2px 6px;
-  margin: -2px -6px;
-  border-radius: 6px;
-  transition: color var(--ws-fast), background var(--ws-fast);
-}
-
-.workspace-card__link:hover {
-  color: var(--ws-accent-deep);
-  background: var(--ws-accent-soft);
-}
-
 /* ── Clickable list rows inside a workspace card ───────────────── */
 
 /* A row inside .workspace-card that behaves like a button. Used by
  * the Active threads and Tasks-in-flight lists on Home so each row
  * is keyboard- and mouse-actionable. The card stays the visual
  * container; the row is the interactive surface inside it. */
-.workspace-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: none;
-  background: transparent;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  border-radius: 8px;
-  transition: background var(--ws-fast), transform var(--ws-fast),
-    box-shadow var(--ws-fast);
-}
-
-.workspace-row:disabled {
-  cursor: default;
-}
-
-.workspace-row:disabled:hover {
-  background: transparent;
-  transform: none;
-}
-
-.workspace-row:hover {
-  background: var(--ws-accent-soft);
-  transform: translateX(2px);
-}
-
-.workspace-row:focus-visible {
-  outline: 2px solid var(--ws-accent);
-  outline-offset: 2px;
-}
 
 /* "Next-up" indicator — the default click target the user lands on
  * when first arriving at the workspace. Gradient left-accent bar +
  * a touch more background so it reads as the active row without
  * being so loud that it competes with the user's mouse focus. */
-.workspace-row--selected {
-  background: var(--ws-accent-soft);
-  box-shadow: inset 3px 0 0 var(--ws-accent);
-}
-
-.workspace-row--selected:hover {
-  background: var(--ws-accent-soft);
-}
-
-.workspace-placeholder {
-  padding: 28px;
-  background: var(--ws-glass);
-  border: 1px dashed var(--ws-card-border);
-  border-radius: 12px;
-  text-align: center;
-  color: var(--ws-text-3);
-  font-size: 13px;
-}
 
 /* ── Workspaces landing page ───────────────────────────────────────────
  *
@@ -1197,349 +918,21 @@
  * right-side status pill, and a verb-led action button with a
  * relative timestamp underneath. */
 
-.auto-queue {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.auto-queue__banner {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 16px;
-  background: var(--ws-accent-soft);
-  border: 1px solid var(--ws-card-border);
-  border-radius: 10px;
-  font-size: 13px;
-  color: var(--ws-text-2);
-}
-
-.auto-queue__banner-icon {
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.auto-queue__banner-text {
-  margin: 0;
-  flex: 1;
-  line-height: 1.5;
-}
-
-.auto-queue__banner-text strong {
-  color: var(--ws-text-1);
-}
-
-.auto-queue__banner-link {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border: none;
-  background: transparent;
-  color: var(--ws-accent-deep);
-  cursor: pointer;
-  flex-shrink: 0;
-  border-radius: 6px;
-  transition: background var(--ws-fast), color var(--ws-fast);
-}
-
-.auto-queue__banner-link:hover {
-  background: var(--ws-accent-soft);
-  color: var(--ws-accent);
-}
-
-.auto-queue__banner-link:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* "Automation threads" white card wrapping the queue rows. Carries the
  * same glass treatment as the other workspace surface cards. */
-.auto-queue__card {
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid var(--ws-card-border);
-  border-radius: 14px;
-  box-shadow: var(--ws-card-shadow);
-  padding: 14px 18px;
-}
-
-.auto-queue__card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 10px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--ws-card-border);
-}
-
-.auto-queue__card-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ws-text-1);
-}
-
-.auto-queue__card-chip {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--ws-accent-soft);
-  color: var(--ws-accent-deep);
-}
-
-.auto-queue__card-sep {
-  color: var(--ws-text-3);
-}
-
-.auto-queue__card-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ws-text-2);
-}
-
-.auto-queue__empty {
-  margin: 16px 4px;
-  color: var(--ws-text-3);
-  font-size: 13px;
-  text-align: center;
-}
-
-.auto-queue__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.auto-queue__row {
-  display: grid;
-  grid-template-columns: 10px 1fr auto auto;
-  align-items: center;
-  gap: 14px;
-  padding: 14px;
-  margin: 0 -10px;
-  border-radius: 8px;
-  border-bottom: 1px solid var(--ws-card-border);
-  transition: background var(--ws-fast);
-}
-
-.auto-queue__row:last-child {
-  border-bottom: none;
-}
 
 /* Done rows get a muted grey wash so the eye separates them from
  * live work at a glance — distinct from the COMPLETED status pill's
  * own grey (which sits inside the row). */
-.auto-queue__row--done {
-  background: rgba(148, 163, 184, 0.06);
-}
-
-.auto-queue__row--done .auto-queue__title {
-  color: var(--ws-text-2);
-}
 
 /* Leading colour dot — same hue mapping as the right-side status
  * pill, so the row reads consistently. */
-.auto-queue__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.auto-queue__dot--running    { background: #10b981; }
-.auto-queue__dot--await      { background: #f59e0b; }
-.auto-queue__dot--attention  { background: #ef4444; }
-.auto-queue__dot--idle       { background: #d97706; }
-.auto-queue__dot--done       { background: #9ca3af; }
-
-.auto-queue__body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.auto-queue__title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.auto-queue__title {
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ws-text-1);
-  background: transparent;
-  border: none;
-  padding: 0;
-  text-align: left;
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.auto-queue__title:hover {
-  color: var(--ws-accent-deep);
-}
-
-.auto-queue__inline-chip {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--ws-accent-soft);
-  color: var(--ws-accent-deep);
-  flex-shrink: 0;
-}
-
-.auto-queue__meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--ws-text-3);
-  flex-wrap: wrap;
-}
-
-.auto-queue__pill {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 11px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--ws-accent-soft);
-  color: var(--ws-accent-deep);
-  border: 1px solid var(--ws-card-border);
-}
-
-.auto-queue__pill-icon {
-  font-family: inherit;
-  font-size: 10px;
-}
-
-.auto-queue__pill--pr {
-  color: #0ea5e9;
-  background: rgba(14, 165, 233, 0.06);
-  border-color: rgba(14, 165, 233, 0.18);
-}
-
-.auto-queue__desc {
-  color: var(--ws-text-3);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Big right-side status pill. Higher-saturation than the inline chips
  * so the eye lands on it; one variant per QueueStatus. */
-.auto-queue__status {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 6px 12px;
-  border-radius: 999px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.auto-queue__status--running {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.auto-queue__status--await {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.auto-queue__status--attention {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.auto-queue__status--idle {
-  background: rgba(217, 119, 6, 0.12);
-  color: #92400e;
-}
-
-.auto-queue__status--done {
-  background: rgba(156, 163, 175, 0.18);
-  color: #4b5563;
-}
-
-.auto-queue__action-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  min-width: 120px;
-}
-
-.auto-queue__action {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--ws-card-border);
-  background: #fff;
-  color: var(--ws-accent-deep);
-  cursor: pointer;
-  transition: background var(--ws-fast), color var(--ws-fast),
-    border-color var(--ws-fast);
-}
-
-.auto-queue__action:hover {
-  background: var(--ws-accent);
-  color: #fff;
-  border-color: var(--ws-accent);
-}
 
 /* Attention-action gets the violet fill by default — it's the row
  * the user is most likely to need to click on. */
-.auto-queue__action--attention {
-  background: var(--ws-accent);
-  color: #fff;
-  border-color: var(--ws-accent);
-}
-
-.auto-queue__action--attention:hover {
-  background: var(--ws-accent-deep);
-  border-color: var(--ws-accent-deep);
-}
-
-.auto-queue__action--await {
-  background: var(--ws-accent);
-  color: #fff;
-  border-color: var(--ws-accent);
-}
-
-.auto-queue__action--await:hover {
-  background: var(--ws-accent-deep);
-  border-color: var(--ws-accent-deep);
-}
-
-.auto-queue__action:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.auto-queue__age {
-  font-size: 11px;
-  color: var(--ws-text-3);
-  white-space: nowrap;
-}
 
 /* ── Threads view toggle (List / Group / Immersive) ────────────────
  *

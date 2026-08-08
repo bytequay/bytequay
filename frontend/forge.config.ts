@@ -12,10 +12,7 @@
  * limitations under the License.
  */
 import type { ForgeConfig } from '@electron-forge/shared-types';
-import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
-import { MakerDeb } from '@electron-forge/maker-deb';
-import { MakerRpm } from '@electron-forge/maker-rpm';
 import { MakerDMG } from '@electron-forge/maker-dmg';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
@@ -75,11 +72,7 @@ const config: ForgeConfig = {
     // dock — without this Electron defaults to its own name.
     name: 'ByteQuay',
     // App icon embedded in the .app bundle. Extension is omitted on
-    // purpose — electron-packager appends the right one per platform
-    // (.icns on macOS, .ico on Windows, .png on Linux), so the same
-    // base path works for all targets. /build/ is the conventional
-    // Electron output dir and ships a Mac iconset, a Windows .ico,
-    // and a fallback .png — one source for everything.
+    // purpose — electron-packager appends .icns on macOS.
     icon: '../build/icon',
     // Ship the backend JAR alongside the renderer. extraResource
     // copies the file into Contents/Resources/ on macOS (the same
@@ -107,14 +100,11 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
     // Native macOS installer disk image. ULFO is the modern read-only
     // compressed format — smaller download than UDZO and faster to
     // mount on Apple Silicon.
     new MakerDMG({ format: 'ULFO' }, ['darwin']),
-    new MakerRpm({}),
-    new MakerDeb({}),
   ],
   plugins: [
     new VitePlugin({

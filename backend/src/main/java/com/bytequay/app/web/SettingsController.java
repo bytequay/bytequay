@@ -14,8 +14,10 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.SyncSettings;
+import com.bytequay.app.scheduler.PullRequestSyncJob;
+import com.bytequay.app.service.SyncSettingsService;
+import com.bytequay.app.service.WorkspaceBehaviorService;
 import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
-import com.bytequay.app.service.settings.SettingsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,43 +34,50 @@ import static java.util.Objects.requireNonNull;
 @RequestMapping("/api/settings")
 public class SettingsController
 {
-    private final SettingsService service;
+    private final SyncSettingsService syncSettings;
+    private final PullRequestSyncJob syncJob;
+    private final WorkspaceBehaviorService workspaceBehavior;
 
-    public SettingsController(SettingsService service)
+    public SettingsController(
+            SyncSettingsService syncSettings,
+            PullRequestSyncJob syncJob,
+            WorkspaceBehaviorService workspaceBehavior)
     {
-        this.service = requireNonNull(service, "service is null");
+        this.syncSettings = requireNonNull(syncSettings, "syncSettings is null");
+        this.syncJob = requireNonNull(syncJob, "syncJob is null");
+        this.workspaceBehavior = requireNonNull(workspaceBehavior, "workspaceBehavior is null");
     }
 
     @GetMapping("/workspace-behavior")
     public Settings getWorkspaceBehavior()
     {
-        return service.getWorkspaceBehavior();
+        return workspaceBehavior.get();
     }
 
     @PutMapping("/workspace-behavior")
     public Settings updateWorkspaceBehavior(@RequestBody Settings body)
     {
         body = requireBody(body);
-        return service.updateWorkspaceBehavior(body);
+        return workspaceBehavior.update(body);
     }
 
     @GetMapping("/sync")
     public SyncSettings getSyncSettings()
     {
-        return service.getSyncSettings();
+        return syncSettings.getSettings();
     }
 
     @PutMapping("/sync")
     public SyncSettings updateSyncSettings(@RequestBody SyncSettings settings)
     {
         settings = requireBody(settings);
-        return service.updateSyncSettings(settings);
+        return syncSettings.updateSettings(settings);
     }
 
     @PostMapping("/sync/trigger")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void triggerSync()
     {
-        service.triggerSync();
+        syncJob.requestImmediateSync();
     }
 }

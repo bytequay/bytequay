@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrainFeedRow, PlanCardDto } from '../../types/brainView';
-import { PlanCard, planStepComments, TaskRootNode } from './TaskRootNode';
+import { PlanCard, planStepComments } from './TaskRootNode';
 
 afterEach(cleanup);
 
@@ -149,17 +149,5 @@ describe('PlanCard (pipeline adapter)', () => {
     }];
     render(<PlanCard plan={plan()} onApprove={noop} stepComments={planStepComments(feed)} onCommentStep={noop} />);
     expect(screen.queryByText('Comment on this step')).toBeNull();
-  });
-});
-
-describe('TaskRootNode', () => {
-  it('renders the planning seed chips above the plan card and expands on click', () => {
-    const seed = 'Refactor: collapse the parsers. Gate before committing: mvn verify. Do not push.';
-    const { container } = render(<TaskRootNode plan={plan()} seed={seed} onApprove={noop} />);
-    expect(container.querySelector('.seed-chip')).toBeTruthy();
-    expect(container.querySelector('.seed__full')).toBeNull();
-    expect(container.querySelector('.plan-pipeline-card')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Planning seed/ }));
-    expect(container.querySelector('.seed__full')?.textContent).toContain('collapse the parsers');
   });
 });

@@ -18,7 +18,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.checks.ValidationFailure;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -34,7 +34,7 @@ class TestLocalCiFixExecutor
     {
         ThreadStore threads = mock(ThreadStore.class);
         StageStore stages = mock(StageStore.class);
-        AgentRunService runs = mock(AgentRunService.class);
+        AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
         WorktreeLeaseService leases = mock(WorktreeLeaseService.class);
         TaskStore tasks = mock(TaskStore.class);

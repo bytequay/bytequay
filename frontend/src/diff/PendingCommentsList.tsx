@@ -12,15 +12,8 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
-import Avatar from '../Avatar';
 import { MarkdownProse } from '../threads/MarkdownProse';
-import {
-  avatarKind,
-  commentLocationLabel,
-  githubAvatarLogin,
-  initials,
-  type DiffInlineComment,
-} from './DiffInlineComments';
+import type { DiffInlineComment } from './DiffInlineComments';
 
 /**
  * Draft-comment cards — "what's about to ship" — for the Submit-review
@@ -68,90 +61,6 @@ export function PendingCommentsList({
           <div className="pending-comments__text"><MarkdownProse text={c.body} /></div>
         </div>
       ))}
-    </div>
-  );
-}
-
-/**
- * The diff page's whole Review tab panel — transcribed from
- * docs/mockups/design/claude_design_v1/PR Review.dc.html's REVIEW LIST: an
- * uppercase "Pending review N" header, one card per draft (author avatar +
- * name + optional AGENT badge, comment text, a footer with the file/line
- * location), then an "Open submit panel →" button. Agent comments use the
- * purple AI treatment when the comment source marks them as AGENT.
- */
-export function ReviewTabPendingList({
-  comments, onRemove, onJump, onOpenSubmitPanel, emptyHint = 'No pending comments yet.',
-}: {
-  comments: DiffInlineComment[];
-  onRemove?: (commentId: string) => void;
-  onJump?: (comment: DiffInlineComment) => void;
-  /** Renders the "Open submit panel →" button below the cards — omit where
-   *  this mode has no submit drawer to open (e.g. the task ship-review gate,
-   *  which submits via its own toolbar action instead). */
-  onOpenSubmitPanel?: () => void;
-  emptyHint?: ReactNode;
-}) {
-  return (
-    <div className="review-pending-panel">
-      <div className="review-pending-panel__head">
-        <span className="review-pending-panel__label">Pending review</span>
-        <span className="review-pending-panel__count">{comments.length}</span>
-      </div>
-      {comments.length === 0 ? (
-        <div className="pending-comments__empty">{emptyHint}</div>
-      ) : (
-        <div className="review-pending">
-          {comments.map(c => {
-            const kind = avatarKind(c);
-            const avatarLogin = githubAvatarLogin(c);
-            return (
-              <div
-                key={c.id}
-                className={`review-pending__card review-pending__card--${kind}${onJump !== undefined ? ' review-pending__card--jumpable' : ''}`}
-                onClick={onJump !== undefined ? () => onJump(c) : undefined}
-                role={onJump !== undefined ? 'button' : undefined}
-                tabIndex={onJump !== undefined ? 0 : undefined}
-              >
-                <div className="review-pending__head">
-                  {avatarLogin !== null ? (
-                    <Avatar
-                      login={avatarLogin}
-                      size={28}
-                      className={`review-pending__avatar-img review-pending__avatar--${kind}`}
-                    />
-                  ) : (
-                    <span className={`review-pending__avatar review-pending__avatar--${kind}`}>
-                      {initials(c.author)}
-                    </span>
-                  )}
-                  <span className="review-pending__author">{c.author}</span>
-                  {c.sourceLabel !== undefined && <span className="review-pending__agent-badge">{c.sourceLabel}</span>}
-                  {onRemove !== undefined && (
-                    <button
-                      type="button"
-                      className="review-pending__remove"
-                      aria-label="Remove comment"
-                      onClick={e => { e.stopPropagation(); onRemove(c.id); }}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                <div className="review-pending__text"><MarkdownProse text={c.body} /></div>
-                <div className="review-pending__footer">
-                  <span className="review-pending__loc">{commentLocationLabel(c)}</span>
-                </div>
-              </div>
-            );
-          })}
-          {onOpenSubmitPanel !== undefined && (
-            <button type="button" className="review-pending-panel__open-submit" onClick={onOpenSubmitPanel}>
-              Open submit panel →
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

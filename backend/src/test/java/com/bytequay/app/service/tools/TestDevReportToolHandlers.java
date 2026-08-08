@@ -21,7 +21,7 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import org.junit.jupiter.api.Test;
@@ -41,7 +41,7 @@ class TestDevReportToolHandlers
     private static final UUID DEV_STAGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
     private static final Instant NOW = Instant.parse("2026-07-05T00:00:00Z");
 
-    private final DevReportService devReports = mock(DevReportService.class);
+    private final DevReportServiceImpl devReports = mock(DevReportServiceImpl.class);
     private final StageStore stageStore = mock(StageStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final DevReportToolHandlers tools =

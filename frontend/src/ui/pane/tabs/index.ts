@@ -13,16 +13,6 @@
  */
 
 /** V3 right-pane tab contents — one component per tab type. */
-export { PlanTabContent } from './PlanTabContent';
-export type { PlanSource, PlanStep, PlanSignal, PlanConfidence } from './PlanTabContent';
-export { PRTabContent, CommentThread } from './PRTabContent';
-export type { PRStatus, PRMetaChip, PRChecks, CommentThreadData } from './PRTabContent';
-export { TasksTabContent } from './TasksTabContent';
 export type { TaskCardData } from './TasksTabContent';
 export { BacklogTabContent } from './BacklogTabContent';
 export type { BacklogItemData } from './BacklogTabContent';
-export { BacklogFormModal } from './BacklogFormModal';
-export type { NewBacklogItem } from './BacklogFormModal';
-export { StartDevelopmentDialog } from './StartDevelopmentDialog';
-export { NotificationsTabContent, NotificationRow } from './NotificationsTabContent';
-export type { NotifData, NotifIconKind } from './NotificationsTabContent';

@@ -22,7 +22,7 @@ import com.bytequay.app.beans.backlog.StartDevelopmentResponse;
 import com.bytequay.app.beans.backlog.UpdateBacklogItemRequest;
 import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.BacklogItem.Link;
-import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,9 +46,9 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class BacklogController
 {
-    private final BacklogService backlog;
+    private final BacklogServiceImpl backlog;
 
-    public BacklogController(BacklogService backlog)
+    public BacklogController(BacklogServiceImpl backlog)
     {
         this.backlog = requireNonNull(backlog, "backlog is null");
     }
@@ -139,10 +139,10 @@ public class BacklogController
         if (body == null || body.items() == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "items are required");
         }
-        List<BacklogService.NewBacklogItem> items = body.items().stream()
-                .map(i -> new BacklogService.NewBacklogItem(i.title(), i.body(), i.tags(), i.priority()))
+        List<BacklogServiceImpl.NewBacklogItem> items = body.items().stream()
+                .map(i -> new BacklogServiceImpl.NewBacklogItem(i.title(), i.body(), i.tags(), i.priority()))
                 .toList();
-        BacklogService.BatchResult result = backlog.createBatch(threadId, items);
+        BacklogServiceImpl.BatchResult result = backlog.createBatch(threadId, items);
         return new BatchCreateBacklogResponse(result.backlogItemIds(), result.relatedBacklogGroupId());
     }
 
@@ -177,7 +177,7 @@ public class BacklogController
     @PostMapping("/api/backlog/{itemId}/start-development")
     public StartDevelopmentResponse startDevelopment(@PathVariable String itemId)
     {
-        BacklogService.StartResult result = backlog.startDevelopment(itemId);
+        BacklogServiceImpl.StartResult result = backlog.startDevelopment(itemId);
         return new StartDevelopmentResponse(BacklogItemDto.from(result.item()), result.taskId());
     }
 
@@ -187,7 +187,7 @@ public class BacklogController
             @PathVariable String itemKey,
             @RequestBody(required = false) StartBacklogBody body)
     {
-        BacklogService.StartResult result = backlog.startDevelopmentForWorkspace(
+        BacklogServiceImpl.StartResult result = backlog.startDevelopmentForWorkspace(
                 workspaceId, itemKey, body == null ? null : body.trunkId());
         return new StartDevelopmentResponse(
                 BacklogItemDto.from(result.item()), result.taskId());

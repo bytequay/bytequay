@@ -140,24 +140,3 @@ export function Headline({ who = 'Brain', body, timestamp, color = 'blue', reply
     </div>
   );
 }
-
-/**
- * Layer-2 conversation unit: a small gray chatter dot for an agent prose
- * message that isn't a round headline — the lowest-signal message tier.
- * Folds away in Focused density.
- */
-export function BrainDot({ body, timestamp, who = 'Brain' }: {
-  body: string;
-  timestamp?: ReactNode;
-  who?: ReactNode;
-}) {
-  return (
-    <div className="sp-bmsg">
-      <div className="sp-headline__who">
-        <span className="sp-headline__ava" aria-hidden>B</span>{who}
-        {timestamp !== undefined && <span className="ago">{timestamp}</span>}
-      </div>
-      <div className="sp-headline__tx"><MarkdownProse text={body} /></div>
-    </div>
-  );
-}

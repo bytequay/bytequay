@@ -59,7 +59,7 @@ export function TaskBrainRoute({
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, collapsed, onToggleCollapse,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace,
-  initialReviewRoundId, initialPrSubTab, onOpenAgentReview,
+  initialPrSubTab, onOpenAgentReview,
 }: {
   threadId: string;
   taskId: string;
@@ -83,7 +83,6 @@ export function TaskBrainRoute({
   workspaceRepository?: string;
   onNavigateGlobal?: (destination: WsNavKey) => void;
   onSwitchWorkspace?: () => void;
-  initialReviewRoundId?: string;
   initialPrSubTab?: 'changes';
   /** Opens the PR-owned AgentColumn destination instead of an inline round page. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
@@ -112,12 +111,9 @@ export function TaskBrainRoute({
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
-    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, error: prError,
-    localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, reopenLocalComment, deleteLocalComment,
+    bundle: localPrBundle, refresh: refreshLocalPr, error: prError,
+    confirmPush, deleteLocalComment,
     pushOpen, setPushOpen, prBusy,
-    runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
   const pendingLocalReviewRoots = useMemo(() => {
     const submitted = activelySubmittedCommentIds(localPrBundle?.timeline ?? []);
@@ -220,14 +216,6 @@ export function TaskBrainRoute({
     catch (e) { setShipNote(e instanceof Error ? e.message : String(e)); }
     finally { setShipBusy(false); }
   }, [shipBusy, shipProposal, pollFast, refreshShipProposal]);
-
-  const askAgentToAddress = useCallback(() => {
-    setText('Please address my review comments on the PR, then I\'ll push. ');
-    // Land the cursor in the composer so the user can elaborate and send.
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
-    });
-  }, []);
 
   // One task-wide diff backs both the locked timeline artifact and the local
   // PR's Changes tab before a remote PR number exists.

@@ -38,8 +38,7 @@ import static java.util.Objects.requireNonNull;
  * state around that header.</p>
  */
 @Service
-class AgentRunServiceImpl
-        implements AgentRunService
+public class AgentRunServiceImpl
 {
     private static final String RETIRED =
             "AgentRun execution is retired; use typed V2 Turns and Operations";
@@ -58,52 +57,36 @@ class AgentRunServiceImpl
         this.store = requireNonNull(store, "store is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
-
-    @Override
     public Optional<AgentRun> findById(String runId)
     {
         return store.findById(runId)
                 .filter(run -> !run.isReviewCompatibilityHeader());
     }
-
-    @Override
     public Optional<AgentRun> findReviewCompatibilityHeaderById(String runId)
     {
         return store.findById(runId)
                 .filter(AgentRun::isReviewCompatibilityHeader);
     }
-
-    @Override
     public List<AgentRun> findByWorkspace(String workspaceId)
     {
         return visible(store.findByWorkspace(workspaceId));
     }
-
-    @Override
     public List<AgentRun> findByThread(String threadId)
     {
         return visible(store.findByThread(threadId));
     }
-
-    @Override
     public List<AgentRun> findByReviewRound(String reviewRoundId)
     {
         return store.findByReviewRound(reviewRoundId);
     }
-
-    @Override
     public List<AgentRun> findByTask(String taskId, String kind, String parentStageId)
     {
         return visible(store.findByTask(taskId, kind, parentStageId));
     }
-
-    @Override
     public List<AgentRun> liveRunsByTask(String taskId)
     {
         return visible(store.findLiveByTask(taskId));
     }
-
-    @Override
     public AgentRun createReviewCompatibilityHeader(
             String reviewRoundId,
             Integer budget)
@@ -141,141 +124,99 @@ class AgentRunServiceImpl
                 "completed");
         return store.insert(header);
     }
-
-    @Override
     public AgentRun open(
             String taskId, String kind, String source, String parentStageId,
             StageType backingStageType, Integer budget)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun openInCommand(
             String taskId, String kind, String source, String parentStageId,
             StageType backingStageType, Integer budget)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun openInStage(
             String taskId, String kind, String source, String stageId, Integer budget)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun openInStageInCommand(
             String taskId, String kind, String source, String stageId, Integer budget)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun openDetached(
             String kind, String source, String reviewRoundId, Integer budget)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun openTaskArtifact(
             String taskId, String kind, String source, String reviewRoundId, Integer budget)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun openSchedulerSession(
             Thread thread, String taskId, String stageId, String kind, String launchInput)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun openSchedulerSessionInCommand(
             Thread thread, String taskId, String stageId, String kind, String launchInput)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun attachOwnership(
             String runId, String workspaceId, String threadId,
             String provider, String model, String launchInput)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun recordIteration(String runId, String headlineOrNull)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun spendBudget(String runId)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun updateHeadline(String runId, String headline)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun updateMetrics(String runId, String metricsJson)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun updateAccounting(
             String runId, long costUsdMilli, long tokensIn, long tokensOut, int stepCursor)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun pause(String runId, String reason)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun pauseInCommand(String taskId, String runId, String reason)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun resume(String runId)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun restart(String runId)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun restartInCommand(String taskId, String runId)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun transition(String runId, String status, String reason)
     {
         throw retired();
     }
-
-    @Override
     public AgentRun transitionInCommand(
             String taskId, String runId, String status, String reason)
     {

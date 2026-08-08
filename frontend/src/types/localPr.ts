@@ -179,11 +179,3 @@ export interface LocalPRBundle {
    *  behind. `usePR` polls faster until it clears. */
   syncing?: boolean;
 }
-
-/** `mode="local"` renders the local phase, `mode="remote"` the pushed phase. */
-export type PRViewMode = 'local' | 'remote';
-
-/** True while the PR is still in a local-only state (badge + hints differ). */
-export function isLocalStatus(status: LocalPRStatus): boolean {
-  return status === 'local-drafted' || status === 'local-open';
-}

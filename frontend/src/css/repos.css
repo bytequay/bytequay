@@ -285,15 +285,6 @@
    left, subject on its own line, author + relative time below.
    Resembles `git log --oneline` more than github.com — better fit
    for fast scrolling through recent history. */
-.commits-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
 .commit-row {
   display: flex;
   gap: var(--space-2);
@@ -308,69 +299,11 @@
    us a login, otherwise a tinted-initial circle (see authorColor()
    in LocalRepoPage.tsx) so "same person again" still reads at a
    glance. Sits where the SHA chip used to be. */
-.commit-row__avatar {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-.commit-row__main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.commit-row__subject {
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-  /* Two-line clamp: long subjects wrap once and then ellipsize, so
-     the row height stays predictable without losing context the way
-     a single-line ellipsis did. */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  line-height: 1.35;
-}
-.commit-row__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  margin-top: 4px;
-  align-items: center;
-}
-.commit-row__author {
-  font-weight: 500;
-  color: var(--text-2);
-}
-.commit-row__sep {
-  color: var(--text-4);
-}
-.commit-row__sha {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-  color: var(--accent);
-}
 /* Copy-full-SHA button — sits next to the short sha. Same pattern as
    .prc-branch-line__copy in pr-detail.css; brief ✓ flash on success
    gives the user feedback without a toast. Sized larger than the
    sha glyph itself so the click target is comfortable in the dense
    commit row. */
-.commit-row__copy {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 3px 7px;
-  margin-left: 2px;
-  font-size: var(--font-size-lg);
-  line-height: 1;
-  color: var(--text-3);
-  cursor: pointer;
-}
-.commit-row__copy:hover {
-  color: var(--accent);
-  border-color: var(--border);
-  background: var(--bg-elevated);
-}
 
 /* Activity tab: one row per reflog entry. Glyph + kind chip on the
    left, description prose on the right. Subdued metadata line below
@@ -397,218 +330,23 @@
 /* Create-PR modal — shares the force-push panel chrome but holds a
    form rather than a confirmation. Wider panel so the description
    textarea has room to breathe. */
-.create-pr-modal__panel {
-  width: min(640px, 100%);
-}
-.create-pr-modal__field {
-  display: block;
-  margin-bottom: 12px;
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-}
-.create-pr-modal__field > span {
-  display: block;
-  margin-bottom: 4px;
-  font-weight: 600;
-}
-.create-pr-modal__field input,
-.create-pr-modal__field textarea {
-  width: 100%;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-1);
-  font-family: inherit;
-  font-size: var(--font-size-md);
-  padding: var(--space-2);
-  box-sizing: border-box;
-}
-.create-pr-modal__field textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-sm);
-  resize: vertical;
-}
-.create-pr-modal__field input:focus,
-.create-pr-modal__field textarea:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-.create-pr-modal__draft {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  margin-bottom: 12px;
-  cursor: pointer;
-}
 /* Pushes the Run-AI button to the left of the action row, with
    Cancel + primary on the right — same shape the user expects from
    "secondary action / spacer / primary action" patterns. */
-.create-pr-modal__actions {
-  align-items: center;
-}
-.create-pr-modal__action-spacer {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.create-pr-modal__ai-btn {
-  /* Accent tint to suggest the AI affordance without screaming for
-     attention — the user's primary path is still typing manually. */
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.create-pr-modal__ai-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.create-pr-modal__ai-error {
-  margin-bottom: 10px;
-  background: rgba(207, 34, 46, 0.08);
-  border: 1px solid rgba(207, 34, 46, 0.30);
-  color: #b91c1c;
-  font-size: var(--font-size-sm);
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  white-space: pre-wrap;
-}
 
 /* Success toast — anchored to the bottom-right of the page. Lives
    until the user dismisses; clicking the link opens the new PR on
    github.com in the shared browser overlay. */
-.create-pr-toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 250;
-  background: var(--bg-elevated);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-}
-.create-pr-toast__link {
-  color: var(--accent);
-  text-decoration: underline;
-  font-size: var(--font-size-sm);
-}
-.create-pr-toast__dismiss {
-  background: transparent;
-  border: none;
-  color: var(--text-3);
-  font-size: var(--font-size-xl);
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 4px;
-}
-.create-pr-toast__dismiss:hover { color: var(--text-1); }
 
 /* j/k hint above the kanban — discoverable without a tour. Lives
    on its own row so it doesn't compete with the action bar above. */
-.branches-kanban__hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  margin-bottom: 8px;
-}
-.branches-kanban__hint kbd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 10.5px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 5px;
-  margin: 0 2px;
-  color: var(--text-2);
-}
 
 /* Branches kanban. Three columns with a colored 3px top border —
    parallels the PR kanban's visual rhythm. CLEAN UP column ships in
    a follow-up commit. */
-.branches-kanban {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-3);
-}
-.branches-col {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-top-width: 3px;
-  border-radius: var(--radius-md);
-  display: flex;
-  flex-direction: column;
-  min-height: 200px;
-}
-.branches-col--local_work    { border-top-color: #6e7781; }
-.branches-col--ready_for_pr  { border-top-color: #1f6feb; }
-.branches-col--in_review     { border-top-color: #2da44e; }
-.branches-col--clean_up      { border-top-color: #b91c1c; }
-
-.branches-col__head {
-  padding: var(--space-2) var(--space-3) var(--space-2);
-  border-bottom: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  column-gap: var(--space-2);
-}
-.branches-col__label {
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-2);
-}
-.branches-col__count {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  font-weight: 600;
-}
-.branches-col__sub {
-  grid-column: 1 / -1;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  margin-top: 2px;
-}
-.branches-col__body {
-  padding: var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  flex: 1 1 auto;
-}
 /* "Show N more / Show less" toggle anchored at the bottom of a
    collapsed column. Visually subdued so it doesn't compete with
    the branch cards above. */
-.branches-col__more {
-  appearance: none;
-  background: transparent;
-  border: 1px dashed var(--border);
-  color: var(--text-2);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  margin-top: 4px;
-  cursor: pointer;
-  width: 100%;
-  text-align: center;
-}
-.branches-col__more:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.branches-col__empty {
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  text-align: center;
-  padding: 20px 8px;
-  font-style: italic;
-}
 /* Button variant when clicking the pill jumps to the PR detail
    page. Reset the native button chrome and add a subtle hover so
    the affordance is discoverable without changing the resting look. */
@@ -632,116 +370,10 @@
    docs/mockups/design/local-repo/code-diff.png. The page itself
    already owns the vertical scroll, so each pane manages its own
    internal overflow at a stable shared height. */
-.commits-pane {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.commits-pane__header {
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-}
-.commits-pane__label {
-  margin-right: 4px;
-}
-.commits-pane__branch {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  background: var(--accent-a7);
-  border-radius: var(--radius-sm);
-  padding: 1px 6px;
-}
-.commits-pane__body {
-  display: grid;
-  /* Column template is set inline by CommitsTab so the user-resizable
-     widths can drive the layout. Falls back here if the inline style
-     is missing. Format: <left> 5px <mid> 5px 1fr — the two 5px tracks
-     host the ResizeHandle dividers. */
-  grid-template-columns: 320px 5px 280px 5px minmax(0, 1fr);
-  /* Fixed-height pane area so the inner columns scroll independently
-     instead of stretching the page; matches the mockup where the
-     commits/files/diff trio sits inside a viewport-bounded card. */
-  min-height: 560px;
-  height: calc(100vh - 260px);
-  /* Single shared frame around the trio so the panes read as one
-     surface rather than three floating cards. The internal dividers
-     are drawn by the .resize-handle children's ::before line. */
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-.commits-pane__commits,
-.commits-pane__files,
-.commits-pane__diff {
-  background: var(--bg-card);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.commits-pane__commits {
-  /* Header pins; the list scrolls. Without flex+min-height:0 on the
-     ol, Safari/old WebKit lets the inner overflow:auto child push
-     the parent's height, defeating the sticky header. */
-  overflow: hidden;
-}
-.commits-pane__commits .commits-list {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-.commits-pane__files {
-  overflow: hidden;
-}
 /* Per-aside section header — uppercase mini-label that mirrors the
    "COMMITS" / "FILES CHANGED" treatment in
    docs/mockups/design/local-repo/code-diff.png. Used inside
    .commits-pane__commits and .commits-pane__files. */
-.commits-pane__section-header {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-3);
-  /* Tighter vertical padding than other section headers because this row
-     also hosts the Tree/Flat toggle (~22px tall); 6/12 keeps the row a
-     consistent height with or without the toggle. */
-  padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--border);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.commits-pane__section-title {
-  /* min-width:0 lets the title truncate via ellipsis in narrow columns
-     so the toggle on the right always stays visible. */
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.commits-pane__files-total {
-  border-top: 1px solid var(--border);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-}
-.commits-pane__diff {
-  overflow: hidden;
-}
-.commits-pane__placeholder {
-  padding: 18px 14px;
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  text-align: center;
-}
 
 /* Selected-row treatment for both commits and files: a tinted
    background + accent-colored left bar. Matches the mockup's
@@ -754,180 +386,26 @@
 .commit-row:hover {
   background: var(--accent-a4);
 }
-.commit-row--selected,
-.commit-row--selected:hover {
-  background: var(--accent-a10);
-  border-left-color: var(--accent);
-}
 
 /* Per-file diff viewer chrome — the body itself is rendered with the
    shared .diff-row* classes from ai.css (line-number gutter + content
    column with pre-wrap), so colors and geometry match the PR diff
    viewer. */
-.commit-diff {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-.commit-diff__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
-}
-.commit-diff__path {
-  flex: 1 1 auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.commit-diff__stats {
-  flex: 0 0 auto;
-  font-size: var(--font-size-xs);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-}
-.commit-diff__truncated {
-  flex: 0 0 auto;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #cf222e;
-  background: rgba(207, 34, 46, 0.08);
-  border-radius: var(--radius-sm);
-  padding: 2px 6px;
-}
-.commit-diff__body {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  overflow-x: hidden;
-  margin: 0;
-  padding: 0;
-  background: var(--bg-card);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-sm);
-  line-height: 1.55;
-}
-.commit-diff__hunk + .commit-diff__hunk {
-  border-top: 1px solid var(--border-hairline);
-}
-.commit-diff__empty {
-  padding: var(--space-6);
-  text-align: center;
-  color: var(--text-3);
-  font-size: var(--font-size-sm);
-}
 
 /* Files-changed totals row in the middle pane. */
-.commits-pane__add { color: #1a7f37; }
-.commits-pane__del { color: #cf222e; }
 
 /* "branched from <base>" divider in the commits list. Renders just
    before the merge-base commit so anything below the line is
    already-on-base history. Visual treatment is intentionally
    muted — it's a label, not a row. */
-.commits-list__divider {
-  list-style: none;
-  text-align: center;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  font-style: italic;
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px dashed var(--border);
-  border-bottom: 1px dashed var(--border);
-  background: var(--bg-elevated);
-}
-.commits-list__divider code {
-  font-style: normal;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-  color: var(--accent);
-  background: var(--accent-a7);
-  border-radius: 3px;
-  padding: 0 4px;
-}
 
 /* Left-pane mode toggle — switches the Commits tab between commit
    history and uncommitted-working-tree changes. Per docs/mockups/
    design/local-repo/code-diff-v3.png. Sits flush against the
    pane's section-header rule so the two read as one toolbar. */
-.commits-pane__mode-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
-}
-.commits-pane__mode-tab {
-  appearance: none;
-  flex: 1 1 0;
-  background: transparent;
-  border: 0;
-  padding: var(--space-2);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-3);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.commits-pane__mode-tab:hover {
-  color: var(--text-1);
-}
-.commits-pane__mode-tab--active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-  background: var(--bg-card);
-}
 /* Compare-branches dropdown — sits between the mode tabs and the
    commits list. Picking a base flips the middle/right panes to
    show git diff <base>..<branch>. */
-.commits-pane__compare {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
-}
-.commits-pane__compare-select {
-  flex: 1 1 auto;
-  font: inherit;
-  font-size: var(--font-size-xs);
-  padding: var(--space-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
-  color: var(--text-1);
-  cursor: pointer;
-}
-.commits-pane__compare-clear {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  cursor: pointer;
-  padding: 2px 6px;
-}
-.commits-pane__compare-clear:hover {
-  color: var(--accent);
-  border-color: var(--border);
-}
-.commits-pane__changes-empty {
-  padding: 18px 14px;
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  text-align: center;
-}
-.commits-pane__changes-error {
-  color: #b91c1c;
-}
 
 /* Patch-detail card — single-commit mode only. Sits at the top of
    the middle pane (above the files-changed list) and shows subject
@@ -937,57 +415,6 @@
 /* Selection summary bar above the files pane. Mirrors the PR diff
    viewer's commits-pill chrome (see CommitsSelector.tsx) so the
    single-vs-multi selection state reads the same in both places. */
-.commits-selection-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border);
-  background: var(--accent-a4);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  min-height: 32px;
-}
-.commits-selection-summary__icon {
-  flex: 0 0 auto;
-  font-size: var(--font-size-sm);
-  color: var(--accent);
-}
-.commits-selection-summary__sha {
-  flex: 0 0 auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-  color: var(--accent);
-  background: var(--accent-a10);
-  border-radius: var(--radius-sm);
-  padding: 1px 6px;
-}
-.commits-selection-summary__subject {
-  flex: 1 1 auto;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--text-1);
-}
-.commits-selection-summary__label {
-  flex: 1 1 auto;
-}
-.commits-selection-summary--multi {
-  background: var(--accent-a10);
-}
-.commits-selection-summary__clear {
-  flex: 0 0 auto;
-  font-size: var(--font-size-xs);
-  color: var(--accent);
-  background: transparent;
-  border: 1px solid var(--accent-a40);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
-  cursor: pointer;
-}
-.commits-selection-summary__clear:hover {
-  background: var(--accent-a4);
-}
 
 /* ----- Repository home page (`/repos/:org/:repo`) -----
    Per docs/mockups/design/repository/repository-overview.png. Hero
@@ -1002,55 +429,6 @@
 
 /* Pull requests panel — mini-tabs (Needs your review / Yours / All
    open) over a list of PR rows with a colored left bar per urgency. */
-
-.pr-mini {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) auto;
-  gap: var(--space-2);
-  align-items: center;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  border-left: 3px solid transparent;
-  cursor: pointer;
-}
-.pr-mini:hover { background: var(--bg-elevated); }
-.pr-mini--red    { border-left-color: #cf222e; }
-.pr-mini--amber  { border-left-color: #cf6900; }
-.pr-mini--green  { border-left-color: #1a7f37; }
-.pr-mini--blue   { border-left-color: var(--accent); }
-.pr-mini__number {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-}
-.pr-mini__main { min-width: 0; }
-.pr-mini__title {
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pr-mini__meta {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pr-mini__pill {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-}
-.pr-mini__pill--red    { background: rgba(207, 34, 46, 0.10); color: #cf222e; }
-.pr-mini__pill--amber  { background: rgba(212, 160, 23, 0.16); color: #92400e; }
-.pr-mini__pill--green  { background: rgba(46, 160, 67, 0.14); color: #1a7f37; }
-.pr-mini__pill--blue   { background: var(--accent-a10); color: var(--accent); }
 
 /* About panel — description, links, languages bar. */
 

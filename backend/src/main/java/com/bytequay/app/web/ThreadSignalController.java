@@ -14,7 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.signal.ThreadSignalDto;
-import com.bytequay.app.service.signal.ThreadSignalService;
+import com.bytequay.app.service.signal.ThreadSignalServiceImpl;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,9 +33,9 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class ThreadSignalController
 {
-    private final ThreadSignalService signals;
+    private final ThreadSignalServiceImpl signals;
 
-    public ThreadSignalController(ThreadSignalService signals)
+    public ThreadSignalController(ThreadSignalServiceImpl signals)
     {
         this.signals = requireNonNull(signals, "signals is null");
     }

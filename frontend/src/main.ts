@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, session, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -312,42 +312,6 @@ function requestInAppOpen(url: string): void {
 // enforced this since 2021 on all OAuth flows, regardless of user agent — we
 // can't spoof our way around it. Intercept the redirect early and surface a
 // banner in the UI so the user knows to switch to GitHub password auth.
-const BLOCKED_AUTH_HOSTS: { host: string; provider: string }[] = [
-  { host: 'accounts.google.com', provider: 'Google' },
-  { host: 'login.microsoftonline.com', provider: 'Microsoft' },
-  { host: 'appleid.apple.com', provider: 'Apple' },
-];
-
-function matchBlockedAuthHost(url: string): string | null {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    for (const { host: h, provider } of BLOCKED_AUTH_HOSTS) {
-      if (host === h || host.endsWith('.' + h)) return provider;
-    }
-  } catch { /* invalid URL */ }
-  return null;
-}
-
-// GitHub routes that mean the user is in the middle of signing in. We show a
-// proactive banner on these so the user doesn't pick passkey and then sit on
-// a hung "Waiting for input from browser interaction..." screen — Electron
-// can't drive macOS's platform authenticator, so the passkey prompt will
-// never resolve.
-function isGithubSignInUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.hostname !== 'github.com') return false;
-    const p = u.pathname;
-    return p === '/login'
-      || p.startsWith('/session')
-      || p.startsWith('/account_verifications')
-      || p.startsWith('/sso')
-      || p.startsWith('/login/oauth')
-      || p.startsWith('/two-factor')
-      || p.startsWith('/webauthn');
-  } catch { return false; }
-}
-
 function destroyReviewView(): void {
   if (!reviewView) return;
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -687,12 +651,6 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('pat:clear', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/credentials/ACCOUNT/github`, { method: 'DELETE' });
-    if (!res.ok) throw new Error(`Clear GitHub PAT failed (${res.status})`);
-    return true;
-  });
-
   ipcMain.handle('backend:hello', async () => {
     const res = await fetch(`${BACKEND_BASE}/hello`);
     if (!res.ok) throw new Error(`backend /hello returned ${res.status}`);
@@ -701,50 +659,6 @@ function registerIpc(): void {
 
   ipcMain.handle('backend:listPrs', async () => {
     return backendJson(`${BACKEND_BASE}/prs`);
-  });
-
-  // On-demand single-PR lookup straight from GitHub by repo + number,
-  // bypassing the cached dashboard list. Backs the assign-review
-  // dialog's "paste a PR URL / owner/repo#number" path so a review can
-  // be assigned to any PR the user can see — even one outside the
-  // dashboard's relevant-PR set.
-  ipcMain.handle('backend:lookupPr', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/lookup`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    return backendJson(url);
-  });
-
-  // The dev-task / review links for one PR — drives the dashboard row's
-  // authorship-gated affordance (TaskChip / ReviewChip vs the create /
-  // assign buttons).
-  ipcMain.handle('backend:prLinks', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/linked-tasks`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    return backendJson(url);
-  });
-
-  // Cut a task under an existing thread now — materialises a dev branch +
-  // worktree. workingDir is required by the backend POST /tasks endpoint.
-  ipcMain.handle('backend:cutTaskNow', async (
-    _event, threadId: string, kind: string, title: string, workingDir: string,
-    initialPrompt: string | null) => {
-    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, title, workingDir, initialPrompt }),
-    });
-  });
-  // Append to (or replace) a QUEUED task's opening prompt — the agent's
-  // first-turn input once its slot opens.
-
-  // Named filter (urgent, awaiting_me, stale, blocked, mine_open) —
-  // the backend resolves through PullRequestFilters, which is the
-  // same code path the list_prs agent tool uses. The dashboard's
-  // urgent tab calls this so "urgent" has one definition only.
-  ipcMain.handle('backend:listPrsByFilter', async (_event, name: string) => {
-    return backendJson(`${BACKEND_BASE}/prs/filter/${encodeURIComponent(name)}`);
   });
 
   // Saved Views — user-defined concepts (scope=USER) the agent's
@@ -791,21 +705,6 @@ function registerIpc(): void {
     }
   });
 
-  // Prompt-context inspector. Always dryRun=true — there is no
-  // "send" path through this endpoint, server-side or otherwise.
-  ipcMain.handle('backend:getThreadContext', async (_event, threadId: string) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/context?dryRun=true`);
-  });
-  ipcMain.handle('backend:getTaskContext', async (_event, threadId: string, taskId: string) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/context?dryRun=true`);
-  });
-
-  ipcMain.handle('backend:getTaskTrace', async (_event, taskId: string) => {
-    return backendJson(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/trace`);
-  });
-
   // Concept catalog — read-only viewer endpoint behind the
   // Settings page. Returns the full registry minus runtime
   // gating (this is a developer surface).
@@ -816,84 +715,8 @@ function registerIpc(): void {
     return backendJson(`${BACKEND_BASE}/api/concepts?${params.toString()}`);
   });
 
-  ipcMain.handle('backend:markPrViewedByRef', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/viewed`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/viewed returned ${res.status}: ${body}`);
-    }
-  });
-
-  ipcMain.handle('backend:markPrViewed', async (_event, prId: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/viewed`);
-    url.searchParams.set('id', String(prId));
-    await fetch(url, { method: 'POST' }).catch(() => { /* best-effort */ });
-  });
-
-  ipcMain.handle('backend:markPrHandled', async (_event, prId: number, action: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/handle`);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('action', action);
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Mark handled failed (${res.status}): ${body}`);
-    }
-  });
-
-  ipcMain.handle('backend:reopenPr', async (_event, prId: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/reopen`);
-    url.searchParams.set('id', String(prId));
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Reopen failed (${res.status}): ${body}`);
-    }
-  });
-
-  ipcMain.handle('backend:prHistory', async (_event, page: number, perPage?: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/history`);
-    url.searchParams.set('page', String(page));
-    if (typeof perPage === 'number') url.searchParams.set('perPage', String(perPage));
-    return backendJson(url);
-  });
-
-  ipcMain.handle('backend:prAnalytics', async (_event, scope: string, tz?: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/analytics`);
-    url.searchParams.set('scope', scope);
-    if (tz) url.searchParams.set('tz', tz);
-    return backendJson(url);
-  });
-
   ipcMain.handle('brain:getView', async (_event, taskId: string) => {
     return backendJson(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain`);
-  });
-
-  ipcMain.handle('tasks:updateGuard', async (_event, args: unknown) => {
-    if (typeof args !== 'object' || args === null) {
-      throw new Error('updateGuard args must be an object');
-    }
-    const a = args as { taskId?: unknown; enabled?: unknown; schedule?: unknown };
-    if (typeof a.taskId !== 'string' || a.taskId.trim().length === 0) {
-      throw new Error('taskId must be a non-empty string');
-    }
-    const body: Record<string, unknown> = {};
-    if (typeof a.enabled === 'boolean') {
-      body.enabled = a.enabled;
-    }
-    if (typeof a.schedule === 'string' && a.schedule.length > 0) {
-      body.schedule = a.schedule;
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(a.taskId)}/guard`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
   });
 
   ipcMain.handle('brain:sendMessage', async (_event, taskId: string, text: string, images?: string[]) => {
@@ -1227,15 +1050,6 @@ function registerIpc(): void {
     }
     return res.json();
   });
-  ipcMain.handle('agentReview:getById', async (_event, reviewId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/agent-reviews/${encodeURIComponent(reviewId)}`);
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`backend agent review returned ${res.status}: ${await res.text()}`);
-    return res.json();
-  });
-  ipcMain.handle('agentReview:queue', async (_event, scope = 'all') => {
-    return backendJson(`${BACKEND_BASE}/api/reviews/queue?scope=${encodeURIComponent(scope)}`);
-  });
   ipcMain.handle('agentReview:continue', async (_event, reviewId: string, body: unknown) => {
     return backendJson(`${BACKEND_BASE}/api/agent-reviews/${encodeURIComponent(reviewId)}/rounds`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -1258,11 +1072,6 @@ function registerIpc(): void {
   });
   ipcMain.handle('agentReview:mutateFinding', async (_event, findingId: string, body: unknown) => {
     return backendJson(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-  });
-  ipcMain.handle('agentReview:recordFindingOutcome', async (_event, findingId: string, body: unknown) => {
-    return backendJson(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/outcome`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
   });
@@ -1336,13 +1145,6 @@ function registerIpc(): void {
   ipcMain.handle('pr:dashboardSync', async () => {
     return backendJson(`${BACKEND_BASE}/api/prs/sync-list`, { method: 'POST' });
   });
-  ipcMain.handle('pr:dashboardMarkViewed', async (_event, prId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/viewed`, { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR mark-viewed returned ${res.status}: ${text}`);
-    }
-  });
   ipcMain.handle('pr:dashboardMarkHandled', async (_event, prId: string, action: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/handle`, {
       method: 'POST',
@@ -1352,39 +1154,6 @@ function registerIpc(): void {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend PR mark-handled returned ${res.status}: ${text}`);
-    }
-  });
-  ipcMain.handle('pr:dashboardReopen', async (_event, prId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/reopen`, { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR reopen returned ${res.status}: ${text}`);
-    }
-  });
-  ipcMain.handle('pr:dashboardSnooze', async (_event, prId: string, until: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/snooze`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ until }),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR snooze returned ${res.status}: ${text}`);
-    }
-  });
-  ipcMain.handle('pr:dashboardUnsnooze', async (_event, prId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/unsnooze`, { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR unsnooze returned ${res.status}: ${text}`);
-    }
-  });
-  ipcMain.handle('pr:dashboardClearSnoozeWakeReason', async (_event, prId: string) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/clear-snooze-wake-reason`, { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR clear-snooze-wake-reason returned ${res.status}: ${text}`);
     }
   });
   ipcMain.handle('pr:dashboardApprove', async (_event, prId: string) => {
@@ -1428,64 +1197,6 @@ function registerIpc(): void {
     );
   });
 
-  ipcMain.handle('plans:replan', async (_event, taskId: string) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/replan`,
-      { method: 'POST' },
-    );
-  });
-
-  ipcMain.handle('plans:updateFollowup',
-    async (_event, planStageId: string, followupEventId: string, status: string) => {
-      const res = await fetch(
-        `${BACKEND_BASE}/api/stages/${encodeURIComponent(planStageId)}`
-          + `/followups/${encodeURIComponent(followupEventId)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status }),
-        },
-      );
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`backend updateFollowup returned ${res.status}: ${body}`);
-      }
-    });
-
-  ipcMain.handle('backend:myActivity', async (_event, scope: string, tz?: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/my-activity`);
-    url.searchParams.set('scope', scope);
-    if (tz) url.searchParams.set('tz', tz);
-    return backendJson(url);
-  });
-
-  ipcMain.handle('backend:snoozePr', async (_event, prId: number, untilIso: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/snooze`);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('until', untilIso);
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Snooze failed (${res.status}): ${body}`);
-    }
-  });
-
-  ipcMain.handle('backend:unsnoozePr', async (_event, prId: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/unsnooze`);
-    url.searchParams.set('id', String(prId));
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Unsnooze failed (${res.status}): ${body}`);
-    }
-  });
-
-  ipcMain.handle('backend:clearSnoozeWakeReason', async (_event, prId: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/snooze/wake-reason/clear`);
-    url.searchParams.set('id', String(prId));
-    await fetch(url, { method: 'POST' }).catch(() => { /* best-effort */ });
-  });
-
   ipcMain.handle('backend:pullRequestDetail', async (_event, repo: string, number: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/detail`);
     url.searchParams.set('repo', repo);
@@ -1503,111 +1214,11 @@ function registerIpc(): void {
     return backendJson(url, { method: 'POST' });
   });
 
-  ipcMain.handle('backend:fetchNewComments', async (_event, repo: string, number: number, sinceEpochMs: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/comments/new`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    url.searchParams.set('sinceEpochMs', String(sinceEpochMs));
-    return backendJson(url);
-  });
-
-  ipcMain.handle('backend:rerunChecks', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/rerun-checks`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await runPrRemoteCommand(
-      `rerun-checks:${repo}#${number}`,
-      url,
-      { method: 'POST' },
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/rerun-checks returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('backend:triggerCi', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/trigger-ci`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await runPrRemoteCommand(
-      `trigger-ci:${repo}#${number}`,
-      url,
-      { method: 'POST' },
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/trigger-ci returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('backend:prCi', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/ci`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    return backendJson(url);
-  });
-
-  ipcMain.handle('backend:prConflictPaths', async (_event, owner: string, repo: string, prNumber: number, baseRef: string) => {
-    // Lives under /api/repos/local/{owner}/{repo} rather than /prs/...
-    // because conflict-path enumeration is a local-clone git operation
-    // (merge-tree) — it has no GitHub-API call path.
-    const url = new URL(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/conflict-paths`,
-    );
-    url.searchParams.set('prNumber', String(prNumber));
-    url.searchParams.set('baseRef', baseRef);
-    return backendJson(url);
-  });
-
-  ipcMain.handle('backend:prCheckLog', async (_event, repo: string, checkRunId: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/checkLog`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('checkRunId', String(checkRunId));
-    return backendJson(url);
-  });
-
   ipcMain.handle('backend:prCheckFailure', async (_event, repo: string, checkRunId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/checkFailure`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('checkRunId', String(checkRunId));
     return backendJson(url);
-  });
-
-  ipcMain.handle('backend:setPrDraft', async (_event, repo: string, number: number, draft: boolean) => {
-    const url = new URL(`${BACKEND_BASE}/prs/draft`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const payload = JSON.stringify({ draft });
-    const res = await runPrRemoteCommand(`set-draft:${repo}#${number}:${payload}`, url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(body || `backend /prs/draft returned ${res.status}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('backend:updatePrTitle', async (_event, repo: string, number: number, title: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/title`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const payload = JSON.stringify({ title });
-    const res = await runPrRemoteCommand(`update-title:${repo}#${number}:${payload}`, url, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(body || `backend /prs/title returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('backend:prDiffFiles', async (_event, repo: string, number: number) => {
@@ -1638,39 +1249,6 @@ const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('path', path);
     url.searchParams.set('sha', sha);
     return backendJson(url);
-  });
-
-  ipcMain.handle('settings:getSyncSettings', async () => {
-    return backendJson(`${BACKEND_BASE}/api/settings/sync`);
-  });
-
-  ipcMain.handle('settings:setSyncSettings', async (_event, settings: { intervalSeconds: number }) => {
-    return backendJson(`${BACKEND_BASE}/api/settings/sync`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings),
-    });
-  });
-
-
-
-  ipcMain.handle('settings:triggerSync', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/settings/sync/trigger`, { method: 'POST' });
-    if (!res.ok) throw new Error(`backend /api/settings/sync/trigger returned ${res.status}`);
-  });
-
-  ipcMain.handle('backend:approvePr', async (_event, prId: number, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/approve`);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const intent = `dashboard-approve:${repo}#${number}`;
-    const res = await fetchPrRemoteCommand(intent, url.toString(), { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Approve failed (${res.status}): ${body}`);
-    }
-    completePrRemoteCommand(intent);
   });
 
   ipcMain.handle('backend:updatePrBody', async (_event, repo: string, number: number, body: string) => {
@@ -1725,76 +1303,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`Reply failed (${res.status}): ${text}`);
-    }
-  });
-
-  ipcMain.handle('backend:editIssueComment', async (_event, repo: string, number: number, commentId: number, body: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/issue-comments/${commentId}/body`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const payload = JSON.stringify({ body });
-    const res = await runPrRemoteCommand(
-      `edit-issue-comment:${repo}#${number}:${commentId}:${payload}`,
-      url,
-      {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-      },
-    );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Edit comment failed (${res.status}): ${text}`);
-    }
-  });
-
-  ipcMain.handle('backend:editReviewComment', async (_event, repo: string, number: number, commentId: number, body: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}/body`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const payload = JSON.stringify({ body });
-    const res = await runPrRemoteCommand(
-      `edit-review-comment:${repo}#${number}:${commentId}:${payload}`,
-      url,
-      {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: payload,
-      },
-    );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Edit comment failed (${res.status}): ${text}`);
-    }
-  });
-
-  ipcMain.handle('backend:deleteIssueComment', async (_event, repo: string, number: number, commentId: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/issue-comments/${commentId}`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await runPrRemoteCommand(
-      `delete-issue-comment:${repo}#${number}:${commentId}`,
-      url,
-      { method: 'DELETE' },
-    );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Delete comment failed (${res.status}): ${text}`);
-    }
-  });
-
-  ipcMain.handle('backend:deleteReviewComment', async (_event, repo: string, number: number, commentId: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await runPrRemoteCommand(
-      `delete-review-comment:${repo}#${number}:${commentId}`,
-      url,
-      { method: 'DELETE' },
-    );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Delete comment failed (${res.status}): ${text}`);
     }
   });
 
@@ -1910,18 +1418,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     }
   });
 
-  ipcMain.handle('backend:getSuggestedReviewers', async (_event, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/reviewers/suggested`);
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      // Non-essential affordance — return empty rather than throwing.
-      return [];
-    }
-    return res.json();
-  });
-
   ipcMain.handle('backend:getPrMetadataChoices', async (_event, repo: string, number: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/metadata`);
     url.searchParams.set('repo', repo);
@@ -2030,40 +1526,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     }
   });
 
-  ipcMain.handle('backend:mergePr', async (_event, prId: number, repo: string, number: number, strategy?: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/merge`);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    if (strategy) url.searchParams.set('strategy', strategy);
-    const intent = `dashboard-merge:${repo}#${number}:${strategy ?? ''}`;
-    const res = await fetchPrRemoteCommand(intent, url.toString(), { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Merge failed (${res.status}): ${body}`);
-    }
-    const result = await res.json();
-    completePrRemoteCommand(intent);
-    return result;
-  });
-
-  ipcMain.handle('backend:enableAutoMerge', async (_event, prId: number, repo: string, number: number, strategy?: string) => {
-    const url = new URL(`${BACKEND_BASE}/prs/auto-merge`);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    if (strategy) url.searchParams.set('strategy', strategy);
-    return backendJson(url, { method: 'POST' });
-  });
-
-  ipcMain.handle('backend:disableAutoMerge', async (_event, prId: number, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/auto-merge`);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    return backendJson(url, { method: 'DELETE' });
-  });
-
   ipcMain.handle('backend:dequeuePr', async (_event, prId: number, repo: string, number: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/merge-queue`);
     url.searchParams.set('id', String(prId));
@@ -2082,14 +1544,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
 
   ipcMain.handle('repos:list', async () => {
     return backendJson(`${BACKEND_BASE}/api/repos`);
-  });
-
-  ipcMain.handle('repos:add', async (_event, owner: string, repo: string) => {
-    return backendJson(`${BACKEND_BASE}/api/repos`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner, repo }),
-    });
   });
 
   ipcMain.handle('repos:remove', async (_event, owner: string, repo: string) => {
@@ -2152,23 +1606,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     });
   });
 
-  ipcMain.handle('repos:issueDetail', async (_event, owner: string, repo: string, number: number) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/detail`,
-    );
-  });
-
-  ipcMain.handle('repos:createIssueComment', async (_event, owner: string, repo: string, number: number, body: string) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/comments`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
-      },
-    );
-  });
-
   ipcMain.handle('repos:setIssueState', async (_event, owner: string, repo: string, number: number, state: 'open' | 'closed') => {
     return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`,
@@ -2180,37 +1617,9 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     );
   });
 
-  ipcMain.handle('repos:addIssueCommentReaction', async (_event, owner: string, repo: string, commentId: number, content: string) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/comments/${commentId}/reactions`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:setIssueSubscription', async (_event, owner: string, repo: string, number: number, subscribed: boolean) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/subscription`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subscribed }),
-      },
-    );
-  });
-
   ipcMain.handle('repos:meta', async (_event, owner: string, repo: string) => {
     return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,
-    );
-  });
-
-  ipcMain.handle('repos:activity', async (_event, owner: string, repo: string) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/activity`,
     );
   });
 
@@ -2243,20 +1652,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     return result.filePaths[0];
   });
 
-  ipcMain.handle('repos:defaultClonePath', async (
-    _event, owner: string, repo: string,
-  ): Promise<string> => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/default-clone-path`,
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend default-clone-path returned ${res.status}: ${body}`);
-    }
-    const json = await res.json();
-    return json.defaultPath;
-  });
-
   ipcMain.handle('repos:managedClonePlan', async (
     _event, owner: string, repo: string,
   ) => {
@@ -2265,338 +1660,8 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     );
   });
 
-  ipcMain.handle('repos:cloneRepo', async (
-    _event, owner: string, repo: string, writeMode: 'FORK' | 'DIRECT',
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/clone`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ writeMode }),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:fetchLocal', async (
-    _event, owner: string, repo: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/fetch`,
-      { method: 'POST' },
-    );
-  });
-
-  ipcMain.handle('repos:pullLocal', async (
-    _event, owner: string, repo: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull`,
-      { method: 'POST' },
-    );
-  });
-
-  ipcMain.handle('repos:pushLocalForce', async (
-    _event, owner: string, repo: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/push-force`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmed: true }),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:pushLocal', async (
-    _event, owner: string, repo: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/push`,
-      { method: 'POST' },
-    );
-  });
-
-  ipcMain.handle('repos:deleteLocalBranches', async (
-    _event, owner: string, repo: string, names: string[], deleteRemote?: boolean,
-  ): Promise<string[]> => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
-      {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ names, deleteRemote: !!deleteRemote }),
-      },
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `delete branches failed (${res.status})`);
-    }
-    const json = await res.json();
-    return json.deleted ?? [];
-  });
-
-  ipcMain.handle('repos:draftPullRequest', async (
-    _event, owner: string, repo: string, base: string, head: string,
-  ): Promise<{ title: string; description: string }> => {
-    return backendJson<{ title: string; description: string }>(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests/draft`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base, head }),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:createPullRequest', async (
-    _event,
-    owner: string,
-    repo: string,
-    payload: { title: string; body: string; base: string; draft: boolean },
-  ): Promise<{ number: number; htmlUrl: string }> => {
-    return backendJson<{ number: number; htmlUrl: string }>(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:switchLocalBranch', async (
-    _event, owner: string, repo: string, name: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/switch`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:checkoutRemoteBranch', async (
-    _event, owner: string, repo: string, name: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/checkout-remote`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:createLocalBranch', async (
-    _event, owner: string, repo: string, name: string, base?: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, base: base ?? null }),
-      },
-    );
-  });
-
-  ipcMain.handle('repos:listLocalActivity', async (
-    _event, owner: string, repo: string, limit?: number,
-  ) => {
-    const params = new URLSearchParams();
-    if (typeof limit === 'number' && limit > 0) params.set('limit', String(limit));
-    const query = params.toString();
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/activity`
-        + (query ? `?${query}` : ''),
-    );
-  });
-
-  ipcMain.handle('repos:listLocalCommits', async (
-    _event, owner: string, repo: string, revision?: string, limit?: number,
-  ) => {
-    const params = new URLSearchParams();
-    if (revision && revision.trim()) params.set('revision', revision.trim());
-    if (typeof limit === 'number' && limit > 0) params.set('limit', String(limit));
-    const query = params.toString();
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits`
-        + (query ? `?${query}` : ''),
-    );
-  });
-
-  ipcMain.handle('repos:getLocalCommitDetail', async (
-    _event, owner: string, repo: string, sha: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/detail`,
-    );
-  });
-
-  ipcMain.handle('repos:listLocalWorkingTreeFiles', async (
-    _event, owner: string, repo: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/working-tree/files`,
-    );
-  });
-
-  ipcMain.handle('repos:getLocalWorkingTreeDiff', async (
-    _event, owner: string, repo: string, path: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/working-tree/diff?path=${encodeURIComponent(path)}`,
-    );
-  });
-
-  ipcMain.handle('repos:listLocalRangeFiles', async (
-    _event, owner: string, repo: string, base: string, head: string,
-  ) => {
-    const params = new URLSearchParams();
-    params.set('base', base);
-    params.set('head', head);
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/range/files?${params.toString()}`,
-    );
-  });
-
-  ipcMain.handle('repos:getLocalRangeDiff', async (
-    _event, owner: string, repo: string, base: string, head: string, path: string,
-  ) => {
-    const params = new URLSearchParams();
-    params.set('base', base);
-    params.set('head', head);
-    params.set('path', path);
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/range/diff?${params.toString()}`,
-    );
-  });
-
-  ipcMain.handle('repos:listLocalCommitFiles', async (
-    _event, owner: string, repo: string, sha: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/files`,
-    );
-  });
-
-  ipcMain.handle('repos:getLocalCommitDiff', async (
-    _event, owner: string, repo: string, sha: string, path: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/diff?path=${encodeURIComponent(path)}`,
-    );
-  });
-
-  ipcMain.handle('repos:getLocalCommitRangeDiff', async (
-    _event, owner: string, repo: string, oldestSha: string, newestSha: string, path: string,
-  ) => {
-    const params = new URLSearchParams();
-    params.set('oldest', oldestSha);
-    params.set('newest', newestSha);
-    params.set('path', path);
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits-range/diff?${params.toString()}`,
-    );
-  });
-
-  ipcMain.handle('repos:getLocalMergeBase', async (
-    _event, owner: string, repo: string, branch: string, base: string | undefined,
-  ) => {
-    const params = new URLSearchParams();
-    params.set('branch', branch);
-    if (base) params.set('base', base);
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/merge-base?${params.toString()}`,
-    );
-  });
-
-  ipcMain.handle('repos:listLocalBranches', async (
-    _event, owner: string, repo: string,
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
-    );
-  });
-
-  ipcMain.handle('repos:revealInFinder', async (_event, repoPath: string) => {
-    if (!repoPath) throw new Error('No path mapped for this repo');
-    // showItemInFolder reveals the *parent* with the item selected.
-    // For a repo directory we want the folder itself open in Finder,
-    // so use openPath which double-clicks the folder.
-    const err = await shell.openPath(repoPath);
-    if (err) throw new Error(err);
-  });
-
-  // Try a list of well-known macOS terminal apps in order. We don't
-  // probe LaunchServices for installation up front — `open -a` exits
-  // non-zero if the app isn't there, so the loop short-circuits on
-  // the first match. iTerm first since most devs who installed it
-  // prefer it over the bundled Terminal.
-  const TERMINAL_CANDIDATES = ['iTerm', 'Terminal'];
-  ipcMain.handle('repos:openInTerminal', async (_event, repoPath: string) => {
-    if (!repoPath) throw new Error('No path mapped for this repo');
-    for (const appName of TERMINAL_CANDIDATES) {
-      try {
-        await execFileAsync('open', ['-a', appName, repoPath]);
-        return;
-      } catch {
-        // try next candidate
-      }
-    }
-    throw new Error('No supported terminal found (tried iTerm, Terminal)');
-  });
-
-  // Same shape as the terminal opener — picking among installed IDEs
-  // is a settings concern we'll address later. For now we walk a
-  // sensible mac-dev default order.
-  const IDE_CANDIDATES = [
-    'Visual Studio Code',
-    'Cursor',
-    'IntelliJ IDEA',
-    'IntelliJ IDEA CE',
-    'WebStorm',
-    'GoLand',
-    'PyCharm',
-    'PyCharm CE',
-  ];
-  ipcMain.handle('repos:openInIDE', async (_event, repoPath: string) => {
-    if (!repoPath) throw new Error('No path mapped for this repo');
-    for (const appName of IDE_CANDIDATES) {
-      try {
-        await execFileAsync('open', ['-a', appName, repoPath]);
-        return;
-      } catch {
-        // try next candidate
-      }
-    }
-    throw new Error('No supported IDE found (tried VS Code, Cursor, JetBrains)');
-  });
-
-  ipcMain.handle('repos:setViewFocus', async (
-    _event, owner: string, repo: string, viewFocus: 'fork' | 'upstream',
-  ) => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/view-focus`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ viewFocus }),
-      },
-    );
-  });
-
   ipcMain.handle('repos:userRepos', async () => {
     return backendJson(`${BACKEND_BASE}/api/user/repos`);
-  });
-
-  ipcMain.handle('repos:userOrgs', async () => {
-    return backendJson(`${BACKEND_BASE}/api/user/orgs`);
   });
 
   ipcMain.handle('repos:recentActivity', async (_event, login: string) => {
@@ -2655,19 +1720,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return backendJson(url);
   });
 
-  ipcMain.handle('repos:searchUsers', async (_event, query: string) => {
-    const url = new URL(`${BACKEND_BASE}/api/search/users`);
-    url.searchParams.set('q', query);
-    return backendJson(url);
-  });
-
-  ipcMain.handle('repos:getStats', async (_event, login: string, force?: boolean) => {
-    const url = new URL(`${BACKEND_BASE}/api/stats`);
-    url.searchParams.set('login', login);
-    if (force) url.searchParams.set('force', 'true');
-    return backendJson(url);
-  });
-
   ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
       await shell.openExternal(url);
@@ -2678,128 +1730,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof url === 'string') requestInAppOpen(url);
   });
 
-  ipcMain.handle('shell:writeClipboard', async (_event, text: string) => {
-    if (typeof text === 'string') {
-      clipboard.writeText(text);
-    }
-  });
-
   type Bounds = { x: number; y: number; width: number; height: number };
   const roundBounds = (b: Bounds): Bounds => ({
     x: Math.round(b.x),
     y: Math.round(b.y),
     width: Math.max(0, Math.round(b.width)),
     height: Math.max(0, Math.round(b.height)),
-  });
-
-  ipcMain.handle('review:mount', async (_event, repo: string, number: number, bounds: Bounds) => {
-    if (typeof repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(repo) || !Number.isInteger(number)) {
-      throw new Error('invalid repo or number');
-    }
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    // Drop any previous review view so we don't stack overlays.
-    destroyReviewView();
-    const view = new WebContentsView({
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        // Persistent partition so GitHub's login cookie survives restarts —
-        // users only go through the passkey/2FA dance once.
-        partition: 'persist:github-review',
-      },
-    });
-    // Electron on macOS can't use Touch ID/Face ID for WebAuthn (needs a
-    // browser entitlement Apple only grants approved browsers). A Chrome UA
-    // nudges github.com to offer the full list of alternate sign-in methods
-    // (password + TOTP, security key, recovery code).
-    view.webContents.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    );
-    view.setBackgroundColor('#ffffff');
-    view.setBounds(roundBounds(bounds));
-    mainWindow.contentView.addChildView(view);
-    reviewView = view;
-
-    const send = (channel: string, payload?: unknown) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(channel, payload);
-      }
-    };
-    const notifyBlocked = (provider: string) => send('review:auth-blocked', { provider });
-    const notifySignInPage = () => send('review:sign-in-page');
-
-    view.webContents.on('will-navigate', (e, targetUrl) => {
-      const provider = matchBlockedAuthHost(targetUrl);
-      if (provider) {
-        e.preventDefault();
-        notifyBlocked(provider);
-      }
-    });
-    view.webContents.on('will-redirect', (e, targetUrl) => {
-      const provider = matchBlockedAuthHost(targetUrl);
-      if (provider) {
-        e.preventDefault();
-        notifyBlocked(provider);
-      }
-    });
-    view.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
-      const provider = matchBlockedAuthHost(targetUrl);
-      if (provider) {
-        notifyBlocked(provider);
-        return { action: 'deny' };
-      }
-      requestInAppOpen(targetUrl);
-      return { action: 'deny' };
-    });
-    // Push the latest can-go-back/forward state to the renderer on every
-    // navigation. Drives the ←/→ toolbar buttons in ReviewScreen so they
-    // light up only when there's actually history to walk.
-    const pushNavState = () => {
-      if (!reviewView) return;
-      const wc = reviewView.webContents;
-      send('review:nav-state', {
-        canGoBack: wc.navigationHistory.canGoBack(),
-        canGoForward: wc.navigationHistory.canGoForward(),
-      });
-    };
-    view.webContents.on('did-navigate', (_e, targetUrl) => {
-      if (isGithubSignInUrl(targetUrl)) notifySignInPage();
-      pushNavState();
-    });
-    view.webContents.on('did-navigate-in-page', (_e, targetUrl) => {
-      if (isGithubSignInUrl(targetUrl)) notifySignInPage();
-      pushNavState();
-    });
-    // Initial push so the buttons render in the right state once the
-    // first page settles.
-    view.webContents.on('did-finish-load', pushNavState);
-
-    void view.webContents.loadURL(`https://github.com/${repo}/pull/${number}`);
-  });
-
-  ipcMain.handle('review:setBounds', async (_event, bounds: Bounds) => {
-    if (!reviewView) return;
-    reviewView.setBounds(roundBounds(bounds));
-  });
-
-  ipcMain.handle('review:unmount', async () => {
-    destroyReviewView();
-  });
-
-  // ←/→ on the review toolbar drive the embed's own history. Mirrors
-  // Chrome's back/forward — useful when a comment links to another page
-  // on github.com inside the embed, and the user wants to return to
-  // the original PR page without exiting the review screen entirely.
-  ipcMain.handle('review:goBack', async () => {
-    if (!reviewView) return;
-    const wc = reviewView.webContents;
-    if (wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
-  });
-  ipcMain.handle('review:goForward', async () => {
-    if (!reviewView) return;
-    const wc = reviewView.webContents;
-    if (wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   });
 
   // ─── In-app browser overlay (mounted on demand for any URL the user
@@ -2891,11 +1827,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!inappView) return;
     inappView.webContents.reload();
   });
-  ipcMain.handle('inapp:loadUrl', async (_event, url: string) => {
-    if (!inappView) return;
-    if (typeof url !== 'string' || !/^https?:/i.test(url)) return;
-    void inappView.webContents.loadURL(url);
-  });
 
   // Pop the URL out into its own native Electron window — vanilla
   // BrowserWindow with OS-supplied chrome (close / minimize / Cmd+←
@@ -2907,100 +1838,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     openInPopupWindow(url);
   });
 
-  // Clear cookies + storage for the review partition and reload /login so the
-  // user gets a clean username+password form. Fixes the case where a stale
-  // half-authenticated cookie makes github.com skip the password page and
-  // show only a passkey/device-verification prompt (which can't complete
-  // inside Electron).
-  ipcMain.handle('review:resetSignIn', async (_event, repo: string, number: number) => {
-    if (!reviewView) return;
-    if (typeof repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(repo) || !Number.isInteger(number)) {
-      throw new Error('invalid repo or number');
-    }
-    const ses = session.fromPartition('persist:github-review');
-    await ses.clearStorageData({
-      storages: ['cookies', 'localstorage', 'indexdb', 'websql', 'serviceworkers', 'cachestorage'],
-    });
-    const returnTo = encodeURIComponent(`/${repo}/pull/${number}`);
-    void reviewView.webContents.loadURL(`https://github.com/login?return_to=${returnTo}`);
-  });
-
-  // ── Teams ──────────────────────────────────────────────────────────────
-  ipcMain.handle('teams:list', async () => {
-    return backendJson(`${BACKEND_BASE}/api/teams`);
-  });
-
-  ipcMain.handle('teams:get', async (_event, id: number) => {
-    return backendJson(`${BACKEND_BASE}/api/teams/${id}`);
-  });
-
-  ipcMain.handle('teams:create', async (_event, req: unknown) => {
-    return backendJson(`${BACKEND_BASE}/api/teams`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req),
-    });
-  });
-
-  ipcMain.handle('teams:update', async (_event, id: number, req: unknown) => {
-    return backendJson(`${BACKEND_BASE}/api/teams/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req),
-    });
-  });
-
-  ipcMain.handle('teams:replaceMembers', async (_event, id: number, members: string[]) => {
-    return backendJson(`${BACKEND_BASE}/api/teams/${id}/members`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ members }),
-    });
-  });
-
-  ipcMain.handle('teams:delete', async (_event, id: number) => {
-    const res = await fetch(`${BACKEND_BASE}/api/teams/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error(`Delete team failed (${res.status})`);
-  });
-
-  ipcMain.handle('teams:pulls', async (_event, id: number) => {
-    return backendJson(`${BACKEND_BASE}/api/teams/${id}/pulls`);
-  });
-
-  // First-paint endpoint for the team kanban: { columns: {col: PR[]},
-  // totals: {col: int} }. perColumn caps how many PRs each column ships
-  // up-front. force=true bypasses the per-team TTL cache for the
-  // explicit refresh button.
-  ipcMain.handle('teams:pullsByColumn', async (_event, id: number, perColumn: number, force: boolean) => {
-    const url = new URL(`${BACKEND_BASE}/api/teams/${id}/pulls/by-column`);
-    url.searchParams.set('perColumn', String(perColumn));
-    if (force) url.searchParams.set('force', 'true');
-    return backendJson(url);
-  });
-
-  // "+ N more" pagination for one column. Always served from the cached
-  // fan-out — pagination clicks shouldn't re-hit GitHub.
-  ipcMain.handle('teams:pullsColumnPage', async (_event, id: number, column: string, offset: number, limit: number) => {
-    const url = new URL(`${BACKEND_BASE}/api/teams/${id}/pulls/column`);
-    url.searchParams.set('column', column);
-    url.searchParams.set('offset', String(offset));
-    url.searchParams.set('limit', String(limit));
-    return backendJson(url);
-  });
-
-  // Merged-PR count for the team home "Merged this week" stat. Backend
-  // does the is:merged search fan-out; the renderer caches the response
-  // for 10 minutes so the upstream lookup runs at most once per team
-  // per cache window.
-  ipcMain.handle('teams:mergedRecently', async (_event, id: number, days: number) => {
-    const url = new URL(`${BACKEND_BASE}/api/teams/${id}/merged-recently`);
-    url.searchParams.set('days', String(days));
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/teams/${id}/merged-recently returned ${res.status}`);
-    const body = await res.json();
-    return body.count as number;
-  });
-
   // ── GitHub OAuth ────────────────────────────────────────────────────────
   // Renderer-driven handshake: getAuthorizeUrl → openExternal → GitHub
   // redirects to bytequay://github-oauth-callback → open-url handler
@@ -3010,10 +1847,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   // between OAuth and PAT auth.
   ipcMain.handle('githubOAuth:authorizeUrl', async () => {
     return backendJson(`${BACKEND_BASE}/api/auth/github/authorize-url`);
-  });
-
-  ipcMain.handle('githubOAuth:connection', async () => {
-    return backendJson(`${BACKEND_BASE}/api/auth/github/connection`);
   });
 
   // Alternative to the OAuth dance for orgs that block PATs but have
@@ -3031,10 +1864,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error(body?.message ?? `backend /api/auth/github/cli/import returned ${res.status}`);
     }
     return { login: body.login };
-  });
-
-  ipcMain.handle('githubOAuth:disconnect', async () => {
-    return backendJson(`${BACKEND_BASE}/api/auth/github/disconnect`, { method: 'POST' });
   });
 
   // ── Gmail (IMAP + app password) ────────────────────────────────────────
@@ -3123,22 +1952,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       `${BACKEND_BASE}/api/email/threads/${encodeURIComponent(id)}/${action}?${params.toString()}`,
       { method: 'POST' });
   };
-
-  ipcMain.handle('email:archiveThread', async (_event, payload: unknown) => {
-    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
-    if (!account || !id) throw new Error('account and id are required');
-    return threadAction('archive', account, id);
-  });
-  ipcMain.handle('email:markThreadRead', async (_event, payload: unknown) => {
-    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
-    if (!account || !id) throw new Error('account and id are required');
-    return threadAction('mark-read', account, id);
-  });
-  ipcMain.handle('email:markThreadUnread', async (_event, payload: unknown) => {
-    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
-    if (!account || !id) throw new Error('account and id are required');
-    return threadAction('mark-unread', account, id);
-  });
   ipcMain.handle('email:readAndArchiveThread', async (_event, payload: unknown) => {
     const { account, id } = (payload ?? {}) as { account?: string; id?: string };
     if (!account || !id) throw new Error('account and id are required');
@@ -3289,10 +2102,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return backendJson(`${BACKEND_BASE}/api/thread-groups`);
   });
 
-  ipcMain.handle('threadGroups:listMemberships', async () => {
-    return backendJson(`${BACKEND_BASE}/api/thread-groups/memberships`);
-  });
-
   ipcMain.handle('threadGroups:create', async (_event, request: unknown) => {
     return backendJson(`${BACKEND_BASE}/api/thread-groups`, {
       method: 'POST',
@@ -3301,107 +2110,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     });
   });
 
-  ipcMain.handle('threadGroups:update', async (_event, payload: unknown) => {
-    const { id, patch } = (payload ?? {}) as { id?: string; patch?: unknown };
-    if (!id || typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(id)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch ?? {}),
-      });
-  });
-
-  ipcMain.handle('threadGroups:delete', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(id)}`,
-      { method: 'DELETE' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/thread-groups/${id} returned ${res.status}: ${text}`);
-    }
-  });
-
-  ipcMain.handle('threadGroups:addMember', async (_event, payload: unknown) => {
-    const { groupId, threadId } = (payload ?? {}) as { groupId?: string; threadId?: string };
-    if (!groupId || typeof groupId !== 'string' || groupId.trim().length === 0) {
-      throw new Error('groupId must be a non-empty string');
-    }
-    if (!threadId || typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(threadId)}`,
-      { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/thread-groups/${groupId}/members/${threadId} returned ${res.status}: ${text}`);
-    }
-  });
-
-  ipcMain.handle('threadGroups:removeMember', async (_event, payload: unknown) => {
-    const { groupId, threadId } = (payload ?? {}) as { groupId?: string; threadId?: string };
-    if (!groupId || typeof groupId !== 'string' || groupId.trim().length === 0) {
-      throw new Error('groupId must be a non-empty string');
-    }
-    if (!threadId || typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(threadId)}`,
-      { method: 'DELETE' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/thread-groups/${groupId}/members/${threadId} returned ${res.status}: ${text}`);
-    }
-  });
-
   ipcMain.handle('threads:create', async (_event, request: unknown) => {
     return backendJson(`${BACKEND_BASE}/api/threads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request ?? {}),
     });
-  });
-
-  ipcMain.handle('threads:stop', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/stop`,
-      { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/threads/${id}/stop returned ${res.status}: ${text}`);
-    }
-  });
-
-  ipcMain.handle('threads:delete', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}`,
-      { method: 'DELETE' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/threads/${id} returned ${res.status}: ${text}`);
-    }
-  });
-
-  ipcMain.handle('threads:deleteEligibility', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/delete-eligibility`);
   });
 
   // ── Notifications ───────────────────────────────────────────────────────
@@ -3437,19 +2151,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return backendJson(
       `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}/dismiss`,
       { method: 'POST' });
-  });
-
-  ipcMain.handle('notifications:delete', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}`,
-      { method: 'DELETE' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/notifications/${id} returned ${res.status}: ${text}`);
-    }
   });
 
   ipcMain.handle('notifications:approve', async (_event, args: unknown) => {
@@ -3502,50 +2203,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       });
   });
 
-  ipcMain.handle('notifications:shipDescription', async (_event, args: unknown) => {
-    if (typeof args !== 'object' || args === null) {
-      throw new Error('shipDescription args must be an object');
-    }
-    const a = args as { id?: unknown; prTitle?: unknown; prBody?: unknown };
-    if (typeof a.id !== 'string' || a.id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    if (typeof a.prTitle !== 'string' || typeof a.prBody !== 'string') {
-      throw new Error('prTitle and prBody must be strings');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/ship-description`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prTitle: a.prTitle, prBody: a.prBody }),
-      });
-  });
-
-  ipcMain.handle('threads:workingChanges', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/working-changes`);
-  });
-
-  ipcMain.handle('threads:workingDiff', async (_event, id: unknown, path: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    if (typeof path !== 'string' || path.length === 0) {
-      throw new Error('path must be a non-empty string');
-    }
-    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/working-diff?path=${encodeURIComponent(path)}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
-    }
-    const body = await res.json() as { diff?: string };
-    return body.diff ?? '';
-  });
-
   ipcMain.handle('threads:listCommits', async (_event, id: unknown, taskId?: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -3555,37 +2212,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits${query}`);
   });
 
-  ipcMain.handle('threads:commitFiles', async (_event, id: unknown, sha: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    if (typeof sha !== 'string' || sha.trim().length === 0) {
-      throw new Error('sha must be a non-empty string');
-    }
-    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/files`;
-    return backendJson(url);
-  });
-
-  ipcMain.handle('threads:commitDiff', async (_event, id: unknown, sha: unknown, path: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    if (typeof sha !== 'string' || sha.trim().length === 0) {
-      throw new Error('sha must be a non-empty string');
-    }
-    if (typeof path !== 'string' || path.length === 0) {
-      throw new Error('path must be a non-empty string');
-    }
-    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff?path=${encodeURIComponent(path)}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
-    }
-    const body = await res.json() as { diff?: string };
-    return body.diff ?? '';
-  });
-
   ipcMain.handle('threads:cumulativeDiff', async (_event, id: unknown, taskId?: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -3593,19 +2219,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const query = typeof taskId === 'string' && taskId.trim().length > 0
       ? `?taskId=${encodeURIComponent(taskId)}` : '';
     const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/cumulative-diff${query}`;
-    return backendJson(url);
-  });
-
-  ipcMain.handle('threads:commitDiffFiles', async (_event, id: unknown, sha: unknown, taskId?: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    if (typeof sha !== 'string' || sha.trim().length === 0) {
-      throw new Error('sha must be a non-empty string');
-    }
-    const query = typeof taskId === 'string' && taskId.trim().length > 0
-      ? `?taskId=${encodeURIComponent(taskId)}` : '';
-    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff-files${query}`;
     return backendJson(url);
   });
 
@@ -3669,14 +2282,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('threads:messages', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/messages`);
-  });
-
   ipcMain.handle('threads:index', async (_event, payload: unknown) => {
     if (typeof payload !== 'object' || payload === null) {
       throw new Error('payload must be an object');
@@ -3731,15 +2336,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks`);
   });
 
-  ipcMain.handle('threads:jumpIn', async (_event, threadId: unknown) => {
-    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/jump-in`,
-      { method: 'POST' });
-  });
-
   ipcMain.handle('workspaces:list', async () => {
     return backendJson(`${BACKEND_BASE}/api/workspaces`);
   });
@@ -3783,20 +2379,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return response.json();
   });
 
-  ipcMain.handle('workspaces:get', async (_event, workspaceId: unknown) => {
-    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
-      throw new Error('workspaceId must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`);
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/workspaces/${workspaceId} returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-
   ipcMain.handle('workspaces:create', async (_event, args: unknown) => {
     const a = (args ?? {}) as {
       name?: unknown;
@@ -3828,13 +2410,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     });
   });
 
-  ipcMain.handle('workspaces:ensureForRepo', async (_event, owner: string, repo: string) => {
-    return backendJson(`${BACKEND_BASE}/api/workspaces/for-repo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { method: 'POST' });
-  });
-  ipcMain.handle('workspaces:adoptRemoteReviews', async (_event, workspaceId: string) => {
-    return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/adopt-remote-reviews`, { method: 'POST' });
-  });
-
   ipcMain.handle('workspaces:delete', async (_event, workspaceId: unknown) => {
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');
@@ -3846,23 +2421,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const text = await res.text().catch(() => '');
       throw new Error(`backend DELETE /api/workspaces/${workspaceId} returned ${res.status}: ${text}`);
     }
-  });
-
-  ipcMain.handle('workspaces:rename', async (_event, args: unknown) => {
-    const { workspaceId, name } = (args ?? {}) as { workspaceId?: unknown; name?: unknown };
-    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
-      throw new Error('workspaceId must be a non-empty string');
-    }
-    if (typeof name !== 'string') {
-      throw new Error('name must be a string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
   });
 
   ipcMain.handle('workspaces:memory:get', async (_event, workspaceId: unknown) => {
@@ -3945,10 +2503,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
-  ipcMain.handle('reviews:roster', async () => {
-    return backendJson(`${BACKEND_BASE}/api/reviews/roster`);
-  });
-
   ipcMain.handle('reviews:get', async (_event, passId: unknown) => {
     if (typeof passId !== 'string' || passId.trim().length === 0) {
       throw new Error('passId must be a non-empty string');
@@ -3977,23 +2531,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('reviews:forPr', async (_event, repo: unknown, number: unknown) => {
-    if (typeof repo !== 'string' || repo.trim().length === 0) {
-      throw new Error('repo must be a non-empty string');
-    }
-    if (typeof number !== 'number') {
-      throw new Error('number must be a number');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/reviews/for-pr?repo=${encodeURIComponent(repo)}&number=${number}`);
-    if (res.status === 404) return null;
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/reviews/for-pr ${repo}#${number} returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-
   ipcMain.handle('reviews:publication:get', async (_event, passId: unknown) => {
     if (typeof passId !== 'string' || passId.trim().length === 0) {
       throw new Error('passId must be a non-empty string');
@@ -4015,40 +2552,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return publication;
   });
 
-  ipcMain.handle('reviews:scheduled:get', async () => {
-    return backendJson(`${BACKEND_BASE}/api/reviews/scheduled-settings`);
-  });
-
-  ipcMain.handle('reviews:scheduled:set', async (_event, enabled: unknown) => {
-    if (typeof enabled !== 'boolean') {
-      throw new Error('enabled must be a boolean');
-    }
-    return backendJson(`${BACKEND_BASE}/api/reviews/scheduled-settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    });
-  });
-
-  ipcMain.handle('workspace:behavior:get', async () => {
-    return backendJson(`${BACKEND_BASE}/api/settings/workspace-behavior`);
-  });
-
-  ipcMain.handle('reviews:persona:get', async () => {
-    return backendJson(`${BACKEND_BASE}/api/reviews/persona`);
-  });
-
-  ipcMain.handle('reviews:persona:set', async (_event, persona: unknown) => {
-    if (typeof persona !== 'string') {
-      throw new Error('persona must be a string');
-    }
-    return backendJson(`${BACKEND_BASE}/api/reviews/persona`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ persona }),
-    });
-  });
-
   ipcMain.handle('workspace:insights:get', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('workspace insights args must be an object');
@@ -4067,17 +2570,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const url = new URL(`${BACKEND_BASE}/api/ai/ledger`);
     if (m.length > 0) url.searchParams.set('month', m);
     return backendJson(url);
-  });
-
-  ipcMain.handle('workspace:behavior:set', async (_event, body: unknown) => {
-    if (typeof body !== 'object' || body === null) {
-      throw new Error('workspace behavior settings must be an object');
-    }
-    return backendJson(`${BACKEND_BASE}/api/settings/workspace-behavior`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
   });
 
   ipcMain.handle('reviews:arbitrate', async (_event, args: unknown) => {
@@ -4128,47 +2620,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           line: typeof a.line === 'number' ? a.line : null,
           comment: a.comment,
         }),
-      });
-  });
-
-  ipcMain.handle('reviews:dropFinding', async (_event, args: unknown) => {
-    if (typeof args !== 'object' || args === null) {
-      throw new Error('reviews:dropFinding args must be an object');
-    }
-    const a = args as { passId?: unknown; findingId?: unknown };
-    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
-      throw new Error('passId must be a non-empty string');
-    }
-    if (typeof a.findingId !== 'string' || a.findingId.trim().length === 0) {
-      throw new Error('findingId must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}`
-      + `/findings/${encodeURIComponent(a.findingId)}/drop`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-  });
-
-  ipcMain.handle('reviews:editFinding', async (_event, args: unknown) => {
-    if (typeof args !== 'object' || args === null) {
-      throw new Error('reviews:editFinding args must be an object');
-    }
-    const a = args as { passId?: unknown; findingId?: unknown; comment?: unknown };
-    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
-      throw new Error('passId must be a non-empty string');
-    }
-    if (typeof a.findingId !== 'string' || a.findingId.trim().length === 0) {
-      throw new Error('findingId must be a non-empty string');
-    }
-    if (typeof a.comment !== 'string' || a.comment.trim().length === 0) {
-      throw new Error('comment must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}`
-      + `/findings/${encodeURIComponent(a.findingId)}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment: a.comment }),
       });
   });
 
@@ -4232,40 +2683,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   });
 
-  ipcMain.handle('review:add', async (_event, args: unknown) => {
-    const params = args as {
-      taskId?: unknown; file?: unknown; line?: unknown; body?: unknown;
-      side?: unknown; startLine?: unknown; startSide?: unknown;
-    };
-    const taskId = params?.taskId;
-    if (typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('taskId must be a non-empty string');
-    }
-    const body = {
-      file: typeof params.file === 'string' ? params.file : '',
-      line: typeof params.line === 'number' ? params.line : 0,
-      side: typeof params.side === 'string' ? params.side : undefined,
-      startLine: typeof params.startLine === 'number' ? params.startLine : undefined,
-      startSide: typeof params.startSide === 'string' ? params.startSide : undefined,
-      body: typeof params.body === 'string' ? params.body : '',
-    };
-    return backendJson(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/review-comments`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-  });
-
-  ipcMain.handle('review:list', async (_event, taskId: unknown) => {
-    if (typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('taskId must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/review-comments`);
-  });
-
   for (const action of ['resolve', 'reopen'] as const) {
     ipcMain.handle(`review:${action}`, async (_event, id: unknown) => {
       if (typeof id !== 'string' || id.trim().length === 0) {
@@ -4314,21 +2731,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   ipcMain.handle('backlog:list', async (_event, threadId: unknown) => {
     const id = requireString(threadId, 'threadId');
     return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`);
-  });
-
-  ipcMain.handle('backlog:listWorkspace', async (_event, args: unknown) => {
-    const a = (args ?? {}) as { workspaceId?: unknown; status?: unknown; thread?: unknown; tag?: unknown; q?: unknown };
-    const workspaceId = requireString(a.workspaceId, 'workspaceId');
-    const params = new URLSearchParams();
-    for (const key of ['status', 'thread', 'tag', 'q'] as const) {
-      const value = a[key];
-      if (typeof value === 'string' && value.length > 0) {
-        params.set(key, value);
-      }
-    }
-    const query = params.toString();
-    const url = `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/backlog${query.length > 0 ? `?${query}` : ''}`;
-    return backendJson(url);
   });
 
   ipcMain.handle('backlog:create', async (_event, args: unknown) => {
@@ -4431,17 +2833,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       throw new Error(`backend POST signal read returned ${res.status}: ${await res.text().catch(() => '')}`);
     }
-  });
-
-  ipcMain.handle('reviews:prSummaries', async (_event, threadIds: unknown) => {
-    if (!Array.isArray(threadIds) || threadIds.some(id => typeof id !== 'string')) {
-      throw new Error('threadIds must be an array of strings');
-    }
-    return backendJson(`${BACKEND_BASE}/api/reviews/pr-summaries`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadIds }),
-    });
   });
 
   ipcMain.handle('reviews:spawnBuild', async (_event, args: unknown) => {
@@ -4839,28 +3230,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     );
   });
 
-  ipcMain.handle('threads:tasks:rename', async (_event, args: unknown) => {
-    const params = args as {
-      threadId?: unknown;
-      taskId?: unknown;
-      name?: unknown;
-    };
-    const threadId = params?.threadId;
-    const taskId = params?.taskId;
-    if (typeof threadId !== 'string' || threadId.trim().length === 0
-        || typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('threadId and taskId must be non-empty strings');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
-        + `/tasks/${encodeURIComponent(taskId)}/name`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: typeof params.name === 'string' ? params.name : '' }),
-      });
-  });
-
   ipcMain.handle('threads:tasks:autoApprove:get', async (_event, args: unknown) => {
     const { threadId, taskId } = (args ?? {}) as { threadId?: unknown; taskId?: unknown };
     if (typeof threadId !== 'string' || threadId.trim().length === 0
@@ -4946,33 +3315,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       });
   });
 
-
-  ipcMain.handle('threads:tasks:next', async (_event, args: unknown) => {
-    const params = args as {
-      threadId?: unknown;
-      taskId?: unknown;
-      opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' };
-    };
-    const threadId = params?.threadId;
-    const taskId = params?.taskId;
-    if (typeof threadId !== 'string' || threadId.trim().length === 0
-        || typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('threadId and taskId must be non-empty strings');
-    }
-    const body = {
-      nextTitle: params.opts?.nextTitle ?? null,
-      baseMode: params.opts?.baseMode ?? 'MAIN',
-    };
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
-        + `/tasks/${encodeURIComponent(taskId)}/next`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-  });
-
   ipcMain.handle('threads:trunk:send', async (_event, args: unknown) => {
     const params = args as { threadId?: unknown; input?: unknown; images?: unknown };
     const threadId = params?.threadId;
@@ -5014,51 +3356,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return `data:${contentType};base64,${bytes.toString('base64')}`;
   });
 
-  ipcMain.handle('threads:settings:get', async (_event, threadId: unknown) => {
-    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`);
-  });
-
-  ipcMain.handle('threads:settings:put', async (_event, args: unknown) => {
-    const params = args as {
-      threadId?: unknown;
-      body?: {
-        maxRunningTasks?: number | null;
-        softCostUsdMilli?: number | null;
-        hardCostUsdMilli?: number | null;
-        promptAddendum?: string | null;
-      };
-    };
-    const threadId = params?.threadId;
-    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params.body ?? {}),
-      });
-  });
-
-  ipcMain.handle('threads:settings:clear', async (_event, threadId: unknown) => {
-    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
-      throw new Error('threadId must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`,
-      { method: 'DELETE' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /settings returned ${res.status}: ${text}`);
-    }
-    return undefined;
-  });
-
   ipcMain.handle('workspaces:repos:autoFix', async (_event, args: unknown) => {
     const params = args as { workspaceId?: unknown; owner?: unknown; repo?: unknown; enabled?: unknown };
     const workspaceId = params?.workspaceId;
@@ -5081,41 +3378,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       });
   });
 
-  ipcMain.handle('threads:checkpoints:list', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints`);
-  });
-
-  ipcMain.handle('threads:checkpoints:generate', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints`,
-      { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/threads/${id}/checkpoints returned ${res.status}: ${text}`);
-    }
-    // 204 → nothing new to summarise. Resolve as null so callers can
-    // distinguish "no-op" from "fresh segment".
-    if (res.status === 204) {
-      return null;
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('threads:checkpoints:status', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints/status`);
-  });
-
   ipcMain.handle('threads:turns', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -5124,45 +3386,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/turns`);
   });
 
-  ipcMain.handle('threads:turnEvents', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/turn-events`);
-  });
-
   ipcMain.handle('threads:permissions', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
     return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/permissions`);
-  });
-
-  ipcMain.handle('threads:files', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/files`);
-  });
-
-  ipcMain.handle('threads:rename', async (_event, payload: unknown) => {
-    const { id, title } = (payload ?? {}) as { id?: string; title?: string };
-    if (!id || typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    if (typeof title !== 'string' || title.trim().length === 0) {
-      throw new Error('title must be a non-empty string');
-    }
-    return backendJson(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title }),
-      });
   });
 
   ipcMain.handle('threads:decide', async (_event, payload: unknown) => {
@@ -5249,11 +3478,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return backendJson(url, { method: 'PUT' });
   });
 
-  // ── AI review ───────────────────────────────────────────────────────────
-  ipcMain.handle('ai:providers', async () => {
-    return backendJson(`${BACKEND_BASE}/ai/providers`);
-  });
-
   // ── Work-model axis ────────────────────────────────────────────────────
   // CLI auto-detection can take ~600 ms per agent on cold cache and the
   // OS may stall a wedged probe longer — cap at 8 s so the picker shows
@@ -5320,21 +3544,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const detail = e instanceof Error ? e.message : String(e);
       throw new Error(`Codex update failed: ${detail}`);
     }
-  });
-
-  ipcMain.handle('workspaces:setWorkModel', async (_event, args: unknown) => {
-    const { workspaceId, model } = args as {
-      workspaceId: string;
-      model: unknown;
-    };
-    return backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/work-model`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workModel: model }),
-      },
-    );
   });
 
   ipcMain.handle('threads:getWorkModel', async (_event, args: unknown) => {
@@ -5433,11 +3642,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
   ipcMain.handle('ds4:installStatus', async () => ds4Get('/api/ds4/install/status'));
-  ipcMain.handle('ds4:logs', async (_event, args: unknown) => {
-    const { limit } = (args as { limit?: number }) ?? {};
-    const suffix = limit !== undefined ? `?limit=${limit}` : '';
-    return ds4Get(`/api/ds4/logs${suffix}`);
-  });
 
   // POST /ai/polish — body { text } → { text }. Uses the active provider
   // to rewrite a developer-authored review comment for clarity / tone.
@@ -5454,31 +3658,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const json = await res.json();
     return json.text as string;
-  });
-
-  ipcMain.handle('ai:diagnoseCheck', async (_event, checkName: string, log: string) => {
-    const res = await fetch(`${BACKEND_BASE}/ai/diagnoseCheck`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checkName, log }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `diagnoseCheck returned ${res.status}`);
-    }
-    const json = await res.json();
-    return json.suggestion as string;
-  });
-
-  ipcMain.handle('ai:getSettings', async () => {
-    return backendJson(`${BACKEND_BASE}/ai/settings`);
-  });
-
-  ipcMain.handle('ai:setSettings', async (_event, provider: string, model: string | null) => {
-    const url = new URL(`${BACKEND_BASE}/ai/settings`);
-    url.searchParams.set('provider', provider);
-    if (model) url.searchParams.set('model', model);
-    return backendJson(url, { method: 'POST' });
   });
 
   // ── Skills CRUD ────────────────────────────────────────────────────

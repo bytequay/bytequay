@@ -36,14 +36,14 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class SessionControlService
 {
-    private final AgentRunService runs;
+    private final AgentRunServiceImpl runs;
     private final ThreadStore threads;
     private final ThreadTurnStore turns;
     private final ThreadTurnScheduler scheduler;
     private final ThreadRegistry registry;
 
     public SessionControlService(
-            AgentRunService runs,
+            AgentRunServiceImpl runs,
             ThreadStore threads,
             ThreadTurnStore turns,
             ThreadTurnScheduler scheduler,

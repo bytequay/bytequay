@@ -23,9 +23,9 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
-import com.bytequay.app.service.backlog.BacklogService;
-import com.bytequay.app.service.question.AgentQuestionService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
+import com.bytequay.app.service.question.AgentQuestionServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.Test;
@@ -44,11 +44,11 @@ class TestTrunkActivityService
     void unionsTypedRunsQuestionsAndPermissionsWithoutLegacyWritesOrDuplicates()
     {
         ThreadService threads = mock(ThreadService.class);
-        AgentQuestionService questions = mock(AgentQuestionService.class);
+        AgentQuestionServiceImpl questions = mock(AgentQuestionServiceImpl.class);
         NotificationService notifications = mock(NotificationService.class);
-        AgentRunService runs = mock(AgentRunService.class);
+        AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         TaskStore tasks = mock(TaskStore.class);
-        BacklogService backlog = mock(BacklogService.class);
+        BacklogServiceImpl backlog = mock(BacklogServiceImpl.class);
         ReviewRoundStore reviews = mock(ReviewRoundStore.class);
         WorkspaceKnowledgeService knowledge = mock(WorkspaceKnowledgeService.class);
         V2AgentRunProjection v2Runs = mock(V2AgentRunProjection.class);

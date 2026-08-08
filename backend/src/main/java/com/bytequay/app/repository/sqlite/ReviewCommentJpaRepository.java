@@ -33,7 +33,7 @@ interface ReviewCommentJpaRepository
 
     Optional<ReviewCommentEntity> findByRemoteLink(String remoteLink);
 
-    /** Remote comments not yet grouped into a round — what ReviewRoundService
+    /** Remote comments not yet grouped into a round — what ReviewRoundServiceImpl
      *  batches on each reconcile sweep. */
     List<ReviewCommentEntity> findByTaskIdAndSourceAndRoundIdIsNullAndResolvedFalse(String taskId, String source);
 

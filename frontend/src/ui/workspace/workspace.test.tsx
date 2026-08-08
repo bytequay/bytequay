@@ -15,7 +15,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Logo } from '../primitives';
 import {
-  ThreadList, WorkspaceNavSidebar, WorkspaceSwitcher, WorkspaceTopBar,
+  ThreadList, WorkspaceNavSidebar, WorkspaceSwitcher,
 } from './index';
 import { SIDEBAR_WIDTH_KEY } from '../shell/useSidebarWidth';
 
@@ -263,24 +263,5 @@ describe('ThreadList', () => {
     // Second click unfolds it again.
     fireEvent.click(trunkRow);
     expect(container.querySelector('.task-subhead')).toBeTruthy();
-  });
-});
-
-describe('WorkspaceTopBar', () => {
-  it('renders the workspace header + tab bar and switches tabs', () => {
-    const onSelectTab = vi.fn();
-    const { container } = render(
-      <WorkspaceTopBar
-        workspace={{ initials: 'BQ', color: 'purple', name: 'ByteQuay' }}
-        repos={[{ initials: 'tr', color: 'pink' }, { initials: 'we', color: 'purple' }]}
-        threadCount={5}
-        activeTab="threads"
-        onSelectTab={onSelectTab}
-      />,
-    );
-    expect(container.querySelector('.ws-tab.active')?.textContent).toContain('Trunks');
-    expect(screen.getByText('5')).toBeTruthy();
-    fireEvent.click(screen.getByText('Memory'));
-    expect(onSelectTab).toHaveBeenCalledWith('memory');
   });
 });

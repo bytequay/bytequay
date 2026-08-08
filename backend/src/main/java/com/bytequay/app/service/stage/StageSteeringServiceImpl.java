@@ -37,8 +37,15 @@ import static java.util.Objects.requireNonNull;
  */
 @Service
 public class StageSteeringServiceImpl
-        implements StageSteeringService
 {
+    public enum Mode
+    {
+        APPEND,
+        CANCEL_AND_REPLACE
+    }
+
+    public record SteerResult(String turnId) {}
+
     private final StageStore stageStore;
     private final TaskStore taskStore;
     private V2ControlRouteStore v2Routes;
@@ -64,7 +71,16 @@ public class StageSteeringServiceImpl
         this.v2Steering = requireNonNull(v2Steering, "v2Steering is null");
     }
 
-    @Override
+    public SteerResult steer(UUID stageId, String text, List<String> images)
+    {
+        return steer(stageId, text, images, Mode.APPEND, null);
+    }
+
+    public SteerResult steer(
+            UUID stageId, String text, List<String> images, Mode mode)
+    {
+        return steer(stageId, text, images, mode, null);
+    }
     public SteerResult steer(
             UUID stageId, String text, List<String> images, Mode mode,
             String expectedPredecessorStageTurnId)

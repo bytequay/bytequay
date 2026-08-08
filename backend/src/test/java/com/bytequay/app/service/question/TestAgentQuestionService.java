@@ -38,7 +38,7 @@ class TestAgentQuestionService
 
     private AgentQuestionStore store;
     private ThreadService threadService;
-    private AgentQuestionService service;
+    private AgentQuestionServiceImpl service;
 
     @BeforeEach
     void setUp()

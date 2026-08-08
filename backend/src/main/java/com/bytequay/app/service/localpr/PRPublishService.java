@@ -28,7 +28,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.threads.TaskService;
 import org.springframework.http.HttpStatus;
@@ -59,7 +59,7 @@ public class PRPublishService
             TaskStore taskStore,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
-            BrainReviewService brainReview,
+            BrainReviewServiceImpl brainReview,
             PullRequestService pullRequestDetails,
             ReadyToMergeService readyToMerge,
             TaskService taskService,

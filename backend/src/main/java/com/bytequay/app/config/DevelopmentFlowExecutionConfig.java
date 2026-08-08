@@ -151,7 +151,6 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.InvestigationReviewService;
-import com.bytequay.app.service.review.ReviewAssignmentTurnContinuation;
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
@@ -234,7 +233,7 @@ public class DevelopmentFlowExecutionConfig
             TaskReviewSnapshotResultDeliveryPort taskReviewSnapshots,
             TaskReviewRoundSnapshotResultDeliveryPort taskReviewRoundSnapshots,
             ReviewSessionSnapshotResultDeliveryPort reviewSessionSnapshots,
-            ObjectProvider<ReviewAssignmentTurnContinuation> reviewContinuation,
+            ObjectProvider<InvestigationReviewService> reviewContinuation,
             JdbcTemplate jdbc,
             ObjectMapper json)
     {
@@ -300,7 +299,7 @@ public class DevelopmentFlowExecutionConfig
         ReviewAssignmentTurnResultDeliveryPort reviews =
                 new ReviewAssignmentTurnResultDeliveryPort(
                         reviewAssignmentTurns, json, Clock.systemUTC(),
-                        reviewContinuation::getObject);
+                        () -> reviewContinuation.getObject()::resumeAfter);
         ResultDeliveryRouter routes = new ResultDeliveryRouter(Map.ofEntries(
                 Map.entry(PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE,
                         planningBase),

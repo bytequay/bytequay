@@ -82,7 +82,7 @@ export type Nav =
   /** Task brain view — the per-task "brain" surface (aggregate strip,
    *  stage navigator, brain feed, action rail). Sits alongside the
    *  older task-detail page; the back link returns to that page. */
-  | { view: 'task-brain'; threadId: string; taskId: string; initialReviewRoundId?: string; initialPrSubTab?: 'changes' }
+  | { view: 'task-brain'; threadId: string; taskId: string; initialPrSubTab?: 'changes' }
   /** Stage drill-in — the detailed per-stage view reached from a brain-
    *  view stage chip or a brain-agent response's drill-in chip. */
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
@@ -508,14 +508,6 @@ function App() {
         if (openThreadRequestRef.current === request) setNav({ view: 'thread-detail', threadId });
       }
     })();
-  };
-
-  const openStartedReview = (threadId: string | null) => {
-    if (threadId !== null) {
-      openThread(threadId);
-      return;
-    }
-    setNav({ view: 'pulls' });
   };
 
   /** Open a stage-backed run's own log. Detached artifact runs route through
@@ -1138,7 +1130,6 @@ function App() {
             taskId={nav.taskId}
             collapsed={railCollapsed}
             onToggleCollapse={() => setRailCollapsed(c => !c)}
-            initialReviewRoundId={nav.initialReviewRoundId}
             initialPrSubTab={nav.initialPrSubTab}
             onOpenAgentReview={openAgentReview}
             onOpenStage={stageId => setNav({

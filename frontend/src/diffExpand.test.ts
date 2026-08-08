@@ -14,7 +14,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeGap,
-  computeGaps,
   computeFetchRange,
   isGapFullyLoaded,
   canExpandUp,
@@ -27,7 +26,7 @@ function hunk(oldStart: number, oldCount: number, newStart: number, newCount: nu
   return { header: '', oldStart, oldCount, newStart, newCount, rows: [] };
 }
 
-describe('computeGap / computeGaps', () => {
+describe('computeGap', () => {
   it('returns null for the top gap when the first hunk starts at line 1', () => {
     const hunks = [hunk(1, 5, 1, 5)];
     expect(computeGap(hunks, 0)).toBeNull();
@@ -66,14 +65,6 @@ describe('computeGap / computeGaps', () => {
     expect(g!.isBottom).toBe(true);
   });
 
-  it('skips empty gaps when listing all', () => {
-    // Two consecutive hunks with no gap between them.
-    const hunks = [hunk(1, 5, 1, 5), hunk(6, 3, 6, 3)];
-    const gaps = computeGaps(hunks);
-    // Top gap empty (hunk starts at 1), middle gap empty (touch), bottom gap kept.
-    expect(gaps.length).toBe(1);
-    expect(gaps[0].isBottom).toBe(true);
-  });
 });
 
 describe('computeFetchRange', () => {

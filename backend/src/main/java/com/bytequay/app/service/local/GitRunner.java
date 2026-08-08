@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -203,20 +202,6 @@ public class GitRunner
         GitResult head = run(List.of("git", "rev-parse", "HEAD"), workingDir);
         head.requireSuccess();
         return Optional.of(head.stdout().strip());
-    }
-
-    /**
-     * {@code git commit --amend --no-edit} — folds what is staged into HEAD
-     * without touching its message. Lets a pick that took several repair
-     * attempts keep exactly one fixup commit instead of a chain of them.
-     */
-    public String amendHead(Path workingDir)
-            throws IOException, InterruptedException
-    {
-        run(List.of("git", "commit", "--amend", "--no-edit"), workingDir).requireSuccess();
-        GitResult head = run(List.of("git", "rev-parse", "HEAD"), workingDir);
-        head.requireSuccess();
-        return head.stdout().strip();
     }
 
     /**
@@ -2318,33 +2303,6 @@ public class GitRunner
                 60);
         result.requireSuccess();
         return Integer.parseInt(result.stdout().strip());
-    }
-
-    /**
-     * Like {@link #listCommits} but scoped to commits authored after
-     * {@code since}. Drives the Tasks "Commits" tab so we only surface
-     * what the AI session produced during its lifetime — anything older
-     * is unrelated history. Uses {@code --since} in ISO-8601 form;
-     * git interprets it as author date, which matches what we want
-     * (we care about when the commit was made, not when an old commit
-     * was rewritten).
-     */
-    public List<CommitEntry> listCommitsSince(Path workingDir, Instant since, int limit)
-            throws IOException, InterruptedException
-    {
-        if (limit <= 0) {
-            return List.of();
-        }
-        requireNonNull(since, "since is null");
-        List<String> args = new ArrayList<>(List.of(
-                "git", "log",
-                "--max-count=" + limit,
-                "--since=" + since.toString(),
-                "-z",
-                "--pretty=format:" + COMMIT_ENTRY_FORMAT));
-        GitResult result = run(args, workingDir);
-        result.requireSuccess();
-        return parseCommitEntries(result.stdout());
     }
 
     /**

@@ -368,19 +368,6 @@ function WorkspaceDestination({
   );
 }
 
-function WorkspaceCount({ children }: { children: ReactNode }) {
-  return <span className="ws-destination__count">{children}</span>;
-}
-
-function WorkspaceSyncMeta({ children }: { children: ReactNode }) {
-  return (
-    <span className="ws-destination__meta">
-      <span className="ws-destination__syncing" aria-hidden />
-      <span className="ws-destination__count">{children}</span>
-    </span>
-  );
-}
-
 function WorkspaceIcon({ kind }: {
   kind: 'today' | 'trunks' | 'pull-requests' | 'issues' | 'backlog'
     | 'branches' | 'commits' | 'sessions' | 'memory' | 'insights';

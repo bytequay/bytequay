@@ -34,12 +34,12 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class SessionProjectionService
 {
-    private final AgentRunService runs;
+    private final AgentRunServiceImpl runs;
     private final InvestigationReviewStore reviews;
     private final V2AgentRunProjection v2Runs;
 
     public SessionProjectionService(
-            AgentRunService runs,
+            AgentRunServiceImpl runs,
             InvestigationReviewStore reviews,
             V2AgentRunProjection v2Runs)
     {

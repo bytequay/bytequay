@@ -13,7 +13,6 @@
  */
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgentReviewData } from '../../review/agentReviewTypes';
 import {
   CheckCircleIcon, ChevronIcon, TrunkLineIcon, WorkspaceBottomNav,
   WorkspacePrimaryNav, WorkspaceSwitcherCard,
@@ -69,37 +68,6 @@ export type TaskAgentReviewTrack = {
   }>;
   onOpenRound: (roundId: string) => void;
 };
-
-/** Kept as the route-level adapter for the existing review-round workflow. */
-export function buildTaskAgentReviewTrack(
-  data: AgentReviewData,
-  onOpenRound: (roundId: string) => void,
-): TaskAgentReviewTrack {
-  const roundStatus = (status: string): TaskAgentReviewTrack['rounds'][number]['status'] =>
-    status === 'RUNNING' || status === 'QUEUED' ? 'running'
-      : status === 'COMPLETED_WITH_QUESTIONS' ? 'questions'
-        : status === 'ERRORED' ? 'errored'
-          : status === 'CANCELLED' ? 'cancelled'
-            : 'complete';
-  const latest = data.rounds.at(-1);
-  const status: TaskAgentReviewTrack['status'] = data.review.status === 'STALE' ? 'stale'
-    : data.rounds.some(round => round.status === 'RUNNING' || round.status === 'QUEUED') ? 'running'
-      : latest?.status === 'ERRORED' ? 'errored'
-        : latest?.status === 'COMPLETED_WITH_QUESTIONS'
-          || data.findings.some(finding => finding.lifecycle_status === 'NEEDS_USER_JUDGEMENT')
-          ? 'questions'
-          : 'complete';
-  return {
-    status,
-    rounds: data.rounds.map(round => ({
-      id: round.id,
-      status: roundStatus(round.status),
-      findings: data.findings.filter(finding => finding.round_id === round.id
-        && finding.lifecycle_status !== 'dropped').length,
-    })),
-    onOpenRound,
-  };
-}
 
 type TaskSidebarTask = {
   title: string;

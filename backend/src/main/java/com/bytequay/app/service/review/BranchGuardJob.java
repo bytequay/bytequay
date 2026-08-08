@@ -38,7 +38,7 @@ import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.RebaseOutcome;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.AutomationCoordinator;
 import com.bytequay.app.service.threads.NotificationService;
@@ -73,7 +73,7 @@ public class BranchGuardJob
     private final ThreadTurnStore turnStore;
     private final GitRunner git;
     private final List<ValidationCheck> checks;
-    private final AgentRunService agentRuns;
+    private final AgentRunServiceImpl agentRuns;
     private final NotificationService notifications;
     private final PullRequestService pullRequests;
     private final ObjectMapper mapper;
@@ -90,7 +90,7 @@ public class BranchGuardJob
             ThreadTurnStore turnStore,
             GitRunner git,
             List<ValidationCheck> checks,
-            AgentRunService agentRuns,
+            AgentRunServiceImpl agentRuns,
             NotificationService notifications,
             PullRequestService pullRequests,
             ObjectMapper mapper,
@@ -122,7 +122,7 @@ public class BranchGuardJob
             ThreadTurnStore turnStore,
             GitRunner git,
             List<ValidationCheck> checks,
-            AgentRunService agentRuns,
+            AgentRunServiceImpl agentRuns,
             NotificationService notifications,
             PullRequestService pullRequests,
             ObjectMapper mapper,

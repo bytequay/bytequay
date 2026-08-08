@@ -11,202 +11,9 @@
 
 /* Tab bar */
 
-.tab-bar {
-  display: flex;
-  border-bottom: 1px solid var(--border-mid);
-  flex-shrink: 0;
-}
-
-.tab-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  font: inherit;
-  font-size: 0.8rem;
-  color: var(--text-3);
-  cursor: pointer;
-  transition: color 0.1s;
-  white-space: nowrap;
-}
-
-.tab-btn:hover {
-  color: var(--text-2);
-}
-
-.tab-btn--active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-  font-weight: 600;
-}
-
-.tab-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: var(--radius-pill);
-  font-size: 0.68rem;
-  font-weight: 700;
-  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
-    Consolas, monospace;
-  background: var(--accent-a10);
-  color: var(--text-3);
-}
-
-.tab-badge--urgent {
-  background: #c0392b;
-  color: #fff;
-}
-
 /* Section headers */
 
-.pr-section-group {
-  margin-bottom: 4px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px 4px;
-}
-
-.section-header__title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--text-warm);
-  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
-    Consolas, monospace;
-}
-
-.section-header__count {
-  font-size: 0.72rem;
-  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
-    Consolas, monospace;
-  color: var(--text-3);
-}
-
-.section-empty {
-  padding: 6px 14px 10px;
-  font-size: 0.84rem;
-  color: var(--text-4);
-}
-
 /* PR rows — card style */
-
-.pr-item {
-  display: block;
-  width: calc(100% - 16px);
-  margin: 3px 8px;
-  text-align: left;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 9px 12px;
-  background: var(--bg-card);
-  font: inherit;
-  cursor: pointer;
-  color: inherit;
-  transition: border-color 0.1s, background 0.08s;
-}
-
-.pr-item:hover {
-  border-color: var(--border-mid);
-  background: var(--accent-a4);
-}
-
-.pr-item--selected {
-  background: var(--accent-a10);
-  border-color: var(--accent);
-}
-
-.pr-item--viewed:not(.pr-item--selected) .pr-item__title {
-  color: var(--text-3);
-}
-
-.pr-item--viewed:not(.pr-item--selected) .pr-item__repo-num,
-.pr-item--viewed:not(.pr-item--selected) .pr-item__time {
-  opacity: 0.65;
-}
-
-.pr-item--reviewed:not(.pr-item--selected) {
-  border-color: var(--border-hairline);
-}
-
-.pr-item--reviewed:not(.pr-item--selected) .pr-item__title {
-  color: var(--text-4);
-}
-
-.pr-item--reviewed:not(.pr-item--selected) .pr-item__repo-num,
-.pr-item--reviewed:not(.pr-item--selected) .pr-item__time,
-.pr-item--reviewed:not(.pr-item--selected) .pr-item__author {
-  opacity: 0.45;
-}
-
-.pr-item__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin-bottom: 2px;
-}
-
-.pr-item__repo-num {
-  font-size: 0.78rem;
-  color: var(--text-code);
-  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
-    Consolas, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pr-item__num {
-  color: var(--text-4);
-}
-
-.pr-item__time {
-  font-size: 0.75rem;
-  color: var(--text-4);
-  white-space: nowrap;
-  flex-shrink: 0;
-  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
-    Consolas, monospace;
-}
-
-.pr-item__title {
-  font-size: 0.9rem;
-  line-height: 1.3;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-bottom: 3px;
-}
-
-.pr-item--selected .pr-item__title {
-  color: var(--accent);
-}
-
-.pr-item__meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-}
-
-.pr-item__author {
-  font-size: 0.78rem;
-  color: var(--text-3);
-}
 
 /* Badges */
 
@@ -220,47 +27,10 @@
   text-transform: uppercase;
 }
 
-.pr-badge--draft {
-  background: var(--accent-a10);
-  color: var(--text-3);
-}
-
-.pr-badge--label {
-  background: var(--accent-a10);
-  color: var(--accent-dark);
-}
-
 /* Linked-task chip shown in the PR header when one or more local
    tasks set `linkedPrNumber` to this PR. Click jumps into the
    task detail page so the user can hop between the PR and task
    domains without manual searching. */
-.pr-badge--linked-task {
-  background: rgba(124, 92, 255, 0.10);
-  color: var(--accent-dark, #5b21b6);
-  border: 1px solid rgba(124, 92, 255, 0.25);
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pr-badge--linked-task:hover:not(:disabled) {
-  background: rgba(124, 92, 255, 0.18);
-}
-.pr-badge--linked-task:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
 
 /* Loading / error states in list */
 
@@ -316,82 +86,8 @@
   background: var(--bg-elevated);
 }
 
-.description-card__empty {
-  color: var(--text-3);
-  font-style: italic;
-  margin: 0;
-}
-
 /* Title-bar variant that fits an inline action button (e.g. the Edit button
    on Description). Mirrors the standalone preview__section-title spacing. */
-
-.description-card__edit {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-3);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  letter-spacing: 0.03em;
-  padding: 1px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: color 0.1s, background 0.1s, border-color 0.1s;
-}
-
-.description-card__edit:hover {
-  color: var(--accent);
-  background: var(--accent-a7);
-  border-color: var(--accent);
-}
-
-.description-card--editing {
-  padding: var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  /* override the default description-card padding/scroll — while editing we
-     let the textarea do its own sizing and don't render markdown. */
-  overflow: visible;
-}
-
-.description-card__textarea {
-  width: 100%;
-  /* Initial height comes from the `rows` attribute computed in
-     DescriptionCard.tsx — long bodies open with a roomy editor
-     rather than always defaulting to ~180px. The 180px floor and
-     vertical resize handle still apply for short bodies / manual
-     tweaks. */
-  min-height: 180px;
-  resize: vertical;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-base);
-  color: var(--text-1);
-  font: inherit;
-  font-size: var(--font-size-md);
-  line-height: 1.5;
-  box-sizing: border-box;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-}
-
-.description-card__textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-a7);
-}
-
-.description-card__actions {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.description-card__error {
-  color: #cf222e;
-  font-size: var(--font-size-sm);
-  white-space: pre-wrap;
-}
 
 /* Editable comment body — visually identical to the description card's
    edit affordance so the three editable surfaces (PR body, top-level
@@ -480,11 +176,6 @@
    app-content (e.g. team flow). The preview's Classic root is
    position:absolute/inset:0 — it needs a positioned ancestor or it
    escapes to the viewport and covers the global topbar. */
-.team-detail-pr-wrap {
-  position: relative;
-  height: 100%;
-  overflow: hidden;
-}
 /* `.prc-back-link` is now styled as a plain `button button--secondary
    button--sm` inside the prc-actions cluster — no extra rules needed.
    The class hook is kept on the element only as a stable selector
@@ -492,104 +183,7 @@
 
 /* Stat grid */
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  border-radius: 14px;
-  padding: var(--space-3) var(--space-4);
-  background: var(--bg-card);
-  border: 1px solid var(--border-mid);
-}
-
-.stat-card__label {
-  display: block;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-3);
-  margin-bottom: 8px;
-}
-
-.stat-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.stat-card__value {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-.stat-ci {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.ci-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 /* Reviewers list — small avatar chips + inline approval summary. */
-.reviewers-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.reviewer-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 3px 10px 3px 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-elevated);
-  color: var(--text-1);
-  font-size: var(--font-size-sm);
-  text-decoration: none;
-  transition: background 0.1s, border-color 0.1s;
-}
-
-.reviewer-chip:hover {
-  background: var(--accent-a7);
-  border-color: var(--accent);
-}
-
-.reviewer-chip__name {
-  font-weight: 500;
-}
-
-.reviewer-summary {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 10px;
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-}
-
-.reviewer-summary--approved {
-  background: rgba(46, 160, 67, 0.15);
-  color: #1a7f37;
-}
-
-.reviewer-summary--changes {
-  background: rgba(207, 34, 46, 0.15);
-  color: #cf222e;
-}
 
 /* "Add a comment" box — compact version of github.com's PR comment form.
    Collapses to a thin "Add a comment…" button by default so description
@@ -611,45 +205,6 @@
 .prc-timeline > .pr-comment-box {
   margin-left: 72px;
   margin-top: 40px;
-}
-
-.pr-comment-box--collapsed {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  text-align: left;
-  /* Sized for an obvious click target: 15px text + 18px vertical
-     padding + line-height gives ~52px tall, prominent enough that the
-     user doesn't miss it scrolling past the timeline. */
-  padding: 18px 20px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-md);
-  color: var(--text-2);
-  cursor: text;
-  font: inherit;
-  font-size: 15px;
-  margin-bottom: 0;
-  min-height: 0;
-  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
-}
-
-.pr-comment-box--collapsed:hover,
-.pr-comment-box--collapsed:focus {
-  background: var(--accent-a7);
-  border-color: var(--accent);
-  color: var(--text-1);
-  outline: none;
-  box-shadow: 0 0 0 2px var(--accent-a7);
-}
-
-.pr-comment-box__placeholder::before {
-  content: '✎';
-  margin-right: 8px;
-  color: var(--accent);
-  font-size: var(--font-size-lg);
 }
 
 /* Expanded state gets an accent border too so the two states feel part of
@@ -675,83 +230,6 @@
   color: var(--text-1);
 }
 
-.pr-comment-box__tabs {
-  display: inline-flex;
-  gap: 2px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 2px;
-}
-
-.pr-comment-box__tab {
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 3px 3px 0 0;
-  padding: 2px 10px;
-  font: inherit;
-  font-size: var(--font-size-xs);
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.pr-comment-box__tab:hover {
-  color: var(--text-1);
-  background: var(--accent-a7);
-}
-
-.pr-comment-box__tab--active {
-  color: var(--text-1);
-  background: var(--bg-base);
-  border-color: var(--border);
-  position: relative;
-  bottom: -1px;
-  font-weight: 600;
-}
-
-.pr-comment-box__input {
-  width: 100%;
-  /* Tall enough to show a few lines of a quote-reply before the user
-     has to scroll inside the textarea, but not so tall it pushes the
-     action bar below the fold on a typical laptop screen. The user
-     can drag the bottom-right resize handle for more room. */
-  min-height: 120px;
-  resize: vertical;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-base);
-  color: var(--text-1);
-  font: inherit;
-  /* Match github.com's review-comment input: 14px is the same size
-     they use, larger than our previous 12.5px which made quoted
-     blocks hard to read at a glance. */
-  font-size: var(--font-size-lg);
-  line-height: 1.5;
-  box-sizing: border-box;
-}
-
-.pr-comment-box__input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-a7);
-}
-
-.pr-comment-box__preview {
-  min-height: 52px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-base);
-  font-size: var(--font-size-sm);
-}
-
-.pr-comment-box__actions {
-  display: flex;
-  gap: var(--space-1);
-  margin-top: 6px;
-}
-
 .pr-comment-box__actions .button {
   padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-sm);
@@ -768,177 +246,13 @@
    links to the run's page on GitHub. No pin-to-bottom: it flows naturally
    after Reviewers so description doesn't get squeezed when content is long. */
 
-.ci-summary {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-3);
-  background: var(--bg-elevated);
-}
-
-.ci-summary--failing {
-  border-color: rgba(207, 34, 46, 0.4);
-  background: rgba(207, 34, 46, 0.06);
-}
-
-.ci-summary--passing {
-  border-color: rgba(46, 160, 67, 0.35);
-  background: rgba(46, 160, 67, 0.05);
-}
-
-.ci-summary--pending {
-  border-color: rgba(191, 135, 0, 0.35);
-  background: rgba(191, 135, 0, 0.05);
-}
-
-.ci-summary__row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-md);
-  width: 100%;
-  background: transparent;
-  border: none;
-  padding: 0;
-  font-family: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.ci-summary__row:disabled {
-  cursor: default;
-}
-
-.ci-summary__row:not(:disabled):hover .ci-summary__chevron {
-  color: var(--text-1);
-}
-
-.ci-summary__chevron {
-  margin-left: auto;
-  color: var(--text-3);
-  font-size: var(--font-size-xs);
-  user-select: none;
-  transition: color 0.12s;
-}
-
-.ci-summary__label {
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-.ci-summary__count {
-  color: var(--text-3);
-  font-size: var(--font-size-sm);
-}
-
-.ci-failing-list {
-  list-style: none;
-  padding: 0;
-  margin: 10px 0 0;
-  display: grid;
-  gap: var(--space-1);
-}
-
-.ci-failing-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg-base);
-  border: 1px solid rgba(207, 34, 46, 0.25);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-}
-
-.ci-failing-row__icon {
-  flex: 0 0 auto;
-  color: #cf222e;
-  font-weight: 700;
-  font-size: var(--font-size-xs);
-}
-
-.ci-failing-row__name {
-  flex: 1;
-  min-width: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ci-failing-row__reason {
-  color: #cf222e;
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  flex: 0 0 auto;
-}
-
-.ci-failing-row__link {
-  color: var(--accent);
-  text-decoration: none;
-  font-size: var(--font-size-sm);
-  flex: 0 0 auto;
-}
-
-.ci-failing-row__link:hover {
-  text-decoration: underline;
-}
-
 /* CiSummary toggle — wraps the dot/label/count and acts as the
    click-to-expand affordance for the failing-check list. The refresh
    button sits next to it so the two controls share the row. */
-.ci-summary__toggle {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-md);
-  background: transparent;
-  border: none;
-  padding: 0;
-  font-family: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  min-width: 0;
-}
-.ci-summary__toggle:disabled {
-  cursor: default;
-}
-.ci-summary__toggle:not(:disabled):hover .ci-summary__chevron {
-  color: var(--text-1);
-}
 
 /* CiSummary refresh button — sits on the right end of the status row.
    Spinning state is purely visual feedback while the focus-poll fetch
    is in flight. */
-.ci-summary__refresh {
-  margin-left: auto;
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--text-3);
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-lg);
-  line-height: 1;
-}
-.ci-summary__refresh:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.05);
-  color: var(--text-1);
-}
-.ci-summary__refresh:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-.ci-summary__refresh-icon {
-  display: inline-block;
-}
-.ci-summary__refresh-icon--spin {
-  animation: ci-refresh-spin 0.7s linear infinite;
-}
 @keyframes ci-refresh-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -950,333 +264,26 @@
    (docs/mockups/v2/detail/state-window.png). The branch-icon avatar
    floats to the left of the card; each row inside has its own status
    glyph + title + desc; the bottom row is the merge action. */
-.merge-card {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-.merge-card__icon {
-  flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
-  background: var(--text-2);
-  color: var(--bg-card);
-  margin-top: 6px;
-}
-.merge-card__rows {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  overflow: hidden;
-  /* Soft purple shadow so the rows container reads in the same
-   * family as workspace-card when the page sits on the calm-page
-   * mesh backdrop. Static — individual rows inside have their own
-   * hover effects, so lifting the whole container would compete. */
-  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04), 0 4px 18px rgba(124, 58, 237, 0.05);
-}
-.merge-card--ready .merge-card__icon {
-  background: #1a7f37;
-}
-.merge-card--blocked .merge-card__icon {
-  background: var(--text-3);
-}
 /* Queued — amber treatment mirrors github.com's "Queued to merge…"
  * card. The rows container becomes a single padded row instead of the
  * multi-line status breakdown the regular merge-card uses. */
-.merge-card--queued .merge-card__icon {
-  background: linear-gradient(160deg, #d99a00, #b07d00);
-  box-shadow: 0 2px 6px rgba(191, 135, 0, 0.28);
-}
 /* Left accent stripe + soft amber wash that fades into the card
  * instead of a flat full-amber border. Reads as an in-flight status
  * card, not a warning box. The stripe rides on ::before so the
  * rounded corners (overflow:hidden on .merge-card__rows) clip it. */
-.merge-card__queued-rows {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 18px 14px 22px;
-  border-color: rgba(191, 135, 0, 0.32);
-  background:
-    linear-gradient(to right,
-      rgba(191, 135, 0, 0.09),
-      rgba(191, 135, 0, 0.025) 160px,
-      var(--bg-card) 55%);
-}
-.merge-card__queued-rows::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: #bf8700;
-}
-.merge-card__queued-content {
-  flex: 1;
-  min-width: 0;
-}
-.merge-card__queued-titlerow {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 4px;
-}
 /* Pulsing dot — the "still waiting" cue, mirroring github.com's
  * animated queued state. Calms to a static dot under reduced motion. */
-.merge-card__queued-pulse {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #bf8700;
-  animation: merge-queued-pulse 1.8s ease-out infinite;
-}
 @keyframes merge-queued-pulse {
   0% { box-shadow: 0 0 0 0 rgba(191, 135, 0, 0.45); }
   70% { box-shadow: 0 0 0 6px rgba(191, 135, 0, 0); }
   100% { box-shadow: 0 0 0 0 rgba(191, 135, 0, 0); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .merge-card__queued-pulse { animation: none; }
-}
-.merge-card__queued-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-.merge-card__queued-chip {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: #7a5800;
-  background: rgba(191, 135, 0, 0.14);
-  border: 1px solid rgba(191, 135, 0, 0.3);
-  padding: 1px 8px;
-  border-radius: 999px;
-  line-height: 1.55;
-}
-.merge-card__queued-desc {
-  font-size: 13px;
-  color: var(--text-2);
-  padding-left: 16px;
-}
-.merge-card__queued-desc a {
-  color: var(--accent);
-  text-decoration: underline;
-}
-.merge-card__queued-action {
-  flex-shrink: 0;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #6b4e00;
-  background: var(--bg-card);
-  border: 1px solid rgba(191, 135, 0, 0.4);
-  border-radius: 7px;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.merge-card__queued-action:hover:not(:disabled) {
-  background: rgba(191, 135, 0, 0.08);
-  border-color: #bf8700;
-  color: #543d00;
-}
-.merge-card__queued-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-.merge-card__queued-error {
-  margin-top: 8px;
-  margin-left: 16px;
-  padding: 6px 10px;
-  font-size: 12px;
-  color: #cf222e;
-  background: rgba(207, 34, 46, 0.06);
-  border-radius: 4px;
-}
 
 /* Ejected-from-merge-queue banner — sits atop the status rows when the
    github-merge-queue bot removed the PR for failed checks. Amber/red to
    read as "needs attention", matching GitHub's tone. */
-.merge-card__eject {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  background: rgba(207, 34, 46, 0.06);
-  border: 1px solid rgba(207, 34, 46, 0.30);
-  border-radius: 6px;
-}
-.merge-card__eject-icon {
-  flex: none;
-  font-size: 14px;
-  line-height: 20px;
-  color: #cf222e;
-}
-.merge-card__eject .merge-card__row-title { color: #cf222e; }
-.merge-card__eject-link {
-  flex: none;
-  align-self: center;
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent, #0969da);
-  text-decoration: none;
-  white-space: nowrap;
-}
-.merge-card__eject-link:hover { text-decoration: underline; }
-
-.merge-card__row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-3);
-  /* Font sized to read as part of the conversation flow — same body
-     scale as .prc-comment-body / .prc-comment-author so the merge card
-     doesn't feel like a smaller, demoted strip below the timeline. */
-  font-size: var(--font-size-lg);
-  color: var(--text-1);
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-}
-.merge-card__row:last-child { border-bottom: 0; }
-.merge-card__row--clickable {
-  appearance: none;
-  border-left: 0;
-  border-right: 0;
-  border-top: 0;
-  background: transparent;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  color: inherit;
-  cursor: pointer;
-  width: 100%;
-}
-.merge-card__row--clickable:disabled {
-  cursor: default;
-}
-.merge-card__row--clickable:not(:disabled):hover {
-  background: var(--bg-elevated);
-}
-.merge-card__row--sub {
-  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + 30px);
-  background: var(--bg-elevated);
-  color: var(--text-2);
-  font-size: var(--font-size-xs);
-  gap: var(--space-1);
-}
-.merge-card__sub-icon {
-  font-size: 11px;
-  color: var(--text-3);
-}
-
-.merge-card__row-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.merge-card__row-title {
-  font-weight: 600;
-  color: var(--text-0);
-  line-height: 1.3;
-}
-.merge-card__row-desc {
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  line-height: 1.4;
-}
-.merge-card__row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-.merge-card__row-chevron {
-  color: var(--text-3);
-  font-size: 12px;
-}
-.merge-card__row-action-btn {
-  flex-shrink: 0;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-1);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-}
-.merge-card__row-action-btn:hover {
-  background: var(--bg-elevated);
-  border-color: var(--text-3);
-}
-.merge-card__row-chevron-btn {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-2);
-  font: inherit;
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.merge-card__row-chevron-btn:hover {
-  background: var(--bg-elevated);
-}
-
-.merge-card__refresh {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-2);
-  font: inherit;
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-}
-.merge-card__refresh:hover:not(:disabled) {
-  background: var(--bg-elevated);
-}
 /* Re-run failed checks — shown only when CI is failing. Text button
    sitting before the refresh icon in the CI row's actions. */
-.merge-card__rerun {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-2);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 9px;
-  margin-right: 6px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.merge-card__rerun:hover:not(:disabled) { background: var(--bg-elevated); }
-.merge-card__rerun:disabled { opacity: 0.65; cursor: default; }
-.merge-card__refresh-icon--spin {
-  animation: merge-card-spin 0.9s linear infinite;
-  display: inline-block;
-}
 @keyframes merge-card-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -1284,184 +291,23 @@
 
 /* Small circular status glyph — green for pass, red for fail, neutral
    for pending. Sits at the start of each row like github.com. */
-.merge-card__glyph {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.merge-card__glyph--approved { background: #1a7f37; }
-.merge-card__glyph--changes { background: #cf222e; }
 /* Running spinner — yellow ring with one transparent quadrant that
    rotates continuously. Reads as "actively in progress" instead of
    the static hollow circle we used before. Same colour github.com
    uses for in-progress checks. */
-.merge-card__glyph--pending {
-  background: transparent;
-  border: 2px solid #d4a017;
-  border-top-color: transparent;
-  animation: merge-card-spin 0.9s linear infinite;
-  /* No glyph inside — the spinning border is the indicator. */
-}
 
 /* Right-aligned approver avatar strip on the review row. */
-.merge-card__approvers {
-  display: inline-flex;
-  align-items: center;
-  gap: -4px;
-  flex-shrink: 0;
-}
-.merge-card__approver {
-  display: inline-flex;
-  margin-left: -4px;
-  border-radius: 50%;
-  text-decoration: none;
-  box-shadow: 0 0 0 2px var(--bg-card);
-}
-.merge-card__approver:first-child { margin-left: 0; }
 
 /* Footer row — slightly tinted to read as the "action" zone. */
-.merge-card__footer {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  background: var(--bg-elevated);
-  border-top: 1px solid var(--border);
-  flex-wrap: wrap;
-}
-.merge-card__cmdline {
-  flex: 1;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  min-width: 200px;
-}
-.merge-card__cmdline a {
-  color: var(--accent);
-  text-decoration: underline;
-}
-.merge-card__reason,
-.merge-card__error,
-.merge-card__queue-notice {
-  flex-basis: 100%;
-  font-size: var(--font-size-xs);
-  margin-top: 4px;
-}
-.merge-card__reason { color: var(--text-3); }
-.merge-card__error { color: #cf222e; }
-.merge-card__queue-notice { color: #1a7f37; font-weight: 600; }
 
 /* Split button — main merge action + caret for strategy picker. */
-.merge-card__split {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-}
-.merge-card__btn {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-1);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  padding: 6px 12px;
-  cursor: pointer;
-}
-.merge-card__btn:hover:not(:disabled) {
-  background: var(--bg-base);
-}
-.merge-card__btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.merge-card__btn--split-main {
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-  border-right: 0;
-}
-.merge-card__btn--split-caret {
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  padding: 6px 8px;
-}
-.merge-card__strategy-backdrop {
-  position: fixed;
-  inset: 0;
-  background: transparent;
-  border: 0;
-  z-index: 30;
-}
-.merge-card__strategy-menu {
-  position: fixed;
-  min-width: 280px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  z-index: 40;
-  padding: var(--space-1);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.merge-card__strategy-option {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  padding: var(--space-2);
-  border-radius: var(--radius-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.merge-card__strategy-option:hover { background: var(--bg-elevated); }
-.merge-card__strategy-option--active { background: var(--accent-a10); }
-.merge-card__strategy-option-label {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-1);
-}
-.merge-card__strategy-option--active .merge-card__strategy-option-label::before {
-  content: '✓ ';
-  color: var(--accent);
-}
-.merge-card__strategy-option-hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  line-height: 1.4;
-}
 
 /* Merge bar — approval count + "Rebase and merge" button. Sits above the
    PrCommentBox on the PR detail page. Green when ready, muted when not.
    The disabled-but-visible button matches GitHub's own merge-bar
    behaviour: hover the button to see why it's not clickable. */
-.merge-bar {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  margin-bottom: 8px;
-}
 /* Inner row: merge button on the left, optional cancel + red CI-failing
    pill in the middle, approver strip / disabled reason on the right. */
-.merge-bar__row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 80px;
-}
 /* Classic-mode merge card. The prc-timeline column draws a vertical rail
    at left:80px through the marker column; align the card's left edge
    flush on the rail so the call-to-action visually anchors to the
@@ -1470,303 +316,38 @@
    edge picks up the prc-timeline's own 22px padding-right naturally.
    Soft blue tint distinguishes the merge action from neutral comment
    cards without competing with the green button itself. */
-.prc-timeline > .merge-bar {
-  margin-left: 80px;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid rgba(56, 139, 253, 0.35);
-  background: rgba(56, 139, 253, 0.08);
-  border-radius: var(--radius-md);
-}
 /* Inside the timeline the bar is already its own card — suppress the
    default ready/blocked tints so the blue card shows through. */
-.prc-timeline > .merge-bar.merge-bar--ready,
-.prc-timeline > .merge-bar.merge-bar--blocked {
-  background: rgba(56, 139, 253, 0.08);
-  border-color: rgba(56, 139, 253, 0.35);
-}
-.merge-bar--ready {
-  border-color: rgba(46, 160, 67, 0.45);
-  background: rgba(46, 160, 67, 0.08);
-}
-.merge-bar--blocked {
-  border-color: var(--border);
-  background: var(--bg-elevated);
-}
-.merge-bar__summary {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.merge-bar__approvals {
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.merge-bar__approvals-empty {
-  font-weight: 600;
-  color: var(--text-3);
-}
 /* Stack approver avatars in a tight strip — slight overlap reads as "a
    group" rather than a list. Each avatar links to the user's GitHub
    profile, mirroring the reviewer chips elsewhere in the UI. */
-.merge-bar__approver-strip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.merge-bar__approver {
-  display: inline-flex;
-  border-radius: 50%;
-  text-decoration: none;
-  /* Thin halo so adjacent avatars stay visually separable on the blue
-     card without needing negative margins. */
-  box-shadow: 0 0 0 2px rgba(56, 139, 253, 0.08);
-  transition: transform 0.1s;
-}
-.merge-bar__approver:hover {
-  transform: scale(1.08);
-}
-.merge-bar__approvals-label {
-  font-weight: 600;
-  color: #1a7f37;
-  margin-left: 2px;
-}
-.merge-bar__changes {
-  color: #cf222e;
-  font-weight: 500;
-}
-.merge-bar__reason {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-}
-.merge-bar__error {
-  font-size: var(--font-size-xs);
-  color: #cf222e;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 320px;
-}
 /* Inline notice shown when the user clicks the queue-style button —
    ByteQuay's heuristic detected this repo requires GitHub's merge
    queue, but native enqueue isn't wired up yet. Distinct from the
    error tint so the user reads it as "not implemented" rather than
    "your merge failed". */
-.merge-bar__queue-notice {
-  font-size: var(--font-size-xs);
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 480px;
-}
-.merge-bar__btn {
-  appearance: none;
-  border: 1px solid #1a7f37;
-  background: #2da44e;
-  color: #fff;
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.merge-bar__btn:hover:not(:disabled) {
-  background: #2c974b;
-}
-.merge-bar__btn:disabled {
-  background: #94d3a2;
-  border-color: rgba(46, 160, 67, 0.45);
-  cursor: not-allowed;
-  opacity: 0.7;
-}
 
 /* Split button: primary action on the left, caret menu on the right.
    Both pieces share the merge-bar__btn green; only the corner radii
    and the divider in the middle distinguish them visually. */
-.merge-bar__split {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-}
-.merge-bar__btn--split-main {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.25);
-}
-.merge-bar__btn--split-caret {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  padding: 6px 9px;
-  font-size: var(--font-size-xs);
-}
 
 /* Strategy menu — drops below the caret button. Wide enough that the
    description text doesn't crowd the radio dot. Click-away handled by
    a transparent backdrop button positioned underneath. */
-.merge-bar__strategy-backdrop {
-  position: fixed;
-  inset: 0;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  cursor: default;
-  z-index: 50;
-}
-.merge-bar__strategy-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  /* Anchor to the LEFT of the split button so the menu opens rightward.
-     Earlier we anchored it to the right (right: 0) which made the menu
-     extend leftward and clash with the conversation column on its left.
-     Opening rightward keeps the menu within the merge bar's footprint. */
-  left: 0;
-  z-index: 51;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  padding: var(--space-1);
-  min-width: 280px;
-}
-.merge-bar__strategy-option {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: var(--space-2);
-  border: 0;
-  background: transparent;
-  width: 100%;
-  text-align: left;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  color: var(--text-1);
-  font: inherit;
-}
-.merge-bar__strategy-option:hover {
-  background: var(--accent-a7);
-}
-.merge-bar__strategy-option--active {
-  background: var(--accent-a10);
-}
-.merge-bar__strategy-option-label {
-  font-weight: 600;
-  font-size: var(--font-size-md);
-}
-.merge-bar__strategy-option--active .merge-bar__strategy-option-label::before {
-  content: '✓ ';
-  color: var(--accent);
-}
-.merge-bar__strategy-option-hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  white-space: normal;
-  line-height: 1.35;
-}
-.merge-bar__cancel {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-2);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-md);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-.merge-bar__cancel:hover:not(:disabled) {
-  background: var(--bg-elevated);
-}
-.merge-bar__cancel:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 /* "Confirm merge?" dialog. Reuses .modal-overlay/.modal scaffolding from
    modals.css; adds a narrower width and a bottom action bar so Yes/No
    sit side-by-side under the PR title line. */
-.merge-confirm {
-  width: 380px;
-  max-width: 90vw;
-}
-.merge-confirm__body {
-  padding: 4px 18px 12px;
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-}
-.merge-confirm__body p {
-  margin: 0 0 6px;
-}
-.merge-confirm__sub {
-  color: var(--text-3);
-  font-size: var(--font-size-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.merge-confirm__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  padding: 10px 18px 16px;
-}
 
 /* Red "CI failing" pill — always clickable when failures exist; expands
    the per-check failure list below the row. Sits between the merge
    button and the approval/summary block so it reads as a peer status
    signal, not buried in the right-side text. */
-.merge-bar__ci-fail {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  border: 1px solid #cf222e;
-  background: #cf222e;
-  color: #fff;
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.merge-bar__ci-fail:hover {
-  background: #b1212c;
-  border-color: #b1212c;
-}
-.merge-bar__ci-fail--open {
-  background: #b1212c;
-}
-.merge-bar__ci-fail-chevron {
-  font-size: var(--font-size-xs);
-  opacity: 0.85;
-}
 
 /* Green "CI passed" badge — same pill shape as the failing button, but
    non-interactive (no list to expand since the user explicitly didn't
    want successful check names rendered). Sits in the same slot so the
    bar's layout doesn't shift when CI flips state. */
-.merge-bar__ci-pass {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  border: 1px solid #1a7f37;
-  background: #2da44e;
-  color: #fff;
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  flex-shrink: 0;
-  cursor: default;
-}
 
 /* Amber "Conflict (N files)" pill — same pill shape as CI passed/failing
    so the row reads as a list of merge blockers. Two forms:
@@ -1774,195 +355,20 @@
        (clicks toggle the panel below the bar).
      - Plain anchor to github.com's conflict editor when the probe
        couldn't run (no local clone, fetch failed). */
-.merge-bar__conflict {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  border: 1px solid #c2410c;
-  background: #ea580c;
-  color: #fff;
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  flex-shrink: 0;
-  text-decoration: none;
-  appearance: none;
-  cursor: pointer;
-  font-family: inherit;
-}
-.merge-bar__conflict:hover {
-  background: #c2410c;
-  border-color: #9a3412;
-}
-.merge-bar__conflict--open {
-  background: #c2410c;
-}
-.merge-bar__conflict-chevron {
-  font-size: var(--font-size-xs);
-  opacity: 0.85;
-}
 
 /* Expanded file list — mirrors .merge-bar__failures placement (a
    block below the inline pill row). */
-.merge-bar__conflict-files {
-  border-top: 1px solid var(--border-light);
-  padding: 10px 16px 12px;
-  background: #fff7ed;
-}
-.merge-bar__conflict-files-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  font-size: var(--font-size-sm);
-  color: #7c2d12;
-  margin-bottom: 6px;
-}
-.merge-bar__conflict-files-head code {
-  background: rgba(194, 65, 12, 0.15);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: var(--font-size-xs);
-}
-.merge-bar__conflict-files-link {
-  color: #7c2d12;
-  text-decoration: none;
-  font-weight: 600;
-}
-.merge-bar__conflict-files-link:hover {
-  text-decoration: underline;
-}
-.merge-bar__conflict-files-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-.merge-bar__conflict-files-list li {
-  padding: 2px 0;
-  font-size: var(--font-size-sm);
-  color: #431407;
-}
-.merge-bar__conflict-files-list code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
 
 /* Refresh CI button — sits flush against the CI status pill so users
    can force a fresh fetch when local data has fallen behind GitHub.
    Same circular-icon styling as the bottom CiSummary refresh so the
    two affordances feel like the same control. */
-.merge-bar__ci-refresh {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--text-3);
-  cursor: pointer;
-  padding: var(--space-1);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-lg);
-  line-height: 1;
-  flex-shrink: 0;
-}
-.merge-bar__ci-refresh:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--text-1);
-}
-.merge-bar__ci-refresh:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-.merge-bar__ci-refresh-icon {
-  display: inline-block;
-}
-.merge-bar__ci-refresh-icon--spin {
-  animation: ci-refresh-spin 0.7s linear infinite;
-}
 
 /* Per-check failure cards revealed when the red pill is expanded. Each
    card sits below the merge row inside the same merge-bar container. */
-.merge-bar__failures {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.merge-bar__failure-card {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid rgba(207, 34, 46, 0.35);
-  background: rgba(207, 34, 46, 0.06);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  overflow: hidden;
-}
 /* Header row of a failure card. Acts as the click target that toggles
    the error-body section underneath. Looks the same as the old flat
    card so reviewers don't lose orientation when there's no body. */
-.merge-bar__failure-head {
-  appearance: none;
-  background: transparent;
-  border: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  width: 100%;
-  text-align: left;
-  font-family: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-.merge-bar__failure-head:disabled {
-  cursor: default;
-}
-.merge-bar__failure-head:hover:not(:disabled) {
-  background: rgba(207, 34, 46, 0.10);
-}
-.merge-bar__failure-icon {
-  flex-shrink: 0;
-  color: #cf222e;
-  font-weight: 700;
-}
-.merge-bar__failure-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.merge-bar__failure-name {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.merge-bar__failure-reason {
-  color: #cf222e;
-  font-size: var(--font-size-xs);
-}
-.merge-bar__failure-link {
-  flex-shrink: 0;
-  color: var(--accent);
-  text-decoration: none;
-  font-size: var(--font-size-sm);
-}
-.merge-bar__failure-link:hover {
-  text-decoration: underline;
-}
-.merge-bar__failure-chevron {
-  flex-shrink: 0;
-  color: #cf222e;
-  font-size: var(--font-size-xs);
-  opacity: 0.85;
-}
 
 /* Expandable error-message body. Pre-formatted so stack traces and
    indented logs keep their layout; soft scroll horizontally rather
@@ -1970,163 +376,25 @@
    collapsed view caps long summaries at FAILURE_SUMMARY_COLLAPSED_CHARS
    characters with a "Show more" toggle so a 5kb log dump doesn't take
    over the page. */
-.merge-bar__failure-body {
-  border-top: 1px solid rgba(207, 34, 46, 0.35);
-  background: var(--bg-card);
-  padding: var(--space-2) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.merge-bar__failure-pre {
-  margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-  line-height: 1.45;
-  /* Use --text-2 (not --text-1) for monospace blocks. On the dark
-     theme this picks Atom One Dark's authentic editor foreground
-     (#abb2bf) instead of the brighter heading tone — a wall of
-     white code on a dark surface reads as glaring. */
-  color: var(--text-2);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 320px;
-  overflow: auto;
-}
-.merge-bar__failure-more {
-  align-self: flex-start;
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--accent);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  padding: 0;
-}
-.merge-bar__failure-more:hover:not(:disabled) {
-  text-decoration: underline;
-}
-.merge-bar__failure-more:disabled {
-  color: var(--text-3);
-  cursor: progress;
-}
 
 /* Inline raw-log viewer. Lazy-loaded on click; the wrapping section
    carries its own divider so the log reads as a separate sub-block
    under the inline summary. */
-.merge-bar__failure-log {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding-top: 6px;
-  border-top: 1px dashed rgba(207, 34, 46, 0.25);
-}
-.merge-bar__failure-log-bar {
-  display: flex;
-}
-.merge-bar__failure-log-status {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  font-style: italic;
-}
-.merge-bar__failure-log-status--error {
-  color: #cf222e;
-  font-style: normal;
-}
 /* The log itself can be much longer than the summary excerpt; give it
    a taller scroll viewport and a darker background so it reads like a
    terminal pane. */
-.merge-bar__failure-pre--log {
-  max-height: 480px;
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2);
-}
 /* Inline highlight for [ERROR] / [FAILURE] / Caused by / Exception
    markers so reviewers can scan straight to the failing line(s). The
    yellow box reads as a "found-it" hit similar to browser find-in-page
    and shouldn't compete with the red CI chrome around it. */
-.merge-bar__failure-pre__hit {
-  background: #fef3c7;
-  color: #78350f;
-  font-weight: 600;
-  padding: 0 2px;
-  border-radius: 2px;
-}
 
 /* Ask-AI button — sits to the right of "Show full log" in the log
    bar. Subtly accented so it reads as a smart action without shouting. */
-.merge-bar__failure-ai-btn {
-  margin-left: auto;
-  appearance: none;
-  border: 1px solid var(--accent-a40, rgba(99, 102, 241, 0.3));
-  background: var(--accent-a7, rgba(99, 102, 241, 0.08));
-  color: var(--accent, #4f46e5);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.merge-bar__failure-ai-btn:hover:not(:disabled) {
-  background: var(--accent-a20, rgba(99, 102, 241, 0.15));
-}
-.merge-bar__failure-ai-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.merge-bar__failure-log-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
 
 /* AI response card — appears below the log when the user asks for a
    diagnosis. Distinct accent colour so it doesn't blend into the red
    failure chrome above. Markdown body inherits the standard md-body
    styling for code fences / lists. */
-.merge-bar__failure-ai {
-  border: 1px solid var(--accent-a40, rgba(99, 102, 241, 0.3));
-  background: var(--accent-a7, rgba(99, 102, 241, 0.05));
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-.merge-bar__failure-ai-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  background: var(--accent-a20, rgba(99, 102, 241, 0.12));
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--accent, #4f46e5);
-}
-.merge-bar__failure-ai-body {
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-size-sm);
-  color: var(--text-1);
-}
-.merge-bar__failure-ai-body p { margin: 4px 0; }
-.merge-bar__failure-ai-body pre {
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-xs);
-  overflow-x: auto;
-}
-.merge-bar__failure-ai-body code {
-  background: var(--bg-base);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-}
-.merge-bar__failure-ai-body pre code {
-  background: transparent;
-  padding: 0;
-}
 
 /* Preview sections */
 
@@ -2309,48 +577,12 @@
   border-top: 0;
 }
 
-.file-row__name {
-  font-size: 0.82rem;
-  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
-    Consolas, monospace;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-row__stats {
-  font-size: 0.82rem;
-  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
-    Consolas, monospace;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 .file-row__add {
   color: #3e8060;
 }
 
 .file-row__del {
   color: #aa4e3e;
-}
-
-.file-list__toggle {
-  display: block;
-  width: 100%;
-  margin-top: 6px;
-  padding: var(--space-1) var(--space-3);
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 0.82rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.file-list__toggle:hover {
-  text-decoration: underline;
 }
 
 /* Conversation list — compact timeline in the right sidebar. Narrow-column
@@ -2372,15 +604,6 @@
   gap: var(--space-3);
   padding: 0 12px 12px;
 }
-.review-threads__divider {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-3);
-  font-weight: 700;
-  padding: 12px 0 6px;
-  border-top: 1px solid var(--border);
-}
 .review-thread {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -2401,15 +624,6 @@
   color: var(--text-1);
   font-weight: 500;
 }
-.review-thread__side {
-  font-size: 9.5px;
-  letter-spacing: 0.05em;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--accent-a7);
-  color: var(--accent);
-}
 .review-thread__hunk {
   margin: 0;
   padding: var(--space-1) var(--space-2);
@@ -2423,14 +637,6 @@
   white-space: pre;
   max-height: 140px;
   overflow-y: auto;
-}
-.review-thread__messages {
-  list-style: none;
-  margin: 0;
-  padding: var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
 .review-thread__msg {
   display: flex;
@@ -2446,39 +652,6 @@
   font-size: var(--font-size-xs);
   margin-bottom: 2px;
 }
-.review-thread__author {
-  color: var(--text-1);
-  font-weight: 600;
-  text-decoration: none;
-}
-.review-thread__author:hover { text-decoration: underline; }
-.review-thread__time { color: var(--text-3); font-size: 10.5px; }
-.review-thread__msg-text {
-  font-size: var(--font-size-sm);
-  color: var(--text-1);
-  line-height: 1.55;
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-.review-thread__msg-text p { margin: 0 0 4px; }
-.review-thread__msg-text p:last-child { margin-bottom: 0; }
-.review-thread__msg-text code {
-  background: var(--bg-elevated);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: var(--font-size-xs);
-}
-.review-thread__msg-text pre {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-2);
-  margin: 4px 0;
-  overflow-x: auto;
-  font-size: var(--font-size-xs);
-}
-.review-thread__msg-text pre code { background: transparent; padding: 0; }
-.review-thread__msg-text a { color: var(--accent); }
 
 /* Review verdict badge (APPROVED / CHANGES REQUESTED / etc.). */
 
@@ -2490,71 +663,8 @@
    red (#e06c75) and a sage green (#98c379) — that read as
    confident-but-not-shouty. We ship slightly darker variants here
    so the bg fills aren't blinding while keeping the AOD palette feel. */
-[data-theme="atom-one-dark"] .merge-bar__btn {
-  background: #4a8a6a;
-  border-color: #3e7a59;
-  color: #fff;
-}
-[data-theme="atom-one-dark"] .merge-bar__btn:hover:not(:disabled) {
-  background: #559a78;
-}
-[data-theme="atom-one-dark"] .merge-bar__btn:disabled {
-  background: rgba(74, 138, 106, 0.45);
-  border-color: rgba(62, 122, 89, 0.45);
-  color: rgba(255, 255, 255, 0.7);
-}
-[data-theme="atom-one-dark"] .merge-bar__ci-pass {
-  background: #4a8a6a;
-  border-color: #3e7a59;
-  color: #fff;
-}
-[data-theme="atom-one-dark"] .merge-bar__ci-fail {
-  background: #b65962;
-  border-color: #b65962;
-  color: #fff;
-}
-[data-theme="atom-one-dark"] .merge-bar__ci-fail:hover {
-  background: #a44952;
-  border-color: #a44952;
-}
-[data-theme="atom-one-dark"] .merge-bar__ci-fail--open {
-  background: #a44952;
-}
-[data-theme="atom-one-dark"] .merge-bar__failure-card {
-  background: rgba(224, 108, 117, 0.10);
-  border-color: rgba(224, 108, 117, 0.30);
-}
-[data-theme="atom-one-dark"] .merge-bar__failure-head:hover:not(:disabled) {
-  background: rgba(224, 108, 117, 0.16);
-}
-[data-theme="atom-one-dark"] .merge-bar__failure-icon,
-[data-theme="atom-one-dark"] .merge-bar__failure-reason,
-[data-theme="atom-one-dark"] .merge-bar__failure-chevron {
-  color: #e06c75;
-}
-[data-theme="atom-one-dark"] .merge-bar__failure-body {
-  border-top-color: rgba(224, 108, 117, 0.30);
-}
-[data-theme="atom-one-dark"] .merge-bar__failure-log {
-  border-top-color: rgba(224, 108, 117, 0.20);
-}
-[data-theme="atom-one-dark"] .merge-bar__failure-log-status--error {
-  color: #e06c75;
-}
-[data-theme="atom-one-dark"] .merge-bar__error {
-  color: #e06c75;
-}
 /* The blue card readiness tint also reads cool against AOD's bluish
    surface — mute it slightly so it doesn't compete with the editor. */
-[data-theme="atom-one-dark"] .prc-timeline > .merge-bar {
-  background: rgba(97, 175, 239, 0.06);
-  border-color: rgba(97, 175, 239, 0.25);
-}
-[data-theme="atom-one-dark"] .prc-timeline > .merge-bar.merge-bar--ready,
-[data-theme="atom-one-dark"] .prc-timeline > .merge-bar.merge-bar--blocked {
-  background: rgba(97, 175, 239, 0.06);
-  border-color: rgba(97, 175, 239, 0.25);
-}
 
 
 /* Markdown rendered inside trunk + task chat bubbles. Tight default

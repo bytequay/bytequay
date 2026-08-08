@@ -37,7 +37,7 @@ import static org.mockito.Mockito.when;
 
 class TestSessionBudgetPolicy
 {
-    private final AgentRunService runs = mock(AgentRunService.class);
+    private final AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
     private final NotificationService notifications =
             mock(NotificationService.class);
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);

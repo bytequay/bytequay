@@ -43,8 +43,8 @@ import com.bytequay.app.service.checks.ValidationClaimService;
 import com.bytequay.app.service.localpr.LocalReviewSubmittedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewService;
-import com.bytequay.app.service.review.ReviewRoundService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -95,14 +95,14 @@ class TestTaskLifecycleDriver
     private final NotificationService notifications = mock(NotificationService.class);
     private final RemoteCommentIngestor commentIngestor = mock(RemoteCommentIngestor.class);
     private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
-    private final ReviewRoundService reviewRounds = mock(ReviewRoundService.class);
+    private final ReviewRoundServiceImpl reviewRounds = mock(ReviewRoundServiceImpl.class);
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final StageStore stageStore = mock(StageStore.class);
     private final PRService prService = mock(PRService.class);
     private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
     private final LocalReviewBrainHandoffStore handoffs = mock(LocalReviewBrainHandoffStore.class);
     private final ValidationClaimService claimedValidation = mock(ValidationClaimService.class);
-    private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
@@ -356,7 +356,7 @@ class TestTaskLifecycleDriver
 
         driver.reconcileTask(task);
 
-        // The phase stays at AWAITING_REMOTE_REVIEW and batching/round-launching is entirely ReviewRoundService's job now
+        // The phase stays at AWAITING_REMOTE_REVIEW and batching/round-launching is entirely ReviewRoundServiceImpl's job now
         // — the driver no longer inspects review threads itself.
         verify(phaseMachine, never()).observeReady(anyString(), anyString());
         verify(phaseMachine, never()).observeRemoteCiGreen(anyString(), anyBoolean(), anyString());

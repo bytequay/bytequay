@@ -23,7 +23,7 @@ import java.util.UUID;
  * check constraint enforces the {@code remoteLink} half of that invariant.
  *
  * <p>{@code roundId} groups a remote comment into a {@code ReviewRound}
- * batch (null until {@code ReviewRoundService} assigns it).
+ * batch (null until {@code ReviewRoundServiceImpl} assigns it).
  * {@code draftReplyBody} is the round agent's locally-drafted reply —
  * nothing posts to GitHub until the round's gate approval reads it and
  * calls {@code PullRequestService.replyToReviewThread} with

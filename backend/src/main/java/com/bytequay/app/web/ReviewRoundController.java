@@ -16,7 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.developmentflow.stage.V2RemoteFeedbackControlService;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.review.ReviewRoundService;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,12 +36,12 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class ReviewRoundController
 {
-    private final ReviewRoundService rounds;
+    private final ReviewRoundServiceImpl rounds;
     private final V2RemoteFeedbackControlService v2Rounds;
     private final TaskStore tasks;
 
     public ReviewRoundController(
-            ReviewRoundService rounds,
+            ReviewRoundServiceImpl rounds,
             V2RemoteFeedbackControlService v2Rounds,
             TaskStore tasks)
     {

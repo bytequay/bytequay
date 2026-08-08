@@ -196,15 +196,6 @@ export function PrMergedIcon({ size = 16, strokeWidth = 2 }: { size?: number; st
   );
 }
 
-export function IssueIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="8.5" />
-      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
 /** The purple "agent review assigned" robot outline. */
 export function RobotIcon({ size = 16 }: { size?: number }) {
   return (

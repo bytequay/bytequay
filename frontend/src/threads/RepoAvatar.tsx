@@ -175,33 +175,6 @@ function readCache(workingDir: string): Resolved | null {
   };
 }
 
-/** Resolve a task/thread {@code workingDir} (repo clone path) to its
- *  {owner, repo}, or null when no local-repo mapping matches. Reuses the
- *  same path cache the avatar lookup fills, so callers that need to
- *  deep-link into the in-app PR page don't duplicate the resolution. */
-export async function resolveRepoRef(
-  workingDir: string | null | undefined,
-): Promise<{ owner: string; repo: string } | null> {
-  if (!workingDir) return null;
-  await ensurePathCache();
-  return pathToRepoCache.get(normalisePath(workingDir)) ?? null;
-}
-
-/** Resolve a bare repo name (no owner, e.g. from a workspace card's
- *  repo chip) to its cached GitHub owner-avatar URL, by scanning the
- *  tracked local-repo list for a name match. Distinct from
- *  {@code resolveRepoRef}, which keys off a working-directory path.
- *  Null when no tracked repo matches or it has no avatar. */
-export async function resolveAvatarByRepoName(repoName: string): Promise<string | null> {
-  await ensurePathCache();
-  for (const ref of pathToRepoCache.values()) {
-    if (ref && ref.repo === repoName) {
-      return fetchAvatar(ref.owner, ref.repo);
-    }
-  }
-  return null;
-}
-
 async function resolveAvatar(workingDir: string): Promise<Resolved> {
   await ensurePathCache();
   const ref = pathToRepoCache.get(normalisePath(workingDir));

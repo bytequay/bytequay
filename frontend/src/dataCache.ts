@@ -41,12 +41,7 @@ export function setCached<T>(key: string, value: T): void {
   cache.set(key, { value, storedAt: Date.now() });
 }
 
+/** Test isolation hook for components backed by this module-level cache. */
 export function invalidate(key: string): void {
   cache.delete(key);
-}
-
-export function invalidatePrefix(prefix: string): void {
-  for (const key of cache.keys()) {
-    if (key.startsWith(prefix)) cache.delete(key);
-  }
 }

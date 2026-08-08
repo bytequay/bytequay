@@ -23,7 +23,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -51,7 +51,7 @@ class TestInvestigationReviewOwnership
     private final InvestigationReviewStore store = mock(InvestigationReviewStore.class);
     private final InvestigationReviewContext contexts = mock(InvestigationReviewContext.class);
     private final InvestigationReviewRunner runner = mock(InvestigationReviewRunner.class);
-    private final AgentRunService runs = mock(AgentRunService.class);
+    private final AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
     private final PRService prs = mock(PRService.class);
     private final TaskStore tasks = mock(TaskStore.class);
     private final ThreadStore threads = mock(ThreadStore.class);

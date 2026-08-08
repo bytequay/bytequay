@@ -45,9 +45,9 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.review.BranchGuardService;
-import com.bytequay.app.service.review.ReviewRoundService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.review.BranchGuardServiceImpl;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,7 +74,6 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class StageServiceImpl
-        implements StageService
 {
     /** Placeholder context-window cap until the token accounting lands. */
     private static final int DEFAULT_CONTEXT_TOKEN_LIMIT = 200_000;
@@ -89,9 +88,9 @@ public class StageServiceImpl
     private final ThreadTurnEventStore turnEventStore;
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
-    private final AgentRunService agentRuns;
-    private final BranchGuardService branchGuards;
-    private final ReviewRoundService reviewRounds;
+    private final AgentRunServiceImpl agentRuns;
+    private final BranchGuardServiceImpl branchGuards;
+    private final ReviewRoundServiceImpl reviewRounds;
     private final ObjectMapper mapper;
     private V2DevelopmentFlowProjection v2Projection;
 
@@ -102,9 +101,9 @@ public class StageServiceImpl
             ThreadTurnEventStore turnEventStore,
             ThreadStore threadStore,
             ThreadTurnStore turnStore,
-            AgentRunService agentRuns,
-            BranchGuardService branchGuards,
-            ReviewRoundService reviewRounds,
+            AgentRunServiceImpl agentRuns,
+            BranchGuardServiceImpl branchGuards,
+            ReviewRoundServiceImpl reviewRounds,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -129,8 +128,6 @@ public class StageServiceImpl
     {
         return reviewRounds.findByTask(taskId).stream().filter(ReviewRound::isLive).findFirst().orElse(null);
     }
-
-    @Override
     public TaskBrainViewData getBrain(String taskId)
     {
         Task task = taskStore.findTaskById(taskId)
@@ -293,8 +290,6 @@ public class StageServiceImpl
         }
         return index;
     }
-
-    @Override
     public List<StageDto> getStages(String taskId)
     {
         if (v2Projection != null && v2Projection.isV2Task(taskId)) {
@@ -305,8 +300,6 @@ public class StageServiceImpl
                 .map(StageServiceImpl::toDto)
                 .toList();
     }
-
-    @Override
     public List<StageDto> getActiveStages(String taskId)
     {
         if (v2Projection != null && v2Projection.isV2Task(taskId)) {
@@ -317,8 +310,6 @@ public class StageServiceImpl
                 .map(StageServiceImpl::toDto)
                 .toList();
     }
-
-    @Override
     public StageDetailDto getStageDetail(UUID stageId)
     {
         if (v2Projection != null) {

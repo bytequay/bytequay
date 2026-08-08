@@ -55,14 +55,6 @@ export function roundIsLive(round: ReviewRoundRow): boolean {
   return round.status === 'QUEUED' || round.status === 'RUNNING';
 }
 
-/** Accepted/rejected split — same computation as RoundSection. */
-export function roundStats(data: AgentReviewData, roundId: string): { findings: number; rejected: number } {
-  const findings = data.findings.filter(row => row.round_id === roundId);
-  const accepted = findings.filter(row =>
-    row.verification_status !== 'rejected' && row.lifecycle_status !== 'dropped').length;
-  return { findings: accepted, rejected: findings.length - accepted };
-}
-
 /** "6be742d" or "6be742d … 9ab01f2"; null when nothing was recorded. */
 export function reviewedShas(data: AgentReviewData, round: ReviewRoundRow): { text: string; count: number } | null {
   const recorded = (data.reviewed_commits ?? []).filter(row => row.round_id === round.id)
@@ -93,15 +85,6 @@ export function assignmentSummary(summary: string): string {
   return firstSentence.length <= 240 ? firstSentence : `${firstSentence.slice(0, 237).trimEnd()}…`;
 }
 
-function stepVerb(actionType: string): string {
-  const action = actionType.toLowerCase();
-  if (action.includes('read')) return 'read files';
-  if (action.includes('search') || action.includes('grep')) return 'search code';
-  if (action.includes('trace')) return 'trace';
-  if (action.includes('test') || action.includes('check')) return 'check';
-  return (actionType.split(':').at(-1) ?? actionType).replaceAll(/[_-]+/g, ' ').toLowerCase();
-}
-
 function traceVerb(actionType: string): string {
   const action = actionType.toLowerCase();
   if (action.includes('line_scan')) return 'Line-scanned';
@@ -120,12 +103,6 @@ function conversationSummary(summary: string): string {
   const safe = assignmentSummary(summary);
   if (safe === ASSIGNMENT_SUMMARY_FALLBACK) return safe;
   return compact.length <= 480 ? compact : `${compact.slice(0, 477).trimEnd()}…`;
-}
-
-/** "read files + search code" — the collapsed work sub-row's label. */
-export function workLabel(steps: InvestigationStepRow[]): string {
-  const labels = [...new Set(steps.map(step => stepVerb(step.action_type)))];
-  return labels.slice(0, 2).join(' + ') || 'review work';
 }
 
 export type ConversationProgressState = 'done' | 'running' | 'queued';
@@ -470,51 +447,4 @@ export function buildConversationModel(data: AgentReviewData, round: ReviewRound
     reviewedCommits: reviewedShas(data, round),
     ...timing,
   };
-}
-
-export type SpineEntry =
-  | {
-      kind: 'planning';
-      chips: string[];
-      scopeLabel: 'Full' | 'Delta';
-      objectivesLabel: string;
-      /** "general-cli, general-api" — empty when no assignments yet. */
-      reviewers: string;
-    }
-  | {
-      kind: 'investigation' | 'verification';
-      agent: string;
-      chips: string[];
-      summary: string;
-      sub: { label: string; steps: number } | null;
-    };
-
-/** The latest-round timeline: PLANNING, then one entry per assignment,
- * excluding guidance-only assignments — same partition as RoundSection. */
-export function buildSpine(data: AgentReviewData, round: ReviewRoundRow): SpineEntry[] {
-  const guidance = new Set((data.round_messages ?? [])
-    .flatMap(message => message.assignment_id == null ? [] : [message.assignment_id]));
-  const assignments = data.assignments.filter(row => row.round_id === round.id && !guidance.has(row.id));
-  const investigations = assignments.filter(row => row.reviewer_def_id !== 'independent-verifier');
-  const objectives = roundPlanObjectives(data, round.id);
-  const objectivesLabel = `${objectives.length} ${objectives.length === 1 ? 'objective' : 'objectives'}`;
-  const entries: SpineEntry[] = [{
-    kind: 'planning',
-    chips: [objectivesLabel, round.scope, 'deterministic'],
-    scopeLabel: round.scope === 'full' ? 'Full' : 'Delta',
-    objectivesLabel,
-    reviewers: investigations.map(row => row.reviewer_def_id).join(', '),
-  }];
-  for (const assignment of assignments) {
-    const steps = data.steps.filter(step => step.assignment_id === assignment.id);
-    const cost = steps.reduce((sum, step) => sum + step.cost_cents, 0);
-    entries.push({
-      kind: assignment.reviewer_def_id === 'independent-verifier' ? 'verification' : 'investigation',
-      agent: assignment.reviewer_def_id,
-      chips: [formatCents(cost), `${steps.length} steps`, assignment.runner],
-      summary: assignmentSummary(assignment.understanding_summary),
-      sub: steps.length === 0 ? null : { label: workLabel(steps), steps: steps.length },
-    });
-  }
-  return entries;
 }

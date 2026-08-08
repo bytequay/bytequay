@@ -21,8 +21,8 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.RoundGateStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
-import com.bytequay.app.service.review.ReviewRoundService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.StageStateMachine;
 import org.springframework.stereotype.Component;
 
@@ -44,8 +44,8 @@ class TaskTerminalSealer
 {
     private final StageStore stageStore;
     private final StageStateMachine stageMachine;
-    private final ReviewRoundService reviewRounds;
-    private final AgentRunService agentRuns;
+    private final ReviewRoundServiceImpl reviewRounds;
+    private final AgentRunServiceImpl agentRuns;
     private final LocalReviewSubmissionStore submissions;
     private final TaskPushStore pushes;
     private final RoundGateStore roundGates;
@@ -54,7 +54,7 @@ class TaskTerminalSealer
 
     TaskTerminalSealer(
             StageStore stageStore, StageStateMachine stageMachine,
-            ReviewRoundService reviewRounds, AgentRunService agentRuns,
+            ReviewRoundServiceImpl reviewRounds, AgentRunServiceImpl agentRuns,
             LocalReviewSubmissionStore submissions, TaskPushStore pushes,
             RoundGateStore roundGates,
             TaskCommandExecutor commands,

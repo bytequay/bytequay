@@ -19,9 +19,9 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageService;
-import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.stage.StageDetailServiceImpl;
+import com.bytequay.app.service.stage.StageServiceImpl;
+import com.bytequay.app.service.stage.StageSteeringServiceImpl;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -101,9 +101,9 @@ class TestPlanControlRouting
     private StageController controller()
     {
         StageController result = new StageController(
-                mock(StageService.class),
-                mock(StageDetailService.class),
-                mock(StageSteeringService.class),
+                mock(StageServiceImpl.class),
+                mock(StageDetailServiceImpl.class),
+                mock(StageSteeringServiceImpl.class),
                 legacy,
                 mock(StageStore.class),
                 tasks,

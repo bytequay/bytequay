@@ -41,7 +41,7 @@ import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.RebaseOutcome;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.PullRequestDirtyDetectedEvent;
@@ -81,7 +81,7 @@ class TestBranchGuardJob
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final GitRunner git = mock(GitRunner.class);
-    private final AgentRunService agentRuns = mock(AgentRunService.class);
+    private final AgentRunServiceImpl agentRuns = mock(AgentRunServiceImpl.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final RemoteDevelopmentStageService remoteStages = mock(RemoteDevelopmentStageService.class);

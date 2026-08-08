@@ -39,7 +39,7 @@ class TestAgentRunService
     private static final Instant NOW = Instant.parse("2026-07-29T00:00:00Z");
 
     private final AgentRunStore store = mock(AgentRunStore.class);
-    private final AgentRunService service = new AgentRunServiceImpl(
+    private final AgentRunServiceImpl service = new AgentRunServiceImpl(
             store, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test

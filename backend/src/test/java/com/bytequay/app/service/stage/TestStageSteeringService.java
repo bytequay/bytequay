@@ -64,7 +64,7 @@ class TestStageSteeringService
                 V2StageSteeringControl.Mode.APPEND, null))
                 .thenReturn("stage-turn-v2");
 
-        StageSteeringService.SteerResult result = service.steer(
+        StageSteeringServiceImpl.SteerResult result = service.steer(
                 stageId, " change course ", List.of());
 
         assertThat(result.turnId()).isEqualTo("stage-turn-v2");
@@ -84,7 +84,7 @@ class TestStageSteeringService
 
         assertThat(service.steer(
                 stageId, "replace it", List.of(),
-                StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                StageSteeringServiceImpl.Mode.CANCEL_AND_REPLACE,
                 "predecessor-turn").turnId())
                 .isEqualTo("replacement-turn");
     }
@@ -114,7 +114,7 @@ class TestStageSteeringService
 
         assertThatThrownBy(() -> service.steer(
                 stageId, "replace it", List.of(),
-                StageSteeringService.Mode.CANCEL_AND_REPLACE))
+                StageSteeringServiceImpl.Mode.CANCEL_AND_REPLACE))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("only for V2");
         verify(stages, never()).findStageById(any());

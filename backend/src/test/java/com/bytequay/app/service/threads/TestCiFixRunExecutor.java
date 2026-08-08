@@ -47,7 +47,7 @@ import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -79,7 +79,7 @@ import static org.mockito.Mockito.when;
  * {@link AutomationCoordinator} into this class (plan-rail-runs.md R7).
  * Every assertion here pins the SAME behavior the pre-split tests pinned —
  * only the seams changed: iteration counting is a mocked {@link
- * AgentRunService} instead of an in-memory map, and the entry points are
+ * AgentRunServiceImpl} instead of an in-memory map, and the entry points are
  * this class's own methods instead of {@code scanForFailingCi()} (detection
  * now lives on {@link AutomationCoordinator}, covered separately).
  */
@@ -103,7 +103,7 @@ class TestCiFixRunExecutor
     private final GitRunner git = mock(GitRunner.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
-    private final AgentRunService agentRuns = mock(AgentRunService.class);
+    private final AgentRunServiceImpl agentRuns = mock(AgentRunServiceImpl.class);
     private final RemoteDevelopmentStageService remoteStages = mock(RemoteDevelopmentStageService.class);
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
 

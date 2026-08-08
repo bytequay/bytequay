@@ -22,8 +22,8 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.RoundGateStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
-import com.bytequay.app.service.review.ReviewRoundService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.StageStateMachine;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -48,8 +48,8 @@ class TestTaskTerminalSealer
 
     private final StageStore stageStore = mock(StageStore.class);
     private final StageStateMachine stageMachine = mock(StageStateMachine.class);
-    private final ReviewRoundService reviewRounds = mock(ReviewRoundService.class);
-    private final AgentRunService agentRuns = mock(AgentRunService.class);
+    private final ReviewRoundServiceImpl reviewRounds = mock(ReviewRoundServiceImpl.class);
+    private final AgentRunServiceImpl agentRuns = mock(AgentRunServiceImpl.class);
     private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
     private final TaskPushStore pushes = mock(TaskPushStore.class);
     private final RoundGateStore roundGates = mock(RoundGateStore.class);

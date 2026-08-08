@@ -33,14 +33,14 @@ import static org.mockito.Mockito.when;
 
 class TestThreadSignalRecorder
 {
-    private ThreadSignalService signals;
+    private ThreadSignalServiceImpl signals;
     private TaskStore taskStore;
     private ThreadSignalRecorder recorder;
 
     @BeforeEach
     void setUp()
     {
-        signals = mock(ThreadSignalService.class);
+        signals = mock(ThreadSignalServiceImpl.class);
         taskStore = mock(TaskStore.class);
         recorder = new ThreadSignalRecorder(signals, taskStore);
     }

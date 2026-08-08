@@ -33,10 +33,10 @@ public class ThreadSignalRecorder
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadSignalRecorder.class);
 
-    private final ThreadSignalService signals;
+    private final ThreadSignalServiceImpl signals;
     private final TaskStore taskStore;
 
-    public ThreadSignalRecorder(ThreadSignalService signals, TaskStore taskStore)
+    public ThreadSignalRecorder(ThreadSignalServiceImpl signals, TaskStore taskStore)
     {
         this.signals = requireNonNull(signals, "signals is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");

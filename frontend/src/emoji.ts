@@ -188,6 +188,3 @@ export function lookupEmoji(name: string): EmojiResolution | null {
   if (image !== undefined) return { kind: 'image', src: `${GITHUB_EMOJI_IMAGE_BASE}${image}.png` };
   return null;
 }
-
-/** Shortcode token charset GitHub accepts: alphanumerics, `_`, `+`, `-`. */
-export const EMOJI_SHORTCODE_RE = /:([a-z0-9_+-]+):/gi;

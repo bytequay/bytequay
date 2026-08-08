@@ -37,11 +37,6 @@ export function formatCost(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-/** Tokens as a compact `k` string: `86000` → `86.0k`, `200000` → `200.0k`. */
-export function formatTokensK(tokens: number): string {
-  return `${(tokens / 1000).toFixed(1)}k`;
-}
-
 const MIN = 60_000;
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
@@ -75,21 +70,4 @@ export function relativeShort(iso: string, nowMs: number): string {
   if (diff < HOUR) return `${Math.max(1, Math.round(diff / MIN))}m ago`;
   if (diff < DAY) return `${Math.round(diff / HOUR)}h ago`;
   return `${Math.round(diff / DAY)}d ago`;
-}
-
-/** Long relative time for the time dividers: `now`, `14 minutes ago`,
- *  `1 hour ago`, `3 days ago`. */
-export function relativeLong(iso: string, nowMs: number): string {
-  const diff = Math.max(0, nowMs - new Date(iso).getTime());
-  if (diff < 45_000) return 'now';
-  if (diff < HOUR) {
-    const m = Math.max(1, Math.round(diff / MIN));
-    return `${m} minute${m === 1 ? '' : 's'} ago`;
-  }
-  if (diff < DAY) {
-    const h = Math.round(diff / HOUR);
-    return `${h} hour${h === 1 ? '' : 's'} ago`;
-  }
-  const d = Math.round(diff / DAY);
-  return `${d} day${d === 1 ? '' : 's'} ago`;
 }

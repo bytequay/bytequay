@@ -49,7 +49,7 @@ import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.localpr.TaskPushSaga;
 import com.bytequay.app.service.pr.PullRequestClosedEvent;
 import com.bytequay.app.service.pr.PullRequestMergedEvent;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.bytequay.app.service.review.RoundGateSaga;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
@@ -118,7 +118,7 @@ public class TaskService
     private final PRService prService;
     private final TaskPushSaga pushSaga;
     private final RoundGateSaga roundGateSaga;
-    private final BrainReviewService brainReview;
+    private final BrainReviewServiceImpl brainReview;
     private final ThreadTurnScheduler scheduler;
     private final TaskRuntimeStopReconciler stopReconciler;
     private final Executor pauseTeardownExecutor;
@@ -149,7 +149,7 @@ public class TaskService
             PRService prService,
             TaskPushSaga pushSaga,
             RoundGateSaga roundGateSaga,
-            BrainReviewService brainReview,
+            BrainReviewServiceImpl brainReview,
             ThreadTurnScheduler scheduler,
             TaskRuntimeStopReconciler stopReconciler)
     {
@@ -180,7 +180,7 @@ public class TaskService
             PRService prService,
             TaskPushSaga pushSaga,
             RoundGateSaga roundGateSaga,
-            BrainReviewService brainReview,
+            BrainReviewServiceImpl brainReview,
             ThreadTurnScheduler scheduler,
             TaskRuntimeStopReconciler stopReconciler,
             Executor pauseTeardownExecutor)

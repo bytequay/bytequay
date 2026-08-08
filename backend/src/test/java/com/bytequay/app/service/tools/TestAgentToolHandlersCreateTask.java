@@ -34,7 +34,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
-import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.ThreadService;
@@ -80,7 +80,7 @@ class TestAgentToolHandlersCreateTask
     private final ThreadService threads = mock(ThreadService.class);
     private final WorkspaceService workspaces = mock(WorkspaceService.class);
     private final WorktreeService worktreeService = mock(WorktreeService.class);
-    private final BacklogService backlog = mock(BacklogService.class);
+    private final BacklogServiceImpl backlog = mock(BacklogServiceImpl.class);
     private final RepoService repoService = mock(RepoService.class);
     private final TestRunnerDetector testRunnerDetector =
             mock(TestRunnerDetector.class);

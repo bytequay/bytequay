@@ -113,14 +113,6 @@ export function reviewerLogins(row: PullRow): string[] {
   return out;
 }
 
-/** The 9px labels-chip dot: the first label's real GitHub color when synced,
- *  else the prototype's hardcoded #d4622a. */
-export function labelDotColor(row: PullRow): string {
-  const first = row.dto.labels[0];
-  const hex = first !== undefined ? row.dto.labelColors?.[first] : undefined;
-  return hex !== undefined && hex !== null && /^[0-9a-fA-F]{6}$/.test(hex) ? `#${hex}` : '#d4622a';
-}
-
 export type TimelineReply = { id: string; author: string; bot: boolean; body: string; time: string };
 
 export type TimelineReviewVerdict = 'approved' | 'changes' | 'commented' | 'dismissed' | null;

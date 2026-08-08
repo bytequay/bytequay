@@ -18,7 +18,7 @@ import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.service.review.ReviewCommentService;
+import com.bytequay.app.service.review.ReviewCommentServiceImpl;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -34,12 +34,12 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class ReviewCommentToolHandlers
 {
-    private final ReviewCommentService reviewComments;
+    private final ReviewCommentServiceImpl reviewComments;
     private final StageStore stageStore;
     private final ReviewRoundStore roundStore;
 
     public ReviewCommentToolHandlers(
-            ReviewCommentService reviewComments,
+            ReviewCommentServiceImpl reviewComments,
             StageStore stageStore,
             ReviewRoundStore roundStore)
     {

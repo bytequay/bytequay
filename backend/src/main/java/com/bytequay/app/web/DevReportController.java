@@ -14,7 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.DevReport;
-import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.review.DevReportServiceImpl;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,9 +26,9 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class DevReportController
 {
-    private final DevReportService devReports;
+    private final DevReportServiceImpl devReports;
 
-    public DevReportController(DevReportService devReports)
+    public DevReportController(DevReportServiceImpl devReports)
     {
         this.devReports = requireNonNull(devReports, "devReports is null");
     }

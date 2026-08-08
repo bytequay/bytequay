@@ -28,9 +28,9 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.backlog.BacklogService;
-import com.bytequay.app.service.question.AgentQuestionService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
+import com.bytequay.app.service.question.AgentQuestionServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ThreadService;
 import org.springframework.http.HttpStatusCode;
@@ -58,11 +58,11 @@ import static java.util.Objects.requireNonNull;
 public class TrunkActivityService
 {
     private final ThreadService threads;
-    private final AgentQuestionService questions;
+    private final AgentQuestionServiceImpl questions;
     private final NotificationService notifications;
-    private final AgentRunService runs;
+    private final AgentRunServiceImpl runs;
     private final TaskStore tasks;
-    private final BacklogService backlog;
+    private final BacklogServiceImpl backlog;
     private final ReviewRoundStore reviewRounds;
     private final WorkspaceKnowledgeService knowledge;
     private final V2AgentRunProjection v2Runs;
@@ -70,11 +70,11 @@ public class TrunkActivityService
 
     public TrunkActivityService(
             ThreadService threads,
-            AgentQuestionService questions,
+            AgentQuestionServiceImpl questions,
             NotificationService notifications,
-            AgentRunService runs,
+            AgentRunServiceImpl runs,
             TaskStore tasks,
-            BacklogService backlog,
+            BacklogServiceImpl backlog,
             ReviewRoundStore reviewRounds,
             WorkspaceKnowledgeService knowledge,
             V2AgentRunProjection v2Runs,

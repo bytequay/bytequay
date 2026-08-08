@@ -17,7 +17,7 @@ import com.bytequay.app.beans.review.AddReviewCommentRequest;
 import com.bytequay.app.beans.review.ReviewCommentDto;
 import com.bytequay.app.beans.review.SubmitReviewRequest;
 import com.bytequay.app.beans.review.SubmitReviewResponse;
-import com.bytequay.app.service.review.ReviewCommentService;
+import com.bytequay.app.service.review.ReviewCommentServiceImpl;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,9 +42,9 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class ReviewCommentController
 {
-    private final ReviewCommentService reviewComments;
+    private final ReviewCommentServiceImpl reviewComments;
 
-    public ReviewCommentController(ReviewCommentService reviewComments)
+    public ReviewCommentController(ReviewCommentServiceImpl reviewComments)
     {
         this.reviewComments = requireNonNull(reviewComments, "reviewComments is null");
     }
@@ -84,7 +84,7 @@ public class ReviewCommentController
         String bodyValue = body == null ? null : body.body();
         String verdictValue = body == null ? null : body.verdict();
         List<String> commentIds = body == null ? null : body.commentIds();
-        ReviewCommentService.SubmitResult result = reviewComments.submitReview(
+        ReviewCommentServiceImpl.SubmitResult result = reviewComments.submitReview(
                 taskId, bodyValue, verdictValue, commentIds);
         return new SubmitReviewResponse(result.submitted(), result.turnId());
     }

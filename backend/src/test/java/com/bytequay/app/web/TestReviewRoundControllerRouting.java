@@ -17,7 +17,7 @@ import com.bytequay.app.developmentflow.stage.V2RemoteFeedbackControlService;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ReviewRoundState;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.review.ReviewRoundService;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -37,7 +37,7 @@ class TestReviewRoundControllerRouting
     @Test
     void preservesLegacyReadsButRoutesOnlyV2ApprovalMutations()
     {
-        ReviewRoundService legacy = mock(ReviewRoundService.class);
+        ReviewRoundServiceImpl legacy = mock(ReviewRoundServiceImpl.class);
         V2RemoteFeedbackControlService v2 =
                 mock(V2RemoteFeedbackControlService.class);
         TaskStore tasks = mock(TaskStore.class);

@@ -16,7 +16,7 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -35,9 +35,9 @@ public class BrainReviewToolHandlers
 {
     private static final Set<String> SCOPES = Set.of("plan", "dev", "round");
 
-    private final BrainReviewService brainReview;
+    private final BrainReviewServiceImpl brainReview;
 
-    public BrainReviewToolHandlers(BrainReviewService brainReview)
+    public BrainReviewToolHandlers(BrainReviewServiceImpl brainReview)
     {
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
     }

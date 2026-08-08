@@ -20,7 +20,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.distillation.DistillationSignalService;
+import com.bytequay.app.service.distillation.DistillationSignalServiceImpl;
 import com.bytequay.app.service.threads.ThreadService;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatusCode;
@@ -40,20 +40,27 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class BacklogServiceImpl
-        implements BacklogService
 {
+    public record StartResult(BacklogItem item, String taskId) {}
+
+    public record NewBacklogItem(
+            String title, String body, List<String> tags, String priority) {}
+
+    public record BatchResult(
+            List<String> backlogItemIds, String relatedBacklogGroupId) {}
+
     private final BacklogStore store;
     private final ThreadService threadService;
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
-    private final DistillationSignalService distillation;
+    private final DistillationSignalServiceImpl distillation;
 
     public BacklogServiceImpl(
             BacklogStore store,
             ThreadService threadService,
             ThreadStore threadStore,
             TaskStore taskStore,
-            DistillationSignalService distillation)
+            DistillationSignalServiceImpl distillation)
     {
         this.store = requireNonNull(store, "store is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
@@ -61,8 +68,6 @@ public class BacklogServiceImpl
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.distillation = requireNonNull(distillation, "distillation is null");
     }
-
-    @Override
     public List<BacklogItem> list(String threadId)
     {
         List<BacklogItem> items = store.findByThread(nullToEmpty(threadId).strip());
@@ -102,8 +107,6 @@ public class BacklogServiceImpl
                 settled.threadId(), settled.workspaceId());
         return settled;
     }
-
-    @Override
     public List<BacklogItem> listForWorkspace(
             String workspaceId, String status, String threadId, String tag, String query)
     {
@@ -120,8 +123,6 @@ public class BacklogServiceImpl
                         || i.body().toLowerCase(Locale.ROOT).contains(q))
                 .toList();
     }
-
-    @Override
     public BacklogItem create(String threadId, String title, String body, List<String> tags, String priority)
     {
         String threadIdValue = nullToEmpty(threadId).strip();
@@ -153,8 +154,6 @@ public class BacklogServiceImpl
                         List.of(new BacklogItem.Link("trunk", threadIdValue)));
         return store.save(item);
     }
-
-    @Override
     public BacklogItem createForWorkspace(
             String workspaceId,
             String trunkId,
@@ -204,14 +203,10 @@ public class BacklogServiceImpl
                         nextLinks);
         return store.save(item);
     }
-
-    @Override
     public BacklogItem getForWorkspace(String workspaceId, String itemKey)
     {
         return requireForWorkspace(workspaceId, itemKey);
     }
-
-    @Override
     public BacklogItem updateForWorkspace(
             String workspaceId,
             String itemKey,
@@ -249,8 +244,6 @@ public class BacklogServiceImpl
                         nextLinks);
         return store.save(updated);
     }
-
-    @Override
     public BatchResult createBatch(String threadId, List<NewBacklogItem> items)
     {
         String threadIdValue = nullToEmpty(threadId).strip();
@@ -296,8 +289,6 @@ public class BacklogServiceImpl
         }
         return new BatchResult(ids, groupId);
     }
-
-    @Override
     public BacklogItem update(String id, String title, String body, List<String> tags, String priority)
     {
         BacklogItem existing = require(id);
@@ -312,14 +303,10 @@ public class BacklogServiceImpl
                 priority == null ? existing.priority() : normalisePriority(priority));
         return store.save(updated);
     }
-
-    @Override
     public void delete(String id)
     {
         store.delete(nullToEmpty(id).strip());
     }
-
-    @Override
     public BacklogItem skip(String id, String reason)
     {
         BacklogItem item = require(id);
@@ -334,8 +321,6 @@ public class BacklogServiceImpl
                 Map.of("title", skipped.title()), skipped.threadId(), skipped.workspaceId());
         return skipped;
     }
-
-    @Override
     public BacklogItem revive(String id)
     {
         BacklogItem item = require(id);
@@ -348,21 +333,15 @@ public class BacklogServiceImpl
                 Map.of("title", revived.title()), revived.threadId(), revived.workspaceId());
         return revived;
     }
-
-    @Override
     public StartResult startDevelopment(String id)
     {
         return startDevelopment(id, null);
     }
-
-    @Override
     public StartResult startDevelopment(String id, String trunkId)
     {
         BacklogItem item = require(id);
         return startItem(item, trunkId);
     }
-
-    @Override
     public StartResult startDevelopmentForWorkspace(
             String workspaceId, String itemKey, String trunkId)
     {
@@ -406,8 +385,6 @@ public class BacklogServiceImpl
                 Map.of("title", updated.title()), updated.threadId(), updated.workspaceId());
         return new StartResult(updated, /* taskId — none cut yet */ null);
     }
-
-    @Override
     public BacklogItem cancelExploration(String id)
     {
         BacklogItem item = require(id);
@@ -420,8 +397,6 @@ public class BacklogServiceImpl
                 Map.of("title", restored.title()), restored.threadId(), restored.workspaceId());
         return restored;
     }
-
-    @Override
     public BacklogItem resolve(String id, String taskId)
     {
         BacklogItem item = require(id);

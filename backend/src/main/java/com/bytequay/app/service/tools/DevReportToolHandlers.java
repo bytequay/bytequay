@@ -22,7 +22,7 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -53,13 +53,13 @@ public class DevReportToolHandlers
     private static final int CONVERSATION_DEFAULT_LIMIT = 30;
     private static final int CONVERSATION_MAX_LIMIT = 100;
 
-    private final DevReportService devReports;
+    private final DevReportServiceImpl devReports;
     private final StageStore stageStore;
     private final ThreadStore threadStore;
     private final ObjectMapper mapper;
 
     public DevReportToolHandlers(
-            DevReportService devReports, StageStore stageStore, ThreadStore threadStore, ObjectMapper mapper)
+            DevReportServiceImpl devReports, StageStore stageStore, ThreadStore threadStore, ObjectMapper mapper)
     {
         this.devReports = requireNonNull(devReports, "devReports is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");

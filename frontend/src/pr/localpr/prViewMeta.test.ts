@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { actorRole, avatarLabel, displayName, workflowActorRole } from './prViewMeta';
+import { actorRole, displayName, workflowActorRole } from './prViewMeta';
 import type { LocalPR } from '../../types/localPr';
 
 const pr = { author: '@octocat' } as LocalPR;
@@ -23,13 +23,11 @@ describe('local PR actor presentation', () => {
     expect(displayName('brain')).toBe('brain');
     expect(displayName('you')).toBe('You');
     expect(displayName('@octocat')).toBe('octocat');
-    expect(avatarLabel('claude-code')).toBe('D');
   });
 
   it('presents the persisted stage agent as Dev', () => {
     expect(workflowActorRole('agent')).toBe('dev');
     expect(displayName('agent')).toBe('dev');
-    expect(avatarLabel('agent')).toBe('D');
     expect(actorRole('agent', pr)).toBe('agent');
   });
 
@@ -40,7 +38,6 @@ describe('local PR actor presentation', () => {
     ]) {
       expect(workflowActorRole(actor)).toBe('brain');
       expect(displayName(actor)).toBe('brain');
-      expect(avatarLabel(actor)).toBe('B');
       expect(actorRole(actor, pr)).toBe('agent');
     }
   });

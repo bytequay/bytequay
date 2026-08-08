@@ -28,6 +28,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
@@ -40,7 +41,7 @@ public final class ReviewAssignmentTurnResultDeliveryPort
     private final ObjectReader resultReader;
     private final ObjectMapper json;
     private final Clock clock;
-    private final Supplier<ReviewAssignmentTurnContinuation> continuation;
+    private final Supplier<Consumer<String>> continuation;
 
     public ReviewAssignmentTurnResultDeliveryPort(
             Store store,
@@ -54,7 +55,7 @@ public final class ReviewAssignmentTurnResultDeliveryPort
             Store store,
             ObjectMapper json,
             Clock clock,
-            Supplier<ReviewAssignmentTurnContinuation> continuation)
+            Supplier<Consumer<String>> continuation)
     {
         this.store = requireNonNull(store, "store is null");
         this.json = requireNonNull(json, "json is null");
@@ -107,9 +108,9 @@ public final class ReviewAssignmentTurnResultDeliveryPort
                 clock.instant());
         ResultReceipt receipt = store.accept(command);
         if (receipt.acceptance() == DispatchTicket.Acceptance.ACCEPTED) {
-            ReviewAssignmentTurnContinuation resume = continuation.get();
+            Consumer<String> resume = continuation.get();
             if (resume != null) {
-                resume.resumeAfter(command.turnId());
+                resume.accept(command.turnId());
             }
         }
         return new DispatchTicket.DeliveryReceipt(

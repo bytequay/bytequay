@@ -31,7 +31,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,7 +95,7 @@ public class PRSyncService
     private final PRService prService;
     private final TaskStore taskStore;
     private final GitRunner git;
-    private final BrainReviewService brainReview;
+    private final BrainReviewServiceImpl brainReview;
     private final PullRequestService pullRequests;
     private final PRPublishService prPublish;
     private final Executor executor;
@@ -106,7 +106,7 @@ public class PRSyncService
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     public PRSyncService(
-            PRService prService, TaskStore taskStore, GitRunner git, BrainReviewService brainReview,
+            PRService prService, TaskStore taskStore, GitRunner git, BrainReviewServiceImpl brainReview,
             PullRequestService pullRequests, PRPublishService prPublish,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {

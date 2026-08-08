@@ -31,7 +31,7 @@ import static org.mockito.Mockito.verify;
 class TestDistillationSignalService
 {
     private final DistillationSignalStore store = mock(DistillationSignalStore.class);
-    private final DistillationSignalService service =
+    private final DistillationSignalServiceImpl service =
             new DistillationSignalServiceImpl(store, new ObjectMapper());
 
     @Test

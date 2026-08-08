@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.id;
 import static java.util.Objects.requireNonNull;
@@ -37,7 +38,7 @@ public final class TaskReplanMaintainer
 {
     private final SqliteTaskControlRuntimeStore store;
     private final Map<StageKind, ReplanHandoff> handoffs;
-    private final CancellationPort cancellations;
+    private final Predicate<String> cancellations;
 
     @Autowired
     public TaskReplanMaintainer(
@@ -51,7 +52,7 @@ public final class TaskReplanMaintainer
     public TaskReplanMaintainer(
             SqliteTaskControlRuntimeStore store,
             List<ReplanHandoff> handoffs,
-            CancellationPort cancellations)
+            Predicate<String> cancellations)
     {
         this.store = requireNonNull(store, "store is null");
         this.cancellations = requireNonNull(cancellations, "cancellations is null");
@@ -102,7 +103,7 @@ public final class TaskReplanMaintainer
     {
         for (String ticketId : store.liveReplanTicketIds(
                 context.taskId(), context.taskEpoch())) {
-            if (!cancellations.request(ticketId)) {
+            if (!cancellations.test(ticketId)) {
                 return;
             }
         }
@@ -126,11 +127,5 @@ public final class TaskReplanMaintainer
                 context.barrierId(),
                 id("replan-plan-stage", context.requestId()),
                 context.nextPlanGeneration()));
-    }
-
-    @FunctionalInterface
-    public interface CancellationPort
-    {
-        boolean request(String ticketId);
     }
 }

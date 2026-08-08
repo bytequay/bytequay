@@ -25,8 +25,8 @@ import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.review.BrainReviewService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.WorktreeService;
 import org.springframework.stereotype.Component;
@@ -60,15 +60,15 @@ public class PRRecordToolHandlers
 
     private final PRService prService;
     private final TaskStore taskStore;
-    private final BrainReviewService brainReview;
+    private final BrainReviewServiceImpl brainReview;
     private final ReviewRoundStore roundStore;
-    private final AgentRunService agentRuns;
+    private final AgentRunServiceImpl agentRuns;
     private final TaskPhaseMachine phaseMachine;
     private final GitRunner git;
 
     public PRRecordToolHandlers(
-            PRService prService, TaskStore taskStore, BrainReviewService brainReview,
-            ReviewRoundStore roundStore, AgentRunService agentRuns, TaskPhaseMachine phaseMachine,
+            PRService prService, TaskStore taskStore, BrainReviewServiceImpl brainReview,
+            ReviewRoundStore roundStore, AgentRunServiceImpl agentRuns, TaskPhaseMachine phaseMachine,
             GitRunner git)
     {
         this.prService = requireNonNull(prService, "prService is null");

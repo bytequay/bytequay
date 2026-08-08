@@ -29,7 +29,6 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class DistillationSignalServiceImpl
-        implements DistillationSignalService
 {
     private static final Logger log = LoggerFactory.getLogger(DistillationSignalServiceImpl.class);
 
@@ -41,8 +40,6 @@ public class DistillationSignalServiceImpl
         this.store = requireNonNull(store, "store is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
-
-    @Override
     public void record(
             String eventType,
             String sourceId,

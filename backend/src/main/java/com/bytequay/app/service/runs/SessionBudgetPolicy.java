@@ -34,13 +34,13 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class SessionBudgetPolicy
 {
-    private final AgentRunService runs;
+    private final AgentRunServiceImpl runs;
     private final NotificationService notifications;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
     public SessionBudgetPolicy(
-            AgentRunService runs,
+            AgentRunServiceImpl runs,
             NotificationService notifications,
             JdbcTemplate jdbc,
             ObjectMapper mapper)

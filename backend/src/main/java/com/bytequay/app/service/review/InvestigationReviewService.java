@@ -67,7 +67,7 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.TurnState;
 import com.bytequay.app.service.review.ReviewProviderEndpoints.AgentLaunch;
 import com.bytequay.app.service.review.TaskReviewSnapshotOperationHandler.SnapshotResult;
 import com.bytequay.app.service.review.TaskReviewSnapshotRuntime.ExecutionSubject;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -121,7 +121,6 @@ import static java.util.Objects.requireNonNull;
 /** AgentReview lifecycle and deterministic orchestration. */
 @Service
 public class InvestigationReviewService
-        implements ReviewAssignmentTurnContinuation
 {
     private static final Logger log = LoggerFactory.getLogger(InvestigationReviewService.class);
     private static final Duration PREFLIGHT_TTL = Duration.ofHours(24);
@@ -149,7 +148,7 @@ public class InvestigationReviewService
     private final InvestigationReviewStore store;
     private final InvestigationReviewContext contexts;
     private final InvestigationReviewModel runner;
-    private final AgentRunService runs;
+    private final AgentRunServiceImpl runs;
     private final PRService prs;
     private final TaskStore tasks;
     private final ThreadStore threads;
@@ -172,7 +171,7 @@ public class InvestigationReviewService
     @Autowired
     public InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
-            InvestigationReviewRunner runner, AgentRunService runs,
+            InvestigationReviewRunner runner, AgentRunServiceImpl runs,
             PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper,
             WorkspaceService workspaces)
     {
@@ -182,7 +181,7 @@ public class InvestigationReviewService
 
     InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
-            InvestigationReviewModel runner, AgentRunService runs,
+            InvestigationReviewModel runner, AgentRunServiceImpl runs,
             PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper)
     {
         this(store, contexts, runner, runs, prs, tasks, threads, mapper, null);
@@ -190,7 +189,7 @@ public class InvestigationReviewService
 
     private InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
-            InvestigationReviewModel runner, AgentRunService runs,
+            InvestigationReviewModel runner, AgentRunServiceImpl runs,
             PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper,
             WorkspaceService workspaces)
     {
@@ -266,7 +265,6 @@ public class InvestigationReviewService
         }
     }
 
-    @Override
     public void resumeAfter(String turnId)
     {
         ReviewAssignmentTurnRuntime runtime = typedReviewTurns;

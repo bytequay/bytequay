@@ -30,8 +30,7 @@ import java.util.UUID;
 import static java.util.Objects.requireNonNull;
 
 @Service
-class DevReportServiceImpl
-        implements DevReportService
+public class DevReportServiceImpl
 {
     private final DevReportStore store;
     private final Clock clock;
@@ -47,8 +46,6 @@ class DevReportServiceImpl
         this.store = requireNonNull(store, "store is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
-
-    @Override
     public DevReport record(
             String taskId, String summary, List<Decision> decisions, List<String> invariants,
             List<TrickySpot> trickySpots, List<TestMapEntry> testMap, List<String> followups)
@@ -60,14 +57,10 @@ class DevReportServiceImpl
                 nullToEmpty(decisions), nullToEmpty(invariants), nullToEmpty(trickySpots),
                 nullToEmpty(testMap), nullToEmpty(followups), Instant.now(clock)));
     }
-
-    @Override
     public Optional<DevReport> find(String taskId)
     {
         return store.findByTask(taskId);
     }
-
-    @Override
     public DevReport ensurePlaceholder(String taskId)
     {
         return store.findByTask(taskId).orElseGet(() -> store.save(new DevReport(

@@ -43,14 +43,6 @@ export function threadStatusDot(status: string): StatusDotVariant {
   }
 }
 
-/** The repo a thread targets. The thread DTO no longer projects an active
- *  task's working dir, so we fall back to a generic label.
- *  ponytail: drop per-thread repo derivation — no working-dir source on the
- *  thread DTO now; resolve from the thread's task list if this label matters. */
-export function threadRepo(_t: ThreadDto): string {
-  return 'repo';
-}
-
 function toThreadRow(t: ThreadDto): ThreadRow {
   return {
     id: t.id,

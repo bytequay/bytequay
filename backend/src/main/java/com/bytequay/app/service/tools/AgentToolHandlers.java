@@ -30,7 +30,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
-import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.ThreadService;
@@ -119,7 +119,7 @@ public class AgentToolHandlers
     private final ThreadService threads;
     private final WorktreeService worktreeService;
     private final ObjectMapper mapper;
-    private final BacklogService backlog;
+    private final BacklogServiceImpl backlog;
     private final RepoService repoService;
     private final ActiveAgentContextRegistry activeContexts;
 
@@ -139,7 +139,7 @@ public class AgentToolHandlers
             ThreadService threads,
             WorktreeService worktreeService,
             ObjectMapper mapper,
-            BacklogService backlog)
+            BacklogServiceImpl backlog)
     {
         this(taskStore, prStore, threadStore, workspaces, registry, skillTools,
                 checkpoints, testRunnerDetector, shellRunner, watchedRepos,
@@ -161,7 +161,7 @@ public class AgentToolHandlers
             ThreadService threads,
             WorktreeService worktreeService,
             ObjectMapper mapper,
-            BacklogService backlog,
+            BacklogServiceImpl backlog,
             RepoService repoService)
     {
         this(taskStore, prStore, threadStore, workspaces, registry, skillTools,
@@ -185,7 +185,7 @@ public class AgentToolHandlers
             ThreadService threads,
             WorktreeService worktreeService,
             ObjectMapper mapper,
-            BacklogService backlog,
+            BacklogServiceImpl backlog,
             RepoService repoService,
             ActiveAgentContextRegistry activeContexts)
     {

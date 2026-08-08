@@ -16,7 +16,6 @@ import type { AgentReviewData } from './review/agentReviewTypes';
 import type {
   AiLedgerDto,
   Bridge,
-  CodexCliUpdateResultDto,
   ContributionCalendarDto,
   InAppNavState,
   CredentialDto,
@@ -33,7 +32,6 @@ import type {
   EmailTagDto,
   EmailThreadDetailDto,
   EmailThreadMetaDto,
-  IssueDetailDto,
   IssueDto,
   PullRequestDetailDto,
   PullRequestDto,
@@ -47,7 +45,6 @@ import type {
   SkillDraftDto,
   SkillDto,
   SkillInput,
-  NewTaskGroupRequestDto,
   NewTaskRequestDto,
   ThreadDto,
   ThreadGroupDto,
@@ -144,8 +141,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:prCommitDiff', repo, number, sha),
   fetchFileBlob: (repo: string, path: string, sha: string) =>
     ipcRenderer.invoke('backend:fileBlob', repo, path, sha),
-  dequeuePr: (prId: number, repo: string, number: number): Promise<{ result: string }> =>
-    ipcRenderer.invoke('backend:dequeuePr', prId, repo, number),
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean): Promise<void> =>
     ipcRenderer.invoke('backend:commentPr', prId, repo, number, body, close),
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string): Promise<void> =>
@@ -207,8 +202,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:issues', owner, repo, state),
   reportByteQuayIssue: (title: string, body: string): Promise<IssueDto> =>
     ipcRenderer.invoke('productIssues:report', title, body),
-  setIssueState: (owner: string, repo: string, number: number, state: 'open' | 'closed'): Promise<IssueDetailDto> =>
-    ipcRenderer.invoke('repos:setIssueState', owner, repo, number, state),
   getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),
   searchRepos: (query: string): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:searchRepos', query),
   getRecentActivity: (login: string): Promise<RecentEventDto[]> =>
@@ -239,10 +232,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workModels:refresh'),
   getAppVersion: (): Promise<{ version: string }> =>
     ipcRenderer.invoke('app:version'),
-  getCodexCliVersion: (): Promise<{ version: string }> =>
-    ipcRenderer.invoke('codex:version'),
-  updateCodexCli: (): Promise<CodexCliUpdateResultDto> =>
-    ipcRenderer.invoke('codex:update'),
   getThreadWorkModel: (threadId: string): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:getWorkModel', { threadId }),
   setThreadWorkModel: (threadId: string, model: WorkModelDto | null): Promise<ResolvedWorkModelDto> =>
@@ -402,8 +391,6 @@ const bridge: Bridge = {
   createTask: (request: NewTaskRequestDto): Promise<ThreadDto> =>
     ipcRenderer.invoke('threads:create', request),
   listTaskGroups: (): Promise<ThreadGroupDto[]> => ipcRenderer.invoke('threadGroups:list'),
-  createTaskGroup: (request: NewTaskGroupRequestDto): Promise<ThreadGroupDto> =>
-    ipcRenderer.invoke('threadGroups:create', request),
   getTask: (id: string): Promise<ThreadDto | null> =>
     ipcRenderer.invoke('threads:get', id),
   getTaskIndex: (
@@ -421,16 +408,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:list'),
   deleteWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke('workspaces:delete', workspaceId),
-  createWorkspace: (
-    req: {
-      name: string;
-      slug?: string;
-      isScratch?: boolean;
-      promptContext?: string;
-      repoFullNames?: string[];
-    },
-  ): Promise<WorkspaceDto> =>
-    ipcRenderer.invoke('workspaces:create', req),
   listWorkspaceRepos: (workspaceId: string): Promise<WorkspaceRepoDto[]> =>
     ipcRenderer.invoke('workspaces:repos:list', workspaceId),
   getWorkspaceMemory: (workspaceId: string): Promise<{ memoryMd: string }> =>

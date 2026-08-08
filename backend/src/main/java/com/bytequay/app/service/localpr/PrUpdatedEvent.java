@@ -14,7 +14,7 @@
 package com.bytequay.app.service.localpr;
 
 /**
- * Published by {@link PRServiceImpl} after every write to a PR's row, its
+ * Published by {@link PRService} after every write to a PR's row, its
  * commits, its timeline, its checks, or its comments — a single "this PR
  * changed" signal a frontend `pr-updated` stream can subscribe to, so a task
  * pane and a details page open on the same PR both know to re-fetch.

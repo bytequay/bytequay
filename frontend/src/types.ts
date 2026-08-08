@@ -1132,12 +1132,6 @@ export type WorkModelOptionsDto = {
   apiProviders: WorkModelProviderOptionDto[];
 };
 
-export type CodexCliUpdateResultDto = {
-  previousVersion: string;
-  version: string;
-  output: string;
-};
-
 /** A skill row — the model-triggered chunk of context the agent
  *  loads on demand via the list_skills / load_skill tools, or — for
  *  rubrics — an always-applied hint the review path resolves up front.
@@ -1421,17 +1415,6 @@ export type ThreadGroupDto = {
   updatedAt: string;
 };
 
-export type NewTaskGroupRequestDto = {
-  name: string;
-  glyph?: string;
-  color?: string;
-  sortOrder?: number;
-  /** Required — at least one existing thread id. A group can never sit
-   *  empty under the new invariant, and the cap of 4 is enforced on
-   *  the backend. */
-  initialTaskIds: string[];
-};
-
 /** One queued/running/completed scheduler turn. This is separate from
  *  ThreadMessageDto: messages are the transcript, turns are scheduler
  *  capacity state. */
@@ -1605,10 +1588,6 @@ export type TaskPhaseDto =
   | 'AWAITING_UPDATE_PUSH'
   | 'COMPLETED'
   | 'NEEDS_ATTENTION';
-
-/** Coarse trunk-card grouping over {@link TaskPhaseDto} (backend
- *  TaskPhaseGroup). */
-export type TaskPhaseGroupDto = 'IN_PROGRESS' | 'AWAITING_YOU' | 'IDLE' | 'DONE';
 
 export type WorkUnitTaskDto = {
   id: string;
@@ -2454,10 +2433,6 @@ export type Bridge = {
   /** Returns a file's full content at a ref, as a list of lines. Powers the
    *  "expand collapsed code" buttons in the diff viewer. */
   fetchFileBlob: (repo: string, path: string, sha: string) => Promise<{ lines: string[] }>;
-  /** Removes a PR from its repo's merge queue. Mirrors the "Remove
-   *  from queue" button on github.com's merge bar. No-op when the PR
-   *  isn't currently in a queue. */
-  dequeuePr: (prId: number, repo: string, number: number) => Promise<{ result: string }>;
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean) => Promise<void>;
   /** Adds a single user to the PR's requested reviewers. */
   addRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;
@@ -2517,7 +2492,6 @@ export type Bridge = {
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
   /** Files a product bug in bytequay/bytequay regardless of watched repos. */
   reportByteQuayIssue: (title: string, body: string) => Promise<IssueDto>;
-  setIssueState: (owner: string, repo: string, number: number, state: 'open' | 'closed') => Promise<IssueDetailDto>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** All watched repos plus their local-clone state (CLEAN / MODIFIED /
@@ -2640,8 +2614,6 @@ export type Bridge = {
   refreshWorkModelOptions: () => Promise<WorkModelOptionsDto>;
   /** Electron's own `app.getVersion()` — the packaged app version. */
   getAppVersion: () => Promise<{ version: string }>;
-  getCodexCliVersion: () => Promise<{ version: string }>;
-  updateCodexCli: () => Promise<CodexCliUpdateResultDto>;
   /** Resolve the effective work model for a thread (cascade: thread →
    *  workspace → global default). */
   getThreadWorkModel: (threadId: string) => Promise<ResolvedWorkModelDto>;
@@ -2786,9 +2758,6 @@ export type Bridge = {
   createTask: (request: NewTaskRequestDto) => Promise<ThreadDto>;
   /** User-defined groups in display order. */
   listTaskGroups: () => Promise<ThreadGroupDto[]>;
-  /** Insert one group along with its initial members
-   *  ({@code initialTaskIds} must contain ≥ 1 and ≤ 4 ids). */
-  createTaskGroup: (request: NewTaskGroupRequestDto) => Promise<ThreadGroupDto>;
   /** Single thread by id; null when no row matches. */
   getTask: (id: string) => Promise<ThreadDto | null>;
   /** One window of the conversation index — user-prompt entries
@@ -2820,20 +2789,6 @@ export type Bridge = {
   /** Drop a workspace entirely. Threads pointing at it are left
    *  orphaned — the UI warns the user before calling this. */
   deleteWorkspace: (workspaceId: string) => Promise<void>;
-  /** Create a new workspace. The optional {@code promptContext} is
-   *  appended to {@code memoryMd} so every thread reads it first;
-   *  {@code repoFullNames} pins the picked watched repos. {@code slug}
-   *  is the immutable id segment (without the {@code ws-} prefix); the
-   *  dialog derives it live from {@code name} and lets the user
-   *  override before commit, then locks. Omit to let the backend
-   *  derive from {@code name}. */
-  createWorkspace: (req: {
-    name: string;
-    slug?: string;
-    isScratch?: boolean;
-    promptContext?: string;
-    repoFullNames?: string[];
-  }) => Promise<WorkspaceDto>;
   /** List the repos attached to a workspace. Used by the watched-repos
    *  settings page to read each repo's auto-fix flag — the data lives
    *  on workspace_repos, not on the watched-repos table itself. */

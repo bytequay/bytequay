@@ -14,8 +14,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { Agent, type Dispatcher, setGlobalDispatcher } from 'undici';
 import {
   isPendingManualValidationResponse,
@@ -42,8 +40,6 @@ const manualValidationDispatcher = new Agent({
   headersTimeout: 11 * 60_000,
   bodyTimeout: 11 * 60_000,
 });
-
-const execFileAsync = promisify(execFile);
 
 // Keep one command identity across a transport/server failure so an explicit
 // user retry replays the durable backend result instead of authorizing a
@@ -1526,22 +1522,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     }
   });
 
-  ipcMain.handle('backend:dequeuePr', async (_event, prId: number, repo: string, number: number) => {
-    const url = new URL(`${BACKEND_BASE}/prs/merge-queue`);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('number', String(number));
-    const intent = `dashboard-dequeue:${repo}#${number}`;
-    const res = await fetchPrRemoteCommand(intent, url.toString(), { method: 'DELETE' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Remove from queue failed (${res.status}): ${body}`);
-    }
-    const result = await res.json();
-    completePrRemoteCommand(intent);
-    return result;
-  });
-
   ipcMain.handle('repos:list', async () => {
     return backendJson(`${BACKEND_BASE}/api/repos`);
   });
@@ -1604,17 +1584,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, body: reportBody }),
     });
-  });
-
-  ipcMain.handle('repos:setIssueState', async (_event, owner: string, repo: string, number: number, state: 'open' | 'closed') => {
-    return backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state }),
-      },
-    );
   });
 
   ipcMain.handle('repos:meta', async (_event, owner: string, repo: string) => {
@@ -2102,14 +2071,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return backendJson(`${BACKEND_BASE}/api/thread-groups`);
   });
 
-  ipcMain.handle('threadGroups:create', async (_event, request: unknown) => {
-    return backendJson(`${BACKEND_BASE}/api/thread-groups`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request ?? {}),
-    });
-  });
-
   ipcMain.handle('threads:create', async (_event, request: unknown) => {
     return backendJson(`${BACKEND_BASE}/api/threads`, {
       method: 'POST',
@@ -2377,37 +2338,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     if (response.status === 204) return null;
     return response.json();
-  });
-
-  ipcMain.handle('workspaces:create', async (_event, args: unknown) => {
-    const a = (args ?? {}) as {
-      name?: unknown;
-      slug?: unknown;
-      isScratch?: unknown;
-      promptContext?: unknown;
-      repoFullNames?: unknown;
-    };
-    if (typeof a.name !== 'string' || a.name.trim().length === 0) {
-      throw new Error('name must be a non-empty string');
-    }
-    const body: Record<string, unknown> = {
-      name: a.name,
-      isScratch: typeof a.isScratch === 'boolean' ? a.isScratch : false,
-    };
-    if (typeof a.slug === 'string' && a.slug.trim().length > 0) {
-      body.slug = a.slug.trim();
-    }
-    if (typeof a.promptContext === 'string') {
-      body.promptContext = a.promptContext;
-    }
-    if (Array.isArray(a.repoFullNames)) {
-      body.repoFullNames = a.repoFullNames.filter((s): s is string => typeof s === 'string');
-    }
-    return backendJson(`${BACKEND_BASE}/api/workspaces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
   });
 
   ipcMain.handle('workspaces:delete', async (_event, workspaceId: unknown) => {
@@ -3516,33 +3446,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     finally {
       clearTimeout(t);
-    }
-  });
-
-  const codexVersion = async (): Promise<string> => {
-    const { stdout } = await execFileAsync('codex', ['--version'], {
-      encoding: 'utf8', timeout: 10_000,
-    });
-    return stdout.trim().replace(/^codex-cli\s+/, '');
-  };
-
-  ipcMain.handle('codex:version', async () => ({ version: await codexVersion() }));
-
-  ipcMain.handle('codex:update', async () => {
-    const previousVersion = await codexVersion();
-    try {
-      const { stdout, stderr } = await execFileAsync('codex', ['update'], {
-        encoding: 'utf8', timeout: 180_000,
-      });
-      return {
-        previousVersion,
-        version: await codexVersion(),
-        output: [stdout, stderr].filter(Boolean).join('\n').trim(),
-      };
-    }
-    catch (e) {
-      const detail = e instanceof Error ? e.message : String(e);
-      throw new Error(`Codex update failed: ${detail}`);
     }
   });
 

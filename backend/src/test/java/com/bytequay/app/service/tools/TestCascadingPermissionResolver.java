@@ -57,8 +57,8 @@ class TestCascadingPermissionResolver
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final PermissionGrantStore grantStore = mock(PermissionGrantStore.class);
 
-    private final CascadingPermissionResolver resolver =
-            new CascadingPermissionResolver(threadStore, turnStore, grantStore);
+    private final PermissionResolver resolver =
+            new PermissionResolver(threadStore, turnStore, grantStore);
 
     @Test
     void trunkTurnResolvesToTrunkBaseWhenNoGrants()
@@ -237,7 +237,7 @@ class TestCascadingPermissionResolver
                         role.resources(), Set.of("approval_prompt")),
                 new PermissionResolver.RunningScope(
                         ThreadScope.STAGE, "task-v2", "stage-v2", "turn-1"));
-        CascadingPermissionResolver typed = new CascadingPermissionResolver(
+        PermissionResolver typed = new PermissionResolver(
                 threadStore, turnStore, grantStore, active);
         runningTurn(threadId, null);
         when(threadStore.findThreadById(threadId))

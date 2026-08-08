@@ -690,14 +690,6 @@ export type WorkspaceSessionDto = {
   changes?: WorkspaceSessionChangesDto;
 };
 
-export type PlanLimitDto = {
-  id: string;
-  label: string;
-  usedPercent: number;
-  resetsAt: number;
-  model: string | null;
-};
-
 export type WorkspaceSessionTimelineItemDto = {
   id: string;
   title: string;

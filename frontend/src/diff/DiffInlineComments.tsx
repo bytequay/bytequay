@@ -16,10 +16,6 @@ import { presentFinding, type AgentFindingPresentation } from '../review/AgentEv
 import type { AgentReviewData } from '../review/agentReviewTypes';
 import { QUICK_REVIEW_AUTHOR, workflowActorRole } from '../pr/localpr/prViewMeta';
 
-function isAgentAuthor(author: string): boolean {
-  return workflowActorRole(author) !== null;
-}
-
 /** "R42" for a single line, or "L40 to R42" for a multi-line range — shared
  *  by every diff-comment composer so the copy reads identically everywhere. */
 export function rangeLabel(
@@ -54,16 +50,6 @@ export type DiffInlineComment = {
   createdAtMs?: number;
   finding?: AgentFindingPresentation;
 };
-
-/** Avatar tint: the dev agent's own findings (bot) vs. a real reviewer's
- *  comment synced from GitHub (ext) vs. the current user's own draft (you).
- *  Exported so the Review tab's pending cards (ReviewTabPendingList) use the
- *  same avatar coloring as the inline thread cards. */
-export function avatarKind(c: Pick<DiffInlineComment, 'sourceLabel' | 'author' | 'origin'>): 'bot' | 'ext' | 'you' {
-  if (c.sourceLabel === 'BRAIN' || c.sourceLabel === 'DEV' || isAgentAuthor(c.author)) return 'bot';
-  if (c.origin === 'remote') return 'ext';
-  return 'you';
-}
 
 /** Still-open local drafts that would be swept into the next submission — the
  *  set the Submit-review drawer's pending list and toolbar count show. */

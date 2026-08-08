@@ -88,7 +88,7 @@ class TestPRService
     private final TaskPushStore pushes = mock(TaskPushStore.class);
     private final PlatformTransactionManager transactions = new TestTransactionManager();
     private final TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
-    private final PRService service = new PRServiceImpl(
+    private final PRService service = new PRService(
             store, devReports, new ObjectMapper(), stageStore, taskStore, turnStore,
             submissions, pushes, commands, events, Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -196,7 +196,7 @@ class TestPRService
         PR local = pr(PR.STATUS_LOCAL_OPEN);
         V2LocalReviewControl typed = mock(V2LocalReviewControl.class);
         when(typed.handles(local)).thenReturn(true);
-        ((PRServiceImpl) service).setV2LocalReview(typed);
+        service.setV2LocalReview(typed);
 
         service.updateDetails("pr1", "New title", "New body");
 

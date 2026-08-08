@@ -15,7 +15,7 @@ import { parseUnifiedDiff } from '../diffParse';
 import type { DiffFileDto } from '../types';
 import type { LocalPRBundle, LocalPRComment, LocalPRTimelineEvent } from '../types/localPr';
 import type {
-  AgentReviewData, FindingEvidenceRow, FindingVerificationRow, PanelReviewRunRow, ReviewRoundRow, VerificationStatus,
+  AgentReviewData, FindingEvidenceRow, FindingVerificationRow, VerificationStatus,
 } from './agentReviewTypes';
 
 // Test-only builders. Runtime review surfaces load the persisted backend aggregate.
@@ -196,22 +196,6 @@ function findAnchor(files: DiffFileDto[] | null, index = 0): { path: string; lin
   const line = parseUnifiedDiff(file.patch).flatMap(hunk => hunk.rows)
     .find(row => row.newLine !== null)?.newLine ?? 1;
   return { path: file.filename, line };
-}
-
-/** Canonical fixture rows for each locked episode presentation. The status
- * values remain the landed AgentRun set; cap/trigger facts disambiguate the
- * halted, stale, and auto-continue presentations. */
-export function createRoundStateFixtures(data: AgentReviewData): Array<{ round: ReviewRoundRow; run: PanelReviewRunRow }> {
-  const round = data.rounds[0];
-  const run = data.runs[0];
-  return [
-    { round, run },
-    { round: { ...round, id: 'round-live', status: 'RUNNING', cost_cents: 8 }, run: { ...run, id: 'run-live', reviewRoundId: 'round-live', status: 'running', finishedAt: null } },
-    { round: { ...round, id: 'round-error', status: 'ERRORED', cost_cents: 9 }, run: { ...run, id: 'run-error', reviewRoundId: 'round-error', status: 'failed' } },
-    { round: { ...round, id: 'round-halted', status: 'ERRORED', cost_cents: 50 }, run: { ...run, id: 'run-halted', reviewRoundId: 'round-halted', status: 'failed' } },
-    { round: { ...round, id: 'round-stale', status: 'CANCELLED', trigger: 'stale' }, run: { ...run, id: 'run-stale', reviewRoundId: 'round-stale', status: 'cancelled' } },
-    { round: { ...round, id: 'round-auto', status: 'RUNNING', trigger: 'auto_continue', cost_cents: 2 }, run: { ...run, id: 'run-auto', reviewRoundId: 'round-auto', status: 'running', finishedAt: null } },
-  ];
 }
 
 export function createVerificationStateFixture(data: AgentReviewData, status: VerificationStatus): AgentReviewData {

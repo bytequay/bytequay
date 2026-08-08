@@ -157,6 +157,26 @@ class TestHarnessStore
     }
 
     @Test
+    void howLongAHeadHasBeenPendingIsReadOffTheCyclesThatSawIt()
+    {
+        Watch watch = watch();
+        store.insertWatch(watch);
+        Cycle first = store.startCycle("cycle-1", watch.id(), "poll", null, 1_000);
+        store.updateCycleProgress(
+                first.id(), CycleStatus.RUNNING, Phase.PROBE, "head-a", null, null, 1_000);
+        store.finishCycle(first.id(), CycleStatus.NO_CHANGE, Phase.PROBE, 0,
+                null, null, null, null, 2_000);
+        Cycle second = store.startCycle("cycle-2", watch.id(), "poll", null, 5_000);
+        store.updateCycleProgress(
+                second.id(), CycleStatus.RUNNING, Phase.PROBE, "head-a", null, null, 5_000);
+
+        // The earliest sighting, not the latest — that is what says how long the
+        // board has been telling us nothing.
+        assertThat(store.headFirstSeenAtMs(watch.id(), "head-a", 99)).isEqualTo(1_000);
+        assertThat(store.headFirstSeenAtMs(watch.id(), "head-b", 99)).isEqualTo(99);
+    }
+
+    @Test
     void handoffWatchesRemainPollableForTheNextRemoteHead()
     {
         Watch watch = watch();

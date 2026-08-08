@@ -42,6 +42,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -324,6 +325,87 @@ class TestHarnessOrchestrator
         verify(agent, never()).fix(any(), any(), anyList(), anyLong(), any(), any(), any());
         verify(store).updateWatchStatusIfNotStopped(
                 eq(watch.id()), eq(WatchStatus.WATCHING), isNull(), anyLong());
+    }
+
+    @Test
+    void aBoardFailingTooWidelyIsFixedWithoutWaitingForTheRest()
+            throws Exception
+    {
+        // Eleven checks red with more still running. The rest of the board is not
+        // going to redeem this one, so there is nothing to wait for.
+        Watch watch = watch(WatchStatus.RUNNING, "old", null);
+        Failure failure = stubAgentDiagnosis(watch);
+        when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
+        stubPendingBoard(watch, 11);
+        stubSuccessfulRound(watch);
+
+        orchestrator.runCycle(cycle.id());
+
+        verify(agent).fix(any(), eq("ws"), eq(List.of(failure)), anyLong(), any(), any(), any());
+        verify(git).pushRewrittenBranch(any(), eq("feature"), eq("new"));
+    }
+
+    @Test
+    void aBoardPendingForHoursIsFixedRatherThanProbedForever()
+            throws Exception
+    {
+        // One red check and a board that has sat on this head for three hours.
+        // Waiting has stopped telling us anything.
+        Watch watch = watch(WatchStatus.RUNNING, "old", null);
+        Failure failure = stubAgentDiagnosis(watch);
+        when(store.listFailuresForCycle(cycle.id())).thenReturn(List.of(failure));
+        stubPendingBoard(watch, 1);
+        when(store.headFirstSeenAtMs(eq(watch.id()), eq("new"), anyLong()))
+                .thenReturn(System.currentTimeMillis() - 3 * 3_600_000L);
+        stubSuccessfulRound(watch);
+
+        orchestrator.runCycle(cycle.id());
+
+        verify(agent).fix(any(), eq("ws"), eq(List.of(failure)), anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void aBoardPendingWithOneFailureForMinutesStillWaits()
+            throws Exception
+    {
+        Watch watch = watch(WatchStatus.RUNNING, "old", null);
+        stubAgentDiagnosis(watch);
+        stubPendingBoard(watch, 1);
+        when(store.headFirstSeenAtMs(eq(watch.id()), eq("new"), anyLong()))
+                .thenReturn(System.currentTimeMillis() - 600_000L);
+
+        orchestrator.runCycle(cycle.id());
+
+        verify(agent, never()).fix(any(), any(), anyList(), anyLong(), any(), any(), any());
+    }
+
+    /** A half-finished board with {@code failures} checks already red. */
+    private void stubPendingBoard(Watch watch, int failures)
+    {
+        List<FailedJob> red = IntStream.range(0, failures)
+                .mapToObj(index -> new FailedJob(
+                        "run", 7, "build", "failure", false, "plan mismatch"))
+                .toList();
+        when(probe.probe(watch, BootstrapProfile.empty())).thenReturn(new ProbeResult(
+                "new", "base", "feature", false, true, red, "build: failure"));
+        when(store.finishCycleIfLive(
+                eq(cycle.id()), eq(CycleStatus.NO_CHANGE), eq(Phase.PROBE), anyLong(),
+                isNull(), isNull(), any(), isNull(), anyLong())).thenReturn(true);
+        when(store.updateWatchStatusIfNotStopped(
+                eq(watch.id()), eq(WatchStatus.WATCHING), isNull(), anyLong())).thenReturn(true);
+    }
+
+    private void stubSuccessfulRound(Watch watch)
+            throws Exception
+    {
+        when(agent.fix(any(), eq("ws"), anyList(), anyLong(), any(), any(), any()))
+                .thenReturn(new HarnessRepairAgent.Outcome(
+                        true, false, "fixed the compile break", 300, "session-2"));
+        when(git.pushRewrittenBranch(any(), eq("feature"), eq("new")))
+                .thenReturn(new GitRunner.GitResult(0, "", "", List.of()));
+        when(store.finishHandoff(
+                eq(cycle.id()), eq(watch.id()), anyLong(), isNull(), isNull(),
+                anyString(), anyString(), anyLong())).thenReturn(true);
     }
 
     @Test

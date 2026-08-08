@@ -76,6 +76,16 @@ public class HarnessOrchestrator
      * failed — this round works on what has failed so far and lets the rest run.
      */
     public static final String TRIGGER_FIX_NOW = "fix_now";
+    /**
+     * How many failed jobs make a board broken enough to act on before the rest
+     * of it reports, and how long a board that has not settled is left alone
+     * first. Above the count there is no wait at all; at the count, an hour;
+     * below it, two — waiting longer than that has never yet turned a failing
+     * board green.
+     */
+    private static final int WIDE_FAILURE_JOBS = 10;
+    private static final long WIDE_FAILURE_GRACE_MS = 3_600_000;
+    private static final long ANY_FAILURE_GRACE_MS = 7_200_000;
     /** A turn's JSONL is unbounded; the log shows the head of it. */
     private static final int MAX_TRANSCRIPT = 64_000;
     /** Where a round leaves the full log of every job it found red, relative to
@@ -275,8 +285,9 @@ public class HarnessOrchestrator
             // running may yet fail, and fixing early wastes a push. The one
             // exception is a round the user asked for by name, where whatever
             // has already failed is evidence enough to work from.
-            boolean fixWhatFailedSoFar = TRIGGER_FIX_NOW.equals(cycle.triggerKind())
-                    && !result.failedJobs().isEmpty();
+            boolean fixWhatFailedSoFar = !result.failedJobs().isEmpty()
+                    && (TRIGGER_FIX_NOW.equals(cycle.triggerKind())
+                            || failingTooWidelyOrForTooLong(watch, result));
             if (result.pending() && !fixWhatFailedSoFar) {
                 finishNoChange(watch, cycle, "CI is still running", result.runStatusTail());
                 return;
@@ -308,6 +319,33 @@ public class HarnessOrchestrator
         catch (RuntimeException failure) {
             failCycle(watch, cycle, failure);
         }
+    }
+
+    /**
+     * Whether a board that has not settled already carries enough to work from.
+     *
+     * <p>Waiting is normally right: a check still running may yet fail, and
+     * fixing early wastes a push. But a board failing this widely is not going
+     * to be redeemed by the rest of it, and a board that has sat on the same
+     * head for hours is not telling us anything new either. The ladder is
+     * deliberately monotone — the wider the failure, the shorter the wait.
+     */
+    private boolean failingTooWidelyOrForTooLong(Watch watch, ProbeResult result)
+    {
+        int failures = result.failedJobs().size();
+        if (failures > WIDE_FAILURE_JOBS) {
+            return true;
+        }
+        if (result.headSha() == null) {
+            return false;
+        }
+        long firstSeen = store.headFirstSeenAtMs(watch.id(), result.headSha(), now());
+        // An unknown first sighting is this one: a head nobody has recorded yet
+        // has been pending for no time at all.
+        long pendingMs = firstSeen <= 0 ? 0 : now() - firstSeen;
+        return failures >= WIDE_FAILURE_JOBS
+                ? pendingMs >= WIDE_FAILURE_GRACE_MS
+                : pendingMs >= ANY_FAILURE_GRACE_MS;
     }
 
     private List<Failure> persistFailures(

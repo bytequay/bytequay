@@ -15,7 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.brain.BrainMessageRequest;
 import com.bytequay.app.beans.brain.BrainMessageResponse;
-import com.bytequay.app.service.brain.BrainService;
+import com.bytequay.app.service.brain.BrainServiceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,9 +35,9 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class BrainController
 {
-    private final BrainService brainService;
+    private final BrainServiceImpl brainService;
 
-    public BrainController(BrainService brainService)
+    public BrainController(BrainServiceImpl brainService)
     {
         this.brainService = requireNonNull(brainService, "brainService is null");
     }

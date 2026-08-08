@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { renderChatMarkdown, renderMarkdown } from './markdown';
+import { renderMarkdown } from './markdown';
 
-describe('renderChatMarkdown diff blocks', () => {
+describe('renderMarkdown diff blocks', () => {
   it('paints add / del / hunk / meta rows for a plain fenced diff', () => {
     const md = [
       '```',
@@ -27,7 +27,7 @@ describe('renderChatMarkdown diff blocks', () => {
       '```',
     ].join('\n');
 
-    const html = renderChatMarkdown(md);
+    const html = renderMarkdown(md);
 
     expect(html).toContain('<pre class="bq-diff">');
     expect(html).toContain('class="bq-diff-line bq-diff-meta">--- a/Foo.java');
@@ -38,19 +38,19 @@ describe('renderChatMarkdown diff blocks', () => {
   });
 
   it('honours an explicit ```diff fence', () => {
-    const html = renderChatMarkdown('```diff\n-gone\n+here\n```');
+    const html = renderMarkdown('```diff\n-gone\n+here\n```');
     expect(html).toContain('bq-diff-del');
     expect(html).toContain('bq-diff-add');
   });
 
   it('escapes html inside diff lines', () => {
-    const html = renderChatMarkdown('```diff\n+<script>x</script>\n@@ -1 +1 @@\n```');
+    const html = renderMarkdown('```diff\n+<script>x</script>\n@@ -1 +1 @@\n```');
     expect(html).toContain('+&lt;script&gt;x&lt;/script&gt;');
     expect(html).not.toContain('<script>');
   });
 
   it('syntax-highlights a non-diff code block', () => {
-    const html = renderChatMarkdown('```js\nconst a = 1;\n```');
+    const html = renderMarkdown('```js\nconst a = 1;\n```');
     expect(html).not.toContain('bq-diff');
     expect(html).toContain('<pre>');
     // highlight.js tokenises the code: same text, wrapped in hljs spans.
@@ -82,7 +82,7 @@ describe('emoji shortcodes', () => {
 
   it('does not emojify inside code spans or fences', () => {
     expect(renderMarkdown('`:shipit:`')).not.toContain('<img');
-    expect(renderChatMarkdown('```\n:shipit:\n```')).not.toContain('<img');
+    expect(renderMarkdown('```\n:shipit:\n```')).not.toContain('<img');
   });
 
   it('does not mistake a time like 12:00:00 for a shortcode', () => {

@@ -12,8 +12,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SVG="$ROOT/assets/logo.svg"
-ICONSET_DIR="$ROOT/build/icon.iconset"
-RENDERER="$(mktemp -t svg2png).swift"
+TEMP_DIR="$(mktemp -d -t bytequay-icons)"
+ICONSET_DIR="$TEMP_DIR/icon.iconset"
+RENDERER="$TEMP_DIR/svg2png.swift"
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 if [[ ! -f "$SVG" ]]; then
   echo "[build-icons] missing $SVG"; exit 1
@@ -62,5 +64,4 @@ done
 echo "[build-icons] bundling icon.icns"
 iconutil -c icns "$ICONSET_DIR" -o "$ROOT/build/icon.icns"
 
-rm "$RENDERER"
 echo "[build-icons] done — restart the app to see the new icon"

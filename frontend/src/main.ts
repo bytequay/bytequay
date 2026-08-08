@@ -578,12 +578,7 @@ const createWindow = async () => {
 };
 
 async function ds4Get(path: string): Promise<unknown> {
-  const res = await fetch(`${BACKEND_BASE}${path}`);
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(detail || `${path} returned ${res.status}`);
-  }
-  return res.json();
+  return backendJson(`${BACKEND_BASE}${path}`);
 }
 
 async function ds4Post(path: string): Promise<unknown> {
@@ -595,6 +590,16 @@ async function ds4Post(path: string): Promise<unknown> {
     throw new Error(detail || `${path} returned ${res.status}`);
   }
   return res.json();
+}
+
+async function backendJson<T = unknown>(input: string | URL, init?: RequestInit): Promise<T> {
+  const response = await fetch(input, init);
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(extractMessage(body)
+      || `${init?.method ?? 'GET'} ${input.toString()} returned ${response.status}`);
+  }
+  return response.json() as Promise<T>;
 }
 
 function registerIpc(): void {
@@ -695,12 +700,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('backend:listPrs', async () => {
-    const res = await fetch(`${BACKEND_BASE}/prs`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/prs`);
   });
 
   // On-demand single-PR lookup straight from GitHub by repo + number,
@@ -712,12 +712,7 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/lookup`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/lookup returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   // The dev-task / review links for one PR — drives the dashboard row's
@@ -727,12 +722,7 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/linked-tasks`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/linked-tasks returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   // Cut a task under an existing thread now — materialises a dev branch +
@@ -740,16 +730,11 @@ function registerIpc(): void {
   ipcMain.handle('backend:cutTaskNow', async (
     _event, threadId: string, kind: string, title: string, workingDir: string,
     initialPrompt: string | null) => {
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks`, {
+    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, title, workingDir, initialPrompt }),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend cut task returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   // Append to (or replace) a QUEUED task's opening prompt — the agent's
   // first-turn input once its slot opens.
@@ -759,35 +744,20 @@ function registerIpc(): void {
   // same code path the list_prs agent tool uses. The dashboard's
   // urgent tab calls this so "urgent" has one definition only.
   ipcMain.handle('backend:listPrsByFilter', async (_event, name: string) => {
-    const res = await fetch(`${BACKEND_BASE}/prs/filter/${encodeURIComponent(name)}`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/filter/${name} returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/prs/filter/${encodeURIComponent(name)}`);
   });
 
   // Saved Views — user-defined concepts (scope=USER) the agent's
   // list_terms / lookup_term tools can read.
   ipcMain.handle('backend:listSavedViews', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/concepts/user`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/concepts/user returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/concepts/user`);
   });
   ipcMain.handle('backend:createSavedView', async (_event, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/concepts/user`, {
+    return backendJson(`${BACKEND_BASE}/api/concepts/user`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend create saved view returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('backend:deleteSavedView', async (_event, name: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/concepts/user/${encodeURIComponent(name)}`, {
@@ -804,22 +774,12 @@ function registerIpc(): void {
   // surface below the blob diff; later phases promote them to the
   // canonical banner.
   ipcMain.handle('backend:listPendingMemoryItems', async (_event, workspaceId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/items/pending`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend pending memory items returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/items/pending`);
   });
   ipcMain.handle('backend:applyMemoryItem', async (_event, workspaceId: string, itemId: number) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/items/${itemId}/apply`,
       { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend apply memory item returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
   ipcMain.handle('backend:discardMemoryItem', async (_event, workspaceId: string, itemId: number) => {
     const res = await fetch(
@@ -834,31 +794,16 @@ function registerIpc(): void {
   // Prompt-context inspector. Always dryRun=true — there is no
   // "send" path through this endpoint, server-side or otherwise.
   ipcMain.handle('backend:getThreadContext', async (_event, threadId: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/context?dryRun=true`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend thread context returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
   ipcMain.handle('backend:getTaskContext', async (_event, threadId: string, taskId: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/context?dryRun=true`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend task context returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('backend:getTaskTrace', async (_event, taskId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/trace`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend task trace returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/trace`);
   });
 
   // Concept catalog — read-only viewer endpoint behind the
@@ -868,12 +813,7 @@ function registerIpc(): void {
     const params = new URLSearchParams();
     if (query.kind) params.set('kind', query.kind);
     if (query.query) params.set('query', query.query);
-    const res = await fetch(`${BACKEND_BASE}/api/concepts?${params.toString()}`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend list concepts returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/concepts?${params.toString()}`);
   });
 
   ipcMain.handle('backend:markPrViewedByRef', async (_event, repo: string, number: number) => {
@@ -918,33 +858,18 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/history`);
     url.searchParams.set('page', String(page));
     if (typeof perPage === 'number') url.searchParams.set('perPage', String(perPage));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/history returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:prAnalytics', async (_event, scope: string, tz?: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/analytics`);
     url.searchParams.set('scope', scope);
     if (tz) url.searchParams.set('tz', tz);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/analytics returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('brain:getView', async (_event, taskId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend brain view returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain`);
   });
 
   ipcMain.handle('tasks:updateGuard', async (_event, args: unknown) => {
@@ -962,22 +887,17 @@ function registerIpc(): void {
     if (typeof a.schedule === 'string' && a.schedule.length > 0) {
       body.schedule = a.schedule;
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(a.taskId)}/guard`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /api/tasks/${a.taskId}/guard returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('brain:sendMessage', async (_event, taskId: string, text: string, images?: string[]) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/brain/message`,
       {
         method: 'POST',
@@ -985,20 +905,10 @@ function registerIpc(): void {
         body: JSON.stringify({ text, images }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend brain message returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('stages:getDetail', async (_event, stageId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/detail`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend stage detail returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/detail`);
   });
 
   ipcMain.handle('stages:getReadinessAssistance', async (
@@ -1021,7 +931,7 @@ function registerIpc(): void {
     stageId: string,
     body: import('./types').ReadinessAssistanceRequest,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/stages/${encodeURIComponent(stageId)}/readiness-assistance`,
       {
         method: 'POST',
@@ -1029,48 +939,23 @@ function registerIpc(): void {
         body: JSON.stringify(body),
       },
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(`backend readiness assistance returned ${res.status}: ${detail}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('runs:forTask', async (_event, taskId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/runs`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend task runs returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/runs`);
   });
 
   ipcMain.handle('runs:get', async (_event, runId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/runs/${encodeURIComponent(runId)}`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend run returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/runs/${encodeURIComponent(runId)}`);
   });
 
   ipcMain.handle('rounds:forTask', async (_event, taskId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/rounds`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend task rounds returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/rounds`);
   });
 
   ipcMain.handle('rounds:approve', async (_event, roundId: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/rounds/${encodeURIComponent(roundId)}/approve`, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend round approve returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   // ── PR (unified local/external aggregate) ────────────────────────────
@@ -1088,14 +973,9 @@ function registerIpc(): void {
     return res.json();
   });
   ipcMain.handle('pr:forRepoPull', async (_event, owner: string, repo: string, number: number) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/prs/${number}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend PR-for-repo-pull returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
   ipcMain.handle('pr:bundle', async (_event, prId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/bundle`);
@@ -1109,16 +989,11 @@ function registerIpc(): void {
     return res.json();
   });
   ipcMain.handle('pr:updateDetails', async (_event, prId: string, body: { title?: string; description?: string }) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}`, {
+    return backendJson(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR update returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('pr:push', async (_event, prId: string) => {
     const intent = `push:${prId}`;
@@ -1252,16 +1127,11 @@ function registerIpc(): void {
     return res.json();
   });
   ipcMain.handle('agentReview:start', async (_event, prId: string, body?: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/agent-review`, {
+    return backendJson(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/agent-review`, {
       method: 'POST',
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend start agent review returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('quickReview:start', async (_event, prId: string) => {
@@ -1364,109 +1234,57 @@ function registerIpc(): void {
     return res.json();
   });
   ipcMain.handle('agentReview:queue', async (_event, scope = 'all') => {
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/queue?scope=${encodeURIComponent(scope)}`);
-    if (!res.ok) throw new Error(`backend review queue returned ${res.status}: ${await res.text()}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/reviews/queue?scope=${encodeURIComponent(scope)}`);
   });
   ipcMain.handle('agentReview:continue', async (_event, reviewId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/agent-reviews/${encodeURIComponent(reviewId)}/rounds`, {
+    return backendJson(`${BACKEND_BASE}/api/agent-reviews/${encodeURIComponent(reviewId)}/rounds`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend continue agent review returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('agentReview:sendRoundMessage', async (_event, roundId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/messages`, {
+    return backendJson(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/messages`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend send review-round message returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('agentReview:updateRoundBudget', async (_event, roundId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/budget`, {
+    return backendJson(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/budget`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend update review-round budget returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('agentReview:answerFinding', async (_event, findingId: string, text: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/answer`, {
+    return backendJson(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/answer`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend answer finding returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
   ipcMain.handle('agentReview:mutateFinding', async (_event, findingId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}`, {
+    return backendJson(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend mutate finding returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('agentReview:recordFindingOutcome', async (_event, findingId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/outcome`, {
+    return backendJson(`${BACKEND_BASE}/api/findings/${encodeURIComponent(findingId)}/outcome`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend record finding outcome returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('agentReview:getRoundLog', async (_event, roundId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/log`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend review-round log returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/log`);
   });
   ipcMain.handle('agentReview:cancelRound', async (_event, roundId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/cancel`, {
+    return backendJson(`${BACKEND_BASE}/api/review-rounds/${encodeURIComponent(roundId)}/cancel`, {
       method: 'POST',
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend cancel review-round returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
   ipcMain.handle('pr:addComment', async (_event, prId: string, body: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/comments`, {
+    return backendJson(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/comments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR comment returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('pr:resolveComment', async (_event, commentId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}`, {
+    return backendJson(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}`, {
       method: 'PATCH',
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR resolve returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('pr:deleteComment', async (_event, commentId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}`, {
@@ -1479,24 +1297,14 @@ function registerIpc(): void {
     return undefined;
   });
   ipcMain.handle('pr:dismissComment', async (_event, commentId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}/dismiss`, {
+    return backendJson(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}/dismiss`, {
       method: 'PATCH',
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR dismiss returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('pr:reopenComment', async (_event, commentId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}/reopen`, {
+    return backendJson(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}/reopen`, {
       method: 'PATCH',
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR reopen comment returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('pr:runTests', async (_event, prId: string) => {
     // The backend waits for its durable operation, so this request gets a
@@ -1523,20 +1331,10 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('pr:dashboardList', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR dashboard list returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/prs`);
   });
   ipcMain.handle('pr:dashboardSync', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/prs/sync-list`, { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PR dashboard sync returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/prs/sync-list`, { method: 'POST' });
   });
   ipcMain.handle('pr:dashboardMarkViewed', async (_event, prId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/viewed`, { method: 'POST' });
@@ -1611,7 +1409,7 @@ function registerIpc(): void {
     mode: 'APPEND' | 'CANCEL_AND_REPLACE' = 'APPEND',
     expectedPredecessorStageTurnId?: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/steer`,
       {
         method: 'POST',
@@ -1621,35 +1419,20 @@ function registerIpc(): void {
         }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(body || `backend steer returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('plans:approve', async (_event, planStageId: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(planStageId)}/approve`,
       { method: 'POST' },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend approve returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('plans:replan', async (_event, taskId: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/replan`,
       { method: 'POST' },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend replan returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('plans:updateFollowup',
@@ -1673,12 +1456,7 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/my-activity`);
     url.searchParams.set('scope', scope);
     if (tz) url.searchParams.set('tz', tz);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/my-activity returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:snoozePr', async (_event, prId: number, untilIso: string) => {
@@ -1712,12 +1490,7 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/detail`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/detail returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:refreshPullRequestDetail', async (_event, repo: string, number: number, maxAgeSeconds?: number) => {
@@ -1727,12 +1500,7 @@ function registerIpc(): void {
     if (typeof maxAgeSeconds === 'number' && maxAgeSeconds > 0) {
       url.searchParams.set('maxAgeSeconds', String(maxAgeSeconds));
     }
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/detail/refresh returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url, { method: 'POST' });
   });
 
   ipcMain.handle('backend:fetchNewComments', async (_event, repo: string, number: number, sinceEpochMs: number) => {
@@ -1740,12 +1508,7 @@ function registerIpc(): void {
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
     url.searchParams.set('sinceEpochMs', String(sinceEpochMs));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/comments/new returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:rerunChecks', async (_event, repo: string, number: number) => {
@@ -1784,12 +1547,7 @@ function registerIpc(): void {
     const url = new URL(`${BACKEND_BASE}/prs/ci`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/ci returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:prConflictPaths', async (_event, owner: string, repo: string, prNumber: number, baseRef: string) => {
@@ -1801,36 +1559,21 @@ function registerIpc(): void {
     );
     url.searchParams.set('prNumber', String(prNumber));
     url.searchParams.set('baseRef', baseRef);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/repos/local/.../conflict-paths returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:prCheckLog', async (_event, repo: string, checkRunId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/checkLog`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('checkRunId', String(checkRunId));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/checkLog returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:prCheckFailure', async (_event, repo: string, checkRunId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/checkFailure`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('checkRunId', String(checkRunId));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/checkFailure returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:setPrDraft', async (_event, repo: string, number: number, draft: boolean) => {
@@ -1871,24 +1614,14 @@ function registerIpc(): void {
 const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/diffFiles returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:prCommits', async (_event, repo: string, number: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/commits`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/commits returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:prCommitDiff', async (_event, repo: string, number: number, sha: string) => {
@@ -1896,12 +1629,7 @@ const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
     url.searchParams.set('sha', sha);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/commitDiff returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:fileBlob', async (_event, repo: string, path: string, sha: string) => {
@@ -1909,28 +1637,19 @@ const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('path', path);
     url.searchParams.set('sha', sha);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /prs/fileBlob returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('settings:getSyncSettings', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/settings/sync`);
-    if (!res.ok) throw new Error(`backend /api/settings/sync returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/settings/sync`);
   });
 
   ipcMain.handle('settings:setSyncSettings', async (_event, settings: { intervalSeconds: number }) => {
-    const res = await fetch(`${BACKEND_BASE}/api/settings/sync`, {
+    return backendJson(`${BACKEND_BASE}/api/settings/sync`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     });
-    if (!res.ok) throw new Error(`backend PUT /api/settings/sync returned ${res.status}`);
-    return res.json();
   });
 
 
@@ -2207,12 +1926,7 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     const url = new URL(`${BACKEND_BASE}/prs/metadata`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Load PR metadata failed (${res.status}): ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backend:setPrAssignee', async (_event, repo: string, number: number, login: string, selected: boolean) => {
@@ -2339,12 +2053,7 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
     if (strategy) url.searchParams.set('strategy', strategy);
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Enable auto-merge failed (${res.status}): ${body}`);
-    }
-    return res.json();
+    return backendJson(url, { method: 'POST' });
   });
 
   ipcMain.handle('backend:disableAutoMerge', async (_event, prId: number, repo: string, number: number) => {
@@ -2352,12 +2061,7 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     url.searchParams.set('id', String(prId));
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
-    const res = await fetch(url, { method: 'DELETE' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Cancel auto-merge failed (${res.status}): ${body}`);
-    }
-    return res.json();
+    return backendJson(url, { method: 'DELETE' });
   });
 
   ipcMain.handle('backend:dequeuePr', async (_event, prId: number, repo: string, number: number) => {
@@ -2377,22 +2081,15 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
   });
 
   ipcMain.handle('repos:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/repos`);
-    if (!res.ok) throw new Error(`backend /api/repos returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/repos`);
   });
 
   ipcMain.handle('repos:add', async (_event, owner: string, repo: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/repos`, {
+    return backendJson(`${BACKEND_BASE}/api/repos`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ owner, repo }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Add repo failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:remove', async (_event, owner: string, repo: string) => {
@@ -2406,105 +2103,63 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
   });
 
   ipcMain.handle('repos:profile', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/profile`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/profile returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/profile`);
   });
 
   ipcMain.handle('repos:contributionGraph', async (_event, login: string) => {
     const url = new URL(`${BACKEND_BASE}/api/contribution-graph`);
     url.searchParams.set('login', login);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend contribution-graph returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('repos:contributionGraphDay', async (_event, login: string, date: string) => {
     const url = new URL(`${BACKEND_BASE}/api/contribution-graph/day`);
     url.searchParams.set('login', login);
     url.searchParams.set('date', date);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend contribution-graph/day returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('repos:pulls', async (_event, owner: string, repo: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend repo pulls returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:pull', async (_event, owner: string, repo: string, number: number) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend repo pull returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:searchPulls', async (_event, owner: string, repo: string, query: string) => {
     const url = new URL(`${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/search`);
     url.searchParams.set('q', query);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend repo pull search returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('repos:issues', async (_event, owner: string, repo: string, state?: string) => {
     const url = new URL(`${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`);
     if (state) url.searchParams.set('state', state);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend repo issues returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('productIssues:report', async (_event, title: string, body: string) => {
     const reportBody = `${body.trim()}\n\n---\nReported from ByteQuay ${APP_VERSION}.`;
-    const res = await fetch(`${BACKEND_BASE}/api/product-issues`, {
+    return backendJson(`${BACKEND_BASE}/api/product-issues`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, body: reportBody }),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Could not file ByteQuay issue (${res.status}): ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:issueDetail', async (_event, owner: string, repo: string, number: number) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/detail`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend issue detail returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:createIssueComment', async (_event, owner: string, repo: string, number: number, body: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/comments`,
       {
         method: 'POST',
@@ -2512,15 +2167,10 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ body }),
       },
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend issue comment returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:setIssueState', async (_event, owner: string, repo: string, number: number, state: 'open' | 'closed') => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`,
       {
         method: 'PATCH',
@@ -2528,15 +2178,10 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ state }),
       },
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend setIssueState returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:addIssueCommentReaction', async (_event, owner: string, repo: string, commentId: number, content: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/comments/${commentId}/reactions`,
       {
         method: 'POST',
@@ -2544,15 +2189,10 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ content }),
       },
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend addIssueCommentReaction returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:setIssueSubscription', async (_event, owner: string, repo: string, number: number, subscribed: boolean) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/subscription`,
       {
         method: 'POST',
@@ -2560,42 +2200,22 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ subscribed }),
       },
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend setIssueSubscription returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:meta', async (_event, owner: string, repo: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend repo meta returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:activity', async (_event, owner: string, repo: string) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/activity`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend repo activity returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:listLocal', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/repos/local`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/repos/local returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/repos/local`);
   });
 
   // Native folder picker for settings/install flows. Renderer can't
@@ -2640,20 +2260,15 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
   ipcMain.handle('repos:managedClonePlan', async (
     _event, owner: string, repo: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/clone-plan`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `clone plan failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:cloneRepo', async (
     _event, owner: string, repo: string, writeMode: 'FORK' | 'DIRECT',
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/clone`,
       {
         method: 'POST',
@@ -2661,45 +2276,30 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ writeMode }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `clone failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:fetchLocal', async (
     _event, owner: string, repo: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/fetch`,
       { method: 'POST' },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `fetch failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:pullLocal', async (
     _event, owner: string, repo: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull`,
       { method: 'POST' },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `pull failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:pushLocalForce', async (
     _event, owner: string, repo: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/push-force`,
       {
         method: 'POST',
@@ -2707,25 +2307,15 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ confirmed: true }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `force push failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:pushLocal', async (
     _event, owner: string, repo: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/push`,
       { method: 'POST' },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `push failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:deleteLocalBranches', async (
@@ -2750,7 +2340,7 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
   ipcMain.handle('repos:draftPullRequest', async (
     _event, owner: string, repo: string, base: string, head: string,
   ): Promise<{ title: string; description: string }> => {
-    const res = await fetch(
+    return backendJson<{ title: string; description: string }>(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests/draft`,
       {
         method: 'POST',
@@ -2758,11 +2348,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ base, head }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `draft PR failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:createPullRequest', async (
@@ -2771,7 +2356,7 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     repo: string,
     payload: { title: string; body: string; base: string; draft: boolean },
   ): Promise<{ number: number; htmlUrl: string }> => {
-    const res = await fetch(
+    return backendJson<{ number: number; htmlUrl: string }>(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests`,
       {
         method: 'POST',
@@ -2779,17 +2364,12 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify(payload),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `create PR failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:switchLocalBranch', async (
     _event, owner: string, repo: string, name: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/switch`,
       {
         method: 'POST',
@@ -2797,17 +2377,12 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ name }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `switch failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:checkoutRemoteBranch', async (
     _event, owner: string, repo: string, name: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/checkout-remote`,
       {
         method: 'POST',
@@ -2815,17 +2390,12 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ name }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `checkout failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:createLocalBranch', async (
     _event, owner: string, repo: string, name: string, base?: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
       {
         method: 'POST',
@@ -2833,11 +2403,6 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ name, base: base ?? null }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `create-branch failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:listLocalActivity', async (
@@ -2846,15 +2411,10 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     const params = new URLSearchParams();
     if (typeof limit === 'number' && limit > 0) params.set('limit', String(limit));
     const query = params.toString();
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/activity`
         + (query ? `?${query}` : ''),
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `activity failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:listLocalCommits', async (
@@ -2864,54 +2424,34 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     if (revision && revision.trim()) params.set('revision', revision.trim());
     if (typeof limit === 'number' && limit > 0) params.set('limit', String(limit));
     const query = params.toString();
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits`
         + (query ? `?${query}` : ''),
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `commits failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:getLocalCommitDetail', async (
     _event, owner: string, repo: string, sha: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/detail`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `commit detail fetch failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:listLocalWorkingTreeFiles', async (
     _event, owner: string, repo: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/working-tree/files`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `working-tree status failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:getLocalWorkingTreeDiff', async (
     _event, owner: string, repo: string, path: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/working-tree/diff?path=${encodeURIComponent(path)}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `working-tree diff fetch failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:listLocalRangeFiles', async (
@@ -2920,14 +2460,9 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     const params = new URLSearchParams();
     params.set('base', base);
     params.set('head', head);
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/range/files?${params.toString()}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `range files lookup failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:getLocalRangeDiff', async (
@@ -2937,40 +2472,25 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     params.set('base', base);
     params.set('head', head);
     params.set('path', path);
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/range/diff?${params.toString()}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `range diff fetch failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:listLocalCommitFiles', async (
     _event, owner: string, repo: string, sha: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/files`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `commit files failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:getLocalCommitDiff', async (
     _event, owner: string, repo: string, sha: string, path: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/diff?path=${encodeURIComponent(path)}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `commit diff failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:getLocalCommitRangeDiff', async (
@@ -2980,14 +2500,9 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     params.set('oldest', oldestSha);
     params.set('newest', newestSha);
     params.set('path', path);
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits-range/diff?${params.toString()}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `commit range-diff failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:getLocalMergeBase', async (
@@ -2996,27 +2511,17 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
     const params = new URLSearchParams();
     params.set('branch', branch);
     if (base) params.set('base', base);
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/merge-base?${params.toString()}`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `merge-base lookup failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:listLocalBranches', async (
     _event, owner: string, repo: string,
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `branches list failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:revealInFinder', async (_event, repoPath: string) => {
@@ -3076,7 +2581,7 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
   ipcMain.handle('repos:setViewFocus', async (
     _event, owner: string, repo: string, viewFocus: 'fork' | 'upstream',
   ) => {
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/view-focus`,
       {
         method: 'PATCH',
@@ -3084,39 +2589,26 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
         body: JSON.stringify({ viewFocus }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/repos/local/.../view-focus returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:userRepos', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/user/repos`);
-    if (!res.ok) throw new Error(`backend /api/user/repos returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/user/repos`);
   });
 
   ipcMain.handle('repos:userOrgs', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/user/orgs`);
-    if (!res.ok) throw new Error(`backend /api/user/orgs returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/user/orgs`);
   });
 
   ipcMain.handle('repos:recentActivity', async (_event, login: string) => {
 const url = new URL(`${BACKEND_BASE}/api/activity/recent`);
     url.searchParams.set('login', login);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/activity/recent returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('repos:followingActivity', async (_event, login: string) => {
 const url = new URL(`${BACKEND_BASE}/api/activity/following`);
     url.searchParams.set('login', login);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/activity/following returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   // Footprints visit capture. Fire-and-forget by contract: a failed
@@ -3146,47 +2638,34 @@ const url = new URL(`${BACKEND_BASE}/api/activity/following`);
   ipcMain.handle('footprints:get', async (_event, date?: string) => {
     const url = new URL(`${BACKEND_BASE}/api/footprints`);
     if (date) url.searchParams.set('date', date);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/footprints returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('repos:updateProfile', async (_event, name: string, bio: string, location: string) => {
-const res = await fetch(`${BACKEND_BASE}/api/profile`, {
+return backendJson(`${BACKEND_BASE}/api/profile`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, bio, location }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Update profile failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('repos:searchRepos', async (_event, query: string) => {
 const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     url.searchParams.set('q', query);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/search/repos returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('repos:searchUsers', async (_event, query: string) => {
     const url = new URL(`${BACKEND_BASE}/api/search/users`);
     url.searchParams.set('q', query);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/search/users returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('repos:getStats', async (_event, login: string, force?: boolean) => {
     const url = new URL(`${BACKEND_BASE}/api/stats`);
     url.searchParams.set('login', login);
     if (force) url.searchParams.set('force', 'true');
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/stats returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('shell:openExternal', async (_event, url: string) => {
@@ -3448,54 +2927,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
 
   // ── Teams ──────────────────────────────────────────────────────────────
   ipcMain.handle('teams:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/teams`);
-    if (!res.ok) throw new Error(`backend /api/teams returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/teams`);
   });
 
   ipcMain.handle('teams:get', async (_event, id: number) => {
-    const res = await fetch(`${BACKEND_BASE}/api/teams/${id}`);
-    if (!res.ok) throw new Error(`backend /api/teams/${id} returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/teams/${id}`);
   });
 
   ipcMain.handle('teams:create', async (_event, req: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/teams`, {
+    return backendJson(`${BACKEND_BASE}/api/teams`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Create team failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('teams:update', async (_event, id: number, req: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/teams/${id}`, {
+    return backendJson(`${BACKEND_BASE}/api/teams/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Update team failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('teams:replaceMembers', async (_event, id: number, members: string[]) => {
-    const res = await fetch(`${BACKEND_BASE}/api/teams/${id}/members`, {
+    return backendJson(`${BACKEND_BASE}/api/teams/${id}/members`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ members }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Replace members failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('teams:delete', async (_event, id: number) => {
@@ -3504,9 +2964,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('teams:pulls', async (_event, id: number) => {
-    const res = await fetch(`${BACKEND_BASE}/api/teams/${id}/pulls`);
-    if (!res.ok) throw new Error(`backend /api/teams/${id}/pulls returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/teams/${id}/pulls`);
   });
 
   // First-paint endpoint for the team kanban: { columns: {col: PR[]},
@@ -3517,9 +2975,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const url = new URL(`${BACKEND_BASE}/api/teams/${id}/pulls/by-column`);
     url.searchParams.set('perColumn', String(perColumn));
     if (force) url.searchParams.set('force', 'true');
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/teams/${id}/pulls/by-column returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   // "+ N more" pagination for one column. Always served from the cached
@@ -3529,9 +2985,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     url.searchParams.set('column', column);
     url.searchParams.set('offset', String(offset));
     url.searchParams.set('limit', String(limit));
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/teams/${id}/pulls/column returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   // Merged-PR count for the team home "Merged this week" stat. Backend
@@ -3555,27 +3009,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   // the PAT path uses, so the rest of the app sees no difference
   // between OAuth and PAT auth.
   ipcMain.handle('githubOAuth:authorizeUrl', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/auth/github/authorize-url`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/auth/github/authorize-url returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/auth/github/authorize-url`);
   });
 
   ipcMain.handle('githubOAuth:connection', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/auth/github/connection`);
-    if (!res.ok) throw new Error(`backend /api/auth/github/connection returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/auth/github/connection`);
   });
 
   // Alternative to the OAuth dance for orgs that block PATs but have
   // approved the GitHub CLI: import the token `gh` already holds. Lands
   // in the same Keychain slot, so nothing downstream cares.
   ipcMain.handle('githubCli:available', async (): Promise<{ available: boolean }> => {
-    const res = await fetch(`${BACKEND_BASE}/api/auth/github/cli`);
-    if (!res.ok) throw new Error(`backend /api/auth/github/cli returned ${res.status}`);
-    return (await res.json()) as { available: boolean };
+    return backendJson<{ available: boolean }>(`${BACKEND_BASE}/api/auth/github/cli`);
   });
 
   ipcMain.handle('githubCli:import', async (): Promise<{ login: string }> => {
@@ -3589,9 +3034,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('githubOAuth:disconnect', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/auth/github/disconnect`, { method: 'POST' });
-    if (!res.ok) throw new Error(`backend /api/auth/github/disconnect returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/auth/github/disconnect`, { method: 'POST' });
   });
 
   // ── Gmail (IMAP + app password) ────────────────────────────────────────
@@ -3607,33 +3050,24 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof appPassword !== 'string' || appPassword.trim().length === 0) {
       throw new Error('appPassword must be a non-empty string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/imap/connect`, {
+    return backendJson(`${BACKEND_BASE}/api/auth/gmail/imap/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email.trim(), appPassword }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/auth/gmail/imap/connect returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('gmail:listAccounts', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/accounts`);
-    if (!res.ok) throw new Error(`backend /api/auth/gmail/accounts returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/auth/gmail/accounts`);
   });
 
   ipcMain.handle('gmail:disconnect', async (_event, email: string) => {
     if (typeof email !== 'string' || email.trim().length === 0) {
       throw new Error('email must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/auth/gmail/accounts/${encodeURIComponent(email)}`,
       { method: 'DELETE' });
-    if (!res.ok) throw new Error(`backend /api/auth/gmail/accounts/${email} returned ${res.status}`);
-    return res.json();
   });
 
   // ── Email (Gmail inbox, thread-based) ──────────────────────────────────
@@ -3651,12 +3085,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof pageSize === 'number' && pageSize > 0) {
       params.set('pageSize', String(pageSize));
     }
-    const res = await fetch(`${BACKEND_BASE}/api/email/threads?${params.toString()}`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/email/threads returned ${res.status}: ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/email/threads?${params.toString()}`);
   });
 
   ipcMain.handle('email:refreshThreads', async (_event, payload: unknown) => {
@@ -3668,14 +3097,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof pageSize === 'number' && pageSize > 0) {
       params.set('pageSize', String(pageSize));
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/email/threads/refresh?${params.toString()}`,
       { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/email/threads/refresh returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('email:getThread', async (_event, payload: unknown) => {
@@ -3687,27 +3111,17 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const params = new URLSearchParams({ account: account.trim() });
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/email/threads/${encodeURIComponent(id)}?${params.toString()}`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/email/threads/${id} returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   // Archive / mark-read / mark-unread share the POST shape: account in
   // query, no body. Each maps to a single users.threads.modify call.
   const threadAction = async (action: string, account: string, id: string) => {
     const params = new URLSearchParams({ account });
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/email/threads/${encodeURIComponent(id)}/${action}?${params.toString()}`,
       { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/email/threads/${id}/${action} returned ${res.status}: ${body}`);
-    }
-    return res.json();
   };
 
   ipcMain.handle('email:archiveThread', async (_event, payload: unknown) => {
@@ -3740,48 +3154,33 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!account || !id) throw new Error('account and id are required');
     if (!body || !body.trim()) throw new Error('body is required');
     const params = new URLSearchParams({ account });
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/email/threads/${encodeURIComponent(id)}/reply?${params.toString()}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/email/threads/${id}/reply returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('email:muteSender', async (_event, payload: unknown) => {
     const { account, sender } = (payload ?? {}) as { account?: string; sender?: string };
     if (!account || !sender) throw new Error('account and sender are required');
     const params = new URLSearchParams({ account });
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/email/muted-senders?${params.toString()}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sender }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/email/muted-senders returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('email:unmuteSender', async (_event, payload: unknown) => {
     const { account, sender } = (payload ?? {}) as { account?: string; sender?: string };
     if (!account || !sender) throw new Error('account and sender are required');
     const params = new URLSearchParams({ account });
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/email/muted-senders/${encodeURIComponent(sender)}?${params.toString()}`,
       { method: 'DELETE' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/email/muted-senders returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('email:listMutedSenders', async (_event, payload: unknown) => {
     const { account } = (payload ?? {}) as { account?: string };
@@ -3814,16 +3213,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     };
     if (!account || !input) throw new Error('account and input are required');
     const params = new URLSearchParams({ account });
-    const res = await fetch(`${BACKEND_BASE}/api/email/tags?${params.toString()}`, {
+    return backendJson(`${BACKEND_BASE}/api/email/tags?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/email/tags returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('email:updateTag', async (_event, payload: unknown) => {
     const { id, input } = (payload ?? {}) as {
@@ -3831,28 +3225,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       input?: { name: string; subjectContains: string; action: string };
     };
     if (!id || !input) throw new Error('id and input are required');
-    const res = await fetch(`${BACKEND_BASE}/api/email/tags/${encodeURIComponent(id)}`, {
+    return backendJson(`${BACKEND_BASE}/api/email/tags/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /api/email/tags/${id} returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('email:deleteTag', async (_event, payload: unknown) => {
     const { id } = (payload ?? {}) as { id?: string };
     if (!id) throw new Error('id is required');
-    const res = await fetch(`${BACKEND_BASE}/api/email/tags/${encodeURIComponent(id)}`, {
+    return backendJson(`${BACKEND_BASE}/api/email/tags/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/email/tags/${id} returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
   ipcMain.handle('email:listArchived', async (_event, payload: unknown) => {
     const { account } = (payload ?? {}) as { account?: string };
@@ -3894,52 +3278,27 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (groupId !== null) params.push(`groupId=${encodeURIComponent(groupId)}`);
     if (workspaceId !== null) params.push(`workspaceId=${encodeURIComponent(workspaceId)}`);
     if (params.length > 0) url += `?${params.join('&')}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/threads returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('threads:activeTurns', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/threads/turns/active`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/turns/active returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/threads/turns/active`);
   });
 
   ipcMain.handle('threadGroups:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/thread-groups`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/thread-groups returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/thread-groups`);
   });
 
   ipcMain.handle('threadGroups:listMemberships', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/thread-groups/memberships`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/thread-groups/memberships returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/thread-groups/memberships`);
   });
 
   ipcMain.handle('threadGroups:create', async (_event, request: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/thread-groups`, {
+    return backendJson(`${BACKEND_BASE}/api/thread-groups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request ?? {}),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/thread-groups returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threadGroups:update', async (_event, payload: unknown) => {
@@ -3947,18 +3306,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!id || typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(id)}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch ?? {}),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /api/thread-groups/${id} returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threadGroups:delete', async (_event, id: unknown) => {
@@ -4009,16 +3363,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('threads:create', async (_event, request: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/threads`, {
+    return backendJson(`${BACKEND_BASE}/api/threads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request ?? {}),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/threads returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:stop', async (_event, id: unknown) => {
@@ -4051,73 +3400,43 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/delete-eligibility`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /delete-eligibility returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   // ── Notifications ───────────────────────────────────────────────────────
   ipcMain.handle('notifications:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/notifications`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/notifications returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/notifications`);
   });
 
   ipcMain.handle('notifications:listUnread', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/notifications?status=UNREAD`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/notifications?status=UNREAD returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/notifications?status=UNREAD`);
   });
 
   ipcMain.handle('notifications:listForThread', async (_event, threadId: unknown) => {
     if (typeof threadId !== 'string' || threadId.trim().length === 0) {
       throw new Error('threadId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/notifications?threadId=${encodeURIComponent(threadId)}`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/notifications?threadId=${threadId} returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('notifications:markRead', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}/read`,
       { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/notifications/${id}/read returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('notifications:dismiss', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}/dismiss`,
       { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/notifications/${id}/dismiss returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('notifications:delete', async (_event, id: unknown) => {
@@ -4153,18 +3472,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof a.expectedAction === 'string' && a.expectedAction.length > 0) {
       body.expectedAction = a.expectedAction;
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/approve`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/notifications/${a.id}/approve returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('notifications:discard', async (_event, args: unknown) => {
@@ -4179,18 +3493,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof a.expectedAction === 'string' && a.expectedAction.length > 0) {
       body.expectedAction = a.expectedAction;
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/discard`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/notifications/${a.id}/discard returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('notifications:shipDescription', async (_event, args: unknown) => {
@@ -4204,30 +3513,20 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof a.prTitle !== 'string' || typeof a.prBody !== 'string') {
       throw new Error('prTitle and prBody must be strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/ship-description`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prTitle: a.prTitle, prBody: a.prBody }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/notifications/${a.id}/ship-description returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:workingChanges', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/working-changes`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/working-changes returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/working-changes`);
   });
 
   ipcMain.handle('threads:workingDiff', async (_event, id: unknown, path: unknown) => {
@@ -4253,12 +3552,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const query = typeof taskId === 'string' && taskId.trim().length > 0
       ? `?taskId=${encodeURIComponent(taskId)}` : '';
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits${query}`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/commits returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits${query}`);
   });
 
   ipcMain.handle('threads:commitFiles', async (_event, id: unknown, sha: unknown) => {
@@ -4269,12 +3563,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('sha must be a non-empty string');
     }
     const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/files`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('threads:commitDiff', async (_event, id: unknown, sha: unknown, path: unknown) => {
@@ -4304,12 +3593,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const query = typeof taskId === 'string' && taskId.trim().length > 0
       ? `?taskId=${encodeURIComponent(taskId)}` : '';
     const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/cumulative-diff${query}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('threads:commitDiffFiles', async (_event, id: unknown, sha: unknown, taskId?: unknown) => {
@@ -4322,12 +3606,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const query = typeof taskId === 'string' && taskId.trim().length > 0
       ? `?taskId=${encodeURIComponent(taskId)}` : '';
     const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff-files${query}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('threads:fileBlob', async (_event, id: unknown, taskId: unknown, path: unknown) => {
@@ -4341,12 +3620,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('path must be a non-empty string');
     }
     const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/fileBlob?taskId=${encodeURIComponent(taskId)}&path=${encodeURIComponent(path)}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('threads:interrupt', async (
@@ -4399,13 +3673,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/messages`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/messages returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:index', async (_event, payload: unknown) => {
@@ -4430,12 +3699,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     } else if (direction !== undefined) {
       throw new Error('direction must be initial or before');
     }
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/index returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('threads:traceEvents', async (_event, payload: unknown) => {
@@ -4456,48 +3720,28 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     for (const requestMessageId of requestMessageIds as string[]) {
       url.searchParams.append('requestMessageId', requestMessageId);
     }
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/traces returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('threads:tasks:list', async (_event, threadId: unknown) => {
     if (typeof threadId !== 'string' || threadId.trim().length === 0) {
       throw new Error('threadId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${threadId}/tasks returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:jumpIn', async (_event, threadId: unknown) => {
     if (typeof threadId !== 'string' || threadId.trim().length === 0) {
       throw new Error('threadId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/jump-in`,
       { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/threads/${threadId}/jump-in returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspaces:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/workspaces`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/workspaces returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/workspaces`);
   });
 
   ipcMain.handle('workspace:api', async (_event, args: unknown) => {
@@ -4577,27 +3821,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (Array.isArray(a.repoFullNames)) {
       body.repoFullNames = a.repoFullNames.filter((s): s is string => typeof s === 'string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/workspaces`, {
+    return backendJson(`${BACKEND_BASE}/api/workspaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/workspaces returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspaces:ensureForRepo', async (_event, owner: string, repo: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/workspaces/for-repo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { method: 'POST' });
-    if (!res.ok) throw new Error(`backend workspace binding returned ${res.status}: ${await res.text()}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/workspaces/for-repo/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, { method: 'POST' });
   });
   ipcMain.handle('workspaces:adoptRemoteReviews', async (_event, workspaceId: string) => {
-    const res = await fetch(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/adopt-remote-reviews`, { method: 'POST' });
-    if (!res.ok) throw new Error(`backend review adoption returned ${res.status}: ${await res.text()}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/adopt-remote-reviews`, { method: 'POST' });
   });
 
   ipcMain.handle('workspaces:delete', async (_event, workspaceId: unknown) => {
@@ -4621,31 +3856,21 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof name !== 'string') {
       throw new Error('name must be a string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /api/workspaces/${workspaceId} returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspaces:memory:get', async (_event, workspaceId: unknown) => {
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET memory returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspaces:memory:set', async (_event, args: unknown) => {
@@ -4656,18 +3881,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof memoryMd !== 'string') {
       throw new Error('workspaceId must be a non-empty string; memoryMd must be a string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ memoryMd }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT memory returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspaces:memory:distill', async (_event, workspaceId: unknown) => {
@@ -4707,14 +3927,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/proposal/apply`,
       { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST memory/proposal/apply returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspaces:memory:proposal:discard', async (_event, workspaceId: unknown) => {
@@ -4731,12 +3946,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('reviews:roster', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/roster`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/reviews/roster returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/reviews/roster`);
   });
 
   ipcMain.handle('reviews:get', async (_event, passId: unknown) => {
@@ -4806,62 +4016,37 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('reviews:scheduled:get', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/scheduled-settings`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/reviews/scheduled-settings returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/reviews/scheduled-settings`);
   });
 
   ipcMain.handle('reviews:scheduled:set', async (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') {
       throw new Error('enabled must be a boolean');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/scheduled-settings`, {
+    return backendJson(`${BACKEND_BASE}/api/reviews/scheduled-settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /api/reviews/scheduled-settings returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspace:behavior:get', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/settings/workspace-behavior`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/settings/workspace-behavior returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/settings/workspace-behavior`);
   });
 
   ipcMain.handle('reviews:persona:get', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/persona`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/reviews/persona returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/reviews/persona`);
   });
 
   ipcMain.handle('reviews:persona:set', async (_event, persona: unknown) => {
     if (typeof persona !== 'string') {
       throw new Error('persona must be a string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/persona`, {
+    return backendJson(`${BACKEND_BASE}/api/reviews/persona`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ persona }),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /api/reviews/persona returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('workspace:insights:get', async (_event, args: unknown) => {
@@ -4873,41 +4058,26 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('workspaceId must be a non-empty string');
     }
     const w = typeof window === 'string' ? window : '7d';
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/insights?window=${encodeURIComponent(w)}`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/workspaces/.../insights returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('ai:ledger:get', async (_event, month: unknown) => {
     const m = typeof month === 'string' && month.length > 0 ? month : '';
     const url = new URL(`${BACKEND_BASE}/api/ai/ledger`);
     if (m.length > 0) url.searchParams.set('month', m);
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/ai/ledger returned ${res.status}: ${text}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('workspace:behavior:set', async (_event, body: unknown) => {
     if (typeof body !== 'object' || body === null) {
       throw new Error('workspace behavior settings must be an object');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/settings/workspace-behavior`, {
+    return backendJson(`${BACKEND_BASE}/api/settings/workspace-behavior`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /api/settings/workspace-behavior returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:arbitrate', async (_event, args: unknown) => {
@@ -4924,7 +4094,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (a.resolution !== 'include' && a.resolution !== 'drop') {
       throw new Error("resolution must be 'include' or 'drop'");
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}`
       + `/findings/${encodeURIComponent(a.findingId)}/arbitrate`,
       {
@@ -4932,11 +4102,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ resolution: a.resolution }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST arbitrate returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:addFinding', async (_event, args: unknown) => {
@@ -4952,7 +4117,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof a.comment !== 'string' || a.comment.trim().length === 0) {
       throw new Error('comment must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/findings`,
       {
         method: 'POST',
@@ -4964,11 +4129,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           comment: a.comment,
         }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST addFinding returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:dropFinding', async (_event, args: unknown) => {
@@ -4982,15 +4142,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof a.findingId !== 'string' || a.findingId.trim().length === 0) {
       throw new Error('findingId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}`
       + `/findings/${encodeURIComponent(a.findingId)}/drop`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST dropFinding returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:editFinding', async (_event, args: unknown) => {
@@ -5007,7 +4162,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof a.comment !== 'string' || a.comment.trim().length === 0) {
       throw new Error('comment must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}`
       + `/findings/${encodeURIComponent(a.findingId)}`,
       {
@@ -5015,11 +4170,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ comment: a.comment }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT editFinding returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:steer', async (_event, args: unknown) => {
@@ -5036,18 +4186,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof a.message !== 'string' || a.message.trim().length === 0) {
       throw new Error('message must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/steer`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetParticipantId: a.targetParticipantId, message: a.message }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST steer returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:raiseBudget', async (_event, args: unknown) => {
@@ -5060,46 +4205,31 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const addCostMilli = typeof a.addCostMilli === 'number' ? a.addCostMilli : 0;
     const addRounds = typeof a.addRounds === 'number' ? a.addRounds : 0;
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/raise-budget`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ addCostMilli, addRounds }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST raise-budget returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:resume', async (_event, passId: unknown) => {
     if (typeof passId !== 'string' || passId.trim().length === 0) {
       throw new Error('passId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(passId)}/resume`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST resume returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:complete', async (_event, passId: unknown) => {
     if (typeof passId !== 'string' || passId.trim().length === 0) {
       throw new Error('passId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(passId)}/complete`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST complete returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('review:add', async (_event, args: unknown) => {
@@ -5119,31 +4249,21 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       startSide: typeof params.startSide === 'string' ? params.startSide : undefined,
       body: typeof params.body === 'string' ? params.body : '',
     };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/review-comments`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST review-comments returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('review:list', async (_event, taskId: unknown) => {
     if (typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('taskId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/review-comments`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET review-comments returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   for (const action of ['resolve', 'reopen'] as const) {
@@ -5174,18 +4294,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         ? params.commentIds.filter((id): id is string => typeof id === 'string')
         : null,
     };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/submit-review`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST submit-review returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   // ── Backlog (trunk Backlog tab) ──────────────────────────────────────
@@ -5198,11 +4313,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
 
   ipcMain.handle('backlog:list', async (_event, threadId: unknown) => {
     const id = requireString(threadId, 'threadId');
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`);
-    if (!res.ok) {
-      throw new Error(`backend GET backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`);
   });
 
   ipcMain.handle('backlog:listWorkspace', async (_event, args: unknown) => {
@@ -5217,11 +4328,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const query = params.toString();
     const url = `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/backlog${query.length > 0 ? `?${query}` : ''}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`backend GET workspace backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('backlog:create', async (_event, args: unknown) => {
@@ -5233,15 +4340,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       tags: Array.isArray(params.tags) ? params.tags.filter(t => typeof t === 'string') : [],
       priority: typeof params.priority === 'string' ? params.priority : undefined,
     };
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`, {
+    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/backlog`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      throw new Error(`backend POST backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('backlog:update', async (_event, args: unknown) => {
@@ -5251,15 +4354,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof params.title === 'string') body.title = params.title;
     if (typeof params.body === 'string') body.body = params.body;
     if (Array.isArray(params.tags)) body.tags = params.tags.filter(t => typeof t === 'string');
-    const res = await fetch(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}`, {
+    return backendJson(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      throw new Error(`backend PATCH backlog returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('backlog:delete', async (_event, itemId: unknown) => {
@@ -5273,39 +4372,27 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   ipcMain.handle('backlog:skip', async (_event, args: unknown) => {
     const params = args as { itemId?: unknown; reason?: unknown };
     const id = requireString(params?.itemId, 'itemId');
-    const res = await fetch(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/skip`, {
+    return backendJson(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/skip`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: typeof params.reason === 'string' ? params.reason : undefined }),
     });
-    if (!res.ok) {
-      throw new Error(`backend POST backlog skip returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('backlog:revive', async (_event, itemId: unknown) => {
     const id = requireString(itemId, 'itemId');
-    const res = await fetch(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/revive`, { method: 'POST' });
-    if (!res.ok) {
-      throw new Error(`backend POST backlog revive returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/backlog/${encodeURIComponent(id)}/revive`, { method: 'POST' });
   });
 
   ipcMain.handle('questions:list', async (_event, threadId: unknown) => {
     const id = requireString(threadId, 'threadId');
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/questions`);
-    if (!res.ok) {
-      throw new Error(`backend GET questions returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/questions`);
   });
 
   ipcMain.handle('questions:answer', async (_event, args: unknown) => {
     const params = args as { questionId?: unknown; answerOptionId?: unknown; answerFreeForm?: unknown };
     const id = requireString(params?.questionId, 'questionId');
-    const res = await fetch(`${BACKEND_BASE}/api/questions/${encodeURIComponent(id)}/answer`, {
+    return backendJson(`${BACKEND_BASE}/api/questions/${encodeURIComponent(id)}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -5313,10 +4400,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         answerFreeForm: typeof params.answerFreeForm === 'string' ? params.answerFreeForm : undefined,
       }),
     });
-    if (!res.ok) {
-      throw new Error(`backend POST answer returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('backlog:startDevelopment', async (_event, itemId: unknown) => {
@@ -5339,11 +4422,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   // ── Thread signals (trunk Notifications tab) ─────────────────────────
   ipcMain.handle('signals:list', async (_event, threadId: unknown) => {
     const id = requireString(threadId, 'threadId');
-    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/signals`);
-    if (!res.ok) {
-      throw new Error(`backend GET signals returned ${res.status}: ${await res.text().catch(() => '')}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/signals`);
   });
 
   ipcMain.handle('signals:markRead', async (_event, signalId: unknown) => {
@@ -5358,16 +4437,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!Array.isArray(threadIds) || threadIds.some(id => typeof id !== 'string')) {
       throw new Error('threadIds must be an array of strings');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/reviews/pr-summaries`, {
+    return backendJson(`${BACKEND_BASE}/api/reviews/pr-summaries`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ threadIds }),
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST pr-summaries returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:spawnBuild', async (_event, args: unknown) => {
@@ -5399,18 +4473,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       }
       body.selectedFindingIds = a.selectedFindingIds;
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/spawn-build`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST spawn-build returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('reviews:buildComments:get', async (_event, passId: unknown) => {
@@ -5435,17 +4504,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const a = args as { passId?: unknown; commandId?: unknown };
     const passId = requireString(a.passId, 'passId');
     const commandId = requireString(a.commandId, 'commandId');
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(passId)}/build-comments/${decision}`,
       { method: 'POST', headers: { 'Idempotency-Key': commandId } },
     );
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(
-        `backend POST build-comments/${decision} returned ${res.status}: ${text}`,
-      );
-    }
-    return res.json();
   };
 
   ipcMain.handle('reviews:buildComments:approve', (_event, args: unknown) =>
@@ -5490,13 +4552,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/repos`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/workspaces/${workspaceId}/repos returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:cancel', async (_event, args: unknown) => {
@@ -5507,15 +4564,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/cancel`,
       { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /tasks/${taskId}/cancel returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   for (const action of ['pause', 'resume'] as const) {
@@ -5531,12 +4583,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         ? `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/resume`
         : `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
           + `/tasks/${encodeURIComponent(taskId)}/${action}`;
-      const res = await fetch(url, { method: 'POST' });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`backend POST /tasks/${taskId}/${action} returned ${res.status}: ${text}`);
-      }
-      return res.json();
+      return backendJson(url, { method: 'POST' });
     });
   }
 
@@ -5548,15 +4595,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/retry-ci`,
       { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /tasks/${taskId}/retry-ci returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('development-flow:ci:recover', async (_event, args: unknown) => {
@@ -5570,7 +4612,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || params.command === null || typeof params.command !== 'object') {
       throw new Error('taskId, episodeId, and command are required');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
         + `/ci-repair/${encodeURIComponent(params.episodeId)}/recover`,
       {
@@ -5579,11 +4621,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify(params.command),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend V2 CI recovery returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle(
@@ -5601,7 +4638,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           || params.command === null || typeof params.command !== 'object') {
         throw new Error('taskId, episodeId, and command are required');
       }
-      const res = await fetch(
+      return backendJson(
         `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
           + `/branch-sync/${encodeURIComponent(params.episodeId)}/recover`,
         {
@@ -5610,12 +4647,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           body: JSON.stringify(params.command),
         },
       );
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(
-          `backend BranchSync recovery returned ${res.status}: ${body}`);
-      }
-      return res.json();
     },
   );
 
@@ -5634,7 +4665,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           || params.command === null || typeof params.command !== 'object') {
         throw new Error('taskId, quarantineId, and command are required');
       }
-      const res = await fetch(
+      return backendJson(
         `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
           + '/worktree-quarantines/'
           + `${encodeURIComponent(params.quarantineId)}/recover`,
@@ -5644,12 +4675,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           body: JSON.stringify(params.command),
         },
       );
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(
-          `backend worktree recovery returned ${res.status}: ${body}`);
-      }
-      return res.json();
     },
   );
 
@@ -5662,18 +4687,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           || params.blockerId.trim().length === 0) {
         throw new Error('taskId and blockerId are required');
       }
-      const res = await fetch(
+      return backendJson(
         `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
           + '/local-publish/base-sync/blockers/'
           + `${encodeURIComponent(params.blockerId)}/approve`,
         { method: 'POST' },
       );
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(extractMessage(body)
-          || `Local publish base-sync approval failed (${res.status})`);
-      }
-      return res.json();
     },
   );
 
@@ -5696,7 +4715,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         throw new Error(
           'taskId, episodeId, blockerId, and command are required');
       }
-      const res = await fetch(
+      return backendJson(
         `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
           + '/local-publish/base-sync/episodes/'
           + `${encodeURIComponent(params.episodeId)}/blockers/`
@@ -5707,12 +4726,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           body: JSON.stringify(params.command),
         },
       );
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(extractMessage(body)
-          || `Local publish base-sync extension failed (${res.status})`);
-      }
-      return res.json();
     },
   );
 
@@ -5727,7 +4740,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || params.command === null || typeof params.command !== 'object') {
       throw new Error('taskId, failedTurnId, and command are required');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
         + `/plan/turns/${encodeURIComponent(params.failedTurnId)}/recover`,
       {
@@ -5736,11 +4749,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify(params.command),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `Plan recovery failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('development-flow:development-brain:recover', async (_event, args: unknown) => {
@@ -5754,7 +4762,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || params.command === null || typeof params.command !== 'object') {
       throw new Error('taskId, failedTurnId, and command are required');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
         + `/local-development/brain-turns/${encodeURIComponent(params.failedTurnId)}/recover`,
       {
@@ -5763,11 +4771,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify(params.command),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `Development Brain recovery failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('development-flow:remote-repair-brain:recover', async (_event, args: unknown) => {
@@ -5781,7 +4784,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || params.command === null || typeof params.command !== 'object') {
       throw new Error('taskId, failedTurnId, and command are required');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
         + `/remote-repair/brain-turns/${encodeURIComponent(params.failedTurnId)}/recover`,
       {
@@ -5790,11 +4793,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify(params.command),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `Remote repair Brain recovery failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('development-flow:local-stage:recover', async (_event, args: unknown) => {
@@ -5808,7 +4806,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || params.command === null || typeof params.command !== 'object') {
       throw new Error('taskId, failedTurnId, and command are required');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
         + `/local-development/turns/${encodeURIComponent(params.failedTurnId)}/recover`,
       {
@@ -5817,11 +4815,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify(params.command),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(extractMessage(body) || `Local Stage recovery failed (${res.status})`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('development-flow:cleanup:recover', async (_event, args: unknown) => {
@@ -5835,7 +4828,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || params.command === null || typeof params.command !== 'object') {
       throw new Error('taskId, stepId, and command are required');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(params.taskId)}`
         + `/cleanup/steps/${encodeURIComponent(params.stepId)}/recover`,
       {
@@ -5844,11 +4837,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify(params.command),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend V2 Cleanup recovery returned ${res.status}: ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:rename', async (_event, args: unknown) => {
@@ -5863,7 +4851,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/name`,
       {
@@ -5871,11 +4859,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: typeof params.name === 'string' ? params.name : '' }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /tasks/${taskId}/name returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:autoApprove:get', async (_event, args: unknown) => {
@@ -5884,14 +4867,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/auto-approve`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /tasks/${taskId}/auto-approve returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:autoApprove:set', async (_event, args: unknown) => {
@@ -5901,7 +4879,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/auto-approve`,
       {
@@ -5909,11 +4887,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: enabled === true }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /tasks/${taskId}/auto-approve returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:autoMerge:get', async (_event, args: unknown) => {
@@ -5922,14 +4895,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/auto-merge`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /tasks/${taskId}/auto-merge returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:autoMerge:set', async (_event, args: unknown) => {
@@ -5939,7 +4907,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/auto-merge`,
       {
@@ -5947,11 +4915,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: enabled === true }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /tasks/${taskId}/auto-merge returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:minApprovals:get', async (_event, args: unknown) => {
@@ -5960,14 +4923,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('threadId and taskId must be non-empty strings');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/min-approvals`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /tasks/${taskId}/min-approvals returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:tasks:minApprovals:set', async (_event, args: unknown) => {
@@ -5978,7 +4936,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('threadId and taskId must be non-empty strings');
     }
     const value = typeof minApprovals === 'number' ? minApprovals : 0;
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/min-approvals`,
       {
@@ -5986,11 +4944,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ minApprovals: value }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /tasks/${taskId}/min-approvals returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
 
@@ -6010,7 +4963,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       nextTitle: params.opts?.nextTitle ?? null,
       baseMode: params.opts?.baseMode ?? 'MAIN',
     };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
         + `/tasks/${encodeURIComponent(taskId)}/next`,
       {
@@ -6018,11 +4971,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /tasks/${taskId}/next returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:trunk:send', async (_event, args: unknown) => {
@@ -6036,18 +4984,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof input !== 'string' || input.trim().length === 0) {
       throw new Error('input must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/trunk-turns`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ input, images }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /trunk-turns returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:attachment:read', async (_event, args: unknown) => {
@@ -6075,13 +5018,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof threadId !== 'string' || threadId.trim().length === 0) {
       throw new Error('threadId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /settings returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:settings:put', async (_event, args: unknown) => {
@@ -6098,18 +5036,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof threadId !== 'string' || threadId.trim().length === 0) {
       throw new Error('threadId must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params.body ?? {}),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT /settings returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:settings:clear', async (_event, threadId: unknown) => {
@@ -6138,7 +5071,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         || typeof enabled !== 'boolean') {
       throw new Error('workspaceId / owner / repo must be non-empty strings; enabled must be a boolean');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`
         + `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/auto-fix-enabled`,
       {
@@ -6146,24 +5079,14 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ autoFixEnabled: enabled }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PUT auto-fix-enabled returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:checkpoints:list', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/checkpoints returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:checkpoints:generate', async (_event, id: unknown) => {
@@ -6189,65 +5112,40 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints/status`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/checkpoints/status returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:turns', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/turns`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/turns returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:turnEvents', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/turn-events`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/turn-events returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:permissions', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/permissions`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/permissions returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:files', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/files`);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/threads/${id}/files returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:rename', async (_event, payload: unknown) => {
@@ -6258,18 +5156,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof title !== 'string' || title.trim().length === 0) {
       throw new Error('title must be a non-empty string');
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title }),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /api/threads/${id} returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:decide', async (_event, payload: unknown) => {
@@ -6292,18 +5185,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       body.preApproveToolName = preApprove.toolName;
       body.preApproveCount = preApprove.count;
     }
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/decisions`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/threads/${id}/decisions returned ${res.status}: ${text}`);
-    }
-    return res.json();
   });
 
   // ── Credentials ─────────────────────────────────────────────────────────
@@ -6314,9 +5202,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const url = type
       ? `${BACKEND_BASE}/api/credentials?type=${encodeURIComponent(type)}`
       : `${BACKEND_BASE}/api/credentials`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`backend /api/credentials returned ${res.status}`);
-    return res.json();
+    return backendJson(url);
   });
 
   ipcMain.handle('credentials:upsert', async (_event, req: unknown) => {
@@ -6354,30 +5240,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   ipcMain.handle('credentials:test', async (_event, type: string, name: string, instanceName: string) => {
     const target = instanceName && instanceName.length > 0 ? instanceName : 'default api';
     const url = `${BACKEND_BASE}/api/credentials/${encodeURIComponent(type)}/${encodeURIComponent(name)}/${encodeURIComponent(target)}/test`;
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Test credential failed (${res.status})${text ? ': ' + text : ''}`);
-    }
-    return res.json();
+    return backendJson(url, { method: 'POST' });
   });
 
   ipcMain.handle('credentials:setDefault', async (_event, type: string, name: string, instanceName: string) => {
     const target = instanceName && instanceName.length > 0 ? instanceName : 'default api';
     const url = `${BACKEND_BASE}/api/credentials/${encodeURIComponent(type)}/${encodeURIComponent(name)}/${encodeURIComponent(target)}/default`;
-    const res = await fetch(url, { method: 'PUT' });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Set default credential failed (${res.status})${text ? ': ' + text : ''}`);
-    }
-    return res.json();
+    return backendJson(url, { method: 'PUT' });
   });
 
   // ── AI review ───────────────────────────────────────────────────────────
   ipcMain.handle('ai:providers', async () => {
-    const res = await fetch(`${BACKEND_BASE}/ai/providers`);
-    if (!res.ok) throw new Error(`backend /ai/providers returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/ai/providers`);
   });
 
   // ── Work-model axis ────────────────────────────────────────────────────
@@ -6388,9 +5262,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 8_000);
     try {
-      const res = await fetch(`${BACKEND_BASE}/api/work-models`, { signal: controller.signal });
-      if (!res.ok) throw new Error(`backend /api/work-models returned ${res.status}`);
-      return await res.json();
+      return backendJson(`${BACKEND_BASE}/api/work-models`, { signal: controller.signal });
     }
     catch (e) {
       if ((e as { name?: string }).name === 'AbortError') {
@@ -6407,12 +5279,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 8_000);
     try {
-      const res = await fetch(`${BACKEND_BASE}/api/work-models/refresh`, {
+      return backendJson(`${BACKEND_BASE}/api/work-models/refresh`, {
         method: 'POST',
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`backend /api/work-models/refresh returned ${res.status}`);
-      return await res.json();
     }
     catch (e) {
       if ((e as { name?: string }).name === 'AbortError') {
@@ -6457,7 +5327,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       workspaceId: string;
       model: unknown;
     };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/work-model`,
       {
         method: 'PUT',
@@ -6465,28 +5335,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify({ workModel: model }),
       },
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `setWorkspaceWorkModel returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:getWorkModel', async (_event, args: unknown) => {
     const { threadId } = args as { threadId: string };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/work-model`,
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `getThreadWorkModel returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:setWorkModel', async (_event, args: unknown) => {
     const { threadId, model } = args as { threadId: string; model: unknown };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/work-model`,
       {
         method: 'PUT',
@@ -6494,23 +5354,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify({ workModel: model }),
       },
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `setThreadWorkModel returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:getTaskWorkModel', async (_event, args: unknown) => {
     const { threadId, taskId } = args as { threadId: string; taskId: string };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/work-model`,
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `getTaskWorkModel returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:setTaskWorkModel', async (_event, args: unknown) => {
@@ -6519,7 +5369,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       taskId: string;
       model: unknown;
     };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/work-model`,
       {
         method: 'PUT',
@@ -6527,28 +5377,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify({ workModel: model }),
       },
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `setTaskWorkModel returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:getStageWorkModel', async (_event, args: unknown) => {
     const { stageId } = args as { stageId: string };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/work-model`,
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `getStageWorkModel returned ${res.status}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('threads:setStageWorkModel', async (_event, args: unknown) => {
     const { stageId, model } = args as { stageId: string; model: unknown };
-    const res = await fetch(
+    return backendJson(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/work-model`,
       {
         method: 'PUT',
@@ -6556,11 +5396,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         body: JSON.stringify({ workModel: model }),
       },
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `setStageWorkModel returned ${res.status}`);
-    }
-    return res.json();
   });
 
   // ds4 lifecycle / config / metrics passthrough. Every endpoint
@@ -6578,16 +5413,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   ipcMain.handle('ds4:setConfig', async (_event, args: unknown) => {
     const { config, restart } = args as { config: unknown; restart?: boolean };
     const suffix = restart === true ? '?restart=true' : '';
-    const res = await fetch(`${BACKEND_BASE}/api/ds4/config${suffix}`, {
+    return backendJson(`${BACKEND_BASE}/api/ds4/config${suffix}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(config),
     });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      throw new Error(detail || `ds4 setConfig returned ${res.status}`);
-    }
-    return res.json();
   });
   ipcMain.handle('ds4:metrics', async () => ds4Get('/api/ds4/metrics'));
   ipcMain.handle('ds4:install', async (_event, body: unknown) => {
@@ -6641,86 +5471,55 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('ai:getSettings', async () => {
-    const res = await fetch(`${BACKEND_BASE}/ai/settings`);
-    if (!res.ok) throw new Error(`backend /ai/settings returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/ai/settings`);
   });
 
   ipcMain.handle('ai:setSettings', async (_event, provider: string, model: string | null) => {
     const url = new URL(`${BACKEND_BASE}/ai/settings`);
     url.searchParams.set('provider', provider);
     if (model) url.searchParams.set('model', model);
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) throw new Error(`backend POST /ai/settings returned ${res.status}`);
-    return res.json();
+    return backendJson(url, { method: 'POST' });
   });
 
   // ── Skills CRUD ────────────────────────────────────────────────────
   ipcMain.handle('skills:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/skills`);
-    if (!res.ok) throw new Error(`backend /skills returned ${res.status}`);
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/skills`);
   });
 
   ipcMain.handle('skills:create', async (_event, input: Record<string, unknown>) => {
-    const res = await fetch(`${BACKEND_BASE}/skills`, {
+    return backendJson(`${BACKEND_BASE}/skills`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Create skill failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('skills:update', async (_event, id: number, input: Record<string, unknown>) => {
-    const res = await fetch(`${BACKEND_BASE}/skills/${id}`, {
+    return backendJson(`${BACKEND_BASE}/skills/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Update skill failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('skills:delete', async (_event, id: number) => {
-    const res = await fetch(`${BACKEND_BASE}/skills/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Delete skill failed (${res.status}): ${body}`);
-    }
-    return res.json();
+    return backendJson(`${BACKEND_BASE}/skills/${id}`, { method: 'DELETE' });
   });
 
   ipcMain.handle('skills:setEnabled', async (_event, id: number, enabled: boolean) => {
-    const res = await fetch(`${BACKEND_BASE}/skills/${id}/enabled`, {
+    return backendJson(`${BACKEND_BASE}/skills/${id}/enabled`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Set skill enabled failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
   ipcMain.handle('skills:draft', async (_event, prompt: string, scope: string) => {
-    const res = await fetch(`${BACKEND_BASE}/skills/draft`, {
+    return backendJson(`${BACKEND_BASE}/skills/draft`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, scope }),
     });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`Draft skill failed (${res.status}): ${body}`);
-    }
-    return res.json();
   });
 
 }

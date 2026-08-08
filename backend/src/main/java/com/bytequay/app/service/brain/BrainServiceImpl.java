@@ -58,7 +58,6 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class BrainServiceImpl
-        implements BrainService
 {
     private static final Logger log = LoggerFactory.getLogger(BrainServiceImpl.class);
 
@@ -127,7 +126,6 @@ public class BrainServiceImpl
         this.planningTransactions = planningTransactions;
     }
 
-    @Override
     public BrainMessageResponse sendMessage(String taskId, String text, List<String> images)
     {
         if (text == null || text.isBlank()) {

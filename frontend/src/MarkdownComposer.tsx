@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useRef, useState, type ReactNode } from 'react';
-import { marked } from 'marked';
+import { renderMarkdown } from './markdown';
 import { useAutoGrow } from './useAutoGrow';
 import { useMentions } from './useMentions';
 
@@ -72,7 +72,7 @@ function MarkdownComposer({
   const taRef = autoGrow ? autoGrowRef : fixedHeightRef;
   const mentions = useMentions({ value, onChange, candidates: mentionCandidates, textareaRef: taRef });
   const previewHtml = tab === 'preview'
-    ? (marked(value.trim() || '_Nothing to preview._', { gfm: true, breaks: true }) as string)
+    ? renderMarkdown(value.trim() || '_Nothing to preview._')
     : '';
 
   return (
@@ -129,10 +129,11 @@ function MarkdownComposer({
       ) : (
         <div
           className="md-body md-composer__preview"
-          // Content originates from the user's own textarea, marked-rendered.
+          // Content originates from the user's own textarea and uses the
+          // same renderer as submitted comments.
           // contextIsolation in Electron + the renderer being a separate
           // process means a malicious <script> wouldn't escape this surface
-          // anyway, but we still trust marked's defaults.
+          // anyway.
           dangerouslySetInnerHTML={{ __html: previewHtml }}
         />
       )}

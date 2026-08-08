@@ -17,7 +17,7 @@ import com.bytequay.app.beans.threadgroup.NewGroupBody;
 import com.bytequay.app.beans.threadgroup.PatchGroupBody;
 import com.bytequay.app.domain.ThreadGroup;
 import com.bytequay.app.domain.ThreadGroupMembership;
-import com.bytequay.app.service.threadgroup.ThreadGroupService;
+import com.bytequay.app.service.threads.ThreadService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -37,23 +37,23 @@ import static java.util.Objects.requireNonNull;
 @RequestMapping("/api/thread-groups")
 public class ThreadGroupController
 {
-    private final ThreadGroupService service;
+    private final ThreadService threads;
 
-    public ThreadGroupController(ThreadGroupService service)
+    public ThreadGroupController(ThreadService threads)
     {
-        this.service = requireNonNull(service, "service is null");
+        this.threads = requireNonNull(threads, "threads is null");
     }
 
     @GetMapping
     public List<ThreadGroup> list()
     {
-        return service.list();
+        return threads.listGroups();
     }
 
     @GetMapping("/memberships")
     public List<ThreadGroupMembership> memberships()
     {
-        return service.memberships();
+        return threads.listAllMemberships();
     }
 
     @PostMapping
@@ -61,31 +61,37 @@ public class ThreadGroupController
     {
         body = requireBody(body);
         requireNotBlank(body.name(), "name is required");
-        return service.create(body);
+        return threads.createGroup(new ThreadService.NewGroupRequest(
+                body.name(),
+                body.glyph(),
+                body.color(),
+                body.sortOrder(),
+                body.initialTaskIds() == null ? List.of() : body.initialTaskIds()));
     }
 
     @PatchMapping("/{id}")
     public ThreadGroup update(@PathVariable String id, @RequestBody PatchGroupBody body)
     {
         body = requireBody(body);
-        return service.update(id, body);
+        return threads.updateGroup(id, new ThreadService.GroupPatch(
+                body.name(), body.glyph(), body.color()));
     }
 
     @DeleteMapping("/{id}")
     public void delete(@PathVariable String id)
     {
-        service.delete(id);
+        threads.deleteGroup(id);
     }
 
     @PostMapping("/{groupId}/members/{threadId}")
     public void addMember(@PathVariable String groupId, @PathVariable String threadId)
     {
-        service.addMember(groupId, threadId);
+        threads.addTaskToGroup(threadId, groupId);
     }
 
     @DeleteMapping("/{groupId}/members/{threadId}")
     public void removeMember(@PathVariable String groupId, @PathVariable String threadId)
     {
-        service.removeMember(groupId, threadId);
+        threads.removeTaskFromGroup(threadId, groupId);
     }
 }

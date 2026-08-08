@@ -111,6 +111,22 @@ public class HarnessStore
                 """, WATCH_MAPPER, beforeMs, limit);
     }
 
+    /**
+     * When this watch first probed the head it is on now — the cycles carry the
+     * head they saw, so how long a board has been pending is a read rather than
+     * a column somebody has to remember to stamp.
+     *
+     * @param fallbackMs what to answer when no cycle has recorded this head yet
+     */
+    public long headFirstSeenAtMs(String watchId, String headSha, long fallbackMs)
+    {
+        Long first = jdbc.queryForObject("""
+                SELECT MIN(started_at_ms) FROM ci_harness_cycle
+                WHERE watch_id = ? AND head_sha = ?
+                """, Long.class, watchId, headSha);
+        return first == null ? fallbackMs : first;
+    }
+
     public List<Watch> watchesInStatus(WatchStatus status)
     {
         return jdbc.query("""

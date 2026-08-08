@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-icons.sh — regenerate every PNG / iconset / icns / ico from
+# build-icons.sh — regenerate the macOS iconset and icns file from
 # assets/logo.svg using a tiny Cocoa-based renderer that preserves
 # alpha (qlmanage flattens transparency to opaque white, which broke
 # the dock display — see commit history). Run from the repo root.
@@ -12,7 +12,6 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SVG="$ROOT/assets/logo.svg"
-OUT_PNG_DIR="$ROOT/build/icons-png"
 ICONSET_DIR="$ROOT/build/icon.iconset"
 RENDERER="$(mktemp -t svg2png).swift"
 
@@ -49,37 +48,16 @@ img.draw(in: NSRect(origin: .zero, size: target),
          from: .zero, operation: .sourceOver, fraction: 1.0)
 NSGraphicsContext.restoreGraphicsState()
 guard let pngData = rep.representation(using: .png, properties: [:]) else { exit(1) }
-if outURL.pathExtension.lowercased() == "ico" {
-    // ICO directory with one PNG-compressed 256px image (supported since Vista).
-    var icon = Data([0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 32, 0])
-    for value in [UInt32(pngData.count), UInt32(22)] {
-        var littleEndian = value.littleEndian
-        withUnsafeBytes(of: &littleEndian) { icon.append(contentsOf: $0) }
-    }
-    icon.append(pngData)
-    try icon.write(to: outURL)
-} else {
-    try pngData.write(to: outURL)
-}
+try pngData.write(to: outURL)
 SWIFT
 
-mkdir -p "$OUT_PNG_DIR" "$ICONSET_DIR"
-
-echo "[build-icons] rendering icons-png/"
-for size in 16 32 64 128 256 512 1024; do
-  swift "$RENDERER" "$SVG" "$OUT_PNG_DIR/icon-${size}.png" "$size"
-done
+mkdir -p "$ICONSET_DIR"
 
 echo "[build-icons] populating icon.iconset/"
 for s in 16 32 128 256 512; do
-  cp "$OUT_PNG_DIR/icon-${s}.png" "$ICONSET_DIR/icon_${s}x${s}.png"
+  swift "$RENDERER" "$SVG" "$ICONSET_DIR/icon_${s}x${s}.png" "$s"
   swift "$RENDERER" "$SVG" "$ICONSET_DIR/icon_${s}x${s}@2x.png" "$((s*2))"
 done
-
-cp "$OUT_PNG_DIR/icon-512.png" "$ROOT/build/icon.png"
-
-echo "[build-icons] bundling icon.ico"
-swift "$RENDERER" "$SVG" "$ROOT/build/icon.ico" "256"
 
 echo "[build-icons] bundling icon.icns"
 iconutil -c icns "$ICONSET_DIR" -o "$ROOT/build/icon.icns"

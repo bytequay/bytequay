@@ -611,12 +611,6 @@
   overflow: hidden;
 }
 
-.repo-chip__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .v2-card__ts {
   font-size: var(--font-size-xs);
   color: var(--text-3);
@@ -688,63 +682,6 @@
    inner status-circle in each tab button gives a quick visual key:
    user can see which colour means open vs closed without needing a
    legend. */
-.issue-pane__filters {
-  padding: var(--space-2) var(--space-3) var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  border-bottom: 1px solid var(--border);
-}
-.issue-pane__state-tabs {
-  display: flex;
-  gap: var(--space-1);
-}
-.issue-pane__state-tab {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-.issue-pane__state-tab:hover {
-  color: var(--text-1);
-  background: var(--bg-elevated);
-}
-.issue-pane__state-tab--active {
-  color: var(--text-0);
-  background: var(--bg-elevated);
-  border-color: var(--border);
-}
-.issue-pane__state-count {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
-}
-.issue-pane__state-tab--active .issue-pane__state-count {
-  color: var(--text-2);
-}
-.issue-pane__search {
-  appearance: none;
-  width: 100%;
-  padding: var(--space-1) var(--space-2);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-base);
-  color: var(--text-1);
-  border-radius: var(--radius-md);
-}
-.issue-pane__search:focus {
-  outline: none;
-  border-color: var(--accent);
-}
 
 /* ── Issues list (Issues sidebar tab on RepoDetailPage) ──────────
    Row-style layout per docs/mockups/design/repository/repository-issues.png:
@@ -754,99 +691,11 @@
    Using a list (<ul>/<li>) here rather than v2-card so the tab can
    evolve toward GitHub-style filterable rows in I2 without dragging
    the PR-card chrome along. */
-.issue-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-.issue-row {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  background: transparent;
-}
-.issue-row:hover {
-  background: var(--bg-elevated);
-}
-.issue-row:last-child {
-  border-bottom: none;
-}
 /* Status circle — one shared base, two variants:
      - --open  : green outlined circle (matches GitHub's open-issue affordance)
      - --closed: filled purple (the "completed" variant; we don't have
        not-planned distinction in the DTO yet, so closed renders the
        same regardless of close reason). */
-.issue-row__status {
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  margin-top: 4px;
-  border: 1.6px solid transparent;
-  background: transparent;
-}
-.issue-row__status--open {
-  border-color: #1a7f37;
-}
-.issue-row__status--closed {
-  border-color: #8250df;
-  background: #8250df;
-}
-.issue-row__main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.issue-row__title-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: 4px;
-}
-.issue-row__title {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-1);
-  /* Constrain so a long title wraps within the line, letting label
-     chips flow onto the same logical row when there's space. */
-  flex: 0 1 auto;
-  word-break: break-word;
-}
-.issue-row__label {
-  font-size: var(--font-size-xs);
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-a7);
-  color: var(--accent);
-  white-space: nowrap;
-  font-weight: 500;
-}
-.issue-row__label--more {
-  background: var(--bg-base);
-  color: var(--text-3);
-}
-.issue-row__meta {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-.issue-row__num {
-  font-variant-numeric: tabular-nums;
-}
-.issue-row__author {
-  color: var(--text-2);
-}
-.issue-row__avatar {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
 
 .v2-pill--resurfaced {
   background: rgba(230, 126, 34, 0.15);
@@ -1982,37 +1831,7 @@
 .diff-viewer__files-label .diff-viewer__files-count { color: var(--text-3); font-weight: 600; }
 
 /* ── Mockup-V2 toolbar buttons ────────────────────────────────────────── */
-.button--ai {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.10), rgba(99, 102, 241, 0.10));
-  border: 1px solid rgba(139, 92, 246, 0.35);
-  color: #6d28d9;
-  font-weight: 600;
-}
-.button--ai:hover {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(99, 102, 241, 0.18));
-}
 .diff-viewer__submit-wrap { position: relative; display: inline-flex; }
-.button--submit {
-  background: linear-gradient(135deg, var(--cta-from), var(--cta-to));
-  color: #fff;
-  border: 1px solid var(--cta-border);
-  font-weight: 600;
-  box-shadow: 0 1px 2px var(--cta-shadow);
-}
-.button--submit:hover:not(:disabled) { background: linear-gradient(135deg, var(--cta-to), var(--cta-border)); }
-.button--submit:disabled { opacity: 0.5; cursor: not-allowed; }
-.button--submit__count {
-  display: inline-block;
-  background: rgba(255, 255, 255, 0.24);
-  color: white;
-  padding: 0 6px;
-  margin-left: 6px;
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  vertical-align: 1px;
-}
-.button--ai:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .submit-popover {
   position: absolute;
@@ -2072,234 +1891,20 @@
 /* Anchored to the Submit-review pill in the toolbar; replaces the smaller
    .submit-popover. Mirrors github.com's "Finish your review" panel — see
    docs/mockups/v2/codereview/submit-button.png. */
-.finish-review-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 480px;
-  max-height: 78vh;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.finish-review-panel__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-card);
-}
-.finish-review-panel__title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-1);
-}
-.finish-review-panel__close {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--text-3);
-  font-size: var(--font-size-lg);
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-}
-.finish-review-panel__close:hover { background: var(--bg-base); color: var(--text-1); }
-.finish-review-panel__body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.finish-review-panel__textarea { min-height: 90px; }
 
 /* Sits directly below the body composer — small negative top-margin
    pulls it up so it visually attaches to the textarea rather than
    floating mid-panel. */
-.finish-review-panel__polish {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: -4px;
-}
 
 /* Verdict radio rows. Selected row gets the accent border so the choice
    is obvious without relying on the radio dot alone. */
-.finish-review-panel__verdicts {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.finish-review-panel__self-note {
-  margin: var(--space-1) 0 0;
-  font-size: 12px;
-  color: var(--text-3);
-}
-.finish-review-verdict {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-.finish-review-verdict:hover { background: var(--bg-card); }
-.finish-review-verdict--active { border-color: var(--accent-a40); background: var(--accent-a7); }
-.finish-review-verdict input[type='radio'] { margin-top: 3px; cursor: pointer; }
-.finish-review-verdict__text { display: flex; flex-direction: column; gap: 2px; }
-.finish-review-verdict__text b { font-size: var(--font-size-md); font-weight: 600; color: var(--text-1); }
-.finish-review-verdict__desc { font-size: var(--font-size-sm); color: var(--text-3); }
 
 /* Pending-comments accordion. Toggle is a borderless button; the list
    below is a scrollable column of cards keyed to file:line. */
-.finish-review-pending__toggle {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 6px 4px;
-  font: inherit;
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-1);
-  cursor: pointer;
-}
-.finish-review-pending__chevron {
-  display: inline-block;
-  font-size: 10px;
-  color: var(--text-3);
-  transform: rotate(-90deg);
-  transition: transform 120ms ease;
-}
-.finish-review-pending__chevron--open { transform: rotate(0deg); }
-.finish-review-pending__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-2);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-}
-.finish-review-pending__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  max-height: 260px;
-  overflow-y: auto;
-  padding: 2px;
-}
-.finish-review-pending__empty {
-  padding: var(--space-3);
-  text-align: center;
-  color: var(--text-3);
-  font-size: var(--font-size-sm);
-  font-style: italic;
-}
-.finish-review-pending__item {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2);
-  background: var(--bg-card);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.finish-review-pending__item-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  font-size: var(--font-size-xs);
-}
-.finish-review-pending__item-loc {
-  font-weight: 600;
-  color: var(--text-2);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-}
-.finish-review-pending__item-path {
-  flex: 1;
-  min-width: 0;
-  color: var(--text-3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.finish-review-pending__item-source--ai { color: #6d28d9; }
-.finish-review-pending__item-source--human { color: #b45309; }
-.finish-review-pending__item-body {
-  font-size: var(--font-size-sm);
-  color: var(--text-1);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.finish-review-panel__error {
-  padding: var(--space-2);
-  background: rgba(239, 68, 68, 0.1);
-  color: #b91c1c;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-}
-
-.finish-review-panel__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--border);
-  background: var(--bg-card);
-}
-.finish-review-panel__foot-right {
-  display: flex;
-  gap: var(--space-2);
-}
-.finish-review-panel__discard-confirm {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-}
-.finish-review-panel__discard-warn {
-  flex: 1;
-  font-size: var(--font-size-sm);
-  color: #991b1b;
-}
 
 /* Borderless red link for the "Discard review" footer action — visually
    distinct from the destructive-confirm button so the user has to opt
    in before any deletion runs. */
-.button--danger-link {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: #cf222e;
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-}
-.button--danger-link:hover { background: rgba(207, 34, 46, 0.08); }
-.button--danger-link:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Sub-header (Showing dropdown) ────────────────────────────────────── */
 .diff-viewer__sub {
@@ -2416,41 +2021,11 @@
 }
 
 /* ── Sidebar "running" pulse strip ────────────────────────────────────── */
-.ai-sidebar__running {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  background: rgba(139, 92, 246, 0.08);
-  border: 1px solid rgba(139, 92, 246, 0.22);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  color: #6d28d9;
-}
-.ai-sidebar__pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #8b5cf6;
-  animation: ai-pulse 1.4s infinite;
-}
 @keyframes ai-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6); }
   70%  { box-shadow: 0 0 0 7px rgba(139, 92, 246, 0); }
   100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
 }
-.ai-summary__rerun {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 2px 6px;
-  font: inherit;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  cursor: pointer;
-}
-.ai-summary__rerun:hover { color: #6d28d9; border-color: rgba(139, 92, 246, 0.3); }
 
 /* ═══════════ Three-column diff view: commits lane ═══════════
    All lanes share the white canvas; hairline dividers separate the

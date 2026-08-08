@@ -18,13 +18,10 @@
  * the prototype's hover values. */
 
 .pl-hov-row:hover { background: #f4f5f7 !important; }
-.pl-hov-nav:hover { background: rgba(0, 0, 0, 0.05); }
 .pl-hov-ic:hover { background: rgba(0, 0, 0, 0.06); }
 .pl-hov-btn:hover { background: #f6f8fa !important; }
 .pl-hov-tgl:hover { background: #e7e9ec !important; }
 .pl-hov-drag:hover { background: rgba(9, 105, 218, 0.35); }
-.pl-hov-agent:hover { background: rgba(139, 92, 246, 0.15) !important; }
-.pl-hov-agent-dash:hover { background: rgba(139, 92, 246, 0.06) !important; }
 .pl-review-action {
   appearance: none;
   display: inline-flex;
@@ -113,8 +110,6 @@
 .pl-quick-review__finding-body > :first-child { margin-top: 0; }
 .pl-quick-review__summary > :last-child,
 .pl-quick-review__finding-body > :last-child { margin-bottom: 0; }
-.pl-hov-send:hover { background: #000 !important; }
-.pl-hov-load:hover { background: #f4f5f7; color: #17191c; }
 .pl-hov-green:hover:not(:disabled) { background: #1a7f37 !important; }
 .agent-review-v2__trunk:hover { background: #f0f2f4 !important; }
 .agent-review-v2 button,
@@ -270,24 +265,6 @@
   box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
 }
 .pl-pr-description-editor .editable-comment-body__actions .pr-comment-box__cancel:hover { background: #f3f4f6; }
-
-.pl-github-link {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  margin: 0 0 4px -8px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #59636e;
-  cursor: pointer;
-}
-.pl-github-link:hover { background: #eef1f4; color: #1f2328; }
-.pl-github-link:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
 
 .pl-meta-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative; z-index: 4; }
 .pl-meta-picker { position: relative; display: inline-flex; }

@@ -108,7 +108,6 @@ async function runPrRemoteCommand(
   }
   return response;
 }
-import started from 'electron-squirrel-startup';
 import { BACKEND_BASE, killBackend, reportBackendFailure, spawnBackend, waitForBackendReady } from './backendProcess';
 import { registerTaskStreamIpc } from './threadStreamBridge';
 
@@ -142,11 +141,6 @@ app.setAsDefaultProtocolClient(APP_PROTOCOL);
  *  a release. Shown in the About panel as e.g. "ByteQuay 0.1.0". */
 const APP_VERSION = '0.3.4';
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (started) {
-  app.quit();
-}
-
 // Only one ByteQuay may run at a time: a second instance would spawn its own
 // backend against the same port and the same SQLite file, and the user just
 // sees two identical windows. Hand focus to the window that's already open.
@@ -172,12 +166,9 @@ if (!app.requestSingleInstanceLock()) {
  *  because __dirname differs between the Vite-built dev path
  *  (frontend/.vite/build/main.js) and the packaged .app bundle
  *  (Resources/app.asar/...). Prefers .icns on macOS — the system
- *  About panel renders it crisper than a PNG — and falls back to
- *  .png. Logs the chosen path so missing-icon issues are visible
+ *  About panel renders it crisply. Logs the chosen path so missing-icon issues are visible
  *  in the dev console without a debugger. */
 function resolveIconPath(): string | null {
-  const filename = process.platform === 'darwin' ? 'icon.icns' : 'icon.png';
-  const fallback = 'icon.png';
   const roots = [
     path.join(__dirname, '..', '..', '..', 'build'),
     path.join(__dirname, '..', '..', 'build'),
@@ -187,13 +178,11 @@ function resolveIconPath(): string | null {
     path.join(app.getAppPath(), '..', 'build'),
   ];
   for (const root of roots) {
-    for (const name of [filename, fallback]) {
-      const candidate = path.join(root, name);
-      if (fs.existsSync(candidate)) {
-        // eslint-disable-next-line no-console
-        console.log('[ByteQuay] resolved app icon:', candidate);
-        return candidate;
-      }
+    const candidate = path.join(root, 'icon.icns');
+    if (fs.existsSync(candidate)) {
+      // eslint-disable-next-line no-console
+      console.log('[ByteQuay] resolved app icon:', candidate);
+      return candidate;
     }
   }
   // eslint-disable-next-line no-console

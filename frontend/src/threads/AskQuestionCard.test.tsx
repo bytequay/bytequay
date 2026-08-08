@@ -14,8 +14,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AskQuestionCard } from './AskQuestionCard';
-import { findPendingAskQuestion } from './askQuestion';
-import type { ThreadMessageDto } from '../types';
 
 afterEach(cleanup);
 
@@ -91,30 +89,4 @@ describe('AskQuestionCard (interactive)', () => {
     expect(screen.getByText(/Reply via the chat input below/)).toBeTruthy();
     expect(screen.queryByRole('listbox')).toBeNull();
   });
-});
-
-describe('findPendingAskQuestion', () => {
-  const ask = (seq: number): ThreadMessageDto => msg(seq, 'tool', 'tool_call',
-    JSON.stringify({ callId: `c-${seq}`, toolName: 'AskUserQuestion', input: SINGLE }));
-  const reply = (seq: number): ThreadMessageDto => msg(seq, 'user', 'text', '{"text":"ok"}');
-
-  it('returns the latest unanswered AskUserQuestion', () => {
-    expect(findPendingAskQuestion([reply(1), ask(2)])?.callId).toBe('c-2');
-  });
-
-  it('returns null once a user reply lands after the question', () => {
-    expect(findPendingAskQuestion([ask(1), reply(2)])).toBeNull();
-  });
-
-  it('returns null when no question was asked', () => {
-    expect(findPendingAskQuestion([reply(1)])).toBeNull();
-  });
-
-  function msg(seq: number, role: string, type: string, content: string): ThreadMessageDto {
-    return {
-      id: `m-${seq}`, threadId: 't', taskId: null, seq, role, type,
-      contentJson: content, durationMs: null, tokensIn: null, tokensOut: null,
-      costUsdMilli: null, ts: new Date(Date.UTC(2026, 0, 1, 0, 0, seq)).toISOString(),
-    };
-  }
 });

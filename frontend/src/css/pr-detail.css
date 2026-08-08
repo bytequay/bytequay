@@ -7,307 +7,51 @@
    (and, when v2-main wasn't a flex column, collapsed the parent to
    zero so the page rendered blank). Plain flex sizing fills the parent
    without escaping its layout slot. */
-.prc-page {
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-base);
-  overflow: hidden;
-  /* Fill regardless of how the parent sizes its children:
-       • flex parent (v2-main__screen) → flex:1 1 0 takes available space
-       • plain block parent with definite height (team-detail-pr-wrap) →
-         100% inherits that height
-     min-height/width:0 keeps long content from forcing the parent wider. */
-  flex: 1 1 0;
-  min-height: 0;
-  min-width: 0;
-  width: 100%;
-  height: 100%;
-}
-.prc-header {
-  flex: 0 0 auto;
-  /* Tight top padding — the title sits right under the topbar so a
-     14px breathing strip felt like dead space. The bottom keeps a
-     little more room so the meta row doesn't kiss the timeline. */
-  padding: 6px 22px 12px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: 1fr auto;
-  /* Three info rows on the left + one actions slot on the right.
-     The actions slot spans down so refresh / open-on-remote / review
-     (and the back-to-kanban button, now folded into the actions
-     cluster) stay vertically centred against the title row. The
-     dedicated "back" row that used to sit on top is gone — it left a
-     mostly-empty band above the title (see back-to-button.png). */
-  grid-template-areas:
-    "title  actions"
-    "branch actions"
-    "meta   meta";
-  row-gap: var(--space-1);
-  column-gap: var(--space-3);
-}
-.prc-back {
-  display: none; /* the topbar already has Back; keep for future use */
-}
 /* Title row holds the H1 and (eventually) the edit pencil. The H1
    itself flows the title text + #N pill inline so they share a
    baseline — see pr-header.png. */
-.prc-header__title-row {
-  grid-area: title;
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.prc-title {
-  /* No grid-area here — the title now sits inside __title-row. */
-  font-size: var(--font-size-2xl);
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.25;
-  color: var(--text-1);
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin: 0;
-}
 /* Inline #N link folded into the title — themed chip using the
    accent palette so the colour shifts per theme (purple in purple,
    blue in github-light, green in warm…). Smaller padding than body
    chips because the title font is already large. */
-.prc-title__number {
-  background: var(--accent-a10);
-  color: var(--accent);
-  font-weight: 500;
-  text-decoration: none;
-  padding: 1px 8px;
-  border-radius: var(--radius-md);
-  font-size: 0.7em;
-}
-.prc-title__number:hover {
-  background: var(--accent-a40);
-}
 /* Backtick-wrapped segments inside the title render as inline code —
    github.com does the same when you put `Foo#bar` in a PR title. The
    translucent grey tint (same recipe github.com uses for inline code)
    adapts to the elevated header background without disappearing the
    way --bg-card did, while staying neutral against any theme. */
-.prc-title__code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 0.85em;
-  font-weight: 500;
-  background: rgba(110, 119, 129, 0.22);
-  border-radius: var(--radius-sm);
-  padding: 1px 6px;
-  color: var(--text-1);
-  /* Slight nudge so the box-aligned glyphs sit on the same baseline as
-     the surrounding text. */
-  vertical-align: 1px;
-}
-[data-theme="atom-one-dark"] .prc-title__code,
-[data-theme="warm"] .prc-title__code {
-  background: rgba(175, 184, 193, 0.18);
-}
-.prc-meta-line {
-  grid-area: meta;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  flex-wrap: wrap;
-}
-.prc-meta-link { color: var(--text-2); text-decoration: none; }
-.prc-meta-link:hover { color: var(--accent); text-decoration: underline; }
-.prc-meta-sep { opacity: 0.5; }
-.prc-meta-time { color: var(--text-3); }
 /* GitHub-mark icon button living in the meta line. Replaces the
    verbose "Open on Remote" text button so the actions row is left
    with just the primary Review action. Sized to match the meta
    line's body text height. */
-.prc-meta-github {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  padding: 2px 4px;
-  margin-left: 4px;
-  color: var(--text-3);
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.prc-meta-github:hover {
-  color: var(--text-1);
-  background: var(--bg-card);
-}
 /* Linked-task chip on the PR header meta line — jumps back to the dev
    task that produced this PR. */
-.prc-meta-task {
-  appearance: none;
-  margin-left: 8px;
-  padding: 1px 8px;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--accent, #0969da);
-  background: rgba(9, 105, 218, 0.08);
-  border: 1px solid rgba(9, 105, 218, 0.25);
-  border-radius: 999px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.prc-meta-task:hover:not(:disabled) { background: rgba(9, 105, 218, 0.15); }
-.prc-meta-task:disabled { opacity: 0.6; cursor: default; }
 /* Status pill in the PR detail header. Default = Open (green); the
    modifier classes below paint Merged purple, Closed red, Draft grey.
    Bigger + solid background than the rest of the meta strip so the
    PR's lifecycle state is the loudest thing next to the number — same
    visual weight GitHub gives it. */
-.prc-status-pill {
-  display: inline-flex;
-  align-items: center;
-  font-size: var(--font-size-sm);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  font-weight: 700;
-  background: #2da44e;
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  line-height: 1;
-}
 /* Draft — muted because it's "not a state, an intent" (GitHub's term).
    Stays the soft-tint variant so it doesn't compete with Open/Merged. */
-.prc-status-pill--draft {
-  background: var(--bg-card);
-  color: var(--text-3);
-}
 /* Merged — github.com's purple. */
-.prc-status-pill--merged {
-  background: #8250df;
-  color: #fff;
-}
 /* Closed without merge — red, signalling "abandoned". */
-.prc-status-pill--closed {
-  background: #cf222e;
-  color: #fff;
-}
 /* Queued — GitHub's "in the merge queue" amber, distinct from the
    green Open / purple Merged / red Closed so the user sees the
    in-flight state at a glance. Same color github.com uses for the
    queue badge on their PR detail page. */
-.prc-status-pill--queued {
-  background: #bf8700;
-  color: #fff;
-}
 
 /* GitHub-style branch sentence sitting on its own line under the meta
    strip — "AUTHOR wants to merge into BASE from HEAD". Each branch is
    a monospace pill prefixed with the owner; the copy button on the end
    matches GitHub's affordance for grabbing the head branch name. */
-.prc-branch-line {
-  grid-area: branch;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
-  /* margin-top dropped — the .prc-header grid's row-gap already
-     provides spacing between rows; the extra 6px stacked on top
-     created the "too large gap" the user reported. */
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-}
-.prc-branch-line__icon {
-  font-size: var(--font-size-md);
-  color: var(--text-3);
-}
-.prc-branch-line__author {
-  color: var(--text-1);
-  font-weight: 600;
-  text-decoration: none;
-}
-.prc-branch-line__author:hover {
-  color: var(--accent);
-  text-decoration: underline;
-}
-.prc-branch-line__verb {
-  color: var(--text-2);
-}
-.prc-branch-line__copy {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 1px 5px;
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  cursor: pointer;
-}
-.prc-branch-line__copy:hover {
-  color: var(--accent);
-  border-color: var(--border);
-}
-.prc-branches__ref {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  background: rgba(31, 111, 235, 0.10);
-  border: 1px solid rgba(31, 111, 235, 0.18);
-  color: #0969da;
-  white-space: nowrap;
-}
 /* When the head-ref chip is also the click target for "open in
    local-repo Commits", give it a button affordance: pointer cursor
    + a brighter hover state without changing the resting tint, so
    the chip still reads as a code reference at a glance. */
-button.prc-branches__ref--clickable {
-  appearance: none;
-  cursor: pointer;
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-xs);
-}
-button.prc-branches__ref--clickable:hover {
-  background: rgba(31, 111, 235, 0.18);
-  border-color: rgba(31, 111, 235, 0.40);
-}
-
-.prc-actions {
-  grid-area: actions;
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.prc-loading,
-.prc-refreshing,
-.prc-error {
-  padding: 12px 22px;
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-}
-.prc-error { color: #b91c1c; }
 
 /* Sidebar status row variant — matches the existing red-dot rows for
    "N changes requested" / approvals, in the same red tone. */
-.prc-status-row--conflict {
-  color: #b91c1c;
-}
-
-.prc-body {
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  min-height: 0;
-}
 /* Collapsed-sidebar variant: rail shrinks to just the toggle's
    footprint so the conversation column can claim the rest. */
-.prc-body--sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr) 36px;
-}
 
 /* ── Conversation timeline (left column) ───────────────────────────── */
 /* Dialog-style layout: comment-card avatars sit OUTSIDE the bubble on
@@ -322,58 +66,20 @@ button.prc-branches__ref--clickable:hover {
        └─ timeline.padding-left
 
    See docs/mockups/v2/detail/comments-layout.png. */
-.prc-timeline {
-  overflow-y: auto;
-  /* Left padding pushes the timeline's avatar gutter past the header's
-     22px content edge — the inner geometry (avatar at 16, rail at 80,
-     markers centered on the rail) is relative to this padding, so the
-     whole layout shifts together without breaking alignment. */
-  padding: 16px 22px 22px 30px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-height: 0;
-}
 /* Inner wrapper sized to exactly the timeline entries — the rail lives
    here (not on .prc-timeline) so it cannot extend past the last entry
    into empty space below, and cannot detach from the events when the
    scroll viewport changes height. */
-.prc-timeline__entries {
-  display: flex;
-  flex-direction: column;
-  gap: 30px;
-  position: relative;
-}
 /* Structural event rows (commits, label changes, etc.) are densest when
    they cluster — pull two adjacent event rows / groups 5px closer than
    the 30px comment-card rhythm so a run of small events feels like a
    single block instead of inflating to comment-card spacing. */
-.prc-timeline__entries > .prc-event-row + .prc-event-row,
-.prc-timeline__entries > .prc-event-row + .prc-event-group,
-.prc-timeline__entries > .prc-event-group + .prc-event-row,
-.prc-timeline__entries > .prc-event-group + .prc-event-group {
-  margin-top: -5px;
-}
 /* Vertical rail through the marker column. Sits well to the right of
    the comment-avatar gutter (x=16..56) so structural events read as
    visually demoted from the comment thread. Comment-card bodies (which
    have a solid background) draw on top of the rail in their region, so
    the rail only shows in the gaps between cards and around event rows.
    top:0/bottom:0 makes the rail exactly the height of the entries. */
-.prc-timeline__entries::before {
-  content: '';
-  position: absolute;
-  /* Rail x-position. Markers center on this value (left: rail - 11),
-     event-row padding-left = rail + 20, and the review-card body
-     starts at avatar_right + gap, designed to land just past the
-     marker. Shift this single value to move the whole rail. */
-  left: 80px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--border);
-  z-index: 0;
-}
 /* Each timeline entry sits in front of the rail. */
 .prc-timeline__entries > .prc-comment-card,
 .prc-timeline__entries > .prc-event-row,
@@ -407,81 +113,13 @@ button.prc-branches__ref--clickable:hover {
   font-size: var(--font-size-lg);
 }
 
-.prc-date-divider {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 8px 0 0;
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 600;
-  color: var(--text-3);
-}
-.prc-date-divider::before,
-.prc-date-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
 /* Comment & review cards. The avatar is OUTSIDE the bubble — flex row of
    [avatar] + [bordered body with leftward tail]. Reads like the avatar is
    "saying" the comment. Structural events (force-push, review_requested,
    merged, etc.) stay flat via .prc-event-row. */
-.prc-comment-card {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-4);
-  padding-left: 16px;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-}
-.prc-comment-avatar {
-  flex-shrink: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--bg-base);
-}
-.prc-comment-card-body {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  padding: var(--space-2) var(--space-3);
-  position: relative;
-}
 /* Speech-bubble tail pointing left toward the avatar. The ::after is the
    border edge (drawn 1px wider/offset further left); the ::before is the
    fill, drawn on top so the seam reads as a single triangle. */
-.prc-comment-card-body::before {
-  content: '';
-  position: absolute;
-  left: -7px;
-  top: 14px;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  border-width: 7px 7px 7px 0;
-  border-color: transparent var(--bg-card) transparent transparent;
-  z-index: 1;
-}
-.prc-comment-card-body::after {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 13px;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  border-width: 8px 8px 8px 0;
-  border-color: transparent var(--border) transparent transparent;
-  z-index: 0;
-}
 /* Header bar shared by every comment + review card. Sits flush against
    the card's top edge as a gray strip carrying author / verb / date /
    role pill — same shell GitHub uses on its conversation page. The
@@ -490,21 +128,6 @@ button.prc-branches__ref--clickable:hover {
    below room to breathe. The matching ::before border-color override
    recolours the speech-bubble tail tip so it blends with the gray bar
    instead of showing the white card fill underneath. */
-.prc-comment-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  margin: -10px -14px 10px;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  border-radius: 8px 8px 0 0;
-}
-.prc-comment-card-body::before {
-  border-color: transparent var(--bg-elevated) transparent transparent;
-}
-.prc-comment-verb { color: var(--text-3); font-size: var(--font-size-sm); }
 .prc-comment-author {
   color: var(--text-1);
   font-weight: 600;
@@ -558,18 +181,6 @@ button.prc-branches__ref--clickable:hover {
    comments, surface them as nested ReviewThreadCards inside the review's
    comment card. The note above tells the user this review only carries
    inline annotations. */
-.prc-comment-empty-note {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  margin: 6px 0 4px;
-  font-style: italic;
-}
-.prc-comment-threads {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: 6px;
-}
 .prc-comment-body p { margin: 0 0 6px; }
 .prc-comment-body p:last-child { margin-bottom: 0; }
 /* Code in PR comments + the diff-hunk preview share one size so reading
@@ -604,145 +215,34 @@ button.prc-branches__ref--clickable:hover {
 .prc-comment-body ol { margin: 4px 0 4px 18px; }
 
 /* Review verdict pill on a comment card (APPROVED / CHANGES_REQUESTED). */
-.prc-verdict-pill {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-elevated);
-  color: var(--text-2);
-}
-.prc-verdict-pill--approved { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
-.prc-verdict-pill--changes_requested { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
-.prc-verdict-pill--commented { background: rgba(99, 102, 241, 0.12); color: #4338ca; }
-.prc-verdict-pill--dismissed { background: var(--bg-elevated); color: var(--text-3); }
 
 /* Compact one-line event row for structural events. Flat (no border/bg)
    so the row reads as a single line in the conversation feed, matching
    GitHub's plain "X did Y" rows. The marker (small circle with a glyph)
    sits ON the rail; the avatar sits to the marker's right; the rest of
    the row is text + timestamp. */
-.prc-event-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  /* Text starts ~20px past the rail (rail at 80px → text at 100px). */
-  padding: 2px 0 2px 100px;
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  position: relative;
-}
 
 /* Approved / changes-requested verdict row — the compact one-line header
    for every review event. Avatar at far-left, colored verdict circle on
    the rail, actor + verb + relative-time after. When the review carried a
    body or inline threads they render in .prc-review-event__detail beneath
    this line (a nested comment card + threads), matching github.com. */
-.prc-approved-row {
-  position: relative;
-  padding: 6px 0 6px 104px;
-  /* 40px avatar (matching top-level comment avatars) sets the row height. */
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  font-size: var(--font-size-lg);
-  color: var(--text-2);
-}
-.prc-approved-row__avatar {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-}
-.prc-approved-row__check {
-  position: absolute;
-  /* Centered on the rail (x=80) — left = 80 - 28/2 = 66. The colored
-     circle reads as the verdict marker; the rail still draws above/below. */
-  left: 66px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  line-height: 1;
-  z-index: 1;
-}
-.prc-approved-row__check--approved { background: #2ea043; }
-.prc-approved-row__check--changes-requested { background: #cf222e; }
-.prc-approved-row__check--commented { background: var(--text-3); }
 /* Approval from a reviewer without write access — shown but doesn't count
    toward merge, so it's gray rather than the authoritative green. */
-.prc-approved-row__check--approved-muted { background: var(--text-3); }
-.prc-approved-row__text {
-  flex: 1;
-  min-width: 0;
-}
-.prc-approved-row__author {
-  color: var(--text-1);
-  font-weight: 600;
-  text-decoration: none;
-}
-.prc-approved-row__author:hover {
-  text-decoration: underline;
-}
-.prc-approved-row__time {
-  color: var(--text-3);
-  text-decoration: underline;
-  text-decoration-color: var(--text-4);
-  text-underline-offset: 2px;
-}
 
 /* A review event's inline threads sit indented beneath the verdict row +
    comment bubble, aligned with the verdict text (past the avatar + rail
    marker). The review body itself renders as a normal .prc-comment-card
    speech bubble above this. */
-.prc-review-event__detail {
-  margin: 4px 0 4px 104px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
 /* Review-summary bubble: the verdict row above already shows the avatar,
    so this comment card drops its own. Pad the body to where the avatar +
    gap would have placed it (16 + 40 + 16) so it stays aligned with the
    timeline's other comment bubbles, tail still pointing up toward the
    verdict. */
-.prc-review-comment-card {
-  padding-left: 72px;
-  /* Nudge the bubble down so its up-pointing tail clears the verdict row
-     above instead of crowding it. */
-  margin-top: 10px;
-}
 /* This card has no avatar to its left, so its tail points UP at the
    verdict's green check above (centred on the rail at ~80px) instead of
    left. ::after is the border edge; ::before is the header-matching fill
    drawn 1px inside it. */
-.prc-review-comment-card .prc-comment-card-body::after {
-  left: 0;
-  top: -8px;
-  border-width: 0 8px 8px 8px;
-  border-color: transparent transparent var(--border) transparent;
-}
-.prc-review-comment-card .prc-comment-card-body::before {
-  left: 1px;
-  top: -7px;
-  border-width: 0 7px 7px 7px;
-  border-color: transparent transparent var(--bg-elevated) transparent;
-}
 
 /* The signed-in user's own comments get a faint blue wash so they stand
    out in a long thread. Covers the regular comment card (left tail) and
@@ -752,14 +252,8 @@ button.prc-branches__ref--clickable:hover {
    border stay identical to every other comment card. The tint is
    composited over the opaque header base so the timeline rail can't show
    through it. */
-.prc-comment-card-body--mine .prc-comment-head {
-  background: linear-gradient(rgba(64, 148, 255, 0.22), rgba(64, 148, 255, 0.22)), var(--bg-elevated);
-  border-bottom-color: rgba(64, 148, 255, 0.32);
-}
 /* The speech-bubble tail tip sits at the header, so colour it to match so
    it doesn't read gray against the tinted bar. */
-.prc-comment-card-body--mine::before { border-right-color: rgba(64, 148, 255, 0.30); }
-.prc-review-comment-card .prc-comment-card-body--mine::before { border-bottom-color: rgba(64, 148, 255, 0.30); }
 
 /* GitHub blob-permalink snippet card — a file/line header over the
    referenced source line(s), the way github.com expands a pasted
@@ -825,97 +319,14 @@ button.prc-branches__ref--clickable:hover {
   color: var(--text-3);
   font-style: italic;
 }
-.prc-event-row b { color: var(--text-1); font-weight: 600; }
 /* GitHub-style "bot" tag next to an automated actor's name. */
-.prc-bot-tag {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 16px;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--text-2);
-  background: var(--bg-card);
-  border: 1px solid var(--border-hairline);
-  border-radius: 999px;
-  vertical-align: middle;
-}
-.prc-event-row code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--font-size-xs);
-  background: var(--bg-card);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-.prc-event-marker {
-  position: absolute;
-  /* Center on the rail (rail at left:80px). Marker is 22px wide, so
-     left-edge at 69px puts the center at 80px. */
-  left: 69px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--bg-base);
-  color: var(--text-3);
-  font-size: var(--font-size-xs);
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  z-index: 1;
-}
 /* github.com-style colour for special timeline events. The glyph
    stays the same — what changes is the chip becomes a solid filled
    circle in the canonical state colour, so a quick scan of the
    timeline surfaces "this PR was merged / closed / reopened"
    without having to read each line. */
-.prc-event-marker--merged {
-  background: #8250df;
-  border-color: #8250df;
-  color: #fff;
-  font-weight: 700;
-}
-.prc-event-marker--closed {
-  background: #cf222e;
-  border-color: #cf222e;
-  color: #fff;
-  font-weight: 700;
-}
-.prc-event-marker--reopened {
-  background: #2da44e;
-  border-color: #2da44e;
-  color: #fff;
-  font-weight: 700;
-}
-.prc-event-row .prc-event-avatar {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-}
 /* Legacy class kept around in case any older renderer still references
    it; harmless if unused. */
-.prc-event-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: var(--radius-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  font-size: 10px;
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-.prc-event-icon--commit { background: rgba(99, 102, 241, 0.10); color: #4338ca; border-color: rgba(99, 102, 241, 0.24); }
-.prc-event-time { font-size: var(--font-size-xs); color: var(--text-3); }
 
 /* Reviewed timeline entry — uses the comment-card outer shape (40px
    avatar at the same x-position as comment-card avatars, body to the
@@ -928,119 +339,22 @@ button.prc-branches__ref--clickable:hover {
    The eye marker still sits on the timeline rail between the avatar
    and the body, so the row visually anchors to the rail like every
    other timeline event. */
-.prc-review-card {
-  position: relative;
-  /* Widen the gap between the avatar and the body so the eye marker
-     on the rail (left:69px) doesn't crash into the start of the
-     header text. Avatar (16px → 56px) + gap (40px) puts the body at
-     96px, just past the marker's right edge (69 + 22 = 91), keeping
-     the spacing from display-reviewed.png. */
-  gap: 40px;
-}
-.prc-review-card__marker {
-  position: absolute;
-  /* Same rail position as .prc-event-marker (left:69px = center on the
-     rail at left:80px). Top is computed so the badge centers on the
-     header's first text line — actor name + verb live at the top of
-     the body, ~20px line-height; centering a 22px marker on that line
-     means top = (20 - 22) / 2 ≈ -1px, rounded to 0 for a clean pixel
-     grid. */
-  left: 69px;
-  top: 0;
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-base);
-  color: var(--text-3);
-  font-size: var(--font-size-lg);
-  line-height: 1;
-  z-index: 1;
-  border-radius: 50%;
-}
 /* Verdict-coloured variants — small filled badge with white glyph.
    Mirrors github.com's review-event icons: green ✓ for approved, red
    ✕ for changes-requested, neutral grey 💬 for plain comments. The
    colored fill makes the verdict obvious at a glance instead of every
    reviewed event sharing a generic eye marker. */
-.prc-review-card__marker--approved {
-  background: #2da44e;
-  color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-  border: 2px solid var(--bg-base);
-  width: 28px;
-  height: 28px;
-  /* Re-centre the marker over its rail position now that it's wider —
-     left:69px is the centre of the 22px badge; widening to 28px shifts
-     the centre by 3px without this nudge. */
-  left: 66px;
-  top: -3px;
-}
-.prc-review-card__marker--changes-requested {
-  background: #cf222e;
-  color: #fff;
-  font-size: 16px;
-  font-weight: 700;
-  border: 2px solid var(--bg-base);
-  width: 28px;
-  height: 28px;
-  left: 66px;
-  top: -3px;
-}
-.prc-review-card__marker--commented {
-  background: var(--bg-elevated);
-  color: var(--text-2);
-  font-size: var(--font-size-xs);
-  border: 2px solid var(--bg-base);
-  width: 22px;
-  height: 22px;
-}
 /* Inherit the comment-card chrome — bordered card with the speech-bubble
    tail pointing at the avatar. Matches docs/mockups/v2/codereview/
    review-card-boundary.png so reviews and plain issue comments share
    the same visual shell. The header bar + inline review threads inside
    are spaced and styled separately so the nested threads don't read
    as a "double-bordered" block. */
-.prc-review-card__toggle {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-2);
-  font-size: var(--font-size-md);
-  line-height: 1;
-  width: 22px;
-  height: 22px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-.prc-review-card__toggle:hover {
-  color: var(--accent);
-  border-color: var(--accent-a40);
-  background: var(--accent-a7);
-}
 /* Expanded body — review body markdown + attached inline threads.
    Stacks vertically with a bit of breathing room above. */
-.prc-review-card__content {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
 .prc-review-card__content .prc-comment-body {
   font-size: var(--font-size-md);
   color: var(--text-1);
-}
-.prc-review-card__content .prc-comment-threads {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
 
 /* Threaded review comment (per-line code review, with diff_hunk). */
@@ -1843,31 +1157,6 @@ button.prc-branches__ref--clickable:hover {
 .reaction-add__option:hover { background: var(--accent-a7); }
 
 /* Linked issues row in the Classic-mode sidebar. */
-.prc-linked-issue {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-1);
-  padding: 4px 0;
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  text-decoration: none;
-  border-top: 1px solid transparent;
-}
-.prc-linked-issue:hover { color: var(--accent); }
-.prc-linked-issue__state {
-  width: 14px;
-  text-align: center;
-  font-weight: 700;
-}
-.prc-linked-issue__state--open { color: #1a7f37; }
-.prc-linked-issue__state--closed { color: #8250df; }
-.prc-linked-issue__num { font-weight: 600; color: var(--text-3); flex-shrink: 0; }
-.prc-linked-issue__title {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 /* "Quote reply" button on a timeline comment card. Lives at the right edge
    of the comment header — the icon-only style nudges this into a low-key
@@ -1982,540 +1271,60 @@ button.prc-branches__ref--clickable:hover {
 /* Commit-SHA anchor inside a timeline event row. The <code> child keeps
    the monospace styling we already had; the anchor adds hover affordance
    without underlining noisy short SHAs by default. */
-.prc-event-sha {
-  text-decoration: none;
-  color: var(--accent);
-  cursor: pointer;
-}
-.prc-event-sha:hover code {
-  background: var(--accent-a7, rgba(99, 102, 241, 0.12));
-  text-decoration: underline;
-}
-.prc-event-sha code {
-  color: var(--accent);
-  border-radius: 3px;
-  padding: 0 2px;
-  transition: background 0.1s ease;
-}
-
-.prc-event-mention {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.prc-event-mention:hover { text-decoration: underline; }
 
 /* ── Right meta sidebar ────────────────────────────────────────────── */
-.prc-sidebar {
-  border-left: 1px solid var(--border);
-  background: var(--bg-elevated);
-  overflow-y: auto;
-  padding: var(--space-4) var(--space-4) var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-height: 0;
-}
 /* Collapsed: shrink to a rail with just the expand affordance. The
    .prc-body grid is what actually narrows the column to 36px; here
    we tighten internal padding so the toggle button reads as a
    centered chip rather than offset toward the left. */
-.prc-sidebar--collapsed {
-  padding: var(--space-3) var(--space-1);
-  gap: 0;
-  align-items: center;
-  overflow: hidden;
-}
 /* Mirror the .kpr-card__handle chip style (the ✓ / ↺ / ⌛ buttons on
    the kanban PR cards): 18px circle, soft border, 10px glyph inside.
    Keeps the meta sidebar's collapse affordance visually consistent
    with the rest of the dashboard's small inline buttons rather than
    inventing a new rectangular chrome here. */
-.prc-sidebar__toggle {
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--text-3);
-  font: inherit;
-  font-size: 10px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  cursor: pointer;
-  align-self: flex-end;
-  flex-shrink: 0;
-  transition: color 0.1s, border-color 0.1s, background 0.1s;
-}
-.prc-sidebar--collapsed .prc-sidebar__toggle {
-  align-self: center;
-}
-.prc-sidebar__toggle:hover {
-  color: var(--text-1);
-  border-color: var(--accent);
-  background: var(--accent-a7);
-}
-.prc-meta-section { display: flex; flex-direction: column; gap: var(--space-1); }
-.prc-meta-label {
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 700;
-  color: var(--text-3);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.prc-meta-link-btn {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.prc-meta-link-btn:hover { text-decoration: underline; }
-.prc-meta-empty { font-size: var(--font-size-sm); color: var(--text-3); }
 
 /* "Your review" CTA block at the top of the meta sidebar. */
-.prc-yrb {
-  background: rgba(99, 102, 241, 0.07);
-  border: 1px solid rgba(99, 102, 241, 0.20);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-}
-.prc-yrb__title {
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 4px;
-}
-.prc-yrb__text { font-size: var(--font-size-sm); color: var(--text-2); margin-bottom: 8px; }
-.prc-yrb__cta {
-  appearance: none;
-  background: var(--accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-.prc-yrb__cta:hover { background: var(--accent-dark, var(--accent)); opacity: 0.92; }
 
 /* Draft / ready-for-review toggle button in the right meta sidebar.
    Neutral outline style — same shell as the resolve-conversation
    button so it doesn't read as a primary CTA. */
-.prc-draft-toggle-btn {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-2);
-  cursor: pointer;
-  margin-top: 8px;
-  width: 100%;
-}
-.prc-draft-toggle-btn:disabled {
-  opacity: 0.6;
-  cursor: progress;
-}
 /* "Mark as ready" — soft green tint hints at the upcoming positive
    transition (draft → ready) without competing with the merge bar's
    primary green CTA. */
-.prc-draft-toggle-btn--ready {
-  background: rgba(46, 160, 67, 0.10);
-  border-color: rgba(46, 160, 67, 0.40);
-  color: #1a7f37;
-}
-.prc-draft-toggle-btn--ready:hover:not(:disabled) {
-  background: rgba(46, 160, 67, 0.18);
-  border-color: rgba(46, 160, 67, 0.55);
-}
 /* "Convert to draft" — neutral gray tint signals a step backward
    without alarming the user. */
-.prc-draft-toggle-btn--draft {
-  background: rgba(0, 0, 0, 0.04);
-  border-color: var(--border);
-  color: var(--text-2);
-}
-.prc-draft-toggle-btn--draft:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.07);
-  color: var(--text-1);
-}
-.prc-draft-toggle-error {
-  margin-top: 6px;
-  font-size: var(--font-size-xs);
-  color: #cf222e;
-  word-break: break-word;
-}
-
-.prc-reviewer-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 4px 0;
-  font-size: var(--font-size-sm);
-  min-width: 0;
-}
-.prc-reviewer-name { flex: 1; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; }
-.prc-reviewer-status {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-card);
-  color: var(--text-3);
-}
-.prc-reviewer-status--approved { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
-.prc-reviewer-status--changes_requested { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
-.prc-reviewer-status--commented { background: rgba(99, 102, 241, 0.12); color: #4338ca; }
-.prc-reviewer-status--requested { background: var(--bg-card); color: var(--text-3); }
-.prc-reviewer-status--pending { background: var(--bg-card); color: var(--text-3); }
 
 /* Compact verdict glyph that lives on the right of a past-reviewer
    row — replaces the wordy text pill so the row matches github.com's
    sidebar (see docs/mockups/issue/pr-details/reviewers-request.png).
    Tinted background mirrors the verdict colours so a quick scan
    surfaces approvals vs changes-requested without reading glyphs. */
-.prc-reviewer-verdict {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  font-size: var(--font-size-xs);
-  line-height: 1;
-  flex-shrink: 0;
-}
-.prc-reviewer-verdict--approved { background: rgba(46, 160, 67, 0.16); color: #1a7f37; font-weight: 700; }
-.prc-reviewer-verdict--changes  { background: rgba(239, 68, 68, 0.14); color: #b91c1c; font-weight: 700; }
-.prc-reviewer-verdict--commented { background: transparent; }
 
 /* Pending status indicator — small amber dot, mirrors the dot on
    github.com's reviewers sidebar when a reviewer hasn't started
    their review yet. */
-.prc-reviewer-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.prc-reviewer-dot--pending { background: #d4a72c; }
 
 /* Re-request review button — the ↻ glyph next to a past reviewer.
    Same hit area as the × remove button so the two row-end controls
    feel symmetrical. Hover lifts the icon to the accent color. */
-.prc-reviewer-rerequest {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--text-3);
-  font-size: var(--font-size-md);
-  line-height: 1;
-  padding: 2px 5px;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-}
-.prc-reviewer-rerequest:hover:not(:disabled) {
-  background: var(--accent-a7);
-  color: var(--accent);
-}
-.prc-reviewer-rerequest:disabled { opacity: 0.4; cursor: default; }
 
 /* Reviewer-editor controls (× chip, "+ Add reviewer", input row). */
-.prc-reviewer-remove {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--text-3);
-  font-size: var(--font-size-lg);
-  line-height: 1;
-  padding: 0 4px;
-  cursor: pointer;
-  border-radius: 3px;
-}
-.prc-reviewer-remove:hover { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
-.prc-reviewer-remove:disabled { opacity: 0.4; cursor: default; }
-
-.prc-reviewer-add {
-  appearance: none;
-  background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-  padding: 7px 12px;
-  margin-top: 6px;
-  font-size: var(--font-size-md);
-  color: var(--text-3);
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-}
-.prc-reviewer-add:hover { color: var(--accent); border-color: var(--accent); }
-
-.prc-reviewer-add-row {
-  display: flex;
-  gap: var(--space-1);
-  align-items: center;
-  margin-top: 6px;
-}
 /* Wraps the input + the dropdown popover, anchoring the popover under
    the input. Flex-grows to take whatever space the row offers so the
    suggestion dropdown is the same width as the input. */
-.prc-reviewer-add-typeahead {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-.prc-reviewer-add-input {
-  width: 100%;
-  min-width: 0;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-md);
-  background: var(--bg-elevated);
-  color: var(--text-1);
-  box-sizing: border-box;
-}
-.prc-reviewer-add-btn { padding: 7px 14px; font-size: var(--font-size-md); }
 
 /* Suggestion popover under the typeahead input. Floats over the rest
    of the right-side meta panel; pointer-events stay on each row so
    onMouseDown can fire before the input's onBlur kills the popover. */
-.prc-reviewer-suggest {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
-  max-height: 240px;
-  overflow-y: auto;
-  padding: var(--space-1);
-}
-.prc-reviewer-suggest__row {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  padding: var(--space-1);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font: inherit;
-}
-.prc-reviewer-suggest__row--active,
-.prc-reviewer-suggest__row:hover {
-  background: var(--accent-a7);
-}
 
 /* GitHub-suggested reviewer chips (GraphQL pullRequest.suggestedReviewers).
    Sit above the typeahead input so the common case ("the people github
    recommends") is one click instead of typing. Each chip is a tiny pill
    with avatar + login. */
-.prc-reviewer-suggested-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
-  margin-top: 4px;
-  margin-bottom: 4px;
-}
-.prc-reviewer-suggested-row__label {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  margin-right: 2px;
-}
-.prc-reviewer-suggested-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 2px 8px 2px 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-card);
-  color: var(--text-1);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
-}
-.prc-reviewer-suggested-chip:hover:not(:disabled) {
-  background: var(--accent-a7);
-  border-color: var(--accent-a40);
-}
-.prc-reviewer-suggested-chip:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.prc-reviewer-suggested-chip__avatar {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.prc-reviewer-suggested-chip__avatar--fallback {
-  background: var(--bg-elevated);
-  color: var(--text-2);
-  font-size: 10px;
-  font-weight: 600;
-}
-.prc-reviewer-suggested-chip__login {
-  font-weight: 500;
-}
-.prc-reviewer-cancel {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  cursor: pointer;
-}
-.prc-reviewer-cancel:hover { color: var(--text-1); }
-.prc-reviewer-error { font-size: var(--font-size-xs); color: #b91c1c; margin-top: 4px; }
-
-.prc-status-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-}
-.prc-status-row b { color: var(--text-1); font-weight: 600; }
-.prc-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.prc-status-row--button {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-}
-.prc-status-row--button:disabled { cursor: default; }
-.prc-status-row__chevron {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-3);
-}
 
 /* One row per check run when the CI status row is expanded. The whole row
    is a link when GitHub gave us an htmlUrl, so the user can click anywhere
    on the row to open the run details on GitHub. */
-.prc-check-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 4px 6px 4px 16px;
-  margin-left: -6px;
-  margin-right: -6px;
-  font-size: var(--font-size-xs);
-  color: var(--text-2);
-  border-radius: var(--radius-sm);
-  text-decoration: none;
-}
-.prc-check-row--link { cursor: pointer; }
-.prc-check-row--link:hover { background: var(--accent-a7, rgba(99, 102, 241, 0.06)); }
-.prc-check-row__name {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--text-1);
-}
-.prc-check-row__conclusion {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 600;
-  background: var(--bg-card);
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-.prc-check-row__conclusion--ok { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
-.prc-check-row__conclusion--fail { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
-.prc-check-row__conclusion--pending { background: rgba(173, 132, 52, 0.12); color: #815c0a; }
-.prc-check-row__arrow {
-  color: var(--text-3);
-  font-size: 10px;
-  flex-shrink: 0;
-}
-.prc-check-row--link:hover .prc-check-row__arrow { color: var(--accent); }
-
-.prc-stat-line {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  padding: 2px 0;
-}
-.prc-stat-num { font-variant-numeric: tabular-nums; color: var(--text-1); font-weight: 500; }
-.prc-stat-add { color: #16a34a; }
-.prc-stat-rem { color: #ef4444; }
-
-.prc-file-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--font-size-xs);
-  padding: 2px 0;
-  gap: var(--space-2);
-}
-.prc-file-name {
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--font-size-xs);
-}
-.prc-file-row--more { color: var(--text-3); font-style: italic; }
-
-.prc-label-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-.prc-label-pill {
-  font-size: var(--font-size-xs);
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  font-weight: 600;
-  background: var(--bg-card);
-  color: var(--text-2);
-  border: 1px solid var(--border);
-}
 
 /* The description-as-comment-card variant. The card body is the
    speech-bubble — its solid background covers the timeline rail in
@@ -2526,24 +1335,9 @@ button.prc-branches__ref--clickable:hover {
    The header gets a subtle tinted backdrop per
    docs/mockups/v2/detail/description.png so the metadata row reads as
    separate from the markdown body. */
-.prc-comment-card--description .prc-comment-card-body {
-  padding: 0;
-}
 /* The bubble's tail (top:14) lands in the tinted header zone for the
    description variant, so the fill triangle must match the header bg
    instead of the default body bg or the seam reads as a color crack. */
-.prc-comment-card--description .prc-comment-card-body::before {
-  border-color: transparent var(--bg-elevated) transparent transparent;
-}
-.prc-comment-head--description {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  /* Match the bubble's outer 8px radius on the top corners only — the
-     bottom edges are square because the markdown body sits below. */
-  border-radius: 8px 8px 0 0;
-}
 .description-card__body {
   padding: 12px 16px 14px;
 }
@@ -2574,23 +1368,6 @@ button.prc-branches__ref--clickable:hover {
    handle its own overflow. In classic mode (no wrapper) these rules
    don't apply, so the description sits at natural height as a regular
    timeline entry. */
-.preview__section--description > .prc-comment-card--description {
-  flex: 1 1 0;
-  min-height: 0;
-  align-items: stretch;       /* let the bubble stretch vertically */
-  /* Clean mode has no rail/avatar gutter to leave room for, so kill the
-     16px left padding that's there for the timeline layout. The avatar
-     sits flush against the main column's left edge. */
-  padding-left: 0;
-}
-.preview__section--description > .prc-comment-card--description .prc-comment-avatar {
-  align-self: flex-start;     /* keep avatar pinned at the top */
-}
-.preview__section--description > .prc-comment-card--description .prc-comment-card-body {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
 .preview__section--description > .prc-comment-card--description .description-card__body {
   flex: 1 1 0;
   min-height: 0;
@@ -2600,85 +1377,12 @@ button.prc-branches__ref--clickable:hover {
 /* Manual refresh button on the PR detail header. Force-reloads this
    PR's comments / timeline / reviews from GitHub (drops the backend's
    cached snapshot). The ↻ icon spins while the request is in flight. */
-.prc-refresh-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  font: inherit;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--text-2);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  margin-right: 4px;
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
-}
-.prc-refresh-btn:hover:not(:disabled) {
-  background: var(--accent-a7);
-  color: var(--text-1);
-  border-color: var(--accent-a40, var(--accent));
-}
-.prc-refresh-btn:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-.prc-refresh-btn__icon {
-  display: inline-block;
-  font-size: var(--font-size-md);
-  line-height: 1;
-}
-.prc-refresh-btn__icon--spinning {
-  animation: prc-refresh-spin 0.9s linear infinite;
-}
 @keyframes prc-refresh-spin {
   to { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .prc-refresh-btn__icon--spinning { animation: none; }
 }
 
 /* Classic/Clean layout toggle — sits in the actions row of either
    layout's header. Compact pill-segmented control. */
-.prc-style-toggle {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  padding: 1px;
-  margin-right: 4px;
-}
-.prc-style-toggle__btn {
-  appearance: none;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font: inherit;
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: var(--space-1) var(--space-2);
-  color: var(--text-3);
-  border-radius: var(--radius-sm);
-}
-.prc-style-toggle__btn:hover { color: var(--text-1); }
-.prc-style-toggle__btn--active {
-  background: var(--bg-elevated);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent-a40);
-}
 
 /* "Clean" layout's header gets a flex row so the toggle can sit on the
    right edge of the title without breaking the existing meta line below. */
-.preview__title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: 4px;
-}
-.preview__title-row .preview__title {
-  flex: 1;
-  min-width: 0;
-}

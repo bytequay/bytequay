@@ -34,7 +34,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
@@ -80,7 +80,7 @@ class TestReviewRoundStateMachine
     private static final Instant NOW = Instant.parse("2026-07-25T10:00:00Z");
 
     private final ReviewRoundStore rounds = mock(ReviewRoundStore.class);
-    private final AgentRunService runs = mock(AgentRunService.class);
+    private final AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
     private final TaskStore tasks = mock(TaskStore.class);
     private final StageStore stages = mock(StageStore.class);
     private final PRService prs = mock(PRService.class);

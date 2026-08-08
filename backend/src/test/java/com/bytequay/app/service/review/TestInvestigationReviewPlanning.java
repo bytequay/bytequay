@@ -25,7 +25,7 @@ import com.bytequay.app.service.review.InvestigationReviewContext.Snapshot;
 import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
 import com.bytequay.app.service.review.InvestigationReviewService.PlanDraft;
 import com.bytequay.app.service.review.InvestigationReviewService.PlanObjective;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,7 +45,7 @@ class TestInvestigationReviewPlanning
     private final PRService prs = mock(PRService.class);
     private final InvestigationReviewService service = new InvestigationReviewService(
             mock(InvestigationReviewStore.class), contexts, model,
-            mock(AgentRunService.class), prs, mock(TaskStore.class),
+            mock(AgentRunServiceImpl.class), prs, mock(TaskStore.class),
             mock(ThreadStore.class), new ObjectMapper());
 
     private PR pr;

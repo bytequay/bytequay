@@ -18,8 +18,8 @@ import com.bytequay.app.developmentflow.compatibility.V2AgentRunProjection;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.compatibility.V2StageApiService;
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.stage.StageDetailService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
+import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -35,8 +35,8 @@ import static org.mockito.Mockito.when;
 
 class TestAgentRunApiRouting
 {
-    private final AgentRunService legacyRuns = mock(AgentRunService.class);
-    private final StageDetailService legacyDetail = mock(StageDetailService.class);
+    private final AgentRunServiceImpl legacyRuns = mock(AgentRunServiceImpl.class);
+    private final StageDetailServiceImpl legacyDetail = mock(StageDetailServiceImpl.class);
     private final V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
     private final V2AgentRunProjection v2Runs = mock(V2AgentRunProjection.class);
     private final V2StageApiService v2Stages = mock(V2StageApiService.class);

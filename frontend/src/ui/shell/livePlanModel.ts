@@ -132,7 +132,7 @@ export type LivePlanInput = {
 
 /** Status for a stage-backed node: closed → done, active → running (or
  *  planning for the Plan stage), open/paused → sleep, absent → future. */
-function stageStatus(stage: StageDto | undefined, planning = false): LivePlanStatus {
+function stageStatus(stage: StageDto | undefined): LivePlanStatus {
   if (stage === undefined) return 'future';
   switch (stage.state) {
     case 'CLOSED': return 'done';
@@ -384,28 +384,6 @@ function derivedDevCorePhases(phase: TaskPhase): LivePlanPhaseNode[] {
   ];
 }
 
-const GUARD_LABELS: Record<BranchGuardDto['state'], string> = {
-  healthy: 'in sync with main',
-  drifting: 'drifting from main',
-  conflicted: 'conflicts with main',
-  fixing: 'fixing drift',
-  needs_attention: 'needs attention',
-};
-
-/** Derives the guard chip's display data from the raw DTO, or null when the
- *  task hasn't pushed yet (no row exists). Shown — with a toggle — even
- *  while disabled, so the user can see it's off and turn it on; hiding it
- *  outright left no way to arm a guard that never enabled itself. */
-export function buildGuardChip(guard: BranchGuardDto | null | undefined, taskTerminal = false): GuardChipData | null {
-  if (taskTerminal || guard === null || guard === undefined) return null;
-  return {
-    state: guard.state,
-    label: guard.enabled ? GUARD_LABELS[guard.state] : 'guard off',
-    meta: guard.lastCheckedAt !== null ? new Date(guard.lastCheckedAt).toLocaleTimeString() : null,
-    enabled: guard.enabled,
-  };
-}
-
 /** Derives the four grouped stages shown in the task sidebar. Lifecycle
  * checkpoints remain individually actionable as nested rows without turning
  * the navigation rail into eight competing top-level destinations. */
@@ -446,7 +424,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const planStatus: LivePlanStatus =
     (plan === undefined || plan.state !== 'CLOSED') && task.currentPhase === 'PLANNING'
       ? 'planning'
-      : stageStatus(plan, true);
+      : stageStatus(plan);
   let localCorePhases = devPhases.length > 0
     ? buildDevCorePhases(devPhases, liveRuns)
     : derivedDevCorePhases(task.currentPhase);

@@ -36,8 +36,9 @@ import static java.util.Objects.requireNonNull;
 /** Public Local Review boundary. V2 state is mutated only by its typed owner. */
 @Service
 public class ReviewCommentServiceImpl
-        implements ReviewCommentService
 {
+    public record SubmitResult(int submitted, String turnId) {}
+
     private final StageStore stageStore;
     private final PRService prService;
     private final TaskStore taskStore;
@@ -59,7 +60,10 @@ public class ReviewCommentServiceImpl
         this.v2LocalReview = requireNonNull(v2LocalReview, "v2LocalReview is null");
     }
 
-    @Override
+    public SubmitResult submitReview(String taskId, String body, String verdict)
+    {
+        return submitReview(taskId, body, verdict, null);
+    }
     public PRComment add(
             String taskId, String file, int line, String side,
             Integer startLine, String startSide, String body)
@@ -90,7 +94,6 @@ public class ReviewCommentServiceImpl
     }
 
     /** Historical comments remain readable after the hard cutover. */
-    @Override
     public List<PRComment> list(String taskId)
     {
         return prService.findByTask(nullToEmpty(taskId).strip())
@@ -99,8 +102,6 @@ public class ReviewCommentServiceImpl
                         .toList())
                 .orElse(List.of());
     }
-
-    @Override
     public void resolve(UUID commentId)
     {
         requireNonNull(commentId, "commentId is null");
@@ -119,8 +120,6 @@ public class ReviewCommentServiceImpl
             // Resolving a stale/unknown id remains idempotent for callers.
         }
     }
-
-    @Override
     public void reopen(UUID commentId)
     {
         requireNonNull(commentId, "commentId is null");
@@ -137,8 +136,6 @@ public class ReviewCommentServiceImpl
             // See resolve(UUID).
         }
     }
-
-    @Override
     public SubmitResult submitReview(
             String taskId, String body, String verdict, List<String> commentIds)
     {

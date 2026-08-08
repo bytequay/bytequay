@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  formatCost, formatDuration, formatTokensK, relativeLong, relativeShort, shortPaths,
+  formatCost, formatDuration, relativeShort, shortPaths,
 } from './format';
 
 describe('formatDuration', () => {
@@ -41,13 +41,6 @@ describe('formatCost', () => {
     expect(formatCost(147)).toBe('$1.47');
     expect(formatCost(0)).toBe('$0.00');
     expect(formatCost(5)).toBe('$0.05');
-  });
-});
-
-describe('formatTokensK', () => {
-  it('renders thousands with one decimal', () => {
-    expect(formatTokensK(86_000)).toBe('86.0k');
-    expect(formatTokensK(200_000)).toBe('200.0k');
   });
 });
 
@@ -79,24 +72,20 @@ describe('shortPaths', () => {
   });
 });
 
-describe('relativeShort / relativeLong', () => {
+describe('relativeShort', () => {
   const now = Date.parse('2026-06-20T12:00:00.000Z');
   const back = (ms: number) => new Date(now - ms).toISOString();
 
   it('reads sub-45s as "now"', () => {
     expect(relativeShort(back(10_000), now)).toBe('now');
-    expect(relativeLong(back(10_000), now)).toBe('now');
   });
 
   it('reads minutes', () => {
     expect(relativeShort(back(14 * 60_000), now)).toBe('14m ago');
-    expect(relativeLong(back(14 * 60_000), now)).toBe('14 minutes ago');
-    expect(relativeLong(back(60_000), now)).toBe('1 minute ago');
   });
 
   it('reads hours and days', () => {
     expect(relativeShort(back(21 * 3_600_000), now)).toBe('21h ago');
-    expect(relativeLong(back(3_600_000), now)).toBe('1 hour ago');
     expect(relativeShort(back(3 * 86_400_000), now)).toBe('3d ago');
   });
 });

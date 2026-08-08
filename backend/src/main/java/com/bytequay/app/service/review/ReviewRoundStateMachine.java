@@ -40,7 +40,7 @@ import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.ValidationClaimService;
 import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
@@ -108,7 +108,7 @@ public class ReviewRoundStateMachine
     }
 
     private final ReviewRoundStore rounds;
-    private final AgentRunService runs;
+    private final AgentRunServiceImpl runs;
     private final TaskStore tasks;
     private final StageStore stages;
     private final PRService prs;
@@ -126,7 +126,7 @@ public class ReviewRoundStateMachine
     @Autowired
     public ReviewRoundStateMachine(
             ReviewRoundStore rounds,
-            AgentRunService runs,
+            AgentRunServiceImpl runs,
             TaskStore tasks,
             StageStore stages,
             PRService prs,
@@ -147,7 +147,7 @@ public class ReviewRoundStateMachine
 
     ReviewRoundStateMachine(
             ReviewRoundStore rounds,
-            AgentRunService runs,
+            AgentRunServiceImpl runs,
             TaskStore tasks,
             StageStore stages,
             PRService prs,

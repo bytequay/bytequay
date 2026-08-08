@@ -63,6 +63,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.ACCEPTED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.SUPERSEDED;
@@ -1570,7 +1571,7 @@ class TestPlanRuntimeCoordinator
     }
 
     private static V2PlanControlService controls(
-            Runtime runtime, TaskReplanMaintainer.CancellationPort cancellations)
+            Runtime runtime, Predicate<String> cancellations)
     {
         TaskReplanMaintainer replans = new TaskReplanMaintainer(
                 runtime.controlStore(),

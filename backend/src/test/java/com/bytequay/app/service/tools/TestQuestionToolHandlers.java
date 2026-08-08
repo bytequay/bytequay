@@ -15,7 +15,7 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.AgentQuestion;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.service.question.AgentQuestionService;
+import com.bytequay.app.service.question.AgentQuestionServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ import static org.mockito.Mockito.verify;
 
 class TestQuestionToolHandlers
 {
-    private final AgentQuestionService service = mock(AgentQuestionService.class);
+    private final AgentQuestionServiceImpl service = mock(AgentQuestionServiceImpl.class);
     private final QuestionToolHandlers handlers = new QuestionToolHandlers(service);
     private final ObjectMapper mapper = new ObjectMapper();
 

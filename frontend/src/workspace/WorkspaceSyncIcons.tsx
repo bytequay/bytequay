@@ -83,16 +83,6 @@ export function PullRequestIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-export function LocalBuildIcon({ size = 16 }: { size?: number }) {
-  return (
-    <Glyph size={size}>
-      <rect x="3" y="4" width="18" height="12" rx="2" />
-      <path d="M7 20h10" />
-      <path d="M12 16v4" />
-    </Glyph>
-  );
-}
-
 export function PauseIcon({ size = 12 }: { size?: number }) {
   return <Glyph size={size} width={2.2}><path d="M10 5v14M16 5v14" /></Glyph>;
 }

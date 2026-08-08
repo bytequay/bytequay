@@ -105,10 +105,6 @@ export function ClipboardIcon(props: Props) {
   return <Svg {...props}><path d="M6 3.5h9L19 8v12.5H6z" /><path d="M9 12h7M9 16h5" /></Svg>;
 }
 
-export function ChevronDownIcon(props: Props) {
-  return <Svg {...props} width={props.width ?? 2}><path d="m6 9 6 6 6-6" /></Svg>;
-}
-
 export function StarIcon({ size = 15, filled = false }: { size?: number; filled?: boolean }) {
   return (
     <svg

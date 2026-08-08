@@ -17,7 +17,7 @@ import com.bytequay.app.developmentflow.compatibility.V2BranchGuardProjection;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.domain.BranchGuard;
-import com.bytequay.app.service.review.BranchGuardService;
+import com.bytequay.app.service.review.BranchGuardServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -34,7 +34,7 @@ class TestBranchGuardControlRouting
     @Test
     void keepsLegacyGuardReadableButRejectsMutation()
     {
-        BranchGuardService legacy = mock(BranchGuardService.class);
+        BranchGuardServiceImpl legacy = mock(BranchGuardServiceImpl.class);
         V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
         V2BranchSyncPolicyManager policies = mock(
                 V2BranchSyncPolicyManager.class);
@@ -59,7 +59,7 @@ class TestBranchGuardControlRouting
     @Test
     void routesV2TaskOnlyToTheTypedPolicyAndProjection()
     {
-        BranchGuardService legacy = mock(BranchGuardService.class);
+        BranchGuardServiceImpl legacy = mock(BranchGuardServiceImpl.class);
         V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
         V2BranchSyncPolicyManager policies = mock(
                 V2BranchSyncPolicyManager.class);
@@ -84,7 +84,7 @@ class TestBranchGuardControlRouting
     }
 
     private static BranchGuardController controller(
-            BranchGuardService legacy,
+            BranchGuardServiceImpl legacy,
             V2ControlRouteStore routes,
             V2BranchSyncPolicyManager policies,
             V2BranchGuardProjection projection)

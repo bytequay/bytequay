@@ -66,17 +66,6 @@ export function actorRole(actor: string, pr: LocalPR): ActorRole {
   return 'other';
 }
 
-/** Short avatar-glyph label for an actor (2 letters max, matching the
- *  mockup's circular avatar chips). */
-export function avatarLabel(actor: string): string {
-  const role = workflowActorRole(actor);
-  if (role === 'dev') return 'D';
-  if (role === 'brain') return 'B';
-  if (actor === 'you') return 'Y';
-  const handle = actor.startsWith('@') ? actor.slice(1) : actor;
-  return handle.slice(0, 2).toUpperCase();
-}
-
 /** Display name for an actor row. Persisted task actors are implementation
  *  ids, so present their workflow role instead of leaking the CLI provider. */
 export function displayName(actor: string): string {
@@ -84,11 +73,6 @@ export function displayName(actor: string): string {
   if (role !== null) return role;
   if (actor === 'you') return 'You';
   return actor.startsWith('@') ? actor.slice(1) : actor;
-}
-
-/** A `ci` event whose payload status is a failure paints the icon red. */
-export function isFailedCiPayload(payload: Record<string, unknown> | null): boolean {
-  return payload !== null && payload['status'] === 'failed';
 }
 
 /** Compact relative label from an epoch-ms timestamp (the timeline `.ts`) —

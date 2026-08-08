@@ -25,7 +25,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -77,7 +77,7 @@ public class WorkspaceInsightsService
     private final TaskStore taskStore;
     private final InvestigationReviewStore reviewStore;
     private final GitHubRateLimitMonitor rateLimitMonitor;
-    private final AgentRunService runs;
+    private final AgentRunServiceImpl runs;
 
     @Autowired
     public WorkspaceInsightsService(
@@ -86,7 +86,7 @@ public class WorkspaceInsightsService
             TaskStore taskStore,
             InvestigationReviewStore reviewStore,
             GitHubRateLimitMonitor rateLimitMonitor,
-            AgentRunService runs)
+            AgentRunServiceImpl runs)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.trunkRuntime = requireNonNull(

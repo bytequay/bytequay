@@ -15,87 +15,12 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FootprintStopDto, PullRequestDto, SurfaceType, WorkUnitTaskDto } from '../../types';
 import { relativeTime } from '../../relativeTime';
 import { taskLabel } from '../../threads/taskLabel';
-import { isToday } from '../../format';
 
 const MAX_ROWS = 4;
-// ponytail: a flat cap per bucket rather than a "+N more" overflow affordance —
-// bump this (or add overflow UI) if a bucket routinely needs more room.
-const TODAY_BUCKET_MAX = 5;
-
 type RecentStop = FootprintStopDto & {
   recentRepo?: string;
   recentNumber?: number | null;
 };
-
-/** How recently (today) the user engaged with a PR — reviewed/approved or
- *  just opened it. 0 means not engaged today. */
-function engagedAt(p: PullRequestDto): number {
-  return Math.max(
-    p.reviewedAt !== null && isToday(p.reviewedAt) ? Date.parse(p.reviewedAt) : 0,
-    p.viewedAt !== null && isToday(p.viewedAt) ? Date.parse(p.viewedAt) : 0);
-}
-
-type TodayBuckets = { workingOn: PullRequestDto[]; reviewed: PullRequestDto[]; merged: PullRequestDto[] };
-
-/** The three "Today" PR buckets behind the summary: your authored PRs still
- *  in progress (open, not merged), PRs you engaged with today, and your
- *  authored PRs merged today. Each newest-activity first. */
-export function todayBuckets(prs: PullRequestDto[]): TodayBuckets {
-  return {
-    workingOn: prs
-      .filter(p => p.origin === 'AUTHORED' && p.mergedAt === null && p.state !== 'closed' && isToday(p.updatedAt))
-      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    reviewed: prs
-      .filter(p => p.handledAction !== 'DISMISSED' && engagedAt(p) > 0)
-      .sort((a, b) => engagedAt(b) - engagedAt(a)),
-    merged: prs
-      .filter(p => p.origin === 'AUTHORED' && p.mergedAt !== null && isToday(p.mergedAt))
-      .sort((a, b) => Date.parse(b.mergedAt as string) - Date.parse(a.mergedAt as string)),
-  };
-}
-
-function bullets(list: PullRequestDto[]): string {
-  if (list.length === 0) return '_None_';
-  return list.map(p => `* ${p.title} [#${p.number}](${p.htmlUrl})`).join('\n');
-}
-
-/** A standup-style Markdown summary: three sections, each a bullet list of
- *  `pr_title #pr_number` with the number linking to the PR. */
-export function todayMarkdown(b: TodayBuckets): string {
-  return [
-    '## Working on', bullets(b.workingOn), '',
-    '## Reviewed', bullets(b.reviewed), '',
-    '## Merged', bullets(b.merged),
-  ].join('\n');
-}
-
-/** One "Today" bucket's rows — every PR in the bucket (capped), with the
- *  group's eyebrow label shown once on the first row rather than repeated
- *  on every row. */
-export function TodayGroupRows({ label, prs, onOpen }: {
-  label: string;
-  prs: PullRequestDto[];
-  onOpen: (pr: PullRequestDto) => void;
-}) {
-  return (
-    <>
-      {prs.slice(0, TODAY_BUCKET_MAX).map((pr, i) => (
-        <button
-          key={`${label}-${pr.id}`}
-          type="button"
-          className="sb-recent__row"
-          onClick={() => onOpen(pr)}
-          title={`${pr.repo} #${pr.number}`}
-        >
-          <span className="sb-recent__meta">
-            {i === 0 && <span className="sb-recent__label">{label}</span>}
-            <span className="sb-recent__title">{pr.title} #{pr.number}</span>
-          </span>
-        </button>
-      ))}
-    </>
-  );
-}
 
 /**
  * `navToSurfaceVisit` (footprints/surfaceVisit.ts) captures TASK/THREAD

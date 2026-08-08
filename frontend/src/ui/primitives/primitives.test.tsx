@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Avatar, Chev, IconBtn, Kbd, Pill, StatusDot, Tag } from './index';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { Avatar, Chev, Kbd, StatusDot, Tag } from './index';
 
 afterEach(cleanup);
 
@@ -33,27 +33,6 @@ describe('StatusDot', () => {
         <StatusDot variant="sleep" />
         <StatusDot variant="done" />
         <StatusDot variant="future" />
-      </>,
-    );
-    expect(container).toMatchSnapshot();
-  });
-});
-
-describe('Pill', () => {
-  it('colours by kind and renders the optional icon + label', () => {
-    const { container } = render(<Pill kind="task" icon="◆">Task 4</Pill>);
-    const pill = container.querySelector('.v3-pill');
-    expect(pill?.className).toBe('v3-pill v3-pill--task');
-    expect(container.querySelector('.v3-pill__ic')?.textContent).toBe('◆');
-    expect(pill?.textContent).toContain('Task 4');
-  });
-
-  it('matches snapshot per kind', () => {
-    const { container } = render(
-      <>
-        <Pill kind="thread">THREAD</Pill>
-        <Pill kind="task">TASK</Pill>
-        <Pill kind="stage">STAGE</Pill>
       </>,
     );
     expect(container).toMatchSnapshot();
@@ -120,27 +99,5 @@ describe('Chev', () => {
     expect(container.querySelector('.v3-chev')?.getAttribute('class')).toBe('v3-chev');
     rerender(<Chev open />);
     expect(container.querySelector('.v3-chev')?.getAttribute('class')).toBe('v3-chev v3-chev--open');
-  });
-});
-
-describe('IconBtn', () => {
-  it('fires onClick and reflects the active state', () => {
-    const onClick = vi.fn();
-    const { container } = render(
-      <IconBtn onClick={onClick} active title="Toggle right pane">◧</IconBtn>,
-    );
-    const btn = container.querySelector('button.v3-iconbtn') as HTMLButtonElement;
-    expect(btn.className).toBe('v3-iconbtn v3-iconbtn--active');
-    expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.getAttribute('aria-label')).toBe('Toggle right pane');
-    fireEvent.click(btn);
-    expect(onClick).toHaveBeenCalledOnce();
-  });
-
-  it('does not fire when disabled', () => {
-    const onClick = vi.fn();
-    render(<IconBtn onClick={onClick} disabled ariaLabel="Search">⌕</IconBtn>);
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-    expect(onClick).not.toHaveBeenCalled();
   });
 });

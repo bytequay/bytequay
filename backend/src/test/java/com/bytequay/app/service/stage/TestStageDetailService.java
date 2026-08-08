@@ -63,7 +63,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestStageDetailService
 {
     @Autowired
-    private StageDetailService detailService;
+    private StageDetailServiceImpl detailService;
     @Autowired
     private StageStore stageStore;
     @Autowired

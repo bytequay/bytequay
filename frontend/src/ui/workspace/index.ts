@@ -23,5 +23,4 @@ export { RecentList } from './RecentList';
 export { WorkspaceSwitcher } from './WorkspaceSwitcher';
 export { ThreadList, ThreadListItem } from './ThreadList';
 export type { ThreadRow, TaskNavRow } from './ThreadList';
-export { WorkspaceTabBar, WorkspaceTopBar } from './WorkspaceTopBar';
 export type { WsTab, RepoChip } from './WorkspaceTopBar';

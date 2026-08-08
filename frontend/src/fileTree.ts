@@ -112,16 +112,3 @@ export function flattenFileTree<T>(
   }
   return rows;
 }
-
-/**
- * Returns {@code items} in the order they would appear under a fully
- * expanded tree view — directory-grouped, depth-first. Used to sort the
- * flat list and the continuous-scroll diff sections so the order is the
- * same regardless of the file-list mode the user picks.
- */
-export function treeOrderedFiles<T>(items: T[], pathOf: (item: T) => string): T[] {
-  const rows = flattenFileTree(buildFileTree(items, pathOf), new Set());
-  return rows
-    .filter((r): r is Extract<TreeRow<T>, { kind: 'file' }> => r.kind === 'file')
-    .map(r => r.data);
-}

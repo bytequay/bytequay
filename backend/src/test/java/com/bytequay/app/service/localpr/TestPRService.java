@@ -34,7 +34,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
-import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -79,7 +79,7 @@ class TestPRService
     private static final Instant NOW = Instant.parse("2026-07-01T00:00:00Z");
 
     private final PRStore store = mock(PRStore.class);
-    private final DevReportService devReports = mock(DevReportService.class);
+    private final DevReportServiceImpl devReports = mock(DevReportServiceImpl.class);
     private final StageStore stageStore = mock(StageStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);

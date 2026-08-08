@@ -37,7 +37,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.TaskPushSaga;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.TaskExternalEffectGate;
@@ -102,7 +102,7 @@ public class PlanStageService
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
     private final ValidationPassStore validationStore;
-    private final AgentRunService agentRuns;
+    private final AgentRunServiceImpl agentRuns;
     private final ThreadRegistry registry;
     private final ThreadTurnScheduler scheduler;
     private final PRService prService;
@@ -119,7 +119,7 @@ public class PlanStageService
             ThreadStore threadStore,
             ThreadTurnStore turnStore,
             ValidationPassStore validationStore,
-            AgentRunService agentRuns,
+            AgentRunServiceImpl agentRuns,
             ThreadRegistry registry,
             ThreadTurnScheduler scheduler,
             PRService prService,

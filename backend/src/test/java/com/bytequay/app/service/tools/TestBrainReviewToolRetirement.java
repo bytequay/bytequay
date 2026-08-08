@@ -14,7 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -29,7 +29,7 @@ class TestBrainReviewToolRetirement
     @Test
     void retiredVerdictMutationReturnsAToolError()
     {
-        BrainReviewService brain = mock(BrainReviewService.class);
+        BrainReviewServiceImpl brain = mock(BrainReviewServiceImpl.class);
         doThrow(new ResponseStatusException(
                 HttpStatus.CONFLICT, "LEGACY Brain review is read-only"))
                 .when(brain).recordVerdict(

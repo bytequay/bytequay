@@ -62,7 +62,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestStageBrain
 {
     @Autowired
-    private StageService stageService;
+    private StageServiceImpl stageService;
     @Autowired
     private StageStore stageStore;
     @Autowired

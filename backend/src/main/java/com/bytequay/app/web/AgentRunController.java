@@ -18,8 +18,8 @@ import com.bytequay.app.developmentflow.compatibility.V2AgentRunProjection;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.compatibility.V2StageApiService;
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.stage.StageDetailService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
+import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,22 +33,22 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Read-only REST surface for {@link AgentRun} — the rail's run sub-rows and
- * a run's own detail / log. The log reuses {@link StageDetailService}
+ * a run's own detail / log. The log reuses {@link StageDetailServiceImpl}
  * as-is for stage-backed runs. Detached artifact runs expose their dedicated
  * artifact log endpoint instead and return conflict here.
  */
 @RestController
 public class AgentRunController
 {
-    private final AgentRunService runs;
-    private final StageDetailService detailService;
+    private final AgentRunServiceImpl runs;
+    private final StageDetailServiceImpl detailService;
     private final V2ControlRouteStore v2Routes;
     private final V2AgentRunProjection v2Runs;
     private final V2StageApiService v2Stages;
 
     public AgentRunController(
-            AgentRunService runs,
-            StageDetailService detailService,
+            AgentRunServiceImpl runs,
+            StageDetailServiceImpl detailService,
             V2ControlRouteStore v2Routes,
             V2AgentRunProjection v2Runs,
             V2StageApiService v2Stages)

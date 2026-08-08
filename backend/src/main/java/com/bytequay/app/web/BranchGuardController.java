@@ -17,7 +17,7 @@ import com.bytequay.app.developmentflow.compatibility.V2BranchGuardProjection;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.domain.BranchGuard;
-import com.bytequay.app.service.review.BranchGuardService;
+import com.bytequay.app.service.review.BranchGuardServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,12 +32,12 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class BranchGuardController
 {
-    private final BranchGuardService guards;
+    private final BranchGuardServiceImpl guards;
     private V2ControlRouteStore v2Routes;
     private V2BranchSyncPolicyManager v2Policies;
     private V2BranchGuardProjection v2Projection;
 
-    public BranchGuardController(BranchGuardService guards)
+    public BranchGuardController(BranchGuardServiceImpl guards)
     {
         this.guards = requireNonNull(guards, "guards is null");
     }

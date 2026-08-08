@@ -23,7 +23,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.checks.ValidationFailure;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -53,14 +53,14 @@ public class LocalCiFixExecutor
 
     private final ThreadStore threadStore;
     private final StageStore stageStore;
-    private final AgentRunService agentRuns;
+    private final AgentRunServiceImpl agentRuns;
     private final ThreadTurnScheduler scheduler;
     private final WorktreeLeaseService leaseService;
 
     public LocalCiFixExecutor(
             ThreadStore threadStore,
             StageStore stageStore,
-            AgentRunService agentRuns,
+            AgentRunServiceImpl agentRuns,
             ThreadTurnScheduler scheduler,
             WorktreeLeaseService leaseService,
             TaskStore taskStore)

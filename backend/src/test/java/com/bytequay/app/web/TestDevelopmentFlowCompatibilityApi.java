@@ -34,9 +34,9 @@ import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageService;
-import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.stage.StageDetailServiceImpl;
+import com.bytequay.app.service.stage.StageServiceImpl;
+import com.bytequay.app.service.stage.StageSteeringServiceImpl;
 import com.bytequay.app.service.threads.TaskTraceService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -91,7 +91,7 @@ class TestDevelopmentFlowCompatibilityApi
                 stage("local-1", "DEVELOPMENT_STAGE", "CLOSED", "2026-07-28T01:05:00Z", "2026-07-28T02:00:00Z"),
                 stage("remote-1", "REMOTE_DEVELOPMENT_STAGE", "OPEN", "2026-07-28T02:00:00Z", null),
                 stage("cleanup-1", "CLEANUP_STAGE", "OPEN", "2026-07-28T03:00:00Z", null));
-        StageService stages = mock(StageService.class);
+        StageServiceImpl stages = mock(StageServiceImpl.class);
         when(stages.getStages("task-1")).thenReturn(rail);
         when(stages.getBrain("task-1")).thenReturn(brain(rail));
         MockMvc mvc = standaloneSetup(stageController(stages)).build();
@@ -221,12 +221,12 @@ class TestDevelopmentFlowCompatibilityApi
         return mapper.readTree(result.getResponse().getContentAsString());
     }
 
-    private static StageController stageController(StageService service)
+    private static StageController stageController(StageServiceImpl service)
     {
         return new StageController(
                 service,
-                mock(StageDetailService.class),
-                mock(StageSteeringService.class),
+                mock(StageDetailServiceImpl.class),
+                mock(StageSteeringServiceImpl.class),
                 mock(PlanStageService.class),
                 mock(StageStore.class),
                 mock(TaskStore.class),

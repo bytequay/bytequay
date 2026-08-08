@@ -25,9 +25,9 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageService;
-import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.stage.StageDetailServiceImpl;
+import com.bytequay.app.service.stage.StageServiceImpl;
+import com.bytequay.app.service.stage.StageSteeringServiceImpl;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
@@ -49,9 +49,9 @@ import static org.mockito.Mockito.when;
 
 class TestStageApiRouting
 {
-    private final StageDetailService legacyDetail = mock(StageDetailService.class);
-    private final StageSteeringService steering = mock(StageSteeringService.class);
-    private final StageService stages = mock(StageService.class);
+    private final StageDetailServiceImpl legacyDetail = mock(StageDetailServiceImpl.class);
+    private final StageSteeringServiceImpl steering = mock(StageSteeringServiceImpl.class);
+    private final StageServiceImpl stages = mock(StageServiceImpl.class);
     private final V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
     private final V2StageApiService v2 = mock(V2StageApiService.class);
     private final StageStore stageStore = mock(StageStore.class);
@@ -155,14 +155,14 @@ class TestStageApiRouting
     {
         UUID stageId = UUID.randomUUID();
         when(steering.steer(
-                stageId, "append", List.of(), StageSteeringService.Mode.APPEND,
+                stageId, "append", List.of(), StageSteeringServiceImpl.Mode.APPEND,
                 null))
-                .thenReturn(new StageSteeringService.SteerResult("append-turn"));
+                .thenReturn(new StageSteeringServiceImpl.SteerResult("append-turn"));
         when(steering.steer(
                 stageId, "replace", List.of(),
-                StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                StageSteeringServiceImpl.Mode.CANCEL_AND_REPLACE,
                 "predecessor-turn"))
-                .thenReturn(new StageSteeringService.SteerResult("replace-turn"));
+                .thenReturn(new StageSteeringServiceImpl.SteerResult("replace-turn"));
 
         assertThat(controller.steer(
                 stageId.toString(),
@@ -173,16 +173,16 @@ class TestStageApiRouting
                 stageId.toString(),
                 new StageController.SteerRequest(
                         "replace", List.of(),
-                        StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                        StageSteeringServiceImpl.Mode.CANCEL_AND_REPLACE,
                         "predecessor-turn"))
                 .turnId()).isEqualTo("replace-turn");
 
         verify(steering).steer(
-                stageId, "append", List.of(), StageSteeringService.Mode.APPEND,
+                stageId, "append", List.of(), StageSteeringServiceImpl.Mode.APPEND,
                 null);
         verify(steering).steer(
                 stageId, "replace", List.of(),
-                StageSteeringService.Mode.CANCEL_AND_REPLACE,
+                StageSteeringServiceImpl.Mode.CANCEL_AND_REPLACE,
                 "predecessor-turn");
     }
 

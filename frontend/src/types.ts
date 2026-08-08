@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type {
-  AgentRunDto, BrainMessageResult, BranchGuardDto, LocalPublishBaseSyncApprovalDto,
+  AgentRunDto, BrainMessageResult, LocalPublishBaseSyncApprovalDto,
   ReviewRoundDto, StageDetailData, TaskBrainViewData,
 } from './types/brainView';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment } from './types/localPr';
@@ -109,123 +109,6 @@ export type PullRequestDto = {
   linkedTaskKey?: string | null;
   /** Replacement PR recorded when this pull request was superseded. */
   supersededBy?: number | null;
-};
-
-/** One page of historic (closed/merged) PRs returned by /prs/history.
- *  Backed by GitHub search, capped at 1000 total results. */
-export type PullRequestHistoryPageDto = {
-  items: PullRequestDto[];
-  page: number;
-  perPage: number;
-  totalCount: number;
-  hasMore: boolean;
-};
-
-export type PrAnalyticsScope = '7d' | '30d' | '90d' | 'all';
-
-export type PrAnalyticsKpiCardDto = {
-  /** Raw scalar — null when the card is in a pending / placeholder state. */
-  value: number | null;
-  /** Rendered string the page shows when {@link pendingNote} is null. */
-  displayValue: string;
-  /** True for KPIs whose underlying data lives only in the cached
-   *  PR-detail blob and may therefore under-count. The card renders
-   *  a ¹ marker and the footer card explains it. */
-  partial: boolean;
-  /** When non-null, the card renders this copy in an empty state
-   *  instead of {@link displayValue}. */
-  pendingNote: string | null;
-};
-
-export type PrAnalyticsStaleAuthoredPrDto = {
-  id: number;
-  repo: string;
-  number: number;
-  title: string;
-  createdAt: string;
-  ageDays: number;
-};
-
-export type PrAnalyticsOutcomeSliceDto = {
-  /** Canonical GitHub review state — "APPROVED", "CHANGES_REQUESTED",
-   *  "COMMENTED", "DISMISSED", or rare states pass-through. */
-  state: string;
-  count: number;
-};
-
-export type PrAnalyticsSizeBucketDto = {
-  label: string;
-  count: number;
-};
-
-export type PrAnalyticsRepoReviewCountDto = {
-  repo: string;
-  count: number;
-};
-
-export type PrAnalyticsDailyActivityDto = {
-  /** ISO yyyy-MM-dd in the user's local timezone. */
-  date: string;
-  approved: number;
-  changesRequested: number;
-  commented: number;
-  dismissed: number;
-};
-
-export type PrAnalyticsHeatmapCellDto = {
-  /** 0 = Sunday, 6 = Saturday. */
-  dayOfWeek: number;
-  /** 0 = midnight, 23 = 11pm — local time. */
-  hour: number;
-  count: number;
-};
-
-export type PrAnalyticsCoReviewerDto = {
-  login: string;
-  count: number;
-};
-
-export type MyActivityDailyAuthoredDto = {
-  date: string;
-  opened: number;
-  merged: number;
-};
-
-export type MyActivityRepoActivityCountDto = {
-  repo: string;
-  prsOpened: number;
-  prsMerged: number;
-};
-
-export type MyActivitySummaryDto = {
-  scope: PrAnalyticsScope;
-  watchedRepoCount: number;
-  currentLogin: string | null;
-  prsOpened: PrAnalyticsKpiCardDto;
-  prsMerged: PrAnalyticsKpiCardDto;
-  commitsMade: PrAnalyticsKpiCardDto;
-  commentsPosted: PrAnalyticsKpiCardDto;
-  dailyAuthored: MyActivityDailyAuthoredDto[];
-  reposByActivity: MyActivityRepoActivityCountDto[];
-  currentStreakDays: number | null;
-  longestStreakDays: number | null;
-};
-
-export type PrAnalyticsSummaryDto = {
-  scope: PrAnalyticsScope;
-  watchedRepoCount: number;
-  currentLogin: string | null;
-  prsReviewed: PrAnalyticsKpiCardDto;
-  approvalRate: PrAnalyticsKpiCardDto;
-  linesReviewed: PrAnalyticsKpiCardDto;
-  responseToReviewRequest: PrAnalyticsKpiCardDto;
-  reviewOutcomes: PrAnalyticsOutcomeSliceDto[];
-  sizeDistribution: PrAnalyticsSizeBucketDto[];
-  reposByReview: PrAnalyticsRepoReviewCountDto[];
-  dailyActivity: PrAnalyticsDailyActivityDto[];
-  reviewHeatmap: PrAnalyticsHeatmapCellDto[];
-  reviewNetwork: PrAnalyticsCoReviewerDto[];
-  staleAuthoredPrs: PrAnalyticsStaleAuthoredPrDto[];
 };
 
 export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
@@ -494,32 +377,6 @@ export type PullRequestDetailDto = {
   subscriptionReason?: string | null;
 };
 
-/** Lightweight CI-only slice served by /prs/ci. Polled while the detail
- *  page is open and the window is focused so a CI flip and the merge
- *  button's enable/disable refresh without re-running the full detail
- *  orchestration. */
-export type PrCiSnapshotDto = {
-  ciStatus: CiStatus;
-  checkRuns: CheckRunDto[];
-  viewerCanWrite: boolean;
-};
-
-/** Result envelope for the conflict-paths enumeration. `available:false`
- *  means the local-clone path couldn't produce a definitive list — the
- *  pill should fall back to the github.com link without rendering a
- *  count or expandable file list. */
-export type MergeConflictPathsDto = {
-  available: boolean;
-  /** Stable token when !available: 'no_local_clone' | 'no_base_ref' |
-   *  'invalid_pr_number' | 'fetch_failed' | 'merge_tree_failed' */
-  reason: string | null;
-  paths: string[];
-};
-
-export type SyncSettingsDto = {
-  intervalSeconds: number;
-};
-
 export type WatchedRepoDto = {
   id: number;
   owner: string;
@@ -565,75 +422,6 @@ export type RepoMetaDto = {
    *  Used as the ref the commits tab queries when the toggle is in
    *  upstream view. */
   parentDefaultBranch: string | null;
-};
-
-/** One entry in a GitHub activity feed. */
-export type RepoActivityItemDto = {
-  type: string;
-  actor: string | null;
-  title: string;
-  htmlUrl: string;
-  createdAt: string | null;
-};
-
-/** Eight named colors that match the Settings → Teams swatch palette
- *  (see docs/mockups/teams/bytequay-team-modal-redesign.html). The
- *  three legacy values (purple / green / orange) stay first so existing
- *  team rows from before the palette expansion keep rendering. */
-export type TeamColor =
-  | 'purple'
-  | 'green'
-  | 'orange'
-  | 'blue'
-  | 'cyan'
-  | 'amber'
-  | 'red'
-  | 'pink'
-  | 'slate';
-
-export type TeamSummaryDto = {
-  id: number;
-  name: string;
-  avatar: string;
-  color: TeamColor;
-  /** One-line description shown under the team name in the sidebar
-   *  card. Null when the user didn't supply one. */
-  description: string | null;
-  memberCount: number;
-  inboxCount: number;
-};
-
-export type TeamDto = {
-  id: number;
-  name: string;
-  avatar: string;
-  color: TeamColor;
-  description: string | null;
-  members: string[];
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type CreateTeamRequest = {
-  name: string;
-  avatar: string;
-  color: TeamColor;
-  description: string | null;
-  members: string[];
-};
-
-export type UpdateTeamRequest = {
-  name: string;
-  avatar: string;
-  color: TeamColor;
-  description: string | null;
-};
-
-export type UserOrgDto = {
-  login: string;
-  avatarUrl: string;
-  htmlUrl: string;
-  description: string | null;
 };
 
 export type UserProfileDto = {
@@ -803,18 +591,6 @@ export type GitHubUserMatchDto = {
   name: string | null;
 };
 
-/** One reviewer GitHub recommends for a PR — derived from blame on the
- *  touched files and the actor's review history. Surfaced as one-click
- *  chips above the typeahead in the Add-reviewer UI. Source: GraphQL
- *  pullRequest.suggestedReviewers (REST has no equivalent). */
-export type SuggestedReviewerDto = {
-  login: string;
-  avatarUrl: string | null;
-  name: string | null;
-  isAuthor: boolean;
-  isCommenter: boolean;
-};
-
 export type PullRequestMetadataChoicesDto = {
   users: GitHubUserMatchDto[];
   labels: IssueLabelDto[];
@@ -924,36 +700,6 @@ export type EmailThreadDetailDto = {
   linkedRefs: LinkedRefDto[];
 };
 
-/** Mirror of backend MyPrColumn enum slugs. The team kanban now
- *  categorizes server-side and paginates per column, so these slugs
- *  cross the wire as both query params and response keys. */
-export type MyPrColumnSlug =
-  | 'drafting'
-  | 'waiting_on_review'
-  | 'needs_changes'
-  | 'ready_to_merge'
-  | 'recently_merged'
-  | 'handled';
-
-/** First-paint payload for the team kanban: first N PRs per column +
- *  total count per column so each column header / "+ N more" hint can
- *  render without a second round-trip. */
-export type TeamColumnsResponse = {
-  columns: Record<MyPrColumnSlug, PullRequestDto[]>;
-  totals: Record<MyPrColumnSlug, number>;
-  /** PR counts keyed by full {@code owner/repo}. Drives the per-repo
-   *  chip row in the team-detail header. */
-  repoTotals: Record<string, number>;
-};
-
-/** One page (offset + limit) of one column. */
-export type ColumnPageDto = {
-  column: MyPrColumnSlug;
-  total: number;
-  offset: number;
-  items: PullRequestDto[];
-};
-
 export type RecentEventDto = {
   type: string;
   repo: string;
@@ -1013,27 +759,6 @@ export type FootprintsTrailDto = {
   date: string;
   stops: FootprintStopDto[];
   totalStops: number;
-};
-
-export type StatPeriods = {
-  today: number;
-  /** [todayStart-1d, todayStart) — powers day-over-day delta on the home page. */
-  yesterday: number;
-  thisWeek: number;
-  thisMonth: number;
-  /** [weekStart-7d, weekStart) — powers week-over-week trend deltas. */
-  previousWeek: number;
-};
-
-export type UserStatsDto = {
-  commits: StatPeriods;
-  pushes: StatPeriods;
-  prsCreated: StatPeriods;
-  prsReviewed: StatPeriods;
-  comments: StatPeriods;
-  prsViewed: StatPeriods;
-  prsMarkedReviewed: StatPeriods;
-  updatedAt: string;
 };
 
 // Coarse category for a stored credential. The pair (type, name) uniquely
@@ -1182,13 +907,6 @@ export const CREDENTIAL_TEMPLATES: CredentialTemplate[] = [
   },
 ];
 
-export type AiProviderInfo = {
-  providerId: string;
-  displayName: string;
-  configured: boolean;
-  active: boolean;
-};
-
 /** Result of the Settings → AI review credential "Test" button. The
  *  backend probe ran ok iff {@code ok=true}; otherwise {@code message}
  *  carries the upstream's error response truncated to ~200 chars. */
@@ -1198,47 +916,6 @@ export type CredentialTestResult = {
   /** Round-trip latency of the probe in ms. Null when the call
    *  didn't fire (e.g. no stored value). */
   latencyMs: number | null;
-};
-
-export type AiReviewCommentDto = {
-  id: number;
-  filePath: string;
-  lineNumber: number;
-  body: string;
-  /** User-edited replacement for {@link body}. When non-null, this is what
-   *  publish sends to GitHub; the original {@link body} stays as the
-   *  "before" reference. */
-  editedBody: string | null;
-  severity: 'info' | 'suggestion' | 'warning' | 'blocker' | string;
-  /** Soft-deleted: dimmed in the UI and excluded from the publish payload.
-   *  Restorable via the Restore button on the inline card. */
-  dismissed: boolean;
-  /** Origin of the comment — AI-generated finding vs. user-staged inline. */
-  source: 'AI' | 'HUMAN';
-  /** Diff side: LEFT (deleted) or RIGHT (added). AI comments are RIGHT. */
-  side: 'LEFT' | 'RIGHT';
-  /** First line of a multi-line range, or null for single-line. */
-  startLine: number | null;
-  /** Diff side of {@link startLine}, or null for single-line. */
-  startSide: 'LEFT' | 'RIGHT' | null;
-};
-
-export type AiReviewDraftDto = {
-  id: number;
-  prId: number;
-  summary: string | null;
-  providerId: string;
-  model: string;
-  headSha: string | null;
-  status: string;
-  createdAt: string;
-  updatedAt: string;
-  comments: AiReviewCommentDto[];
-};
-
-export type AiSettingsDto = {
-  provider: string;
-  model: string;
 };
 
 /* ── Work-model axis ──────────────────────────────────────────────
@@ -1661,32 +1338,6 @@ export type LocalCommitDetailDto = {
   body: string;
 };
 
-/** Branch-point info for the Commits tab: sha = the merge-base of
- *  the active branch and base; base = the resolved base name (after
- *  origin/ fallback) for display. Both are null when there's no
- *  common ancestor or no default branch. */
-export type LocalMergeBaseDto = {
-  sha: string | null;
-  base: string | null;
-};
-
-export type LocalActivityEntryDto = {
-  sha: string;
-  shortSha: string;
-  /** `HEAD@{0}` etc. — the relative selector git uses for this
-   *  reflog entry. */
-  selector: string;
-  /** Coarse classification driving the icon and label. */
-  kind:
-    | 'COMMIT' | 'CHECKOUT' | 'MERGE' | 'PULL' | 'PUSH'
-    | 'REBASE' | 'RESET' | 'BRANCH' | 'UNKNOWN';
-  /** Full reflog subject — has the descriptive tail after the
-   *  classifier prefix (e.g. "checkout: moving from main to feat/foo"). */
-  subject: string;
-  /** Author timestamp of the commit this entry points at. */
-  at: string | null;
-};
-
 export type ThreadKindDto = 'CLI_AGENT' | 'LOGIC_LOOP';
 
 export type ThreadStatusDto =
@@ -1770,16 +1421,6 @@ export type ThreadGroupDto = {
   updatedAt: string;
 };
 
-/** One row of the {@code thread_group_members} join table. Threads and
- *  groups are many-to-many — one thread can live in several groups, and
- *  the new threads-group page caps a group at 4 members. The frontend
- *  pulls the full membership snapshot once and joins it in memory. */
-export type ThreadGroupMembershipDto = {
-  threadId: string;
-  groupId: string;
-  addedAt: string;
-};
-
 export type NewTaskGroupRequestDto = {
   name: string;
   glyph?: string;
@@ -1789,27 +1430,6 @@ export type NewTaskGroupRequestDto = {
    *  empty under the new invariant, and the cap of 4 is enforced on
    *  the backend. */
   initialTaskIds: string[];
-};
-
-/** Patch payload — only non-null/blank fields update on the backend. */
-export type ThreadGroupPatchDto = {
-  name?: string;
-  glyph?: string;
-  color?: string;
-};
-
-/** Per-(thread, path) rollup row. Powers the Files touched sidebar
- *  card on the detail page. */
-export type ThreadFileDto = {
-  threadId: string;
-  path: string;
-  /** {@code read} | {@code write} | {@code edit} | {@code delete} */
-  operation: string;
-  /** How many times this file was touched. */
-  count: number;
-  linesAdded: number;
-  linesRemoved: number;
-  lastTouchedAt: string;
 };
 
 /** One queued/running/completed scheduler turn. This is separate from
@@ -1830,27 +1450,6 @@ export type ThreadTurnDto = {
   startedAt: string | null;
   finishedAt: string | null;
   errorMessage: string | null;
-};
-
-export type ThreadTurnEventTypeDto =
-  | 'TURN_QUEUED'
-  | 'WAITING_FOR_CAPACITY'
-  | 'TURN_STARTED'
-  | 'TURN_FINISHED'
-  | 'TURN_FAILED'
-  | 'TURN_CANCELLED'
-  | 'SCHEDULER_ALERT'
-  | 'CODEGRAPH_POLICY';
-
-/** Durable scheduler event for one thread turn. Complements
- *  ThreadTurnDto with a chronological "why did this happen?" trail. */
-export type ThreadTurnEventDto = {
-  id: string;
-  turnId: string;
-  threadId: string;
-  event: ThreadTurnEventTypeDto;
-  createdAt: string;
-  message: string | null;
 };
 
 export type ThreadSendResultDto = {
@@ -1879,35 +1478,6 @@ export type ConvIndexEntryDto = {
   seq: number;
   preview: string;
   tsMs: number;
-};
-
-/** AI-written summary of a conversation chunk. Two flavours share
- *  this shape: the Overall rollup (seq=0, isOverall=true, regenerated
- *  on each new segment) and per-segment summaries (seq>=1,
- *  immutable). All token / cost / model fields come from the
- *  Anthropic Haiku call that produced the summary. */
-export type ThreadCheckpointDto = {
-  id: string;
-  threadId: string;
-  seq: number;
-  isOverall: boolean;
-  firstMsgSeq: number;
-  lastMsgSeq: number;
-  tokensCovered: number;
-  summaryMd: string;
-  bulletTitles: string[];
-  modelUsed: string;
-  promptTokens: number;
-  completionTokens: number;
-  costUsdMilli: number;
-  generatedAt: string;
-  /** Stamped on Overall rows when a newer Overall replaces them.
-   *  Null on per-segment rows and on the currently-active Overall. */
-  supersededAt: string | null;
-  /** FK to the Task this segment belongs to. Null on Overall rows
-   *  (always thread-scoped) and on segments produced before the
-   *  thread materialised its first Task (the 0-Task brainstorm state). */
-  taskId: string | null;
 };
 
 /** A workspace-scoped project brain whose markdown is loaded into
@@ -2010,20 +1580,6 @@ export type WorkspaceRepoDto = {
   addedAt: string;
 };
 
-export type AgentReviewQueueItemDto = {
-  reviewId: string;
-  prId: string;
-  repo: string;
-  prNumber: number | null;
-  title: string | null;
-  status: string;
-  workspaceId: string | null;
-  ownerThreadId: string | null;
-  remoteOnly: boolean;
-  roundCount: number;
-  findingCount: number;
-};
-
 /** One unit of work inside a {@link ThreadDto} — a branch + worktree +
  *  agent run + (eventually) a PR. A thread accumulates these as it
  *  rolls through "ship & continue" hops; at most one is non-terminal
@@ -2053,91 +1609,6 @@ export type TaskPhaseDto =
 /** Coarse trunk-card grouping over {@link TaskPhaseDto} (backend
  *  TaskPhaseGroup). */
 export type TaskPhaseGroupDto = 'IN_PROGRESS' | 'AWAITING_YOU' | 'IDLE' | 'DONE';
-
-// ── Task lifecycle flow trace (GET /api/tasks/{id}/trace) ──────────────
-
-/** One node of the expanded sequential timeline — a phase-event row plus
- *  its derived milestone and friendly label. */
-export type TraceEventDto = {
-  n: number;
-  fromPhase: string | null;
-  toPhase: string;
-  fromMilestone: string | null;
-  toMilestone: string;
-  actor: string | null;
-  reason: string | null;
-  transitionedAt: string;
-  label: string;
-};
-
-/** One of the six canonical milestone buckets in the collapsed view. */
-export type MilestoneSummaryDto = {
-  milestone: string;
-  label: string;
-  visits: number;
-  active: boolean;
-  skipped: boolean;
-  position: number;
-};
-
-/** One option on the next-possible line under the stepper. */
-export type NextPossibleDto = {
-  trigger: string;
-  label: string;
-  cond: string;
-};
-
-/** Live PR axes for the wait-state sub-status block. */
-export type LinkedActivePrDto = {
-  prNumber: number;
-  ciStatus: 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
-  draft: boolean;
-  approvalCount: number;
-  changesRequestedCount: number;
-  pendingReviewerCount: number;
-  requestedReviewers: string[];
-};
-
-/** The flow-display read model for a task. */
-export type TaskTraceDto = {
-  taskId: string;
-  currentPhase: TaskPhaseDto | null;
-  currentMilestone: string | null;
-  events: TraceEventDto[];
-  milestoneSummary: MilestoneSummaryDto[];
-  nextPossible: NextPossibleDto[];
-  linkedActivePr: LinkedActivePrDto | null;
-};
-
-/** Compact active-task ref on a PR row (from {@code /prs/linked-tasks}). */
-export type TaskRefDto = {
-  id: string;
-  /** Owning thread id — lets the UI jump to the thread without parsing
-   *  it out of the task id. */
-  threadId: string;
-  title: string;
-  phaseGroup: TaskPhaseGroupDto;
-};
-
-/** Compact active-review-pass ref on a PR row. */
-export type ReviewPassRefDto = {
-  passId: string;
-  phase: string;
-  hostKind: 'THREAD' | 'TASK_PHASE';
-  round: number;
-  roundCap: number;
-  costSpentMilli: number;
-  costCapMilli: number;
-};
-
-/** The dev-task + review links for one PR — backs the dashboard row's
- *  authorship-gated affordance. {@code linkedActiveReviewRef} is set only
- *  for THREAD-hosted (standalone) reviews. */
-export type PrLinksDto = {
-  linkedActiveTask: TaskRefDto | null;
-  linkedCompletedTasks: TaskRefDto[];
-  linkedActiveReviewRef: ReviewPassRefDto | null;
-};
 
 export type WorkUnitTaskDto = {
   id: string;
@@ -2200,29 +1671,6 @@ export type WorkUnitTaskDto = {
   /** Per-task work-model override; null means this scope inherits
    *  from the thread or workspace. */
   workModel: WorkModelDto | null;
-};
-
-/** A local pre-push inline review comment on a Task's diff. {@code source}
- *  is one of LOCAL_USER | LOCAL_AGENT | REMOTE_REVIEWER; the pre-push flow
- *  creates LOCAL_USER rows. {@code createdAt} is epoch-millis. */
-export type ReviewCommentDto = {
-  id: string;
-  taskId: string;
-  file: string;
-  line: number;
-  /** 'LEFT' (removed) or 'RIGHT' (added/context) — defaults to 'RIGHT' for
-   *  every comment that predates this concept. */
-  side: 'LEFT' | 'RIGHT';
-  /** First line of a multi-line range; null for a single-line comment. */
-  startLine: number | null;
-  /** Diff side of `startLine`; null for a single-line comment. */
-  startSide: 'LEFT' | 'RIGHT' | null;
-  body: string;
-  createdAt: number;
-  source: string;
-  /** GitHub login / actor label when available. Older rows may omit this. */
-  author?: string | null;
-  resolved: boolean;
 };
 
 /** A parked future-work item on a thread's backlog (the trunk Backlog
@@ -2389,19 +1837,6 @@ export type TypedPermissionRequestDto = {
   requestedAt: number;
 };
 
-/** Per-thread scope settings — the resolved view the trunk shows.
- *  {@code overriddenAt} is null for zero-config threads (silent
- *  inheritance); a timestamp means the thread tightens or relaxes one
- *  of the inherited values. */
-export type ThreadSettingsDto = {
-  threadId: string;
-  maxRunningTasks: number;
-  softCostUsdMilli: number;
-  hardCostUsdMilli: number;
-  promptAddendum: string | null;
-  overriddenAt: string | null;
-};
-
 export type SessionAudienceDto = 'plan' | 'dev' | 'review' | 'ci-fix';
 
 export type NewTaskRequestDto = {
@@ -2565,19 +2000,6 @@ export type ReviewFindingDto = {
   createdAt: string;
 };
 
-/** Aggregated panel state — what the controller hands back to the
- *  page in one round-trip. */
-/** A review thread's reviewed-PR label (repo + number + cached title/author). */
-export type ReviewThreadPrSummaryDto = {
-  threadId: string;
-  repoFullName: string;
-  prNumber: number;
-  prTitle: string | null;
-  prAuthor: string | null;
-  /** Panel seat labels (lead + reviewers) for the review-thread row. */
-  reviewers: string[];
-};
-
 export type ReviewPassDetailDto = {
   pass: ReviewPassDto;
   /** The reviewed PR's title, resolved from the local PR cache; null
@@ -2643,31 +2065,6 @@ export type ReviewBuildCommentProposalDto = {
   evidence: string | null;
   lastError: string | null;
   items: ReviewBuildCommentProposalItemDto[];
-};
-
-/** One LLM reviewer the assign-review-task dialog renders as a
- *  panel chip. {@code configured} mirrors whether an API key is set
- *  — unconfigured rows surface as disabled chips with a hint. */
-export type ReviewRosterEntryDto = {
-  providerId: string;
-  displayName: string;
-  configured: boolean;
-};
-
-/** A pending workspace-memory edit the Haiku distiller wants the
- *  user to approve before {@code memory_md} actually changes. Mirrors
- *  the backend WorkspaceMemoryProposal record. The banner inside
- *  WorkspaceMemoryPage renders the diff and the apply/discard
- *  buttons. */
-/** Workspace Settings → Behavior toggles. {@code archiveIdleAfter} is
- *  one of {@code "1h" | "1d" | "1w" | "never"}; the booleans drive
- *  the three feature toggles directly. Persistence only — each
- *  consumer reads its own key when it makes a decision. */
-export type WorkspaceBehaviorDto = {
-  archiveIdleAfter: string;
-  autoProposeTask: boolean;
-  autoPromoteDecisions: boolean;
-  newTopicNudge: boolean;
 };
 
 /** Workspace Insights — counts + per-day spend series for the
@@ -2929,39 +2326,6 @@ export type ConceptRowDto = {
   scope: 'APP' | 'REPO' | 'WORKSPACE' | 'USER';
 };
 
-/** Prompt-context inspector wire row. Read-only view of what
- *  would be in the agent's prompt; never used to send anything. */
-export type AssembledContextDto = {
-  scope: 'TRUNK' | 'TASK';
-  scopeId: string;
-  meta: {
-    model: string;
-    providerShape: string;
-    assembledAt: string;
-    totalTokens: number;
-    cacheHitPredicted: boolean;
-  };
-  sections: Array<{
-    kind: 'TOOLS' | 'ROLE' | 'BRAIN' | 'CONCEPT_PREAMBLE'
-        | 'SKILL_MANIFEST' | 'MEMORY' | 'HISTORY' | 'NEW_TURN';
-    label: string;
-    body: string;
-    tokenCount: number;
-    sources: Array<{
-      kind: string;
-      label: string;
-      href: string | null;
-      byteRange: string | null;
-    }>;
-  }>;
-  wire: {
-    tools: string[];
-    systemBlocks: string[];
-    historyMessages: string[];
-    newTurn: string;
-  };
-};
-
 /** One typed memory item the agent's recall_memory tool surfaces.
  *  Mirror of MemoryItem on the backend. v1 carries only the fields
  *  the proposal banner needs to render. */
@@ -3051,29 +2415,10 @@ export type Bridge = {
   workspaceApi: <T = unknown>(request: WorkspaceApiRequest) => Promise<T>;
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
-  clearPat: () => Promise<boolean>;
   isDevLocalDataResetAvailable: () => Promise<boolean>;
   requestDevLocalDataReset: () => Promise<boolean>;
   fetchHello: () => Promise<string>;
   fetchPrs: () => Promise<PullRequestDto[]>;
-  /** Server-side named PR filter — urgent, awaiting_me, stale,
-   *  blocked, mine_open. The dashboard's Urgent tab calls this with
-   *  name="urgent" so the predicate is defined exactly once on the
-   *  backend (UrgentPrFilter) instead of being mirrored in TS. */
-  fetchPrsByFilter: (name: string) => Promise<PullRequestDto[]>;
-  /** On-demand single-PR lookup straight from GitHub by repo + number,
-   *  bypassing the cached dashboard list. Backs the assign-review
-   *  dialog's "type a number / paste a URL" path. Rejects (GitHub 404)
-   *  when no such PR exists. */
-  lookupPr: (repo: string, number: number) => Promise<PullRequestDto>;
-  getPrLinks: (repo: string, number: number) => Promise<PrLinksDto>;
-  /** Cut a task under an existing thread now — materialises a dev branch +
-   *  worktree via POST /api/threads/{id}/tasks. workingDir is required by
-   *  the backend; resolve it from an existing task's working dir. */
-  cutTaskNow: (
-    threadId: string, kind: string, title: string, workingDir: string,
-    initialPrompt: string | null,
-  ) => Promise<WorkUnitTaskDto>;
   /** Saved Views — user-authored concepts (scope=USER) visible
    *  alongside the workspace and APP-scoped seeds. */
   listSavedViews: () => Promise<SavedViewDto[]>;
@@ -3086,26 +2431,8 @@ export type Bridge = {
   listPendingMemoryItems: (workspaceId: string) => Promise<MemoryItemDto[]>;
   applyMemoryItem: (workspaceId: string, itemId: number) => Promise<MemoryItemDto>;
   discardMemoryItem: (workspaceId: string, itemId: number) => Promise<void>;
-  /** Read-only assembled prompt context for the thread's trunk
-   *  turn. Always hits the dryRun endpoint server-side. */
-  getThreadContext: (threadId: string) => Promise<AssembledContextDto>;
-  /** Read-only assembled prompt context for one task. */
-  getTaskContext: (threadId: string, taskId: string) => Promise<AssembledContextDto>;
   /** Settings → Concepts catalog. Read-only registry view. */
   listConcepts: (query: { kind?: string; query?: string }) => Promise<ConceptRowDto[]>;
-  /** Live GitHub search for the user's full closed-PR history (merged
-   *  + closed-without-merge). Used by the merge-history page — pages
-   *  through GitHub's `is:closed author:@me sort:closed-desc` results. */
-  fetchPrHistory: (page: number, perPage?: number) => Promise<PullRequestHistoryPageDto>;
-  /** Aggregated KPIs for the PR-review Analytics page. Pure local read
-   *  — no PAT, no GitHub call. {@code tz} is an IANA zone id; the
-   *  renderer passes its own so the daily-bars and heatmap bucket in
-   *  the user's local time. */
-  fetchPrAnalytics: (scope: PrAnalyticsScope, tz?: string) => Promise<PrAnalyticsSummaryDto>;
-  /** "What did I author" companion of {@link fetchPrAnalytics}.
-   *  Same local-only contract, separate endpoint so the page can
-   *  switch views without refetching the heavy reviews aggregation. */
-  fetchMyActivity: (scope: PrAnalyticsScope, tz?: string) => Promise<MyActivitySummaryDto>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Force-refresh one PR's detail. Probes GitHub with the cached
    *  ETag; on 304 returns the backend's L2 snapshot, on 200 refetches
@@ -3115,40 +2442,11 @@ export type Bridge = {
    *  probe per cap. The manual ↻ button passes 0 (or omits) to
    *  always probe. */
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number) => Promise<PullRequestDetailDto>;
-  /** Conversation comments created after `sinceEpochMs`, as activity
-   *  items ready to merge into the detail timeline. Powers the detail
-   *  page's tight comments-delta poll, which surfaces a reviewer's new
-   *  comment without the heavier full-detail refetch. */
-  fetchNewComments: (repo: string, number: number, sinceEpochMs: number) => Promise<ActivityItemDto[]>;
-  /** Lightweight CI snapshot for the focus-driven detail-page poll. */
-  fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;
-  /** Enumerates the file paths that would conflict between a PR's
-   *  head and its base. Routes through the local clone (git merge-tree)
-   *  — `available: false` means we couldn't compute the list (no local
-   *  clone, fetch failed, etc.) and the renderer should fall back to
-   *  the github.com conflict-editor link. */
-  fetchPrConflictPaths: (
-    owner: string,
-    repo: string,
-    prNumber: number,
-    baseRef: string,
-  ) => Promise<MergeConflictPathsDto>;
-  /** Raw Actions log text for one check-run. Empty string when GitHub
-   *  doesn't expose a log (external CI / expired / scope). Lazy-loaded
-   *  by the merge bar's failure cards on user click. */
-  fetchCheckLog: (repo: string, checkRunId: number) => Promise<{ log: string }>;
   /** Best failure text for one check-run, lazy-loaded when the user unfolds a
    *  failing row in the checks card: annotations when GitHub published a
    *  source-located one, otherwise a log excerpt. Both empty means GitHub
    *  exposed nothing (external CI, or an expired log). */
   fetchCheckFailure: (repo: string, checkRunId: number) => Promise<CheckFailureDto>;
-  /** Toggle a PR between draft and ready-for-review. true = convert
-   *  to draft, false = mark as ready. Routes through GitHub GraphQL. */
-  setPrDraft: (repo: string, number: number, draft: boolean) => Promise<{ result: string }>;
-  /** Rename a PR on GitHub. Returns the updated {number, title, updatedAt}.
-   *  Rejects (throws) on validation / permission / GitHub failure. */
-  updatePrTitle: (repo: string, number: number, title: string) => Promise<{ number: number; title: string; updatedAt: string }>;
-  getTaskTrace: (taskId: string) => Promise<TaskTraceDto>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;
   /** Diff scoped to a single commit (DiffFileDto[] same as fetchPrDiffFiles). */
@@ -3156,48 +2454,6 @@ export type Bridge = {
   /** Returns a file's full content at a ref, as a list of lines. Powers the
    *  "expand collapsed code" buttons in the diff viewer. */
   fetchFileBlob: (repo: string, path: string, sha: string) => Promise<{ lines: string[] }>;
-  getSyncSettings: () => Promise<SyncSettingsDto>;
-  setSyncSettings: (settings: SyncSettingsDto) => Promise<SyncSettingsDto>;
-  triggerSync: () => Promise<void>;
-  markPrViewed: (prId: number) => Promise<void>;
-  /** Id-namespace-safe viewed marker: rows from the REST pulls endpoints
-   *  carry pull-request ids, but the local PR store keys by the
-   *  search-issue ids — resolve by repo ("owner/name") + number instead. */
-  markPrViewedByRef: (repo: string, number: number) => Promise<void>;
-  markPrHandled: (prId: number, action: HandledAction) => Promise<void>;
-  reopenPr: (prId: number) => Promise<void>;
-  /** Park the PR until the given ISO-8601 instant. Replaces any
-   *  existing snooze and clears any pending wake reason. */
-  snoozePr: (prId: number, untilIso: string) => Promise<void>;
-  /** Wake a snoozed PR ("Wake now" — no auto-wake reason recorded). */
-  unsnoozePr: (prId: number) => Promise<void>;
-  /** Acknowledge the just-woke alert and clear the stored reason. */
-  clearSnoozeWakeReason: (prId: number) => Promise<void>;
-  approvePr: (prId: number, repo: string, number: number) => Promise<void>;
-  /** Merge with the given strategy. Omitting {@code strategy} keeps the
-   *  historical "rebase" default for compatibility. When the target
-   *  branch has merge queue enabled the backend dispatches to
-   *  GraphQL {@code enqueuePullRequest} instead; the resolved value
-   *  carries {@code queued: true} (and {@code merged: false}) so the
-   *  caller can roll back any optimistic "merged" state and show a
-   *  queue indicator. */
-  mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ merged: boolean; message: string; queued: boolean }>;
-  /** Re-run the PR's failed CI jobs (GitHub "re-run failed jobs").
-   *  Resolves with how many workflow runs were re-triggered. */
-  rerunChecks: (repo: string, number: number) => Promise<{ rerunCount: number }>;
-  /** Push an empty commit to the PR's branch to re-trigger push-driven CI.
-   *  {@code triggered} is false (with a reason) when there's no local task
-   *  worktree to commit on. */
-  triggerCi: (repo: string, number: number) => Promise<{ triggered: boolean; reason: string | null }>;
-  /** Enables GitHub's auto-merge — the PR merges automatically once
-   *  required checks pass and approvals are in place. Mirrors
-   *  github.com's "Merge when ready" button. Goes through a GraphQL
-   *  mutation; rejected by GitHub if the repo doesn't allow auto-merge. */
-  enableAutoMerge: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ result: string }>;
-  /** Cancels a previously-enabled auto-merge. Idempotent on GitHub's
-   *  side (no-op when auto-merge isn't enabled), so callers don't have
-   *  to track local state. */
-  disableAutoMerge: (prId: number, repo: string, number: number) => Promise<{ result: string }>;
   /** Removes a PR from its repo's merge queue. Mirrors the "Remove
    *  from queue" button on github.com's merge bar. No-op when the PR
    *  isn't currently in a queue. */
@@ -3207,26 +2463,11 @@ export type Bridge = {
   addRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;
   /** Removes a single user from the PR's requested reviewers. */
   removeRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;
-  /** GitHub's suggested reviewers for one PR (GraphQL-only). Drives
-   *  the one-click chips above the Add-reviewer typeahead. Returns []
-   *  on failure — non-essential affordance, never throws. */
-  getSuggestedReviewers: (repo: string, number: number) => Promise<SuggestedReviewerDto[]>;
   getPullRequestMetadataChoices: (repo: string, number: number) => Promise<PullRequestMetadataChoicesDto>;
   setPullRequestAssignee: (repo: string, number: number, login: string, selected: boolean) => Promise<void>;
   setPullRequestLabel: (repo: string, number: number, label: string, selected: boolean) => Promise<void>;
   /** Replies inline to an existing per-line review thread on the PR. */
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string) => Promise<void>;
-  /** Edits a top-level issue / PR comment authored by the user.
-   *  Backend rejects with 403 for comments authored by someone else. */
-  editIssueComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
-  /** Edits a per-line review comment authored by the user. */
-  editReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
-  /** Deletes a top-level issue / PR comment. Allowed for the comment's
-   *  author or a user with repo write access; backend rejects otherwise. */
-  deleteIssueComment: (repo: string, number: number, commentId: number) => Promise<void>;
-  /** Deletes a per-line review comment. Same permission rules as
-   *  {@link deleteIssueComment}. */
-  deleteReviewComment: (repo: string, number: number, commentId: number) => Promise<void>;
   /** Posts a brand-new per-line review comment on a specific diff line.
    *  The backend resolves the live PR head immediately before posting.
    *  {@code side} is "LEFT" for the old file, "RIGHT" for the new file. */
@@ -3258,7 +2499,6 @@ export type Bridge = {
   updatePrBody: (repo: string, number: number, body: string) => Promise<void>;
   // Phase 2
   getWatchedRepos: () => Promise<WatchedRepoDto[]>;
-  addWatchedRepo: (owner: string, repo: string) => Promise<WatchedRepoDto>;
   removeWatchedRepo: (owner: string, repo: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
   /** Last-12-months contribution heatmap for the home-page card. */
@@ -3277,179 +2517,19 @@ export type Bridge = {
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
   /** Files a product bug in bytequay/bytequay regardless of watched repos. */
   reportByteQuayIssue: (title: string, body: string) => Promise<IssueDto>;
-  getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
-  createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;
   setIssueState: (owner: string, repo: string, number: number, state: 'open' | 'closed') => Promise<IssueDetailDto>;
-  /** Adds an emoji reaction to a comment on the in-app Issue detail
-   *  page. Disambiguated from the PR-side {@link addIssueCommentReaction}
-   *  by routing through the {@code /api/repos/.../issues/comments/...}
-   *  endpoint (the PR side uses {@code /api/prs/issue-comments/...}).
-   *  {@code content} is one of the eight allowlisted GitHub strings. */
-  addIssueDetailCommentReaction: (owner: string, repo: string, commentId: number, content: string) => Promise<{ result: string }>;
-  /** Flips the viewer's subscription on the issue. {@code subscribed=true}
-   *  subscribes (PUT); {@code false} returns to GitHub's default state
-   *  (DELETE). */
-  setIssueSubscription: (owner: string, repo: string, number: number, subscribed: boolean) => Promise<{ result: string }>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
-  /** ~30 most recent events on a repo for the right-pane activity feed. */
-  getRepoActivity: (owner: string, repo: string) => Promise<RepoActivityItemDto[]>;
   /** All watched repos plus their local-clone state (CLEAN / MODIFIED /
    *  UNMAPPED / …). Drives the Repos page. */
   listLocalRepos: () => Promise<LocalRepoStatusDto[]>;
-  /** Persists the user's choice of fork-vs-upstream focus for the
-   *  repo detail page's commits tab. Returns the refreshed status row
-   *  so the caller can update local state without a list refetch. */
-  setViewFocus: (
-    owner: string,
-    repo: string,
-    viewFocus: 'fork' | 'upstream',
-  ) => Promise<LocalRepoStatusDto>;
   /** Native folder picker. Returns the selected absolute path, or null
    *  when the user cancels. Used by settings/install surfaces. */
   pickFolder: (options?: { defaultPath?: string; title?: string }) => Promise<string | null>;
-  /** Server-side managed clone destination
-   *  ({@code ~/Library/Application Support/ByteQuay/repos/{owner}/{repo}}). */
-  defaultClonePath: (owner: string, repo: string) => Promise<string>;
   /** Reads the managed-clone plan for this watched repo candidate. */
   getManagedClonePlan: (owner: string, repo: string) => Promise<ManagedClonePlanDto>;
-  /** Creates the app-managed clone and records the watched repo. */
-  cloneRepo: (
-    owner: string,
-    repo: string,
-    writeMode: ManagedRepoWriteMode,
-  ) => Promise<LocalRepoStatusDto>;
-  ensureWorkspaceForRepo: (owner: string, repo: string) => Promise<WorkspaceDto>;
-  adoptRemoteReviews: (workspaceId: string) => Promise<{ adopted: number }>;
-  /** Local branches for the repo detail page's kanban. Each entry has
-   *  enough metadata to decide column placement and render the inline
-   *  ahead/behind + last-commit chips. */
-  listLocalBranches: (owner: string, repo: string) => Promise<LocalBranchDto[]>;
-  /** Recent commits on `revision` (default HEAD). `limit` is server-
-   *  capped at 500. Powers the Commits tab. */
-  listLocalCommits: (
-    owner: string, repo: string, revision?: string, limit?: number,
-  ) => Promise<LocalCommitDto[]>;
-  /** Subject + body of a single commit — feeds the patch-detail card
-   *  at the top of the Commits tab's middle pane. */
-  getLocalCommitDetail: (
-    owner: string, repo: string, sha: string,
-  ) => Promise<LocalCommitDetailDto>;
-  /** Working-tree files (uncommitted: staged + unstaged + untracked).
-   *  Powers the Commits tab's "Changes" mode. Returns the same shape
-   *  as listLocalCommitFiles so the file-tree pane renders both
-   *  uniformly. */
-  listLocalWorkingTreeFiles: (
-    owner: string, repo: string,
-  ) => Promise<LocalCommitFileDto[]>;
-  /** Working-tree diff for one file (git diff HEAD -- path, with an
-   *  untracked-file fallback). Powers the Commits tab's "Changes"
-   *  mode right pane. */
-  getLocalWorkingTreeDiff: (
-    owner: string, repo: string, path: string,
-  ) => Promise<LocalFileDiffDto>;
-  /** Files differing between two refs — used by the Commits tab's
-   *  compare-branches mode. Both refs may be branch names or shas;
-   *  origin/<name> fallback is applied per the listCommits flow. */
-  listLocalRangeFiles: (
-    owner: string, repo: string, base: string, head: string,
-  ) => Promise<LocalCommitFileDto[]>;
-  /** Per-file unified diff between two refs — counterpart to
-   *  listLocalRangeFiles. Differs from getLocalCommitRangeDiff in
-   *  that there's no ^ shift on the base, so branch refs work. */
-  getLocalRangeDiff: (
-    owner: string, repo: string, base: string, head: string, path: string,
-  ) => Promise<LocalFileDiffDto>;
-  /** Files touched by a single commit — middle pane of the Commits tab. */
-  listLocalCommitFiles: (
-    owner: string, repo: string, sha: string,
-  ) => Promise<LocalCommitFileDto[]>;
-  /** Per-file unified diff at a commit — right pane of the Commits tab. */
-  getLocalCommitDiff: (
-    owner: string, repo: string, sha: string, path: string,
-  ) => Promise<LocalFileDiffDto>;
-  /** Per-file unified diff across a commit range (oldest^..newest).
-   *  Used when the Commits tab has more than one commit selected so
-   *  the user sees the combined patch instead of just the latest
-   *  selected commit's changes. */
-  getLocalCommitRangeDiff: (
-    owner: string, repo: string, oldestSha: string, newestSha: string, path: string,
-  ) => Promise<LocalFileDiffDto>;
-  /** Merge-base sha of branch and base (default base = origin/HEAD).
-   *  Used to render a "branched from <base>" divider in the Commits
-   *  tab's commit list. */
-  getLocalMergeBase: (
-    owner: string, repo: string, branch: string, base?: string,
-  ) => Promise<LocalMergeBaseDto>;
-  /** Recent reflog entries — HEAD-mutating events (commits, checkouts,
-   *  merges, pulls, rebases). Powers the Activity tab. */
-  listLocalActivity: (
-    owner: string, repo: string, limit?: number,
-  ) => Promise<LocalActivityEntryDto[]>;
-  /** `git fetch --all --prune` against the watched repo's clone.
-   *  Returns the refreshed status row. */
-  fetchLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
-  /** Fast-forward-only pull on the current branch. Diverged histories
-   *  surface as a thrown Error carrying git's stderr — the UI shows
-   *  it inline (e.g. "needs rebase"). */
-  pullLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
-  /** Pushes the current branch. First-time pushes auto-set tracking
-   *  via `-u origin HEAD`. Non-fast-forward errors carry git's
-   *  stderr — surfaced inline so the caller can decide whether to
-   *  force-with-lease. */
-  pushLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
-  /** `git push --force-with-lease`. Backend rejects unless this IPC
-   *  is invoked, so the caller is responsible for confirming with
-   *  the user before calling. */
-  pushLocalRepoForce: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
-  /** Creates a new local branch from `base` (or current HEAD when
-   *  omitted) and switches to it. */
-  createLocalBranch: (
-    owner: string, repo: string, name: string, base?: string,
-  ) => Promise<LocalRepoStatusDto>;
-  /** Switches HEAD to an existing local branch. Errors when the
-   *  working tree has conflicting uncommitted changes — git's
-   *  stderr surfaces inline so the user can stash or commit. */
-  switchLocalBranch: (
-    owner: string, repo: string, name: string,
-  ) => Promise<LocalRepoStatusDto>;
-  /** Fetches a branch from origin then switches to it. Backs the
-   *  Check-out action on remote-only IN_REVIEW cards. */
-  checkoutRemoteBranch: (
-    owner: string, repo: string, name: string,
-  ) => Promise<LocalRepoStatusDto>;
-  /** Opens a pull request on github.com against the watched repo,
-   *  with the local clone's HEAD as the source. Returns the new PR
-   *  number and html URL so the caller can navigate or toast. */
-  createLocalPullRequest: (
-    owner: string, repo: string,
-    payload: { title: string; body: string; base: string; draft: boolean },
-  ) => Promise<{ number: number; htmlUrl: string }>;
-  /** Asks the active LLM to draft a PR title + description from the
-   *  diff between current HEAD and `base`. Returns the draft so the
-   *  Open-PR modal can fill its inputs for the user to refine. */
-  draftLocalPullRequest: (
-    owner: string, repo: string, base: string, head: string,
-  ) => Promise<{ title: string; description: string }>;
-  /** Bulk-deletes cleanup-eligible branches. The backend re-validates
-   *  the current branch (always refused) and returns the names that
-   *  were actually deleted. When `deleteRemote` is true, also runs
-   *  `git push origin --delete` for any deleted branch with an
-   *  upstream tracking ref. */
-  deleteLocalBranches: (
-    owner: string, repo: string, names: string[], deleteRemote?: boolean,
-  ) => Promise<string[]>;
-  /** Opens the repo's working-tree directory in macOS Finder. */
-  revealRepoInFinder: (path: string) => Promise<void>;
-  /** Opens the repo path in iTerm if installed, else Terminal.app. */
-  openRepoInTerminal: (path: string) => Promise<void>;
-  /** Opens the repo path in the first installed IDE from a default
-   *  list (VS Code → Cursor → JetBrains). User-configurable later. */
-  openRepoInIDE: (path: string) => Promise<void>;
   getUserRepos: () => Promise<UserRepoDto[]>;
-  getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;
-  searchUsers: (query: string) => Promise<GitHubUserMatchDto[]>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
   /** Records a visit to a tracked surface for the footprints trail.
@@ -3464,31 +2544,11 @@ export type Bridge = {
   openInAppBrowser: (url: string) => Promise<void>;
   /** Explicit escape hatch for OAuth and the browser overlay's Browser button. */
   openExternal: (url: string) => Promise<void>;
-  getUserStats: (login: string, force?: boolean) => Promise<UserStatsDto>;
-  // Teams
-  listTeams: () => Promise<TeamSummaryDto[]>;
-  getTeam: (id: number) => Promise<TeamDto>;
-  createTeam: (req: CreateTeamRequest) => Promise<TeamDto>;
-  updateTeam: (id: number, req: UpdateTeamRequest) => Promise<TeamDto>;
-  replaceTeamMembers: (id: number, members: string[]) => Promise<TeamDto>;
-  deleteTeam: (id: number) => Promise<void>;
-  getTeamPulls: (id: number) => Promise<PullRequestDto[]>;
-  /** Initial-paint endpoint for the team kanban: first N per column. */
-  getTeamPullsByColumn: (id: number, perColumn: number, force: boolean) => Promise<TeamColumnsResponse>;
-  /** Pagination endpoint: next page of one column. */
-  getTeamColumnPage: (id: number, column: MyPrColumnSlug, offset: number, limit: number) => Promise<ColumnPageDto>;
-  /** Total merged-PR count for a team in the last {@code days} days.
-   *  Powers the "Merged this week" stat on the team home page; the
-   *  renderer is expected to wrap calls in a ~10-minute TTL cache. */
-  countTeamMergedRecently: (id: number, days: number) => Promise<number>;
   /** Issues an authorize URL for the GitHub OAuth + PKCE flow. The renderer
    *  opens it in the system browser. {@code configured} is false when the
    *  backend hasn't been given GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET — in
    *  that case the renderer falls back to the PAT input. */
   getGitHubOAuthAuthorizeUrl: () => Promise<{ configured: boolean; url?: string }>;
-  /** Connection-state snapshot for the OAuth-stored token. */
-  getGitHubOAuthConnection: () => Promise<{ connected: boolean; login?: string }>;
-  disconnectGitHubOAuth: () => Promise<void>;
   /** Whether a `gh` binary is on disk. Says nothing about whether the user
    *  is logged in to it — that only surfaces when the import runs. */
   getGitHubCliAvailable: () => Promise<{ available: boolean }>;
@@ -3522,12 +2582,6 @@ export type Bridge = {
   refreshEmailThreads: (account: string, pageSize?: number) => Promise<EmailThreadMetaDto[]>;
   /** Full thread including every message and its parsed body. */
   getEmailThread: (account: string, id: string) => Promise<EmailThreadDetailDto>;
-  /** Archive / mark-read / mark-unread operate on the entire thread —
-   *  matches Gmail's UI semantics, where these actions apply to the
-   *  conversation, not a single message. */
-  archiveEmailThread: (account: string, id: string) => Promise<void>;
-  markEmailThreadRead: (account: string, id: string) => Promise<void>;
-  markEmailThreadUnread: (account: string, id: string) => Promise<void>;
   /** Combined "open and dismiss" — removes both INBOX and UNREAD in
    *  one Gmail call. Fires automatically when the user opens an
    *  unread thread, matching the "reading is archiving" gesture. */
@@ -3576,10 +2630,6 @@ export type Bridge = {
    *  group. The backend clears the previous default in the same
    *  transaction; unnamed lookups (PatResolver, AI key) follow it. */
   setDefaultCredential: (type: CredentialType, name: string, instanceName: string) => Promise<CredentialDto>;
-  // AI review
-  listAiProviders: () => Promise<AiProviderInfo[]>;
-  getAiSettings: () => Promise<AiSettingsDto>;
-  setAiSettings: (provider: string, model: string | null) => Promise<AiSettingsDto>;
   /** Catalog × credentials × CLI detection — the option tree the
    *  work-model picker walks. Re-fetched when the picker opens so
    *  newly-added credentials / freshly-installed CLI agents show
@@ -3592,10 +2642,6 @@ export type Bridge = {
   getAppVersion: () => Promise<{ version: string }>;
   getCodexCliVersion: () => Promise<{ version: string }>;
   updateCodexCli: () => Promise<CodexCliUpdateResultDto>;
-  /** Set (or clear) the workspace's default work model. Pass null
-   *  to remove the override, after which the resolver falls back
-   *  to the global default. Returns the updated workspace. */
-  setWorkspaceWorkModel: (workspaceId: string, model: WorkModelDto | null) => Promise<WorkspaceDto>;
   /** Resolve the effective work model for a thread (cascade: thread →
    *  workspace → global default). */
   getThreadWorkModel: (threadId: string) => Promise<ResolvedWorkModelDto>;
@@ -3634,7 +2680,6 @@ export type Bridge = {
    *  at {@code <repoDir>/ds4-server} on success. */
   installDs4: (req: Ds4InstallRequestDto) => Promise<Ds4InstallStatusDto>;
   getDs4InstallStatus: () => Promise<Ds4InstallStatusDto>;
-  getDs4Logs: (limit?: number) => Promise<string[]>;
   /** List every configured skill, alphabetised by name. The Settings
    *  → Skills page slices client-side on scope / roleTag. */
   listSkills: () => Promise<SkillDto[]>;
@@ -3653,10 +2698,6 @@ export type Bridge = {
    *  a polished rewrite. Used by the "Better words" button — UI replaces
    *  the textarea contents with the response. */
   polishCommentText: (text: string) => Promise<string>;
-  /** Sends a CI failure log to the active LLM and returns a markdown
-   *  root-cause-and-fix reply for the merge bar's "Ask AI to fix"
-   *  button. The body is the trimmed last-N-bytes of the Actions log. */
-  diagnoseCheckFailure: (checkName: string, log: string) => Promise<string>;
   /** Adds an emoji reaction to the pull request description. */
   addPullRequestReaction: (
     repo: string,
@@ -3691,31 +2732,6 @@ export type Bridge = {
     rootCommentId: number,
     resolved: boolean,
   ) => Promise<void>;
-  writeClipboard: (text: string) => Promise<void>;
-  // Embedded GitHub review, implemented as a WebContentsView overlaid on the
-  // main window's content area. Bounds are in CSS pixels (getBoundingClientRect).
-  mountReview: (repo: string, number: number, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-  setReviewBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
-  unmountReview: () => Promise<void>;
-  // Clear the review partition's cookies and reload /login — escape hatch
-  // when github.com is stuck on a passkey-only re-verification page.
-  resetReviewSignIn: (repo: string, number: number) => Promise<void>;
-  // Fires when the review WebContentsView tried to navigate to a third-party
-  // SSO provider (Google, Microsoft, Apple) that refuses embedded browsers.
-  // Returns an unsubscribe function.
-  onReviewAuthBlocked: (callback: (payload: { provider: string }) => void) => () => void;
-  // Fires when the review view lands on a GitHub sign-in page. Used to show
-  // a proactive tip banner so the user doesn't pick passkey (which will hang
-  // forever — Electron can't drive the macOS platform authenticator).
-  onReviewSignInPage: (callback: () => void) => () => void;
-  /** Walks the embed's own history one step back/forward — Chrome-style
-   *  ←/→ for the review screen so links inside a comment can be
-   *  followed and unfollowed without exiting the embed. */
-  reviewGoBack: () => Promise<void>;
-  reviewGoForward: () => Promise<void>;
-  /** Subscribes to the embed's nav-state pings so the toolbar buttons
-   *  enable/disable in step with the actual back/forward stack. */
-  onReviewNavState: (callback: (s: { canGoBack: boolean; canGoForward: boolean }) => void) => () => void;
   // ─── Generic in-app browser ──────────────────────────────────────
   /** Mount a WebContentsView at the given screen-coords bounds and
    *  load {@code url}. Replaces any existing in-app-browser view. */
@@ -3725,7 +2741,6 @@ export type Bridge = {
   inAppGoBack: () => Promise<void>;
   inAppGoForward: () => Promise<void>;
   inAppReload: () => Promise<void>;
-  inAppLoadUrl: (url: string) => Promise<void>;
   /** Pop the URL out into its own native Electron window — independent
    *  of the main app window, OS-supplied chrome. Lets the user keep
    *  multiple pages open side-by-side without a tab strip. */
@@ -3771,30 +2786,11 @@ export type Bridge = {
   createTask: (request: NewTaskRequestDto) => Promise<ThreadDto>;
   /** User-defined groups in display order. */
   listTaskGroups: () => Promise<ThreadGroupDto[]>;
-  /** Full thread ↔ group membership snapshot. Threads and groups are
-   *  many-to-many — render the page once you have both lists and
-   *  this index. */
-  listTaskGroupMemberships: () => Promise<ThreadGroupMembershipDto[]>;
   /** Insert one group along with its initial members
    *  ({@code initialTaskIds} must contain ≥ 1 and ≤ 4 ids). */
   createTaskGroup: (request: NewTaskGroupRequestDto) => Promise<ThreadGroupDto>;
-  /** Partial update — null/blank fields keep the current value. */
-  updateTaskGroup: (id: string, patch: ThreadGroupPatchDto) => Promise<ThreadGroupDto>;
-  /** Drop a group. The membership rows cascade away in the schema;
-   *  the threads themselves survive — they simply leave the group. */
-  deleteTaskGroup: (id: string) => Promise<void>;
-  /** Add an existing thread to an existing group. Rejected when the
-   *  group is at the 4-member cap; idempotent on existing members. */
-  addTaskToGroup: (groupId: string, threadId: string) => Promise<void>;
-  /** Remove a thread from a group. Rejected when the thread is the
-   *  group's only remaining member — callers must
-   *  {@link #deleteTaskGroup deleteTaskGroup} instead. */
-  removeTaskFromGroup: (groupId: string, threadId: string) => Promise<void>;
   /** Single thread by id; null when no row matches. */
   getTask: (id: string) => Promise<ThreadDto | null>;
-  /** Persisted conversation log, oldest first by {@code seq}. The
-   *  detail page polls this while the thread is live. */
-  getTaskMessages: (id: string) => Promise<ThreadMessageDto[]>;
   /** One window of the conversation index — user-prompt entries
    *  plus the matching messages, fetched together so the floating
    *  index panel and the agent terminal can't drift. Pass no
@@ -3817,23 +2813,10 @@ export type Bridge = {
    *  not to be confused with the legacy "task = thread" alias still
    *  in place on most other bridge methods. */
   listTasksForThread: (threadId: string) => Promise<WorkUnitTaskDto[]>;
-  /** Take control of a thread away from any in-flight headless run.
-   *  Drives the "Jump in" button on parked notifications: interrupts
-   *  the live session, releases the active task's worktree lease,
-   *  and marks parked notifications for the thread as read. Returns
-   *  the refreshed thread row. */
-  jumpInThread: (threadId: string) => Promise<ThreadDto>;
   /** Top-level Workspaces landing grid feed. One card per workspace
    *  with all the aggregates the landing renders (counts, today's
    *  spend, memory summary). Read-only. */
   listWorkspaces: () => Promise<WorkspaceCardDto[]>;
-  /** Fetch one workspace by id. Null when no row matches — drives
-   *  the shell's title + rail brand so a workspace switch updates
-   *  the visible name. */
-  getWorkspace: (workspaceId: string) => Promise<WorkspaceDto | null>;
-  /** Rename a workspace. The display name surfaces on the landing
-   *  card and the rail; the id is stable. Trimmed server-side. */
-  renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
   /** Drop a workspace entirely. Threads pointing at it are left
    *  orphaned — the UI warns the user before calling this. */
   deleteWorkspace: (workspaceId: string) => Promise<void>;
@@ -3880,34 +2863,15 @@ export type Bridge = {
   applyWorkspaceMemoryProposal: (workspaceId: string) => Promise<WorkspaceDto>;
   /** Drop the pending proposal without writing anything. */
   discardWorkspaceMemoryProposal: (workspaceId: string) => Promise<void>;
-
-  /** List configured LLM reviewers (and unconfigured ones the
-   *  assign-review-task dialog surfaces as disabled chips). */
-  listReviewRoster: () => Promise<ReviewRosterEntryDto[]>;
   /** Read a review pass by id with the full transcript + findings. */
   getReviewPass: (passId: string) => Promise<ReviewPassDetailDto | null>;
   /** Read the latest pass on a review thread — the URL the panel UI
    *  lives on uses the thread id, this resolves the pass for it. */
   getReviewPassByThread: (threadId: string) => Promise<ReviewPassDetailDto | null>;
-  /** Read the active review pass for a PR (by {@code owner/repo} + number)
-   *  so the PR Changes page can overlay its AGREED findings at their line
-   *  positions. Null when the PR has no review pass. */
-  getReviewPassForPr: (repo: string, number: number) => Promise<ReviewPassDetailDto | null>;
   /** Durable publication projection; null before authorization. */
   getReviewPassPublication: (
     passId: string,
   ) => Promise<ReviewPassPublicationDto | null>;
-  /** Read the scheduled-reviews opt-in toggle. */
-  getScheduledReviewSettings: () => Promise<{ enabled: boolean }>;
-  /** Flip the scheduled-reviews opt-in toggle. The backend reads
-   *  it each tick so a flip takes effect on the next sweep without
-   *  a restart. */
-  setScheduledReviewSettings: (enabled: boolean) => Promise<{ enabled: boolean }>;
-  /** Read the Workspace Settings → Behavior toggles. Persistence
-   *  only — enforcement lands with each consumer (auto-archive
-   *  sweeper, propose-task hook, etc.). */
-  getWorkspaceBehavior: () => Promise<WorkspaceBehaviorDto>;
-  setWorkspaceBehavior: (settings: WorkspaceBehaviorDto) => Promise<WorkspaceBehaviorDto>;
   /** Workspace Insights aggregation — pulls active-thread + tasks-in-
    *  flight counts, today's spend, the window-wide spend total, and a
    *  per-day spend series for the chart. {@code window} is one of
@@ -3917,11 +2881,6 @@ export type Bridge = {
   /** Monthly AI usage ledger — total spend/calls + per-provider and
    *  per-task-type breakdowns. Month is YYYY-MM ('' = current month). */
   getAiLedger: (month: string) => Promise<AiLedgerDto>;
-  /** Workspace-level reviewer persona — a user-editable nudge that
-   *  prepends to every panel reviewer's skill-context at request
-   *  time. Empty string when unset. */
-  getReviewPersona: () => Promise<{ persona: string }>;
-  setReviewPersona: (persona: string) => Promise<{ persona: string }>;
   /** Resolve one DISPUTED finding via the arbitration ballot.
    *  {@code resolution} = "include" flips it to ARBITRATED;
    *  "drop" flips it to DROPPED. When no DISPUTED findings remain
@@ -3931,20 +2890,6 @@ export type Bridge = {
     passId: string,
     findingId: string,
     resolution: 'include' | 'drop',
-  ) => Promise<ReviewPassDetailDto>;
-  /** Edit a finding's comment body before it publishes to GitHub. Returns
-   *  the updated pass detail. */
-  editReviewFinding: (
-    passId: string,
-    findingId: string,
-    comment: string,
-  ) => Promise<ReviewPassDetailDto>;
-  /** Drop a finding (soft-remove → DROPPED): takes it off the diff overlay,
-   *  the findings rail, and the publish selection. Returns the updated
-   *  detail. */
-  dropReviewFinding: (
-    passId: string,
-    findingId: string,
   ) => Promise<ReviewPassDetailDto>;
   /** Add a finding by hand (created AGREED) — to capture one the panel
    *  described in prose but never recorded. Returns the updated detail. */
@@ -3963,25 +2908,6 @@ export type Bridge = {
     targetParticipantId: string,
     message: string,
   ) => Promise<ReviewPassDetailDto>;
-  /** Add a local pre-push inline review comment on a task's diff at
-   *  file:line (1-based). `side` is 'LEFT'/'RIGHT' (undefined defaults to
-   *  RIGHT); `startLine`/`startSide` are set only for a multi-line range.
-   *  Returns the persisted comment. */
-  addReviewComment: (
-    taskId: string,
-    file: string,
-    line: number,
-    body: string,
-    side?: 'LEFT' | 'RIGHT',
-    startLine?: number,
-    startSide?: 'LEFT' | 'RIGHT',
-  ) => Promise<ReviewCommentDto>;
-  /** Every review comment on the task, oldest-first, for the diff page. */
-  listReviewComments: (taskId: string) => Promise<ReviewCommentDto[]>;
-  /** Mark a review comment resolved. */
-  resolveReviewComment: (id: string) => Promise<void>;
-  /** Re-open a resolved review comment. */
-  reopenReviewComment: (id: string) => Promise<void>;
   /** Submit selected (or all) unresolved task-local review comments to the
    *  Development agent. The review stays private; lifecycle dispatch is
    *  observed through task state, so turnId is currently null. */
@@ -3995,14 +2921,6 @@ export type Bridge = {
   ) => Promise<{ submitted: number; turnId: string | null }>;
   /** Backlog items on a thread, oldest-first (trunk Backlog tab). */
   listBacklog: (threadId: string) => Promise<BacklogItemDto[]>;
-  /** Workspace-wide backlog list with optional filters (the workspace
-   *  Backlog page). {@code thread}/{@code tag} match an id/label; {@code q}
-   *  is a free-text title-or-body search; {@code status} is the lifecycle
-   *  state. Omit a filter to leave it unconstrained. */
-  listWorkspaceBacklog: (
-    workspaceId: string,
-    filters?: { status?: string; thread?: string; tag?: string; q?: string },
-  ) => Promise<BacklogItemDto[]>;
   /** Create a backlog item on the thread. */
   createBacklogItem: (
     threadId: string,
@@ -4055,11 +2973,6 @@ export type Bridge = {
    *  Terminal but reversible (resumeReview re-runs). Returns the updated
    *  detail with phase COMPLETED. */
   completeReview: (passId: string) => Promise<ReviewPassDetailDto>;
-  /** Light PR title + author per review thread, for labelling review
-   *  threads in thread lists without loading the transcript. */
-  getReviewThreadPrSummaries: (
-    threadIds: string[],
-  ) => Promise<ReviewThreadPrSummaryDto[]>;
   /** Authorize the pass's one-shot durable GitHub review publication. */
   publishReviewPass: (
     passId: string,
@@ -4206,21 +3119,6 @@ export type Bridge = {
       reason: string;
     },
   ) => Promise<unknown>;
-  /** Return control to Trunk planning. V2 preserves the exact current Task
-   *  checkpoint and leaves sibling creation to Trunk; LEGACY retains its
-   *  park-and-cut compatibility behavior. */
-  parkAndStartNext: (
-    threadId: string,
-    taskId: string,
-    opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
-  ) => Promise<WorkUnitTaskDto>;
-  /** Rename a task. Trims the value; an empty string clears the
-   *  override and reverts to the humanised branch label. */
-  renameTaskUnit: (
-    threadId: string,
-    taskId: string,
-    name: string,
-  ) => Promise<WorkUnitTaskDto>;
   /** Read the task's auto-approve mode (gates + tool prompts auto-approve,
    *  except the final PR merge). */
   getTaskAutoApprove: (
@@ -4269,50 +3167,11 @@ export type Bridge = {
   /** Resolves an attached image's saved path (from a message's `images`
    *  field) into a renderable data URL. */
   readAttachment: (threadId: string, path: string) => Promise<string>;
-  /** Effective per-thread scope settings — global merged with the
-   *  thread's overrides (caps, prompt addendum). Always returns a
-   *  payload, even for zero-config threads. */
-  getThreadSettings: (threadId: string) => Promise<ThreadSettingsDto>;
-  /** Upsert this thread's overrides. {@code null} fields clear the
-   *  override and revert to inheritance. Returns the post-merge view. */
-  putThreadSettings: (
-    threadId: string,
-    body: {
-      maxRunningTasks?: number | null;
-      softCostUsdMilli?: number | null;
-      hardCostUsdMilli?: number | null;
-      promptAddendum?: string | null;
-    },
-  ) => Promise<ThreadSettingsDto>;
-  /** Drop the thread's settings row — reverts to silent inheritance. */
-  clearThreadSettings: (threadId: string) => Promise<void>;
-  /** Active checkpoints for a thread — Overall first, then segments by
-   *  descending seq. Drives the sidebar Checkpoints section and the
-   *  cross-thread seed loader. */
-  getTaskCheckpoints: (id: string) => Promise<ThreadCheckpointDto[]>;
-  /** Force-generate a checkpoint segment for any messages added
-   *  since the last segment, regardless of the token threshold.
-   *  Resolves to the new checkpoint or null when there's nothing
-   *  new to summarise. */
-  generateTaskCheckpoint: (id: string) => Promise<ThreadCheckpointDto | null>;
-  /** Last scheduler outcome for the thread. Non-null {@code lastError}
-   *  means a recent background summarisation attempt failed (most
-   *  commonly because the Anthropic key isn't configured) so the UI
-   *  can surface a banner instead of an unexplained empty list. */
-  getTaskCheckpointStatus: (id: string) => Promise<{ lastError: string | null }>;
   /** Recent scheduler turns, newest first. Used to distinguish
    *  queued work from an active CLI/API run. */
   getTaskTurns: (id: string) => Promise<ThreadTurnDto[]>;
   /** Open durable V2 permission prompts owned anywhere under this Trunk. */
   getTypedPermissions: (id: string) => Promise<TypedPermissionRequestDto[]>;
-  /** Recent scheduler events, newest first. Explains queued/running/
-   *  cancelled transitions without reading backend logs. */
-  getTaskTurnEvents: (id: string) => Promise<ThreadTurnEventDto[]>;
-  /** Per-(thread, path) rollup rows for the detail-page sidebar. */
-  getTaskFiles: (id: string) => Promise<ThreadFileDto[]>;
-  /** Rename a thread. Trimmed and non-blank — empty / whitespace
-   *  values are rejected on the backend. Returns the updated row. */
-  renameTask: (id: string, title: string) => Promise<ThreadDto>;
   /** Reply to a {@code permission_request}. When {@code preApprove}
    *  is supplied, the backend records the per-call decision and then
    *  grants an auto-approval budget for future invocations of the same
@@ -4334,19 +3193,6 @@ export type Bridge = {
   interruptTask: (id: string, turnId?: string) => Promise<void>;
   /** Interrupt only the Task agent currently executing this stage. */
   interruptStage: (id: string) => Promise<void>;
-  /** Terminal — releases the underlying agent loop and removes the
-   *  thread from the live registry. */
-  stopTask: (id: string) => Promise<void>;
-  /** Permanent removal — only allowed for COMPLETED / ERRORED threads.
-   *  Drops the thread row, its conversation log, and per-file rollups.
-   *  Rejects with an error from the backend if the thread is still
-   *  live. */
-  deleteTask: (id: string) => Promise<void>;
-  /** Pre-flight check: returns {@code deletable: true} when the
-   *  thread can be removed, or a {@code reason} string when blocked
-   *  (e.g. shipped tasks). The trunk's Delete button uses this to
-   *  surface the block reason without making the user click first. */
-  getThreadDeleteEligibility: (id: string) => Promise<{ deletable: boolean; reason?: string }>;
 
   /** All notifications, newest-first. Drives the bell dropdown +
    *  notification center. */
@@ -4359,8 +3205,6 @@ export type Bridge = {
   markNotificationRead: (id: string) => Promise<NotificationDto>;
   /** Soft-hide via DISMISSED status. */
   dismissNotification: (id: string) => Promise<NotificationDto>;
-  /** Hard delete — the row is gone. */
-  deleteNotification: (id: string) => Promise<void>;
   /** Approve a parked AWAITING_REVIEW proposal: the backend claims
    *  the row once, runs its deferred action, and writes an audit row.
    *  {@code expectedAction} prevents a rendered approval control from
@@ -4373,14 +3217,6 @@ export type Bridge = {
   /** Discard a parked AWAITING_REVIEW proposal without running its
    *  deferred side effect. */
   discardNotification: (id: string, expectedAction?: string | null) => Promise<PublishResultDto>;
-  /** Persist an edited PR title/body onto a parked {@code ship_task}
-   *  proposal before it's approved. Returns the updated notification (its
-   *  payloadJson carries the new prTitle/prBody). */
-  setShipDescription: (
-    notificationId: string,
-    prTitle: string,
-    prBody: string,
-  ) => Promise<NotificationDto>;
 
   /** Open a Server-Sent Events subscription to the backend for one
    *  thread. Each {@link StreamEvent} the session emits is delivered
@@ -4425,9 +3261,6 @@ export type Bridge = {
   /** Full brain-view payload for a task: aggregate strip, stages,
    *  brain feed, right rail, scrubbers. Polled by the brain view. */
   getBrainView: (taskId: string) => Promise<TaskBrainViewData>;
-  /** Toggle or reschedule the task's branch-guard (nightly rebase-and-push
-   *  drift maintenance). Omitted fields are left unchanged. */
-  updateTaskGuard: (taskId: string, patch: { enabled?: boolean; schedule?: string }) => Promise<BranchGuardDto>;
   /** Post a question to the task's brain agent. Returns the answering
    *  turn id and the brain thread id (subscribe to its stream). */
   sendBrainMessage: (taskId: string, text: string, images?: string[]) => Promise<BrainMessageResult>;
@@ -4495,8 +3328,6 @@ export type Bridge = {
     body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },
   ) => Promise<AgentReviewData>;
   getAgentReviewByThread: (threadId: string) => Promise<AgentReviewData | null>;
-  getAgentReviewById: (reviewId: string) => Promise<AgentReviewData | null>;
-  listAgentReviewQueue: (scope?: 'all' | 'remote' | 'local') => Promise<AgentReviewQueueItemDto[]>;
   continueAgentReview: (
     reviewId: string,
     body: {
@@ -4520,16 +3351,6 @@ export type Bridge = {
   mutateAgentReviewFinding: (
     findingId: string,
     body: { action: 'dismiss' | 'include' | 'exclude' | 'editDraft' | 'reopen' | 'resolve'; text?: string },
-  ) => Promise<AgentReviewData>;
-  recordAgentReviewFindingOutcome: (
-    findingId: string,
-    body: {
-      userDisposition: string;
-      authorResponse: 'fixed' | 'acknowledged' | 'disagreed' | 'ignored';
-      epistemicResolution: 'confirmed' | 'refuted' | 'unresolved';
-      utilityAssessment?: string;
-      styleEditMagnitude?: number;
-    },
   ) => Promise<AgentReviewData>;
   getAgentReviewRoundLog: (roundId: string) => Promise<AgentReviewData>;
   cancelAgentReviewRound: (roundId: string) => Promise<AgentReviewData>;
@@ -4568,18 +3389,8 @@ export type Bridge = {
   fetchDashboardPrs: () => Promise<DashboardPR[]>;
   /** Explicit user-triggered refresh — always sweeps GitHub. */
   syncDashboardPrs: () => Promise<DashboardPR[]>;
-  /** Records that the user opened this PR. Idempotent. */
-  markDashboardPrViewed: (prId: string) => Promise<void>;
   /** Marks a PR handled with the given action, without any GitHub call. */
   markDashboardPrHandled: (prId: string, action: HandledAction) => Promise<void>;
-  /** Clears the local reviewed timestamp so the PR returns to the Inbox. */
-  reopenDashboardPr: (prId: string) => Promise<void>;
-  /** Parks a PR until {@code until} (ISO-8601, must be in the future). */
-  snoozeDashboardPr: (prId: string, untilIso: string) => Promise<void>;
-  /** User-initiated wake — no wake-reason banner. */
-  unsnoozeDashboardPr: (prId: string) => Promise<void>;
-  /** Drops the wake-reason flag once the user has seen the "PR woke up" banner. */
-  clearDashboardPrSnoozeWakeReason: (prId: string) => Promise<void>;
   /** Submits a GitHub approval review, then records it as handled locally. */
   approveDashboardPr: (prId: string) => Promise<void>;
 
@@ -4609,46 +3420,18 @@ export type Bridge = {
    *  DevelopmentStage, and returns its id (+ redirect path) so the view can
    *  auto-navigate to the dev stage detail page. */
   approvePlan: (planStageId: string) => Promise<{ devStageId: string; redirectUrl: string }>;
-  /** Open a fresh PlanStage after a prior plan was approved (re-plan). */
-  replan: (taskId: string) => Promise<{ planStageId: string }>;
-  /** Mark a plan follow-up note addressed / dismissed. */
-  updateFollowup: (
-    planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed',
-  ) => Promise<void>;
-
-  // ── Thread tabs: working-tree changes + commits ──────────────────
-  /** Files modified by the AI session but not yet committed. Returns
-   *  paths + single-char status (M, A, D, R, ...). Empty when nothing
-   *  has changed or the workingDir isn't a git repo. */
-  listTaskWorkingChanges: (id: string) => Promise<ThreadWorkingFileDto[]>;
-  /** Unified diff for one uncommitted file. Truncated at 256 KB. */
-  getTaskWorkingDiff: (id: string, path: string) => Promise<string>;
   /** Commits authored in the thread's workingDir since thread.createdAt,
    *  most-recent first. Limited to 100. `taskId` disambiguates which of the
    *  thread's tasks to scope to — a thread can carry more than one task, and
    *  omitting it falls back to the thread's latest task, which is wrong once
    *  the viewed task isn't that one. */
   listTaskCommits: (id: string, taskId?: string) => Promise<ThreadCommitDto[]>;
-  /** Per-file rollup (path + status + +/-) for one of the thread's commits. */
-  listTaskCommitFiles: (id: string, sha: string) => Promise<ThreadCommitFileDto[]>;
-  /** Unified diff for one file at one of the thread's commits. */
-  getTaskCommitDiff: (id: string, sha: string, path: string) => Promise<string>;
   /** The task's full diff against its base branch, shaped like the PR
    *  review's DiffFileDto so the same diff component renders it. `taskId`
    *  disambiguates which task on the thread — see {@link listTaskCommits}. */
   getTaskCumulativeDiff: (id: string, taskId?: string) => Promise<DiffFileDto[]>;
-  /** One commit's diff as DiffFileDto rows for the shared diff view. */
-  getTaskCommitDiffFiles: (id: string, sha: string, taskId?: string) => Promise<DiffFileDto[]>;
   /** Full file content from the task worktree, split into lines for diff expansion. */
   fetchTaskFileBlob: (id: string, taskId: string, path: string) => Promise<{ lines: string[] }>;
-};
-
-/** Mirror of GitRunner.WorkingTreeFile — uncommitted change in a
- *  thread's workingDir. {@code status} is a single git porcelain char
- *  (M = modified, A = added/untracked, D = deleted, R = renamed). */
-export type ThreadWorkingFileDto = {
-  path: string;
-  status: string;
 };
 
 /** Mirror of GitRunner.CommitEntry — one commit in the thread's history. */
@@ -4659,15 +3442,6 @@ export type ThreadCommitDto = {
   authorEmail: string;
   authoredAt: string;
   subject: string;
-};
-
-/** Mirror of GitRunner.CommitFileChange — per-file rollup inside a
- *  commit, with status char and line counts. */
-export type ThreadCommitFileDto = {
-  path: string;
-  status: string;
-  additions: number;
-  deletions: number;
 };
 
 export type InAppNavState = {

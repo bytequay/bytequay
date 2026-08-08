@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
-import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -34,10 +34,10 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class BacklogToolHandlers
 {
-    private final BacklogService backlog;
+    private final BacklogServiceImpl backlog;
     private final ObjectMapper mapper;
 
-    public BacklogToolHandlers(BacklogService backlog, ObjectMapper mapper)
+    public BacklogToolHandlers(BacklogServiceImpl backlog, ObjectMapper mapper)
     {
         this.backlog = requireNonNull(backlog, "backlog is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -78,20 +78,20 @@ public class BacklogToolHandlers
         if (args == null || args.items() == null || !args.items().isArray() || args.items().isEmpty()) {
             return ToolOutcome.Completed.error("items must be a non-empty JSON array");
         }
-        List<BacklogService.NewBacklogItem> items = new ArrayList<>();
+        List<BacklogServiceImpl.NewBacklogItem> items = new ArrayList<>();
         for (JsonNode node : args.items()) {
             String title = node.path("title").asText("").strip();
             if (title.isEmpty()) {
                 return ToolOutcome.Completed.error("every item needs a non-empty title");
             }
             String priority = node.hasNonNull("priority") ? node.get("priority").asText() : null;
-            items.add(new BacklogService.NewBacklogItem(
+            items.add(new BacklogServiceImpl.NewBacklogItem(
                     title,
                     node.path("body").asText(""),
                     readStringArray(node.get("tags")),
                     priority));
         }
-        BacklogService.BatchResult result;
+        BacklogServiceImpl.BatchResult result;
         try {
             result = backlog.createBatch(threadId, items);
         }

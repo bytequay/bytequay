@@ -35,7 +35,7 @@ class TestLegacyReviewRoundRetirement
     private final TaskStore tasks = mock(TaskStore.class);
     private final StageStore stages = mock(StageStore.class);
     private final ReviewRoundStore rounds = mock(ReviewRoundStore.class);
-    private final BrainReviewService brain = mock(BrainReviewService.class);
+    private final BrainReviewServiceImpl brain = mock(BrainReviewServiceImpl.class);
     private final PRService prs = mock(PRService.class);
     private final TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
     private final ReviewRoundStateMachine machine = mock(ReviewRoundStateMachine.class);

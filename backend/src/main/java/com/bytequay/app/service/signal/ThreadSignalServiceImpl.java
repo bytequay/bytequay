@@ -36,7 +36,6 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class ThreadSignalServiceImpl
-        implements ThreadSignalService
 {
     private static final Set<String> SOURCE_KINDS = Set.of("agent", "system", "github");
     private static final Set<String> ICON_KINDS = Set.of("info", "success", "warn", "alert");
@@ -63,8 +62,6 @@ public class ThreadSignalServiceImpl
         this.notifications = null;
         this.threads = null;
     }
-
-    @Override
     public ThreadSignal record(
             String threadId, String taskId, String sourceKind, String iconKind,
             String title, String body, String sourceUrl)
@@ -98,14 +95,10 @@ public class ThreadSignalServiceImpl
         mirrorCanonical(saved);
         return saved;
     }
-
-    @Override
     public List<ThreadSignal> list(String threadId)
     {
         return store.findByThread(nullToEmpty(threadId).strip());
     }
-
-    @Override
     public void markRead(String id)
     {
         Optional<ThreadSignal> found = store.findById(nullToEmpty(id).strip());

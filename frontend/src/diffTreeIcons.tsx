@@ -12,27 +12,6 @@
  * limitations under the License.
  */
 
-export function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={`tree-chevron${open ? ' tree-chevron--open' : ''}`}
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
-      aria-hidden="true"
-    >
-      <path
-        d="M3.5 2L7 5L3.5 8"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
-  );
-}
-
 export function FolderIcon({ open }: { open: boolean }) {
   return (
     <svg

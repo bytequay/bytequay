@@ -35,7 +35,7 @@ package com.bytequay.app.domain;
  * phase off {@link #AWAITING_REMOTE_REVIEW} — a {@code review_round}
  * {@code AgentRun} triages, fixes, and drafts replies beside it, and the
  * round's own gate approval pushes straight to {@link #PUSHED_AWAITING_CI}
- * (see {@code ReviewRoundService}).
+ * (see {@code ReviewRoundServiceImpl}).
  */
 public enum TaskPhase
 {

@@ -41,8 +41,8 @@ import com.bytequay.app.service.checks.ValidationClaimService;
 import com.bytequay.app.service.localpr.LocalReviewSubmittedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewService;
-import com.bytequay.app.service.review.ReviewRoundService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -130,7 +130,7 @@ public class TaskLifecycleDriver
     private final NotificationService notifications;
     private final RemoteCommentIngestor commentIngestor;
     private final ReadyToMergeService readyToMerge;
-    private final ReviewRoundService reviewRounds;
+    private final ReviewRoundServiceImpl reviewRounds;
     private final ThreadRegistry registry;
     private final StageStore stageStore;
     private final PRService prService;
@@ -138,7 +138,7 @@ public class TaskLifecycleDriver
     private final LocalReviewBrainHandoffStore handoffs;
     private final ValidationClaimService claimedValidation;
     private final ObjectMapper mapper;
-    private final BrainReviewService brainReview;
+    private final BrainReviewServiceImpl brainReview;
     private final ApplicationEventPublisher events;
 
     public TaskLifecycleDriver(
@@ -152,11 +152,11 @@ public class TaskLifecycleDriver
             NotificationService notifications,
             RemoteCommentIngestor commentIngestor,
             ReadyToMergeService readyToMerge,
-            ReviewRoundService reviewRounds,
+            ReviewRoundServiceImpl reviewRounds,
             ThreadRegistry registry,
             StageStore stageStore,
             PRService prService,
-            BrainReviewService brainReview,
+            BrainReviewServiceImpl brainReview,
             LocalReviewSubmissionStore submissions,
             LocalReviewBrainHandoffStore handoffs,
             ValidationClaimService claimedValidation,

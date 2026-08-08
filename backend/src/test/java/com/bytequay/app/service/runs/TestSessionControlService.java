@@ -32,7 +32,7 @@ class TestSessionControlService
     @Test
     void allLegacyAgentRunControlsFailClosed()
     {
-        AgentRunService runs = mock(AgentRunService.class);
+        AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         ThreadStore threads = mock(ThreadStore.class);
         ThreadTurnStore turns = mock(ThreadTurnStore.class);
         ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);

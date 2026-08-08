@@ -41,8 +41,7 @@ import java.util.UUID;
 import static java.util.Objects.requireNonNull;
 
 @Service
-class ReviewRoundServiceImpl
-        implements ReviewRoundService
+public class ReviewRoundServiceImpl
 {
     /** How long a batch of freshly-arrived remote comments waits before a
      *  round opens, in case more trickle in from the same reviewer pass.
@@ -52,7 +51,7 @@ class ReviewRoundServiceImpl
     private final TaskStore taskStore;
     private final StageStore stageStore;
     private final ReviewRoundStore roundStore;
-    private final BrainReviewService brainReview;
+    private final BrainReviewServiceImpl brainReview;
     private final PRService prService;
     private final TaskCommandExecutor commands;
     private final ReviewRoundStateMachine roundMachine;
@@ -64,7 +63,7 @@ class ReviewRoundServiceImpl
             TaskStore taskStore,
             StageStore stageStore,
             ReviewRoundStore roundStore,
-            BrainReviewService brainReview,
+            BrainReviewServiceImpl brainReview,
             PRService prService,
             TaskCommandExecutor commands,
             ReviewRoundStateMachine roundMachine,
@@ -78,7 +77,7 @@ class ReviewRoundServiceImpl
             TaskStore taskStore,
             StageStore stageStore,
             ReviewRoundStore roundStore,
-            BrainReviewService brainReview,
+            BrainReviewServiceImpl brainReview,
             PRService prService,
             TaskCommandExecutor commands,
             ReviewRoundStateMachine roundMachine,
@@ -95,8 +94,6 @@ class ReviewRoundServiceImpl
         this.gateSaga = requireNonNull(gateSaga, "gateSaga is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
-
-    @Override
     public void reconcile(Task task)
     {
         requireNonNull(task, "task is null");
@@ -179,14 +176,10 @@ class ReviewRoundServiceImpl
             default -> true;
         };
     }
-
-    @Override
     public Optional<ReviewRound> findById(String roundId)
     {
         return roundStore.findById(roundId);
     }
-
-    @Override
     public List<ReviewRound> findByTask(String taskId)
     {
         List<ReviewRound> rounds = roundStore.findByTask(taskId);
@@ -216,15 +209,11 @@ class ReviewRoundServiceImpl
                     stats.fixed(), stats.replied(), stats.pushedBack(), openBrainFindings));
         }).toList();
     }
-
-    @Override
     public void closeOpenRounds(String taskId, String reason)
     {
         rejectLegacyMutation();
         commands.executeVoid(taskId, () -> closeOpenRoundsInCommand(taskId, reason));
     }
-
-    @Override
     public void closeOpenRoundsInCommand(String taskId, String reason)
     {
         rejectLegacyMutation();
@@ -236,15 +225,11 @@ class ReviewRoundServiceImpl
             roundMachine.sealInCommand(taskId, round.id(), reason);
         }
     }
-
-    @Override
     public ReviewRound approve(String roundId)
     {
         rejectLegacyMutation();
         return gateSaga.approve(roundId);
     }
-
-    @Override
     public void recomputeStats(String roundId)
     {
         rejectLegacyMutation();

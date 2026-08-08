@@ -27,14 +27,14 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BranchGuardService;
-import com.bytequay.app.service.review.ReviewRoundService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.review.BranchGuardServiceImpl;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageBudgetService;
-import com.bytequay.app.service.stage.StageDetailService;
+import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
-import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.stage.StageSteeringServiceImpl;
 import com.bytequay.app.service.threads.TaskTraceService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.testing.SqliteTestPools;
@@ -85,9 +85,9 @@ class TestV2DevelopmentFlowCompatibilityApi
     private TaskStore tasks;
     private StageStore legacyStages;
     private PullRequestService github;
-    private AgentRunService legacyRuns;
-    private ReviewRoundService legacyRounds;
-    private BranchGuardService legacyGuard;
+    private AgentRunServiceImpl legacyRuns;
+    private ReviewRoundServiceImpl legacyRounds;
+    private BranchGuardServiceImpl legacyGuard;
     private MockMvc stageApi;
     private MockMvc traceApi;
     private DevelopmentFlowInvariantAuditor auditor;
@@ -169,9 +169,9 @@ class TestV2DevelopmentFlowCompatibilityApi
 
         legacyStages = mock(StageStore.class);
         when(legacyStages.findStagesByTask("legacy-task")).thenReturn(List.of());
-        legacyRuns = mock(AgentRunService.class);
-        legacyRounds = mock(ReviewRoundService.class);
-        legacyGuard = mock(BranchGuardService.class);
+        legacyRuns = mock(AgentRunServiceImpl.class);
+        legacyRounds = mock(ReviewRoundServiceImpl.class);
+        legacyGuard = mock(BranchGuardServiceImpl.class);
         StageServiceImpl stageService = new StageServiceImpl(
                 tasks, legacyStages, mock(StageBudgetService.class),
                 mock(ThreadTurnEventStore.class), mock(ThreadStore.class),
@@ -180,8 +180,8 @@ class TestV2DevelopmentFlowCompatibilityApi
         ReflectionTestUtils.setField(stageService, "v2Projection", projection);
         stageApi = standaloneSetup(new StageController(
                 stageService,
-                mock(StageDetailService.class),
-                mock(StageSteeringService.class),
+                mock(StageDetailServiceImpl.class),
+                mock(StageSteeringServiceImpl.class),
                 mock(PlanStageService.class),
                 legacyStages,
                 tasks,

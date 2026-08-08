@@ -24,15 +24,14 @@ export { Spine, SpineNode, NodeCard, SpineBreak } from './Spine';
 export type { SpineColor } from './Spine';
 
 // Layer 2 — conversation units.
-export { Round, UserTurn, Headline, BrainDot } from './Round';
+export { Round, UserTurn, Headline } from './Round';
 export { WorkFold } from './WorkFold';
 export { TaskFold } from './TaskFold';
 export { ActivityStrip } from './ActivityStrip';
 export type { ToolRow, ToolGroup } from './ActivityStrip';
 
 // Layer 3 — gates (approvals + questions), sharing a DecisionNode base.
-export { DecisionNode, ApprovalNode, AskQuestionNode } from './gates';
-export type { ApprovalDecision } from './gates';
+export { DecisionNode } from './gates';
 
 // Layer 4 — domain milestone nodes + controls.
 export { StageBoundaryNode } from './StageBoundaryNode';

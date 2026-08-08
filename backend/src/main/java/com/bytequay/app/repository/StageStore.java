@@ -188,7 +188,7 @@ public interface StageStore
     }
 
     /** A task's remote-reviewer comments not yet grouped into a
-     *  {@code ReviewRound} — what {@code ReviewRoundService} batches each
+     *  {@code ReviewRound} — what {@code ReviewRoundServiceImpl} batches each
      *  reconcile sweep. */
     List<ReviewComment> findUnroundedRemoteComments(String taskId);
 

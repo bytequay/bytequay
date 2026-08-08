@@ -174,15 +174,6 @@ export function CommentActionsMenu({
   );
 }
 
-/** Builds the github.com anchor for a comment so "Copy link" lands on
- *  the exact comment on the web. Issue / conversation comments use the
- *  {@code #issuecomment-<id>} fragment; per-line review comments use
- *  {@code #discussion_r<id>} — the same fragments github.com itself
- *  links to. */
-export function issueCommentLink(prHtmlUrl: string, commentId: number): string {
-  return `${prHtmlUrl}#issuecomment-${commentId}`;
-}
-
 export function reviewCommentLink(prHtmlUrl: string, commentId: number): string {
   return `${prHtmlUrl}#discussion_r${commentId}`;
 }

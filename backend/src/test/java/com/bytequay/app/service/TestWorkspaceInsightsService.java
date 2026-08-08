@@ -26,7 +26,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +50,7 @@ class TestWorkspaceInsightsService
     private V2TrunkRuntimeProjection trunkRuntime;
     private TaskStore taskStore;
     private InvestigationReviewStore reviewStore;
-    private AgentRunService runs;
+    private AgentRunServiceImpl runs;
     private WorkspaceInsightsService service;
 
     @BeforeEach
@@ -60,7 +60,7 @@ class TestWorkspaceInsightsService
         trunkRuntime = mock(V2TrunkRuntimeProjection.class);
         taskStore = mock(TaskStore.class);
         reviewStore = mock(InvestigationReviewStore.class);
-        runs = mock(AgentRunService.class);
+        runs = mock(AgentRunServiceImpl.class);
         when(threadStore.listThreadsUpdatedSince(any())).thenReturn(List.of());
         when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of());
         when(reviewStore.reviewSpendSince(any())).thenReturn(List.of());

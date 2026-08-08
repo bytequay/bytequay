@@ -95,7 +95,7 @@ class TestReviewCommentService
                 "task-v2", "Please revise", "REQUEST_CHANGES", List.of("c-1")))
                 .thenReturn(new V2LocalReviewControl.Submission(1, "turn-v2"));
 
-        ReviewCommentService.SubmitResult result = service.submitReview(
+        ReviewCommentServiceImpl.SubmitResult result = service.submitReview(
                 "task-v2", " Please revise ", "REQUEST_CHANGES", List.of("c-1"));
 
         assertThat(result.submitted()).isEqualTo(1);

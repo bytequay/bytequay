@@ -56,9 +56,9 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.sqlite.IterationStore;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BranchGuardService;
-import com.bytequay.app.service.review.ReviewRoundService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.review.BranchGuardServiceImpl;
+import com.bytequay.app.service.review.ReviewRoundServiceImpl;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,7 +88,6 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class StageDetailServiceImpl
-        implements StageDetailService
 {
     private static final int DEFAULT_CONTEXT_TOKEN_LIMIT = 200_000;
     /** Generous cap when listing the task's turns to count those in window. */
@@ -103,9 +102,9 @@ public class StageDetailServiceImpl
     private final ThreadTurnStore turnStore;
     private final StageBudgetService budgetService;
     private final PullRequestService pullRequests;
-    private final AgentRunService agentRuns;
-    private final BranchGuardService branchGuards;
-    private final ReviewRoundService reviewRounds;
+    private final AgentRunServiceImpl agentRuns;
+    private final BranchGuardServiceImpl branchGuards;
+    private final ReviewRoundServiceImpl reviewRounds;
     private final ObjectMapper mapper;
 
     public StageDetailServiceImpl(
@@ -116,9 +115,9 @@ public class StageDetailServiceImpl
             ThreadTurnStore turnStore,
             StageBudgetService budgetService,
             PullRequestService pullRequests,
-            AgentRunService agentRuns,
-            BranchGuardService branchGuards,
-            ReviewRoundService reviewRounds,
+            AgentRunServiceImpl agentRuns,
+            BranchGuardServiceImpl branchGuards,
+            ReviewRoundServiceImpl reviewRounds,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -138,8 +137,6 @@ public class StageDetailServiceImpl
     {
         return reviewRounds.findByTask(taskId).stream().filter(ReviewRound::isLive).findFirst().orElse(null);
     }
-
-    @Override
     public StageDetailData getDetail(UUID stageId)
     {
         StageInstance stage = stageStore.findStageById(stageId)

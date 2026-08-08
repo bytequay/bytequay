@@ -34,7 +34,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.RepoService;
-import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import com.bytequay.app.service.local.HistoryRewriter;
 import com.bytequay.app.service.local.LocalRepoService;
 import com.bytequay.app.service.localpr.PRSyncService;
@@ -78,7 +78,7 @@ public class WorkspaceRepositoryController
     private final InvestigationReviewService reviews;
     private final LocalRepoService local;
     private final WorkspaceIssueService issues;
-    private final BacklogService backlog;
+    private final BacklogServiceImpl backlog;
     private final ReviewTrunkLifecycleService reviewTrunks;
     private final WorkspaceCherryPickService cherryPicks;
     private final WorkspaceRelationService relations;
@@ -94,7 +94,7 @@ public class WorkspaceRepositoryController
             InvestigationReviewService reviews,
             LocalRepoService local,
             WorkspaceIssueService issues,
-            BacklogService backlog,
+            BacklogServiceImpl backlog,
             ReviewTrunkLifecycleService reviewTrunks,
             WorkspaceCherryPickService cherryPicks,
             WorkspaceRelationService relations,

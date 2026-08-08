@@ -16,7 +16,7 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.AgentQuestion;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.service.question.AgentQuestionService;
+import com.bytequay.app.service.question.AgentQuestionServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -41,19 +41,19 @@ public class QuestionToolHandlers
             + "STOP NOW: end the turn, do not re-ask the question in prose, do not "
             + "apologize or summarise. The user's reply will arrive as the next message.";
 
-    private final AgentQuestionService questions;
+    private final AgentQuestionServiceImpl questions;
     private final V2UserWaitService v2Waits;
 
     @Autowired
     public QuestionToolHandlers(
-            AgentQuestionService questions, V2UserWaitService v2Waits)
+            AgentQuestionServiceImpl questions, V2UserWaitService v2Waits)
     {
         this.questions = requireNonNull(questions, "questions is null");
         this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
     }
 
     /** Compatibility constructor for focused legacy tool tests. */
-    public QuestionToolHandlers(AgentQuestionService questions)
+    public QuestionToolHandlers(AgentQuestionServiceImpl questions)
     {
         this.questions = requireNonNull(questions, "questions is null");
         this.v2Waits = null;

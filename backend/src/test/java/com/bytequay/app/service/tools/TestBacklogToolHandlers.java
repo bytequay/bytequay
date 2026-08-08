@@ -14,7 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.service.backlog.BacklogService;
+import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -32,7 +32,7 @@ import static org.mockito.Mockito.when;
 
 class TestBacklogToolHandlers
 {
-    private final BacklogService backlog = mock(BacklogService.class);
+    private final BacklogServiceImpl backlog = mock(BacklogServiceImpl.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final BacklogToolHandlers handlers = new BacklogToolHandlers(backlog, mapper);
 
@@ -41,7 +41,7 @@ class TestBacklogToolHandlers
             throws Exception
     {
         when(backlog.createBatch(eq("t1"), any()))
-                .thenReturn(new BacklogService.BatchResult(List.of("a", "b"), "grp-1"));
+                .thenReturn(new BacklogServiceImpl.BatchResult(List.of("a", "b"), "grp-1"));
         JsonNode items = mapper.readTree(
                 "[{\"title\":\"A\",\"body\":\"x\",\"tags\":[\"ui\"]},{\"title\":\"B\"}]");
 
@@ -57,7 +57,7 @@ class TestBacklogToolHandlers
         assertThat(payload.path("backlogItems").get(1).path("id").asText()).isEqualTo("b");
         assertThat(payload.path("backlogItems").get(1).path("title").asText()).isEqualTo("B");
         verify(backlog).createBatch(eq("t1"), argThat(
-                (List<BacklogService.NewBacklogItem> forwarded) ->
+                (List<BacklogServiceImpl.NewBacklogItem> forwarded) ->
                         forwarded.size() == 2 && "A".equals(forwarded.get(0).title())));
     }
 

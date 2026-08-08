@@ -16,8 +16,6 @@
  *  higher layer. Import from here rather than the individual files. */
 export { StatusDot } from './StatusDot';
 export type { StatusDotVariant } from './StatusDot';
-export { Pill } from './Pill';
-export type { PillKind } from './Pill';
 export { Tag } from './Tag';
 export type { TagColor } from './Tag';
 export { Avatar } from './Avatar';
@@ -25,10 +23,8 @@ export type { AvatarHue } from './Avatar';
 export { Kbd } from './Kbd';
 export { PreviewImg } from './PreviewImg';
 export { Chev } from './Chev';
-export { IconBtn } from './IconBtn';
 export { Logo } from './Logo';
 export type { LogoColor, LogoSize } from './Logo';
-export { MergeIcon } from './MergeIcon';
 export { TrunkIcon } from './TrunkIcon';
 export { PrStateIcon } from './PrStateIcon';
 export type { PrGlyphState } from './PrStateIcon';

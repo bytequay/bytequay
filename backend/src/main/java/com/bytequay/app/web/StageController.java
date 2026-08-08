@@ -29,9 +29,9 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
-import com.bytequay.app.service.stage.StageDetailService;
-import com.bytequay.app.service.stage.StageService;
-import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.stage.StageDetailServiceImpl;
+import com.bytequay.app.service.stage.StageServiceImpl;
+import com.bytequay.app.service.stage.StageSteeringServiceImpl;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,7 +55,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Endpoints for the Task stages surface and the brain view. Mostly read
- * delegators to {@link StageService}, plus the writes that steer a running
+ * delegators to {@link StageServiceImpl}, plus the writes that steer a running
  * stage and set a stage's
  * work-model override. No auth beyond the existing internal-API sanity
  * checks (the backend is a localhost sidecar).
@@ -63,9 +63,9 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class StageController
 {
-    private final StageService service;
-    private final StageDetailService detailService;
-    private final StageSteeringService steeringService;
+    private final StageServiceImpl service;
+    private final StageDetailServiceImpl detailService;
+    private final StageSteeringServiceImpl steeringService;
     private final StageStore stageStore;
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
@@ -76,9 +76,9 @@ public class StageController
     private ReasoningEffortService reasoningEfforts;
 
     public StageController(
-            StageService service,
-            StageDetailService detailService,
-            StageSteeringService steeringService,
+            StageServiceImpl service,
+            StageDetailServiceImpl detailService,
+            StageSteeringServiceImpl steeringService,
             PlanStageService planStageService,
             StageStore stageStore,
             TaskStore taskStore,
@@ -201,18 +201,18 @@ public class StageController
     public record SteerRequest(
             String text,
             List<String> images,
-            StageSteeringService.Mode mode,
+            StageSteeringServiceImpl.Mode mode,
             String expectedPredecessorStageTurnId) {}
 
     @PostMapping("/api/stages/{stageId}/steer")
-    public StageSteeringService.SteerResult steer(
+    public StageSteeringServiceImpl.SteerResult steer(
             @PathVariable String stageId, @RequestBody SteerRequest req)
     {
         return steeringService.steer(
                 parseStageId(stageId), req == null ? null : req.text(),
                 req == null ? null : req.images(),
                 req == null || req.mode() == null
-                        ? StageSteeringService.Mode.APPEND : req.mode(),
+                        ? StageSteeringServiceImpl.Mode.APPEND : req.mode(),
                 req == null ? null : req.expectedPredecessorStageTurnId());
     }
 

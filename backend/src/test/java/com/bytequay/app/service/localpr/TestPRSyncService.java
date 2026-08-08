@@ -31,7 +31,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -66,7 +66,7 @@ class TestPRSyncService
     private final PRService prService = mock(PRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final GitRunner git = mock(GitRunner.class);
-    private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PRPublishService prPublish = mock(PRPublishService.class);
     /** Direct executor, so background syncs run inline and assertions stay

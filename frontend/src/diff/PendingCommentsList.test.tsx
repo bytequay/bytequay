@@ -11,13 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PendingCommentsList, ReviewTabPendingList } from './PendingCommentsList';
+import { PendingCommentsList } from './PendingCommentsList';
 import {
-  diffInlineCommentFromLocalPr, diffInlineCommentFromReviewDto, isPublishableReviewDraft, type DiffInlineComment,
+  diffInlineCommentFromLocalPr, isPublishableReviewDraft, type DiffInlineComment,
 } from './DiffInlineComments';
-import type { ReviewCommentDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 
 afterEach(cleanup);
@@ -42,7 +41,7 @@ function pending(over: Partial<DiffInlineComment> = {}): DiffInlineComment {
   };
 }
 
-describe('ReviewTabPendingList', () => {
+describe('PendingCommentsList', () => {
   it('counts user and quick-review local roots as publishable review drafts', () => {
     const comment = (author: string, over: Partial<LocalPRComment> = {}): LocalPRComment => ({
       id: author, localPrId: 'pr-1', origin: 'local', scope: 'pr', filePath: null,
@@ -59,39 +58,6 @@ describe('ReviewTabPendingList', () => {
     expect(isPublishableReviewDraft(comment('you', { strippedOnPushAt: 123 }))).toBe(false);
   });
 
-  it('renders human and agent pending comments with location labels', () => {
-    const { container } = render(
-      <ReviewTabPendingList
-        comments={[
-          pending({ body: '**Critical:** guard `close()`.' }),
-          pending({
-            id: 'c0',
-            author: 'chenjian2664',
-            lineNumber: 56,
-          }),
-          pending({
-            id: 'c2',
-            author: 'brain',
-            body: 'This can silently swallow an error.',
-            sourceLabel: 'BRAIN',
-            lineNumber: 89,
-          }),
-        ]}
-      />,
-    );
-
-    expect(screen.getByText('Pending review')).toBeTruthy();
-    expect(screen.getByText('3')).toBeTruthy();
-    expect(screen.getByText('IcebergMetadata.java · R55')).toBeTruthy();
-    expect(screen.getByText('IcebergMetadata.java · R89')).toBeTruthy();
-    expect(screen.getByAltText('chenjian2664')).toBeTruthy();
-    expect(screen.getByText('BRAIN')).toBeTruthy();
-    expect(container.querySelector('.review-pending__card--bot')).not.toBeNull();
-    expect(container.querySelector('.review-pending__card--you')).not.toBeNull();
-    expect(container.querySelector('.review-pending__text strong')?.textContent).toBe('Critical:');
-    expect(container.querySelector('.review-pending__text code')?.textContent).toBe('close()');
-  });
-
   it('renders Markdown in the submit-review pending cards', () => {
     const { container } = render(
       <PendingCommentsList comments={[pending({ body: '**Critical:** guard `close()`.' })]} />,
@@ -99,36 +65,6 @@ describe('ReviewTabPendingList', () => {
 
     expect(container.querySelector('.pending-comments__text strong')?.textContent).toBe('Critical:');
     expect(container.querySelector('.pending-comments__text code')?.textContent).toBe('close()');
-  });
-
-  it('maps review DTO authors into GitHub-avatar-ready logins', () => {
-    const mapped = diffInlineCommentFromReviewDto({
-      id: 'r1',
-      taskId: 'task-1',
-      file: 'src/Foo.ts',
-      line: 12,
-      side: 'RIGHT',
-      startLine: null,
-      startSide: null,
-      body: 'remote comment',
-      createdAt: Date.now(),
-      source: 'REMOTE_REVIEWER',
-      author: '@chenjian2664',
-      resolved: false,
-    } satisfies ReviewCommentDto);
-
-    expect(mapped.author).toBe('chenjian2664');
-  });
-
-  it('maps local review findings to the Brain role without leaking their persisted author id', () => {
-    const mapped = diffInlineCommentFromReviewDto({
-      id: 'b1', taskId: 'task-1', file: 'src/Foo.ts', line: 12, side: 'RIGHT',
-      startLine: null, startSide: null, body: 'review finding', createdAt: Date.now(),
-      source: 'LOCAL_AGENT', author: 'openai', resolved: false,
-    } satisfies ReviewCommentDto);
-
-    expect(mapped.author).toBe('brain');
-    expect(mapped.sourceLabel).toBe('BRAIN');
   });
 
   it('presents finding authors as Brain and implementation replies as Dev', () => {

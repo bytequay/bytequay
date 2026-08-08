@@ -16,7 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.beans.question.AgentQuestionDto;
 import com.bytequay.app.beans.question.AnswerQuestionRequest;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
-import com.bytequay.app.service.question.AgentQuestionService;
+import com.bytequay.app.service.question.AgentQuestionServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,19 +40,19 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class AgentQuestionController
 {
-    private final AgentQuestionService questions;
+    private final AgentQuestionServiceImpl questions;
     private final V2UserWaitService v2Waits;
 
     @Autowired
     public AgentQuestionController(
-            AgentQuestionService questions, V2UserWaitService v2Waits)
+            AgentQuestionServiceImpl questions, V2UserWaitService v2Waits)
     {
         this.questions = requireNonNull(questions, "questions is null");
         this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
     }
 
     /** Compatibility constructor for focused legacy controller tests. */
-    public AgentQuestionController(AgentQuestionService questions)
+    public AgentQuestionController(AgentQuestionServiceImpl questions)
     {
         this.questions = requireNonNull(questions, "questions is null");
         this.v2Waits = null;

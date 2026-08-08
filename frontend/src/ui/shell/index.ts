@@ -19,14 +19,8 @@ export { Main } from './Main';
 export { Composer } from './Composer';
 export { RunMenu } from './RunMenu';
 export {
-  Sidebar, TrafficLights, SidebarNav, ThreadsSection, ClosedFolder, SidebarFooter, SidebarToggleBar,
+  TrafficLights,
 } from './Sidebar';
 export type { SidebarNavKey } from './Sidebar';
-export { ThreadItem, TaskItem, StageItem } from './SidebarTree';
-export {
-  TopBar, NavArrows, TopBarTitle, CrumbSep, CtxChip, CreatedChip, Grow, StageChips, TopBarButton, BackBtn,
-} from './TopBar';
-export type { StageChip } from './TopBar';
-export { useSidebarCollapsed } from './useSidebarCollapsed';
 export { usePersistentToggle } from './usePersistentToggle';
 export { usePaneWidth } from './usePaneWidth';

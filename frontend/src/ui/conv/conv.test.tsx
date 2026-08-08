@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  Callout, Card, Conv, EventRow, InlineAction, StageFold, Thought, ToolBlock, UserMsg, Working,
+  Callout, Card, Conv, EventRow, Thought, ToolBlock, UserMsg, Working,
 } from './index';
 
 afterEach(cleanup);
@@ -98,7 +98,7 @@ describe('Working', () => {
   });
 });
 
-describe('Thought / Callout / InlineAction', () => {
+describe('Thought / Callout', () => {
   it('Thought shows the elapsed label', () => {
     render(<Thought seconds={7} />);
     expect(screen.getByText('Thought for 7s')).toBeTruthy();
@@ -115,25 +115,6 @@ describe('Thought / Callout / InlineAction', () => {
   it('Callout renders an italic passage', () => {
     const { container } = render(<Callout>verbatim note</Callout>);
     expect(container.querySelector('.callout')?.textContent).toBe('verbatim note');
-  });
-
-  it('InlineAction fires onClick', () => {
-    const onClick = vi.fn();
-    render(<InlineAction icon="⚖" onClick={onClick}>Get a panel review</InlineAction>);
-    fireEvent.click(screen.getByRole('button', { name: /Get a panel review/ }));
-    expect(onClick).toHaveBeenCalledOnce();
-  });
-});
-
-describe('StageFold', () => {
-  it('hides children until expanded and shows the count', () => {
-    const { container } = render(
-      <StageFold label="DevelopmentStage" count={7}><div>chatter</div></StageFold>,
-    );
-    expect(screen.getByText('7 steps')).toBeTruthy();
-    expect(screen.queryByText('chatter')).toBeNull();
-    fireEvent.click(container.querySelector('.stage-fold__bar') as HTMLElement);
-    expect(screen.getByText('chatter')).toBeTruthy();
   });
 });
 

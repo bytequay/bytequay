@@ -31,6 +31,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -45,7 +46,7 @@ public final class TaskControlMaintainer
     private final TaskControlHandoff controls;
     private final Map<StageKind, TaskResumeOwner> resumeOwners;
     private final Map<StageKind, CancellationToCleanupHandoff> cancellations;
-    private final CancellationPort cancellationPort;
+    private final Consumer<String> cancellationPort;
 
     @Autowired
     public TaskControlMaintainer(
@@ -63,7 +64,7 @@ public final class TaskControlMaintainer
             SqliteTaskControlRuntimeStore store,
             TaskControlHandoff controls,
             List<CancellationToCleanupHandoff> cancellations,
-            CancellationPort cancellationPort)
+            Consumer<String> cancellationPort)
     {
         this(store, controls, List.of(), cancellations, cancellationPort);
     }
@@ -73,7 +74,7 @@ public final class TaskControlMaintainer
             TaskControlHandoff controls,
             List<TaskResumeOwner> resumeOwners,
             List<CancellationToCleanupHandoff> cancellations,
-            CancellationPort cancellationPort)
+            Consumer<String> cancellationPort)
     {
         this.store = requireNonNull(store, "store is null");
         this.controls = requireNonNull(controls, "controls is null");
@@ -228,7 +229,7 @@ public final class TaskControlMaintainer
     private void cancelTickets(ControlContext context, boolean includeCleanup)
     {
         store.liveTicketIds(context.taskId(), includeCleanup)
-                .forEach(cancellationPort::requestCancel);
+                .forEach(cancellationPort);
     }
 
     private static TaskManager.Command command(
@@ -247,11 +248,5 @@ public final class TaskControlMaintainer
         }
         return UUID.nameUUIDFromBytes(
                 value.toString().getBytes(StandardCharsets.UTF_8)).toString();
-    }
-
-    @FunctionalInterface
-    public interface CancellationPort
-    {
-        void requestCancel(String ticketId);
     }
 }

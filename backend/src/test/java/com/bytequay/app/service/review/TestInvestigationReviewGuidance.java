@@ -44,7 +44,7 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RoundFlow;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Seat;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.TurnState;
 import com.bytequay.app.service.review.ReviewProviderEndpoints.AgentLaunch;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -103,7 +103,7 @@ class TestInvestigationReviewGuidance
     @Autowired
     private GitRunner git;
     @Autowired
-    private AgentRunService runs;
+    private AgentRunServiceImpl runs;
     @Autowired
     private ObjectMapper mapper;
 

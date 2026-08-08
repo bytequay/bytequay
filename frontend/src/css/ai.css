@@ -35,19 +35,6 @@
 .severity--warning .ai-comment__severity { background: rgba(199, 134, 40, 0.18); color: #8f5f10; }
 .severity--suggestion .ai-comment__severity { background: var(--accent-a10); color: var(--accent); }
 
-.settings-field {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: 12px;
-}
-
-.settings-label {
-  font-size: 0.9rem;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
 .settings-input-number {
   width: 80px;
   padding: var(--space-1) var(--space-2);
@@ -68,8 +55,7 @@
 /* Free-form text input + textarea for the Settings panel (used by the
    Review skills editor). Mirrors .settings-input-number's chrome but
    stretches to the column width and stays left-aligned. */
-.settings-input,
-.settings-textarea {
+.settings-input {
   width: 100%;
   max-width: 560px;
   padding: 7px 10px;
@@ -81,14 +67,7 @@
   font-size: var(--font-size-md);
   box-sizing: border-box;
 }
-.settings-textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
-  resize: vertical;
-}
-.settings-input:focus,
-.settings-textarea:focus {
+.settings-input:focus {
   outline: 2px solid var(--accent-a40);
   outline-offset: 1px;
 }
@@ -96,262 +75,34 @@
 /* Header row pinned to the top of the Review skills tab so the primary
    "+ New skill" action is always above the fold, regardless of how many
    rows the table has. */
-.skills-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  max-width: 720px;
-  margin-bottom: 8px;
-}
-.skills-header h3 { margin-top: 0; }
-.skills-header > div { flex: 1; min-width: 0; }
 
 /* ── Review skills table ───────────────────────────────────────────────
    Borderless rows with a thin divider between them. Action column right-
    aligned. Description column truncates so long blurbs don't push the
    actions off-screen. */
-.skills-table {
-  width: 100%;
-  max-width: 720px;
-  border-collapse: collapse;
-  margin-top: 12px;
-}
-.skills-table th,
-.skills-table td {
-  padding: var(--space-2);
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: top;
-  font-size: var(--font-size-md);
-}
-.skills-table th {
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-3);
-  font-weight: 600;
-}
-.skills-table__empty {
-  text-align: center;
-  color: var(--text-3);
-  font-style: italic;
-  padding: 16px !important;
-}
-.skills-table__desc {
-  color: var(--text-2);
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.skills-table__actions {
-  text-align: right;
-  white-space: nowrap;
-}
 .skills-table__actions .button {
   margin-left: 6px;
 }
 
 /* Skill editor card — sits below the table when adding or editing. */
-.skill-editor {
-  margin-top: 16px;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  max-width: 720px;
-}
-.skill-editor h4 {
-  margin: 0 0 10px;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-}
 
 /* Left-aligned text input + textarea for modal forms (team editor, etc.).
    The .settings-input-number rule above right-aligns text because it was
    designed for numeric fields — using it for free-form text causes the
    cursor and content to look anchored to the right edge. */
-.modal-text-input,
-.modal-textarea {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--border-input);
-  border-radius: var(--radius-md);
-  background: var(--bg-input);
-  color: var(--text-1);
-  font: inherit;
-  font-size: var(--font-size-md);
-  text-align: left;
-}
-
-.modal-textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  resize: vertical;
-}
-
-.modal-text-input:focus,
-.modal-textarea:focus {
-  outline: 2px solid var(--accent-a40);
-  outline-offset: 1px;
-}
 
 /* Tag-style input — used by the team editor for member rosters. The whole
    container looks like one input field but contains multiple chips plus a
    trailing inline text field. Clicking anywhere focuses the inline field. */
-.tag-input {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  align-items: center;
-  width: 100%;
-  min-height: 38px;
-  padding: 5px 6px;
-  border: 1px solid var(--border-input);
-  border-radius: var(--radius-md);
-  background: var(--bg-input);
-  cursor: text;
-}
-
-.tag-input:focus-within {
-  outline: 2px solid var(--accent-a40);
-  outline-offset: 1px;
-}
-
-.tag-input__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 2px 4px 2px 8px;
-  background: var(--accent-a10);
-  color: var(--accent);
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-}
-
-.tag-input__chip-text {
-  white-space: nowrap;
-}
-
-.tag-input__chip-remove {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--accent);
-  font-size: var(--font-size-lg);
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 4px;
-  border-radius: 50%;
-  opacity: 0.7;
-  transition: background 100ms ease, opacity 100ms ease;
-}
-
-.tag-input__chip-remove:hover {
-  background: var(--accent-a40);
-  opacity: 1;
-  color: #fff;
-}
-
-.tag-input__field {
-  appearance: none;
-  border: none;
-  background: transparent;
-  outline: none;
-  flex: 1;
-  min-width: 80px;
-  padding: 4px 4px;
-  font: inherit;
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-}
 
 /* Autocomplete dropdown attached under the chip-input. The wrap is the
    positioned ancestor so the absolute list anchors against the input
    regardless of where TagInput is mounted. */
-.tag-input-wrap {
-  position: relative;
-}
-.tag-input__suggestions {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 50;
-  margin: 0;
-  padding: var(--space-1);
-  list-style: none;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
-  max-height: 280px;
-  overflow-y: auto;
-}
-.tag-input__suggestion {
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-}
-.tag-input__suggestion--active,
-.tag-input__suggestion:hover {
-  background: var(--accent-a7);
-}
 
 /* Per-suggestion content for user matches — avatar + login + optional
    name. Used by TeamEditorModal's searchGitHubUsers renderer. */
 
 /* Theme picker */
-
-.theme-picker {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-
-.theme-swatch {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-input);
-  background: var(--bg-input);
-  color: var(--text-2);
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: border-color 0.12s;
-}
-
-.theme-swatch:hover {
-  border-color: var(--accent);
-}
-
-.theme-swatch--active {
-  border-color: var(--accent);
-  background: var(--accent-a7);
-  color: var(--text-1);
-  font-weight: 600;
-}
-
-.theme-swatch__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-@media (max-width: 780px) {
-  .stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 
 /* ── AI review sidebar (right column of the diff viewer) ─────────────────
    Matches docs/mockups/v2/codereview/bytequay-pr-diff-final.html — purple
@@ -396,60 +147,6 @@
    rendered diff row. Sits above the hunks, accent-tinted so it reads
    as "out-of-band feedback you should still see". Each child card
    uses the regular .inline-finding chrome inherited from the diff. */
-.diff-orphan-findings {
-  border-bottom: 1px solid var(--border);
-  background: var(--accent-a7);
-  padding: 6px 12px 10px;
-}
-.diff-orphan-findings__label {
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.diff-outdated {
-  border-bottom: 1px solid var(--border);
-  background: rgba(217, 119, 6, 0.05);
-}
-.diff-outdated__toggle {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  width: 100%;
-  text-align: left;
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-4);
-  cursor: pointer;
-  font: inherit;
-  color: var(--text-2);
-}
-.diff-outdated__toggle:hover { background: rgba(217, 119, 6, 0.10); }
-.diff-outdated__chevron {
-  display: inline-block;
-  width: 12px;
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-}
-.diff-outdated__label {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: #b45309;
-}
-.diff-outdated__hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-}
-.diff-outdated__list {
-  padding: var(--space-1) var(--space-4) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
 
 .diff-hunk:last-child { border-bottom: none; }
 
@@ -659,15 +356,6 @@
   background: transparent;
 }
 
-.diff-expand-error {
-  margin: 6px 12px;
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
-  background: var(--danger-tint, #ffebe9);
-  color: var(--danger, #cf222e);
-  font-size: var(--font-size-sm);
-}
-
 /* ── Inline AI finding ─────────────────────────────────────────────────
    Renders a card directly below the diff line it anchors to, matching
    docs/mockups/v2/codereview/bytequay-pr-diff-final.html. The diff line
@@ -690,19 +378,6 @@
 
 /* Composer header — labels which line(s) the comment will attach to.
    The hint span tells the user about shift-click range extension. */
-.diff-inline-composer__header {
-  font-size: var(--font-size-xs);
-  color: var(--text-2);
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.diff-inline-composer__hint {
-  color: var(--text-3);
-  font-weight: 400;
-  font-size: var(--font-size-xs);
-}
 
 /* "Jump to line" target highlight — pulses for ~1.6s then fades.
    Triggered by the AI sidebar clicking a finding's location button. */
@@ -746,33 +421,6 @@
 /* Inline review composer that pops below a clicked diff row. The
    left-indent matches the diff row's two-gutter total (36 + 36 = 72px)
    so the textarea aligns with the code column above it. */
-.diff-inline-composer {
-  padding: 10px 14px 12px 72px;
-  background: var(--bg-elevated);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.diff-inline-composer__input {
-  width: 100%;
-  resize: vertical;
-  min-height: 64px;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-  font-size: var(--font-size-md);
-  background: var(--bg-base);
-  color: var(--text-1);
-  box-sizing: border-box;
-}
-.diff-inline-composer__actions {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
 /* MarkdownComposer — Write/Preview tabs above any comment textarea.
    Used by the diff-inline composer, the inline-thread reply composer,
    and the review-thread reply composer in the timeline so the affordance
@@ -915,278 +563,26 @@
   color: #b91c1c;
   margin-left: 4px;
 }
-.diff-inline-composer__error {
-  font-size: var(--font-size-sm);
-  color: #b91c1c;
-}
-.diff-inline-composer__posted {
-  padding: 4px 14px 4px 72px;
-  font-size: var(--font-size-xs);
-  color: #1a7f37;
-  background: rgba(46, 160, 67, 0.06);
-}
 
 /* Per-line review thread, rendered under its anchor row in the diff
    viewer. Card-style container with a tinted header bar — matches
    docs/mockups/v2/codereview/comment-layout.png. */
-.diff-thread {
-  margin: 0 14px 8px 72px;          /* keep the indent below the gutters */
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-}
 /* Resolved threads tint subtly green-grey so they read as "settled"; the
    header pill carries the explicit label. */
-.diff-thread--resolved { opacity: 0.94; }
-.diff-thread--outdated { opacity: 0.92; }
-
-.diff-thread__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 6px 10px 6px 8px;
-  background: rgba(31, 111, 235, 0.06);
-  border-bottom: 1px solid var(--border);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-}
-.diff-thread--resolved .diff-thread__header {
-  background: rgba(46, 160, 67, 0.07);
-}
-.diff-thread__fold {
-  appearance: none;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  padding: 0 4px;
-  font: inherit;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-}
-.diff-thread__fold:hover { color: var(--text-1); }
-.diff-thread__loc {
-  font-weight: 500;
-  color: var(--text-1);
-}
-.diff-thread__head-summary {
-  color: var(--text-3);
-  font-size: var(--font-size-xs);
-}
-.diff-thread__head-pills {
-  margin-left: auto;
-  display: inline-flex;
-  gap: var(--space-1);
-}
-.diff-thread__pill {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 7px;
-  border-radius: var(--radius-pill);
-}
-.diff-thread__pill--resolved {
-  background: rgba(46, 160, 67, 0.14);
-  color: #1a7f37;
-}
-.diff-thread__pill--outdated {
-  background: rgba(212, 160, 23, 0.16);
-  color: #b45309;
-}
 
 /* Resolve / Unresolve toggle in the thread header. Looks like a pill
    so it lines up with the existing Resolved / Outdated pills, but
    with the standard accent borders + hover so it reads as actionable. */
-.diff-thread__resolve-btn {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 8px;
-  cursor: pointer;
-  color: var(--text-2);
-}
-.diff-thread__resolve-btn:hover:not(:disabled) {
-  color: var(--accent);
-  border-color: var(--accent-a40);
-  background: var(--accent-a7);
-}
-.diff-thread__resolve-btn:disabled { opacity: 0.6; cursor: progress; }
-.diff-thread__resolve-btn--unresolve {
-  /* When the thread is currently resolved, the button reads "Unresolve"
-     — give it a subtle warning tint so the user knows clicking will
-     re-open the conversation. */
-  color: #b45309;
-  border-color: rgba(212, 160, 23, 0.4);
-}
 
 /* Each message: avatar on the left, body to the right. The mockup uses
    a 28px avatar for visual weight comparable to the GitHub thread view. */
-.diff-thread__msg {
-  display: flex;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border-hairline, var(--border));
-}
-.diff-thread__msg:last-of-type {
-  border-bottom: 0;
-}
-.diff-thread__msg-avatar {
-  flex-shrink: 0;
-  margin-top: 2px;
-  border-radius: 50%;
-}
-.diff-thread__msg-body {
-  flex: 1;
-  min-width: 0;
-}
-.diff-thread__msg-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin-bottom: 4px;
-  font-size: var(--font-size-sm);
-}
-.diff-thread__msg-author {
-  font-weight: 600;
-  color: var(--text-1);
-}
-.diff-thread__msg-role {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-elevated);
-  color: var(--text-2);
-}
-.diff-thread__msg-time {
-  color: var(--text-3);
-  font-size: var(--font-size-xs);
-}
-.diff-thread__msg-text {
-  font-size: var(--font-size-md);
-  line-height: 1.55;
-  color: var(--text-1);
-  overflow-wrap: break-word;
-}
-.diff-thread__msg-text p { margin: 0 0 6px 0; }
-.diff-thread__msg-text p:last-child { margin-bottom: 0; }
-.diff-thread__msg-text code {
-  background: var(--bg-elevated);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: var(--pr-code-font-size, 13.5px);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.diff-thread__msg-text pre {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  overflow-x: auto;
-  font-size: var(--pr-code-font-size, 13.5px);
-}
-.diff-thread__msg-text pre code { background: transparent; padding: 0; }
-.diff-thread__msg-text a { color: var(--accent); }
-
-.diff-thread__reactions {
-  display: flex;
-  gap: var(--space-1);
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-.diff-thread__reaction {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 1px 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-elevated);
-  font-size: var(--font-size-xs);
-}
-.diff-thread__reaction-count {
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
-}
 
 /* Reply: collapsed stub looks like a pseudo-input until clicked, then
    expands into the full composer. */
-.diff-thread__reply-stub {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
-  border: 0;
-  border-top: 1px solid var(--border);
-  color: var(--text-3);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-.diff-thread__reply-stub:hover {
-  color: var(--text-1);
-  background: var(--bg-card);
-}
 /* "X marked this conversation as resolved" attribution, GitHub-style, shown
    below the messages of a resolved thread. */
-.diff-thread__resolved-note {
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--border);
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-}
-.diff-thread__resolved-note b { color: var(--text-2); font-weight: 600; }
 /* Outdated-thread section rendered inline above a file's diff on the unified
    PR / task pages (the standalone remote screen uses the collapsible toggle). */
-.diff-outdated--inline { padding: var(--space-2) var(--space-4); }
-.diff-outdated--inline .diff-outdated__hint { margin-bottom: var(--space-2); }
-
-.diff-thread__reply {
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--border);
-  background: var(--bg-elevated);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.diff-thread__reply-input {
-  width: 100%;
-  resize: vertical;
-  min-height: 64px;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-size: var(--font-size-md);
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-  background: var(--bg-card);
-  color: var(--text-1);
-}
-.diff-thread__reply-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.diff-thread__reply-actions {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  flex-wrap: wrap;
-}
-.diff-thread__reply-error {
-  font-size: var(--font-size-sm);
-  color: #b91c1c;
-}
 .diff-row--inline-finding {
   display: block;
   padding: 0;
@@ -1225,95 +621,11 @@
 .diff-row--inline-finding--dismissed { opacity: 0.45; }
 .diff-row--inline-finding--dismissed:hover { opacity: 0.7; }
 
-.v2-help {
-  max-width: 720px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.v2-help__title {
-  margin: 0;
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  color: var(--text-1);
-}
-
-.v2-help__subtitle {
-  margin: 0 0 8px;
-  font-size: var(--font-size-lg);
-  color: var(--text-2);
-  line-height: 1.5;
-}
-
 /* Deep-link loading variant: shown for the 1–2s while the single-PR
    fetch resolves so the user sees explicit "we're loading" feedback
    instead of the generic Inbox help copy. */
-.v2-help--loading {
-  align-items: flex-start;
-  padding-top: 32px;
-}
-.v2-help__pr-num {
-  color: var(--text-3);
-  font-weight: 500;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-}
-.v2-help__spinner {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  animation: v2-help-spin 0.7s linear infinite;
-}
 @keyframes v2-help-spin {
   to { transform: rotate(360deg); }
-}
-
-.v2-help__card {
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  border-radius: var(--radius-md);
-  padding: var(--space-4) var(--space-5);
-}
-
-.v2-help__card-title {
-  margin: 0 0 10px;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-.v2-help__card p {
-  margin: 0 0 8px;
-  font-size: var(--font-size-md);
-  line-height: 1.55;
-  color: var(--text-2);
-}
-
-.v2-help__card p:last-child { margin-bottom: 0; }
-
-.v2-help__note {
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  font-style: italic;
-}
-
-.v2-help__legend {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  font-size: var(--font-size-md);
-  color: var(--text-2);
-}
-
-.v2-help__legend li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
 }
 
 /* ===================================================================
@@ -1334,111 +646,6 @@
   height: 100%;
   min-height: 0;
   background: var(--bg-base);
-}
-
-.settings-shell__layout {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  flex: 1 1 0;
-  min-height: 0;
-  /* Without an explicit row track the grid would size to content; force the
-     single row to fill the flex parent so the inner panes can scroll
-     instead of stretching the page. */
-  grid-template-rows: 1fr;
-}
-
-.settings-shell-sidebar {
-  border-right: 1px solid var(--border);
-  padding: 18px 10px;
-  background: var(--bg-elevated);
-  overflow-y: auto;
-}
-
-.settings-shell-sidebar__group {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-4);
-  padding: var(--space-2) var(--space-3) var(--space-1);
-  font-weight: 700;
-  margin-top: 14px;
-}
-
-.settings-shell-sidebar__group:first-child {
-  margin-top: 0;
-}
-
-.settings-shell-sidebar__link {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 7px 12px;
-  border-radius: var(--radius-md);
-  color: var(--text-2);
-  background: none;
-  border: none;
-  font: inherit;
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-  margin-bottom: 1px;
-}
-
-.settings-shell-sidebar__link:hover {
-  background: var(--bg-card);
-  color: var(--text-1);
-}
-
-.settings-shell-sidebar__link--active {
-  background: var(--accent-a7);
-  color: var(--accent);
-}
-
-.settings-shell-sidebar__link:disabled,
-.settings-shell-sidebar__link:disabled:hover {
-  background: none;
-  color: var(--text-4);
-  cursor: default;
-  opacity: 0.55;
-}
-
-.settings-shell-sidebar__link:disabled .settings-shell-sidebar__badge {
-  background: var(--bg-card);
-  color: var(--text-4);
-}
-
-.settings-shell-sidebar__link:disabled .settings-shell-sidebar__icon {
-  filter: grayscale(1);
-}
-
-.settings-shell-sidebar__icon {
-  width: 16px;
-  display: inline-flex;
-  justify-content: center;
-  font-size: var(--font-size-md);
-  opacity: 0.85;
-  flex-shrink: 0;
-}
-
-.settings-shell-sidebar__badge {
-  margin-left: auto;
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--accent-a7);
-  color: var(--accent);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.settings-shell__content {
-  padding: 30px 32px;
-  overflow-y: auto;
-  min-width: 0;
 }
 
 .settings-shell-page__head {
@@ -1570,33 +777,6 @@
 
 /* Tabs *inside* a settings page (used by AI review for Credentials /
    Skills / Usage). Distinct from the legacy `.settings-tab*` block. */
-.settings-page-tabs {
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  gap: var(--space-6);
-  margin-bottom: 22px;
-}
-
-.settings-page-tab {
-  padding: 11px 0;
-  font-size: var(--font-size-md);
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  font: inherit;
-  color: var(--text-3);
-  font-weight: 500;
-}
-
-.settings-page-tab:hover {
-  color: var(--text-1);
-}
-
-.settings-page-tab--active {
-  color: var(--text-1);
-  border-bottom-color: var(--accent);
-}
 
 /* "Coming soon" stub used by Notifications / Teams (until Phase C) /
    Integrations / Help. */

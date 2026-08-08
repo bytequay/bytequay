@@ -20,7 +20,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.distillation.DistillationSignalService;
+import com.bytequay.app.service.distillation.DistillationSignalServiceImpl;
 import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +53,7 @@ class TestBacklogService
     private ThreadService threadService;
     private ThreadStore threadStore;
     private TaskStore taskStore;
-    private DistillationSignalService distillation;
+    private DistillationSignalServiceImpl distillation;
     private BacklogServiceImpl service;
 
     @BeforeEach
@@ -63,7 +63,7 @@ class TestBacklogService
         threadService = mock(ThreadService.class);
         threadStore = mock(ThreadStore.class);
         taskStore = mock(TaskStore.class);
-        distillation = mock(DistillationSignalService.class);
+        distillation = mock(DistillationSignalServiceImpl.class);
         service = new BacklogServiceImpl(store, threadService, threadStore, taskStore, distillation);
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -134,7 +134,7 @@ class TestBacklogService
         when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
         when(threadService.sendTrunk(eq("thread-1"), any())).thenReturn("turn-1");
 
-        BacklogService.StartResult result = service.startDevelopment("b1");
+        BacklogServiceImpl.StartResult result = service.startDevelopment("b1");
 
         // The item content is posted into the trunk as a planning prompt; no
         // task is cut here. The prompt carries the backlog id plus the
@@ -222,12 +222,12 @@ class TestBacklogService
     @Test
     void createBatchCreatesACrossLinkedAgentGroup()
     {
-        List<BacklogService.NewBacklogItem> inputs = List.of(
-                new BacklogService.NewBacklogItem(
+        List<BacklogServiceImpl.NewBacklogItem> inputs = List.of(
+                new BacklogServiceImpl.NewBacklogItem(
                         "Clean A", "Useful summary.\n\nImplementation detail.", List.of("ui"), "high"),
-                new BacklogService.NewBacklogItem("Clean B", "", null, null));
+                new BacklogServiceImpl.NewBacklogItem("Clean B", "", null, null));
 
-        BacklogService.BatchResult result = service.createBatch("thread-1", inputs);
+        BacklogServiceImpl.BatchResult result = service.createBatch("thread-1", inputs);
 
         assertThat(result.backlogItemIds()).hasSize(2);
         assertThat(result.relatedBacklogGroupId()).isNotBlank();
@@ -254,11 +254,11 @@ class TestBacklogService
     void createBatchStampsSpecialAgentOriginsOnce()
     {
         service.createBatch("thread-1", List.of(
-                new BacklogService.NewBacklogItem(
+                new BacklogServiceImpl.NewBacklogItem(
                         "Triage issue", "body", List.of("issue", "remote-intake"), null),
-                new BacklogService.NewBacklogItem(
+                new BacklogServiceImpl.NewBacklogItem(
                         "Legacy triage", "body", List.of("issue", "bytequay-intake"), null),
-                new BacklogService.NewBacklogItem(
+                new BacklogServiceImpl.NewBacklogItem(
                         "Review hotspot", "body", List.of("quality-scan"), null)));
 
         ArgumentCaptor<BacklogItem> captor = ArgumentCaptor.forClass(BacklogItem.class);

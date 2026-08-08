@@ -12,26 +12,6 @@ exports[`Avatar > matches snapshot 1`] = `
 </div>
 `;
 
-exports[`Pill > matches snapshot per kind 1`] = `
-<div>
-  <span
-    class="v3-pill v3-pill--thread"
-  >
-    THREAD
-  </span>
-  <span
-    class="v3-pill v3-pill--task"
-  >
-    TASK
-  </span>
-  <span
-    class="v3-pill v3-pill--stage"
-  >
-    STAGE
-  </span>
-</div>
-`;
-
 exports[`StatusDot > matches snapshot for every variant 1`] = `
 <div>
   <span

@@ -14,15 +14,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AiLedgerDto, Ds4StateDto, WorkModelOptionsDto } from '../../types';
 import {
-  type AgentChoice,
-  choiceClass,
-  choiceGlyph,
   choicesFrom,
-  choiceText,
-  selectableChoice,
 } from '../../workspace/agentChoices';
 import SettingsPage, { type SettingsTab } from '../shared/SettingsPage';
-import { ChevronDownIcon, InfoIcon } from '../shared/icons';
 import LocalAiPage from './LocalAiPage';
 
 export type AiTab = 'backends' | 'local' | 'usage';

@@ -25,7 +25,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.TaskPushSaga;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.bytequay.app.service.review.RoundGateSaga;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -73,7 +73,7 @@ class TestTaskService
                 new ObjectMapper(), mock(ApplicationEventPublisher.class),
                 mock(TaskCommandExecutor.class), mock(TaskPhaseMachine.class),
                 mock(TaskTerminalSealer.class), prs, mock(TaskPushSaga.class),
-                mock(RoundGateSaga.class), mock(BrainReviewService.class),
+                mock(RoundGateSaga.class), mock(BrainReviewServiceImpl.class),
                 mock(ThreadTurnScheduler.class),
                 mock(TaskRuntimeStopReconciler.class));
         service.setV2Controls(typed);

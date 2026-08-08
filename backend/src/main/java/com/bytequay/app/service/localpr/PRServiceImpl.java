@@ -37,7 +37,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
-import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.TaskExternalEffectGate;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
@@ -80,7 +80,7 @@ class PRServiceImpl
     private static final int TURN_SCAN_LIMIT = 100;
 
     private final PRStore store;
-    private final DevReportService devReports;
+    private final DevReportServiceImpl devReports;
     private final ObjectMapper mapper;
     private final StageStore stageStore;
     private final TaskStore taskStore;
@@ -94,7 +94,7 @@ class PRServiceImpl
 
     @Autowired
     PRServiceImpl(
-            PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
+            PRStore store, DevReportServiceImpl devReports, ObjectMapper mapper, StageStore stageStore,
             TaskStore taskStore, ThreadTurnStore turnStore,
             LocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
             TaskCommandExecutor commands, ApplicationEventPublisher events)
@@ -104,7 +104,7 @@ class PRServiceImpl
     }
 
     PRServiceImpl(
-            PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
+            PRStore store, DevReportServiceImpl devReports, ObjectMapper mapper, StageStore stageStore,
             TaskStore taskStore, ThreadTurnStore turnStore,
             LocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
             TaskCommandExecutor commands, ApplicationEventPublisher events, Clock clock)

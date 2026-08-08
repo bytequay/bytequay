@@ -24,8 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import static java.util.Objects.requireNonNull;
 
 @Service
-class BranchGuardServiceImpl
-        implements BranchGuardService
+public class BranchGuardServiceImpl
 {
     private final BranchGuardStore store;
 
@@ -33,8 +32,6 @@ class BranchGuardServiceImpl
     {
         this.store = requireNonNull(store, "store is null");
     }
-
-    @Override
     @Transactional
     public BranchGuard get(String taskId)
     {
@@ -45,8 +42,6 @@ class BranchGuardServiceImpl
         // guard, permanently stuck disabled despite having pushed.
         return store.findByTask(taskId).orElseGet(() -> BranchGuard.disabled(taskId));
     }
-
-    @Override
     @Transactional
     public BranchGuard update(String taskId, Boolean enabled, String schedule)
     {
@@ -61,8 +56,6 @@ class BranchGuardServiceImpl
             return store.save(guard);
         });
     }
-
-    @Override
     @Transactional
     public void enableOnFirstPush(String taskId)
     {

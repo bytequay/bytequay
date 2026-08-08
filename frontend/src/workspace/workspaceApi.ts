@@ -574,22 +574,6 @@ export type CiHarnessStatsDto = {
   watchCostMilliUsd: number;
 };
 
-export type CiHarnessWatchDto = {
-  id: string;
-  status: CiHarnessStatus;
-  owner: string;
-  repo: string;
-  prNumber: number;
-  localPrId: string | null;
-  branch: string | null;
-  title: string | null;
-  headSha: string | null;
-  bootstrapStatus: string;
-  budgetMilliUsd: number;
-  costMilliUsd: number;
-  updatedAtMs: number;
-};
-
 export type CiHarnessNetNeutralProofDto = {
   beforeHead: string;
   afterHead: string;
@@ -706,53 +690,12 @@ export type WorkspaceSessionDto = {
   changes?: WorkspaceSessionChangesDto;
 };
 
-export type PlanUsageDto = {
-  providers: ProviderPlanUsageDto[];
-};
-
-export type ProviderPlanUsageDto = {
-  provider: string;
-  label: string;
-  plan: string | null;
-  updatedAt: number;
-  source: string | null;
-  message: string | null;
-  limits: PlanLimitDto[];
-};
-
 export type PlanLimitDto = {
   id: string;
   label: string;
   usedPercent: number;
   resetsAt: number;
   model: string | null;
-};
-
-export type ApiUsageDto = {
-  month: string;
-  providers: ApiProviderUsageDto[];
-};
-
-export type ApiProviderUsageDto = {
-  provider: string;
-  label: string;
-  callsCount: number;
-  costUsdMilli: number;
-};
-
-export type DeepSeekBalanceDto = {
-  configured: boolean;
-  available: boolean | null;
-  updatedAt: number;
-  message: string | null;
-  balances: DeepSeekBalanceInfoDto[];
-};
-
-export type DeepSeekBalanceInfoDto = {
-  currency: string;
-  totalBalance: string;
-  grantedBalance: string | null;
-  toppedUpBalance: string | null;
 };
 
 export type WorkspaceSessionTimelineItemDto = {
@@ -1196,23 +1139,6 @@ export const workspaceApi = {
     window.bridge.workspaceApi<WorkspaceSessionDto[]>({
       path: `/api/workspaces/${enc(workspaceId)}/sessions`,
     }),
-  planUsage: () =>
-    window.bridge.workspaceApi<PlanUsageDto>({
-      path: '/api/ai/plan-usage',
-    }),
-  refreshClaudeUsage: () =>
-    window.bridge.workspaceApi<PlanUsageDto>({
-      path: '/api/ai/plan-usage/claude/refresh',
-      method: 'POST',
-    }),
-  apiUsage: () =>
-    window.bridge.workspaceApi<ApiUsageDto>({
-      path: '/api/ai/api-usage',
-    }),
-  deepSeekBalance: () =>
-    window.bridge.workspaceApi<DeepSeekBalanceDto>({
-      path: '/api/ai/deepseek/balance',
-    }),
   settings: (workspaceId: string) =>
     window.bridge.workspaceApi<WorkspaceSettingsDto>({
       path: `/api/workspaces/${enc(workspaceId)}/settings`,
@@ -1242,21 +1168,6 @@ export const workspaceApi = {
   learning: (workspaceId: string) =>
     window.bridge.workspaceApi<LearningRunDto>({
       path: `/api/workspaces/${enc(workspaceId)}/learning`,
-    }),
-  pauseLearning: (workspaceId: string) =>
-    window.bridge.workspaceApi<LearningRunDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/learning/pause`,
-      method: 'POST',
-    }),
-  resumeLearning: (workspaceId: string) =>
-    window.bridge.workspaceApi<LearningRunDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/learning/resume`,
-      method: 'POST',
-    }),
-  retryLearning: (workspaceId: string) =>
-    window.bridge.workspaceApi<LearningRunDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/learning/retry`,
-      method: 'POST',
     }),
   directoryScopeSuggestions: (workspaceId: string) =>
     window.bridge.workspaceApi<DirectoryScopeOverviewDto>({
@@ -1361,11 +1272,6 @@ export const workspaceApi = {
   applyDistill: (workspaceId: string, runId: string) =>
     window.bridge.workspaceApi<DistillRunDto>({
       path: `/api/workspaces/${enc(workspaceId)}/memory/distill-runs/${enc(runId)}/apply`,
-      method: 'POST',
-    }),
-  revertDistill: (workspaceId: string, runId: string) =>
-    window.bridge.workspaceApi<DistillRunDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/memory/distill-runs/${enc(runId)}/revert`,
       method: 'POST',
     }),
   creations: () =>

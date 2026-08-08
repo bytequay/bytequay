@@ -16,7 +16,6 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { applyTheme, loadTheme } from './themes';
-import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_WIDTH_KEY } from './ui/shell/useSidebarWidth';
 
 // Theme before React's first paint so startup never flashes the former
 // purple/warm palette while the app is mounting.

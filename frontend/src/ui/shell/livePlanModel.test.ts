@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { buildGuardChip, buildLivePlan } from './livePlanModel';
+import { buildLivePlan } from './livePlanModel';
 import type {
-  AgentRunDto, AgentRunKind, BranchGuardDto, DevPhaseDto, StageDto, StageState, StageType, TaskPhase,
+  AgentRunDto, AgentRunKind, DevPhaseDto, StageDto, StageState, StageType, TaskPhase,
 } from '../../types/brainView';
 
 function stage(type: StageType, state: StageState, over: Partial<StageDto> = {}): StageDto {
@@ -489,38 +489,5 @@ describe('buildLivePlan', () => {
     expect(node(onBrain, 'plan').nav).toEqual({ kind: 'brain' });
     expect(node(onBrain, 'plan').activeView).toBe(true);
     expect(node(onBrain, 'plan').status).toBe('planning');
-  });
-});
-
-describe('buildGuardChip', () => {
-  function guard(over: Partial<BranchGuardDto> = {}): BranchGuardDto {
-    return {
-      taskId: 't', enabled: true, schedule: 'nightly', state: 'healthy',
-      health: { behindBy: 0, mergeable: true, checksGreen: true },
-      lastRunId: null, lastCheckedAt: null, ...over,
-    };
-  }
-
-  it('returns null only when no guard row exists yet', () => {
-    expect(buildGuardChip(null)).toBeNull();
-    expect(buildGuardChip(undefined)).toBeNull();
-  });
-
-  it('hides guard rows for terminal tasks', () => {
-    expect(buildGuardChip(guard(), true)).toBeNull();
-  });
-
-  it('shows a disabled row as "off" so it can be armed', () => {
-    const chip = buildGuardChip(guard({ enabled: false, state: 'healthy' }));
-    expect(chip?.enabled).toBe(false);
-    expect(chip?.label).toBe('guard off');
-  });
-
-  it('labels each guard state while enabled', () => {
-    expect(buildGuardChip(guard({ state: 'healthy' }))?.label).toBe('in sync with main');
-    expect(buildGuardChip(guard({ state: 'drifting' }))?.label).toBe('drifting from main');
-    expect(buildGuardChip(guard({ state: 'conflicted' }))?.label).toBe('conflicts with main');
-    expect(buildGuardChip(guard({ state: 'fixing' }))?.label).toBe('fixing drift');
-    expect(buildGuardChip(guard({ state: 'needs_attention' }))?.label).toBe('needs attention');
   });
 });

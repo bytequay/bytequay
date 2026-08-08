@@ -28,7 +28,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.threads.TaskService;
 import org.junit.jupiter.api.Test;
@@ -62,7 +62,7 @@ class TestPRPublishService
     private final TaskStore taskStore = mock(TaskStore.class);
     private final PullRequestRepository pullRequests = mock(PullRequestRepository.class);
     private final PatResolver patResolver = mock(PatResolver.class);
-    private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
     private final PullRequestService pullRequestDetails = mock(PullRequestService.class);
     private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
     private final PullRequestDetail liveDetail = mock(PullRequestDetail.class);

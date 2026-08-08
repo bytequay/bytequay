@@ -23,7 +23,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.checks.ValidationClaimService;
 import com.bytequay.app.service.checks.ValidationPassService;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.StageStateMachine;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -53,7 +53,7 @@ class TestLegacyBrainReviewRetirement
     private final StageStore stages = mock(StageStore.class);
     private final StageStateMachine stageMachine = mock(StageStateMachine.class);
     private final ReviewRoundStore rounds = mock(ReviewRoundStore.class);
-    private final AgentRunService runs = mock(AgentRunService.class);
+    private final AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
     private final ThreadStore threads = mock(ThreadStore.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final ThreadTurnStore turns = mock(ThreadTurnStore.class);

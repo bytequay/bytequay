@@ -29,7 +29,6 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class AgentQuestionServiceImpl
-        implements AgentQuestionService
 {
     private final AgentQuestionStore store;
     private final ThreadService threadService;
@@ -39,8 +38,6 @@ public class AgentQuestionServiceImpl
         this.store = requireNonNull(store, "store is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
     }
-
-    @Override
     public AgentQuestion ask(
             String threadId,
             String taskId,
@@ -74,14 +71,10 @@ public class AgentQuestionServiceImpl
                 /* answeredAt */ null);
         return store.save(record);
     }
-
-    @Override
     public List<AgentQuestion> listOpen(String threadId)
     {
         return store.findOpenByThread(nullToEmpty(threadId).strip());
     }
-
-    @Override
     public AgentQuestion answer(String questionId, String answerOptionId, String answerFreeForm)
     {
         AgentQuestion question = store.findById(nullToEmpty(questionId).strip())

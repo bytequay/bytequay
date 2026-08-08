@@ -304,10 +304,6 @@ export function confidenceCeiling(
   return Math.max(0, Number((statusCap - kindPenalty).toFixed(2)));
 }
 
-export function findingComment(data: AgentReviewData, findingId: string): LocalPRComment | undefined {
-  return data.pr_comments.find(comment => comment.findingId === findingId);
-}
-
 /** Integer cents rendered consistently across the agent-review surfaces. */
 export function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;

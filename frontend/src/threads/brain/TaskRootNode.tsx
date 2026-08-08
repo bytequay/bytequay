@@ -20,52 +20,6 @@ import {
   PipelinePlanCard, type Plan, type PlanPolicy, type PlanStep as PipelineStep,
 } from '../../ui/PipelinePlanCard';
 
-/**
- * The task root node: the planning seed + the typed plan card. The seed
- * renders collapsed as scannable chips (raw markdown one click away); the plan
- * card is the ordered {@link PipelinePlanCard}, driven by the structured
- * {@link PlanCardDto}.
- */
-export function TaskRootNode({
-  plan, seed, autoApprove, autoMerge, autoConfidenceHigh, onApprove, onEdit, onRequestRevision, onCommentStep,
-  onHoldAuto, onToggleAutoApprove, onToggleAutoMerge, stepComments,
-}: {
-  plan: PlanCardDto;
-  /** The trunk-handoff prose, when available. Omit to hide the seed block. */
-  seed?: string;
-  autoApprove?: boolean;
-  autoMerge?: boolean;
-  autoConfidenceHigh?: boolean;
-  onApprove?: () => void;
-  onEdit?: () => void;
-  onRequestRevision?: (text: string) => void;
-  onCommentStep?: (ordinal: number) => void;
-  onHoldAuto?: () => void;
-  onToggleAutoApprove?: () => void;
-  onToggleAutoMerge?: () => void;
-  stepComments?: PlanStepComment[];
-}) {
-  return (
-    <div className="root-node">
-      {seed !== undefined && seed.trim().length > 0 && <PlanningSeed seed={seed} />}
-      <PlanCard
-        plan={plan}
-        autoApprove={autoApprove}
-        autoMerge={autoMerge}
-        autoConfidenceHigh={autoConfidenceHigh}
-        onApprove={onApprove}
-        onEdit={onEdit}
-        onRequestRevision={onRequestRevision}
-        onCommentStep={onCommentStep}
-        onHoldAuto={onHoldAuto}
-        onToggleAutoApprove={onToggleAutoApprove}
-        onToggleAutoMerge={onToggleAutoMerge}
-        stepComments={stepComments}
-      />
-    </div>
-  );
-}
-
 /** The collapsed planning seed: chips above the fold, full rendered markdown
  *  on expand. Exported so the brain view can anchor it at the top of the
  *  conversation while the plan card floats to the bottom. */

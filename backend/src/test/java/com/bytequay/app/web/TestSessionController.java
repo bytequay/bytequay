@@ -20,7 +20,7 @@ import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.runs.SessionControlService;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ class TestSessionController
     @Test
     void typedReviewSeatTurnsDoNotBecomeWorkspaceSessions()
     {
-        AgentRunService runs = mock(AgentRunService.class);
+        AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
         SessionControlService controls = mock(SessionControlService.class);
         V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
@@ -68,7 +68,7 @@ class TestSessionController
     @Test
     void v2SessionDetailNeverReadsOrMutatesLegacyAgentRuns()
     {
-        AgentRunService runs = mock(AgentRunService.class);
+        AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
         SessionControlService controls = mock(SessionControlService.class);
         V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
@@ -100,7 +100,7 @@ class TestSessionController
     @Test
     void oneStableReviewSessionRepresentsTheLatestRoundAndHidesVerifierRuns()
     {
-        AgentRunService runs = mock(AgentRunService.class);
+        AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
         AgentRun first = reviewRun("run-1", "round-1", 1);
         AgentRun latest = reviewRun("run-2", "round-2", 2);

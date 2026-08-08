@@ -95,16 +95,6 @@ export function findingMarkdown(text: string): string {
     .replace(/(^|\n\n)Could you clarify the intended behavior here\?\s*/gi, '$1**Question:** ');
 }
 
-/** Plain, single-line copy for a folded finding summary. */
-export function findingSummary(text: string): string {
-  return text
-    .replace(/`([^`\n]+)`/g, '$1')
-    .replace(/\*\*([^*\n]+)\*\*/g, '$1')
-    .replace(/\[([^\]]+)]\([^\s)]+\)/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 export function AgentFindingContent({ view, body, pending = false }: {
   view: AgentFindingPresentation;
   body: string;

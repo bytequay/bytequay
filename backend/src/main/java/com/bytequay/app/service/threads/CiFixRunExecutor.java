@@ -37,7 +37,7 @@ import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -100,7 +100,7 @@ public class CiFixRunExecutor
     private final GitRunner git;
     private final ObjectMapper mapper;
     private final ThreadTurnStore turnStore;
-    private final AgentRunService agentRuns;
+    private final AgentRunServiceImpl agentRuns;
     private final RemoteDevelopmentStageService remoteStages;
     private final TaskPhaseMachine phaseMachine;
 
@@ -125,7 +125,7 @@ public class CiFixRunExecutor
             GitRunner git,
             ObjectMapper mapper,
             ThreadTurnStore turnStore,
-            AgentRunService agentRuns,
+            AgentRunServiceImpl agentRuns,
             RemoteDevelopmentStageService remoteStages,
             TaskPhaseMachine phaseMachine)
     {

@@ -38,7 +38,7 @@ import com.bytequay.app.service.review.TaskReviewSnapshotOperationHandler;
 import com.bytequay.app.service.review.TaskReviewSnapshotOperationHandler.SnapshotResult;
 import com.bytequay.app.service.review.TaskReviewSnapshotResultDeliveryPort;
 import com.bytequay.app.service.review.TaskReviewSnapshotRuntime;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
@@ -130,7 +130,7 @@ class TestV2LocalReviewControl
                                 invocation.getMethod().getName())
                                 ? reviewTurnPrompt()
                                 : RETURNS_DEFAULTS.answer(invocation));
-        AgentRunService runs = mock(AgentRunService.class);
+        AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         PRService prs = mock(PRService.class);
         TaskStore tasks = mock(TaskStore.class);
         ThreadStore threads = mock(ThreadStore.class);

@@ -40,7 +40,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.checks.ValidationClaimService;
 import com.bytequay.app.service.checks.ValidationPassService;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.bytequay.app.service.stage.StageStateMachine;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -109,7 +109,6 @@ import static java.util.Objects.requireNonNull;
  */
 @Service
 public class BrainReviewServiceImpl
-        implements BrainReviewService
 {
     private static final Logger log = LoggerFactory.getLogger(BrainReviewServiceImpl.class);
 
@@ -120,6 +119,12 @@ public class BrainReviewServiceImpl
     private static final String REVIEW_BUDGET_PAUSED = "brain_review_budget_paused";
     private static final String FIX_BUDGET_PAUSED = "brain_fix_budget_paused";
     private static final int MAX_OPERATIONAL_TURN_FAILURES = 2;
+
+    public void recordVerdict(
+            String taskId, String stageId, String scope, String verdict)
+    {
+        recordVerdict(taskId, stageId, null, scope, verdict);
+    }
 
     record NeedsAttentionNotice(String threadId, String taskId, String payloadJson) {}
 
@@ -160,7 +165,7 @@ public class BrainReviewServiceImpl
     private final TaskStore taskStore;
     private final StageStore stageStore;
     private final ReviewRoundStore roundStore;
-    private final AgentRunService agentRuns;
+    private final AgentRunServiceImpl agentRuns;
     private final ThreadStore threadStore;
     private final ThreadTurnScheduler scheduler;
     private final ThreadTurnStore turnStore;
@@ -181,7 +186,7 @@ public class BrainReviewServiceImpl
             StageStore stageStore,
             StageStateMachine stages,
             ReviewRoundStore roundStore,
-            AgentRunService agentRuns,
+            AgentRunServiceImpl agentRuns,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             ThreadTurnStore turnStore,
@@ -205,7 +210,7 @@ public class BrainReviewServiceImpl
             StageStore stageStore,
             StageStateMachine stages,
             ReviewRoundStore roundStore,
-            AgentRunService agentRuns,
+            AgentRunServiceImpl agentRuns,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             ThreadTurnStore turnStore,
@@ -239,8 +244,6 @@ public class BrainReviewServiceImpl
         this.events = requireNonNull(events, "events is null");
         this.commands = requireNonNull(commands, "commands is null");
     }
-
-    @Override
     public PR reviewBeforeLocalOpen(String prId, String actor)
     {
         PR pr = prService.findById(prId)
@@ -264,8 +267,6 @@ public class BrainReviewServiceImpl
                 HttpStatus.CONFLICT,
                 "LEGACY Task review is read-only; use a typed V2 Task control");
     }
-
-    @Override
     public void reviewAfterLocalComments(String prId)
     {
         rejectLegacyMutation();
@@ -296,15 +297,11 @@ public class BrainReviewServiceImpl
         });
         runDeferred(work);
     }
-
-    @Override
     @Transactional
     public boolean ownsParkedResume(String taskId)
     {
         return false;
     }
-
-    @Override
     public boolean pauseActiveReview(String taskId, String reason)
     {
         rejectLegacyMutation();
@@ -322,8 +319,6 @@ public class BrainReviewServiceImpl
             return true;
         });
     }
-
-    @Override
     public boolean resumeParkedReview(String taskId)
     {
         rejectLegacyMutation();
@@ -561,8 +556,6 @@ public class BrainReviewServiceImpl
         log.info("brain-review: opened dev-end round {} for task {} (PR {})", round.id(), task.id(), prId);
         return DeferredWork.round(task, round, run);
     }
-
-    @Override
     public void reviewBeforeRoundGate(ReviewRound round, Task task)
     {
         rejectLegacyMutation();
@@ -581,8 +574,6 @@ public class BrainReviewServiceImpl
                                 task.id(), round.id(), turn.id()),
                         () -> driveRound(round.id()));
     }
-
-    @Override
     public void recordVerdict(String taskId, String stageId, String agentRunId, String scope, String verdict)
     {
         rejectLegacyMutation();
@@ -625,8 +616,6 @@ public class BrainReviewServiceImpl
         roundMachine.recordVerdict(
                 current.id(), currentRoundAttemptId(current, SOURCE_BRAIN_REVIEW), effectiveVerdict);
     }
-
-    @Override
     public boolean isBudgetExhaustedEscalation(String taskId)
     {
         return false;

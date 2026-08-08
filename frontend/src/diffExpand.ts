@@ -63,16 +63,6 @@ export function computeGap(hunks: DiffHunk[], gapIndex: number): Gap | null {
   };
 }
 
-/** All gaps with at least one hidden line, in order. */
-export function computeGaps(hunks: DiffHunk[]): Gap[] {
-  const out: Gap[] = [];
-  for (let g = 0; g <= hunks.length; g++) {
-    const gap = computeGap(hunks, g);
-    if (gap) out.push(gap);
-  }
-  return out;
-}
-
 /** State of one gap: which new-side lines we've already loaded. */
 export type LoadedGap = Map<number, string>;
 

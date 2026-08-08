@@ -40,28 +40,6 @@ export function PlanReminderTab({ state, onClick }: { state: 'awaiting' | 'locke
 }
 
 /**
- * Reminder pill above the composer for a pending "mark ready for review"
- * gate — a shipped draft's CI just went green. Glows green with the same
- * flowing-light treatment as the plan-awaiting pill; clicking jumps to the
- * PR pane where {@code MarkReadyPanel} hosts the actual gate. Shown
- * alongside the in-conversation {@link MarkReadyPrompt}, not instead of it —
- * same relationship as the plan pill to the inline plan card.
- */
-export function MarkReadyReminderTab({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      className="plan-reminder plan-reminder--ready"
-      onClick={onClick}
-      title="Draft is ready to mark for review — click to review"
-    >
-      <span className="plan-reminder__ic" aria-hidden><CheckIcon size={12} strokeWidth={2.8} /></span>
-      <span className="plan-reminder__t">Mark ready for review</span>
-    </button>
-  );
-}
-
-/**
  * Full-viewport backdrop centring the zoomed execution plan card. Esc or a
  * backdrop click closes it. Renders nothing when closed or when there's no
  * card to show.

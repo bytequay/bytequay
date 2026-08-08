@@ -13,8 +13,4 @@
  */
 
 /** V3 Layer 3b — right pane + tab contents. */
-export { RightPane } from './RightPane';
-export type { PaneTab } from './RightPane';
-export { InlineChips } from './InlineChips';
-export type { InlineChip } from './InlineChips';
 export * from './tabs';

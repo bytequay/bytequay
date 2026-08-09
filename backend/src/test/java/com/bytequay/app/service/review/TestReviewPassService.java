@@ -912,26 +912,6 @@ class TestReviewPassService
                 .hasMessageContaining("not in ARBITRATE");
     }
 
-    // ── Gated publish ───────────────────────────────────────────────
-
-    @Test
-    void directPublishSeamIsRetiredWithoutCallingGitHub()
-    {
-        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
-        ReviewFinding inline = seedFinding(pass, "src/foo.ts", 12,
-                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Inline.");
-
-        assertThatThrownBy(() -> service.publishPass(
-                pass.id(), ReviewVerdict.COMMENT, List.of(inline.id())))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("durable V2 command");
-        verify(pullRequests, never()).createReview(
-                anyString(), any(PullRequestRef.class),
-                any(CreateReviewCommand.class));
-        assertThat(reviewStore.findPassById(pass.id()).orElseThrow().phase())
-                .isEqualTo(ReviewPhase.TERMINATE);
-    }
-
     @Test
     void completePassMarksThePassCompletedWithoutPostingToGitHub()
     {

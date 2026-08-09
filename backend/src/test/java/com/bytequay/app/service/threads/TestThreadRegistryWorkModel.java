@@ -114,7 +114,7 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
         Task task = task(TASK_ID);
 
-        ThreadAgent first = registry.getOrCreate(logicLoopThread(), task, "stage-1");
+        Agent first = registry.getOrCreate(logicLoopThread(), task, "stage-1");
         // Simulate the picker being changed mid-stage: the resolver would
         // now return something different, but the already-built session
         // must not pick it up.
@@ -123,7 +123,7 @@ class TestThreadRegistryWorkModel
                 .thenReturn(new WorkModelResolver.Resolved(changedPick,
                         new WorkModelResolver.Provenance(WorkModelResolver.Source.STAGE, "stage-1", "stage-1")));
 
-        ThreadAgent second = registry.getOrCreate(logicLoopThread(), task, "stage-1");
+        Agent second = registry.getOrCreate(logicLoopThread(), task, "stage-1");
 
         assertThat(second).isSameAs(first);
         // Resolved exactly once — at the first build, not on the cache hit.
@@ -145,8 +145,8 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
         Task task = task(TASK_ID);
 
-        ThreadAgent first = registry.getOrCreate(logicLoopThread(), task, "stage-1");
-        ThreadAgent second = registry.getOrCreate(logicLoopThread(), task, "stage-2");
+        Agent first = registry.getOrCreate(logicLoopThread(), task, "stage-1");
+        Agent second = registry.getOrCreate(logicLoopThread(), task, "stage-2");
 
         assertThat(second).isSameAs(first);
         verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-1");
@@ -173,9 +173,9 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
         ThreadRegistry registry = newRegistry();
 
-        ThreadAgent development = registry.getOrCreate(
+        Agent development = registry.getOrCreate(
                 cliThread("claude-code", "claude-sonnet-4-6", null), task, "shared-stage");
-        ThreadAgent brain = registry.getOrCreateTaskBrain(brainThread());
+        Agent brain = registry.getOrCreateTaskBrain(brainThread());
         development.setActiveStage("shared-stage");
         brain.setActiveTask(TASK_ID);
         brain.setActiveStage("shared-stage");
@@ -284,7 +284,7 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
         ThreadRegistry registry = newRegistry();
         Thread trunk = cliThread("claude-code", "claude-opus-4-8", null);
-        ThreadAgent first = registry.getOrCreateTrunk(trunk);
+        Agent first = registry.getOrCreateTrunk(trunk);
 
         // The workspace picker moves to an API provider while the session
         // is cached — no thread-scope event fires, so the next attach has
@@ -295,7 +295,7 @@ class TestThreadRegistryWorkModel
                         new WorkModelResolver.Provenance(
                                 WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
 
-        ThreadAgent second = registry.getOrCreateTrunk(trunk);
+        Agent second = registry.getOrCreateTrunk(trunk);
 
         assertThat(first).isInstanceOf(ClaudeCodeCliThreadAgent.class);
         assertThat(second).isInstanceOf(LogicLoopThreadAgent.class);
@@ -304,21 +304,21 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void typedTrunkEntrypointReturnsATrunkAgent()
+    void trunkEntrypointKeepsTrunkOutOfTaskLookup()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         ThreadRegistry registry = newRegistry();
         Thread trunk = cliThread("codex", "gpt-5", /* sessionId */ null);
 
-        TrunkAgent agent = registry.getOrCreateTrunkAgent(trunk);
+        Agent agent = registry.getOrCreateTrunk(trunk);
 
-        assertThat(agent).isInstanceOf(TrunkAgent.class);
-        assertThat(registry.findTrunkAgent(THREAD_ID)).isPresent();
+        assertThat(agent).isInstanceOf(CodexCliThreadAgent.class);
+        assertThat(registry.findTrunk(THREAD_ID)).isPresent();
         assertThat(registry.find(THREAD_ID)).isEmpty();
     }
 
     @Test
-    void typedStageEntrypointReturnsATaskAgent()
+    void stageEntrypointUsesTheStageWorkModel()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         WorkModel stagePick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
@@ -328,9 +328,9 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.STAGE, "stage-typed", "stage-typed")));
         ThreadRegistry registry = newRegistry();
 
-        TaskAgent agent = registry.getOrCreateTaskAgent(logicLoopThread(), task(TASK_ID), "stage-typed");
+        Agent agent = registry.getOrCreate(logicLoopThread(), task(TASK_ID), "stage-typed");
 
-        assertThat(agent).isInstanceOf(TaskAgent.class);
+        assertThat(agent).isInstanceOf(LogicLoopThreadAgent.class);
         verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-typed");
     }
 
@@ -346,7 +346,7 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.STAGE, "stage-cli", "stage-cli")));
         ThreadRegistry registry = newRegistry();
 
-        ThreadAgent agent = registry.getOrCreate(
+        Agent agent = registry.getOrCreate(
                 withStatus(cliThread("codex", "gpt-5.6-sol", null), ThreadStatus.COMPLETED),
                 task(TASK_ID), "stage-cli");
 
@@ -366,7 +366,7 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.STAGE, "stage-api", "stage-api")));
         ThreadRegistry registry = newRegistry();
 
-        ThreadAgent agent = registry.getOrCreate(
+        Agent agent = registry.getOrCreate(
                 withStatus(logicLoopThread(), ThreadStatus.COMPLETED),
                 task(TASK_ID), "stage-api");
 
@@ -386,7 +386,7 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.STAGE, "stage-api", "stage-api")));
         ThreadRegistry registry = newRegistry();
 
-        ThreadAgent agent = registry.getOrCreate(
+        Agent agent = registry.getOrCreate(
                 withStatus(logicLoopThread(), ThreadStatus.RUNNING),
                 task(TASK_ID), "stage-api");
 
@@ -394,7 +394,7 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void typedTaskBrainEntrypointReturnsATaskBrainAgent()
+    void taskBrainEntrypointUsesTheThreadWorkModel()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
@@ -406,9 +406,9 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
         ThreadRegistry registry = newRegistry();
 
-        TaskBrainAgent agent = registry.getOrCreateTaskBrainAgent(brainThread());
+        Agent agent = registry.getOrCreateTaskBrain(brainThread());
 
-        assertThat(agent).isInstanceOf(TaskBrainAgent.class);
+        assertThat(agent).isInstanceOf(ClaudeCodeCliThreadAgent.class);
     }
 
     @Test
@@ -423,7 +423,7 @@ class TestThreadRegistryWorkModel
                         new WorkModelResolver.Provenance(
                                 WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
         ThreadRegistry registry = newRegistry();
-        TaskBrainAgent brain = registry.getOrCreateTaskBrainAgent(brainThread());
+        Agent brain = registry.getOrCreateTaskBrain(brainThread());
         brain.setActiveTask(TASK_ID);
         brain.setActiveStage("review-stage");
 
@@ -447,7 +447,7 @@ class TestThreadRegistryWorkModel
                         new WorkModelResolver.Provenance(
                                 WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
         ThreadRegistry registry = newRegistry();
-        TaskBrainAgent brain = registry.getOrCreateTaskBrainAgent(brainThread());
+        Agent brain = registry.getOrCreateTaskBrain(brainThread());
         brain.setActiveTask(TASK_ID);
 
         assertThat(registry.findTaskAgents(List.of(TASK_ID))).hasSize(1);
@@ -493,9 +493,9 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
 
         assertThatThrownBy(() ->
-                registry.getOrCreateTaskAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
+                registry.getOrCreate(logicLoopThread(), task(TASK_ID), stageId.toString()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("TaskBrainAgent");
+                .hasMessageContaining("task-brain agent");
         assertThat(registry.findTask(THREAD_ID, TASK_ID)).isEmpty();
     }
 
@@ -508,7 +508,7 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
 
         assertThatThrownBy(() ->
-                registry.getOrCreateTaskAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
+                registry.getOrCreate(logicLoopThread(), task(TASK_ID), stageId.toString()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("CleanupStage");
         assertThat(registry.findTask(THREAD_ID, TASK_ID)).isEmpty();
@@ -572,7 +572,6 @@ class TestThreadRegistryWorkModel
                 () -> "",
                 leaseService,
                 thread -> System.getProperty("java.io.tmpdir"),
-                null,
                 null,
                 null,
                 workModelResolver,

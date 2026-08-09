@@ -18,7 +18,7 @@ import java.util.List;
 
 /**
  * Single live event in an agent session — the unit the frontend
- * renders one row at a time. The {@link com.bytequay.app.service.threads.ThreadAgent}
+ * renders one row at a time. The {@link com.bytequay.app.service.threads.Agent}
  * implementation for each {@link ThreadKind} synthesizes the same shapes:
  *
  * <ul>
@@ -146,7 +146,7 @@ public sealed interface StreamEvent
 
     /** Loop is blocked waiting for the user to allow / deny a tool
      *  call. The frontend pops a banner and calls
-     *  {@code ThreadAgent.decide(callId, ...)}. */
+     *  {@code Agent.decide(callId, ...)}. */
     record PermissionRequested(
             Instant timestamp,
             String callId,

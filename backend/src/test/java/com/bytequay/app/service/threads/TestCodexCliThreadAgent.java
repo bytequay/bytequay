@@ -245,7 +245,8 @@ class TestCodexCliThreadAgent
         CodexCliThreadAgent agent = new CodexCliThreadAgent(
                 thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, "codex", active);
+                mock(CheckpointTrigger.class), () -> "", null, "codex", null,
+                active, null, null);
 
         AgentMetrics metrics = agent.metrics();
 
@@ -338,7 +339,8 @@ class TestCodexCliThreadAgent
         return new CodexCliThreadAgent(
                 thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> memory, roleSkillText, "codex", active);
+                mock(CheckpointTrigger.class), () -> memory, roleSkillText, "codex",
+                null, active, null, null);
     }
 
     private CodexCliThreadAgent trunkAgent(String sessionId, String reasoningEffort)
@@ -359,7 +361,7 @@ class TestCodexCliThreadAgent
         return new CodexCliThreadAgent(
                 thread, threadStore, taskStore, new CodexJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", roleSkillText, CWD,
-                CodexCliThreadAgent.TrunkMode.ENABLED, reasoningEffort);
+                mock(CheckpointTrigger.class), () -> "", roleSkillText,
+                CodexCliThreadAgent.DEFAULT_BINARY, CWD, null, null, reasoningEffort);
     }
 }

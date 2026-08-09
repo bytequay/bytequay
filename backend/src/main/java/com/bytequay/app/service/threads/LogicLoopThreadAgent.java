@@ -83,7 +83,7 @@ import java.util.function.Supplier;
 import static java.util.Objects.requireNonNull;
 
 /**
- * In-JVM API-lane {@link ThreadAgent}. Drives the loop by calling the
+ * In-JVM API-lane {@link Agent}. Drives the loop by calling the
  * resolved provider's HTTP API directly and translating streaming deltas
  * into the same {@link StreamEvent} shapes the CLI lane emits.
  *
@@ -106,7 +106,7 @@ import static java.util.Objects.requireNonNull;
  * panes identically across lanes.
  */
 public class LogicLoopThreadAgent
-        implements ThreadAgent
+        implements Agent
 {
     private static final Logger log = LoggerFactory.getLogger(LogicLoopThreadAgent.class);
 
@@ -193,7 +193,7 @@ public class LogicLoopThreadAgent
      *  the Metrics tab reflects thread turns alongside review calls.
      *  Null on the legacy paths. */
     private final Ds4Instrumentation ds4Instrumentation;
-    /** Coordinates Allow / Deny prompts with {@link ThreadAgent#decide}.
+    /** Coordinates Allow / Deny prompts with {@link Agent#decide}.
      *  Null when the agent is built outside the production wiring
      *  (legacy tests); the BridgedTool falls back to refusing gated
      *  calls when this is missing. */
@@ -423,7 +423,7 @@ public class LogicLoopThreadAgent
         store.maxMessageSeq(threadId).ifPresent(max -> nextSeq.set(max + 1));
     }
 
-    // ── ThreadAgent interface ─────────────────────────────────────────────
+    // ── Agent interface ─────────────────────────────────────────────
 
     @Override
     public String id()

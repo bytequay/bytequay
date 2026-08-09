@@ -39,7 +39,6 @@ import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
 import com.bytequay.app.service.skills.PonytailBundleService;
 import com.bytequay.app.service.skills.RoleRegistry;
-import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.stage.AgentContextDigest;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.bytequay.app.service.workmodel.SessionAudience;
@@ -114,8 +113,6 @@ public class ThreadRegistry
     /** Production-only audience-filtered brain + KB read path. Legacy tests
      *  keep using workspaceMemoryProvider directly. */
     private SessionKnowledgeProvider sessionKnowledge;
-    /** Supplies ByteQuay-managed skill bodies to every provider lane. */
-    private final SkillMaterializer skillMaterializer;
     /** Resolves ByteQuay role definitions and legacy task role values. */
     private final RoleRegistry roleRegistry;
     private final PonytailBundleService ponytailBundleService;
@@ -150,14 +147,14 @@ public class ThreadRegistry
     private final Function<Thread, String> trunkCwdResolver;
     /** Live dev/CLI sessions keyed by thread + Task. Stages are transcript
      *  scopes on a Task-owned session, never provider-session identities. */
-    private final ConcurrentHashMap<SessionKey, ThreadAgent> sessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<SessionKey, Agent> sessions = new ConcurrentHashMap<>();
     /** Secondary index: threadId → live Task ids. */
     private final ConcurrentHashMap<String, Set<String>> threadTaskIds = new ConcurrentHashMap<>();
     /** Per-thread trunk-mode agent — the planning-altitude runtime
      *  that runs without a focused Task. Lives alongside (not instead
      *  of) the task-scope {@link #sessions} so switching trunk ↔ task
      *  inside one Thread doesn't tear down either session. */
-    private final ConcurrentHashMap<String, ThreadAgent> trunkSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Agent> trunkSessions = new ConcurrentHashMap<>();
     /** Worktree path each live session holds the lease against, keyed by
      *  the same thread + Task id as {@link #sessions}, so {@link #evict} can
      *  release the exact path acquired in {@link #getOrCreate} even after
@@ -178,7 +175,6 @@ public class ThreadRegistry
             WorktreeLeaseService leaseService,
             WatchedRepoStore watchedRepos,
             WorktreeService worktreeService,
-            SkillMaterializer skillMaterializer,
             RoleRegistry roleRegistry,
             PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
@@ -199,7 +195,6 @@ public class ThreadRegistry
                 // fetches keep those refs current, so no turn touches the network.
                 thread -> resolveTrunkPlanningCwd(
                         store, worktreeService, workspaces, watchedRepos, thread),
-                skillMaterializer,
                 roleRegistry,
                 ponytailBundleService,
                 workModelResolver,
@@ -322,7 +317,6 @@ public class ThreadRegistry
                 null,
                 null,
                 null,
-                null,
                 CodeGraphUpdateCoordinator.disabled(),
                 null);
     }
@@ -339,7 +333,6 @@ public class ThreadRegistry
             Function<Thread, String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService,
             Function<Thread, String> trunkCwdResolver,
-            SkillMaterializer skillMaterializer,
             RoleRegistry roleRegistry,
             PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
@@ -363,7 +356,6 @@ public class ThreadRegistry
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
-        this.skillMaterializer = skillMaterializer;
         this.roleRegistry = roleRegistry;
         this.ponytailBundleService = ponytailBundleService;
         this.workModelResolver = workModelResolver;
@@ -388,7 +380,6 @@ public class ThreadRegistry
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService,
             Function<Thread, String> trunkCwdResolver,
-            SkillMaterializer skillMaterializer,
             RoleRegistry roleRegistry,
             PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
@@ -400,7 +391,7 @@ public class ThreadRegistry
     {
         this(store, taskStore, stageStore, parser, mapper, gate, executor,
                 checkpointTrigger, thread -> workspaceMemoryProvider.get(), leaseService,
-                trunkCwdResolver, skillMaterializer, roleRegistry,
+                trunkCwdResolver, roleRegistry,
                 ponytailBundleService, workModelResolver, credentialService,
                 toolRegistry, ds4, ds4Instrumentation, contextDigest,
                 CodeGraphUpdateCoordinator.disabled(), null);
@@ -412,9 +403,9 @@ public class ThreadRegistry
      * the thread has no live Task agent. Use {@link #findAll} when every
      * Task agent matters (evict / stop).
      */
-    public Optional<ThreadAgent> find(String threadId)
+    public Optional<Agent> find(String threadId)
     {
-        List<ThreadAgent> all = findAll(threadId);
+        List<Agent> all = findAll(threadId);
         return all.stream()
                 .filter(a -> a.status() == ThreadStatus.RUNNING)
                 .findFirst()
@@ -422,7 +413,7 @@ public class ThreadRegistry
     }
 
     /** Exact Task-owned development agent, with no stage inference. */
-    public Optional<ThreadAgent> findTask(String threadId, String taskId)
+    public Optional<Agent> findTask(String threadId, String taskId)
     {
         if (threadId == null || taskId == null) {
             return Optional.empty();
@@ -431,15 +422,15 @@ public class ThreadRegistry
     }
 
     /** Every live Task agent for this thread. */
-    public List<ThreadAgent> findAll(String threadId)
+    public List<Agent> findAll(String threadId)
     {
         Set<String> keys = threadTaskIds.get(threadId);
         if (keys == null || keys.isEmpty()) {
             return List.of();
         }
-        List<ThreadAgent> out = new ArrayList<>();
+        List<Agent> out = new ArrayList<>();
         for (String key : Set.copyOf(keys)) {
-            ThreadAgent agent = sessions.get(new SessionKey(threadId, key));
+            Agent agent = sessions.get(new SessionKey(threadId, key));
             if (agent != null) {
                 out.add(agent);
             }
@@ -450,12 +441,12 @@ public class ThreadRegistry
     /** The exact agent addressed by {@code agentKey}. Task agents are filed
      *  under the Task id; a shared task Brain is matched by its active task
      *  context in {@link #trunkSessions}. */
-    public Optional<ThreadAgent> findByAgentKey(String threadId, String agentKey)
+    public Optional<Agent> findByAgentKey(String threadId, String agentKey)
     {
         if (threadId == null || threadId.isBlank() || agentKey == null || agentKey.isBlank()) {
             return Optional.empty();
         }
-        ThreadAgent exact = sessions.get(new SessionKey(threadId, agentKey));
+        Agent exact = sessions.get(new SessionKey(threadId, agentKey));
         if (exact != null) {
             return Optional.of(exact);
         }
@@ -467,14 +458,9 @@ public class ThreadRegistry
     /** Trunk-scope counterpart of {@link #find(String)} — the
      *  planning-altitude runtime, present only when the user has
      *  driven at least one turn on the trunk in this JVM. */
-    public Optional<ThreadAgent> findTrunk(String threadId)
+    public Optional<Agent> findTrunk(String threadId)
     {
         return Optional.ofNullable(trunkSessions.get(threadId));
-    }
-
-    public Optional<TrunkAgent> findTrunkAgent(String threadId)
-    {
-        return findTrunk(threadId).map(AgentViews::trunk);
     }
 
     /**
@@ -483,7 +469,7 @@ public class ThreadRegistry
      * holds no branch and no worktree of its own. The cwd is the
      * first watched-repo clone path so the CLI can still read files.
      */
-    public ThreadAgent getOrCreateTrunk(Thread thread)
+    public Agent getOrCreateTrunk(Thread thread)
     {
         requireNonNull(thread, "thread is null");
         if (thread.kind() == ThreadKind.BRAIN_AGENT) {
@@ -492,30 +478,20 @@ public class ThreadRegistry
         return getOrCreateReadOnlyThreadAgent(thread);
     }
 
-    private ThreadAgent getOrCreateReadOnlyThreadAgent(Thread thread)
+    private Agent getOrCreateReadOnlyThreadAgent(Thread thread)
     {
         // A cached trunk outlives picker changes made anywhere in the
         // cascade — including the workspace default, which has no
         // per-thread notification. Re-check the resolved choice on every
         // attach so the next turn runs the agent the user actually picked.
-        ThreadAgent live = trunkSessions.get(thread.id());
+        Agent live = trunkSessions.get(thread.id());
         if (live != null && !runtimeMatches(live, resolveWorkModel(thread))) {
             trunkSessions.remove(thread.id(), live);
         }
         return trunkSessions.computeIfAbsent(thread.id(), id -> buildTrunk(thread));
     }
 
-    public TrunkAgent getOrCreateTrunkAgent(Thread thread)
-    {
-        return AgentViews.trunk(getOrCreateTrunk(thread));
-    }
-
-    public TaskBrainAgent getOrCreateTaskBrainAgent(Thread thread)
-    {
-        return AgentViews.taskBrain(getOrCreateTaskBrain(thread));
-    }
-
-    ThreadAgent getOrCreateTaskBrain(Thread thread)
+    Agent getOrCreateTaskBrain(Thread thread)
     {
         requireNonNull(thread, "thread is null");
         if (thread.kind() != ThreadKind.BRAIN_AGENT) {
@@ -534,7 +510,7 @@ public class ThreadRegistry
      *  wrapper so the next turn rebuilds it with the matching runtime. */
     public void updateTrunkWorkModel(String threadId, WorkModel workModel)
     {
-        ThreadAgent current = trunkSessions.get(threadId);
+        Agent current = trunkSessions.get(threadId);
         if (current == null || workModel == null) {
             return;
         }
@@ -548,7 +524,7 @@ public class ThreadRegistry
     /** Build or return the Task-owned agent. {@code stageId}, when present,
      *  is validated and used to resolve the initial work model only; it does
      *  not participate in provider-session identity. */
-    ThreadAgent getOrCreate(Thread thread, Task task, String stageId)
+    Agent getOrCreate(Thread thread, Task task, String stageId)
     {
         requireNonNull(thread, "thread is null");
         requireNonNull(task, "task is null");
@@ -564,7 +540,7 @@ public class ThreadRegistry
         requireStageBelongsToTask(stageId, task);
         String agentKey = task.id();
         SessionKey key = new SessionKey(thread.id(), agentKey);
-        ThreadAgent existing = sessions.get(key);
+        Agent existing = sessions.get(key);
         if (existing != null) {
             return existing;
         }
@@ -589,8 +565,8 @@ public class ThreadRegistry
             acquireLease(key, task, leasedPath);
         }
         try {
-            ThreadAgent agent = sessions.computeIfAbsent(key, k -> {
-                ThreadAgent built = buildTaskRuntime(thread, task, stageId);
+            Agent agent = sessions.computeIfAbsent(key, k -> {
+                Agent built = buildTaskRuntime(thread, task, stageId);
                 // Bind the agent to the Task key it's filed under so its CLI
                 // subprocess writes a per-agent MCP URL and tool calls resolve
                 // role / capability against its own running turn.
@@ -611,19 +587,13 @@ public class ThreadRegistry
         }
     }
 
-    public TaskAgent getOrCreateTaskAgent(Thread thread, Task task, String stageId)
+    Agent getOrCreate(Thread thread, Task task)
     {
-        requireNonNull(stageId, "stageId is null");
-        return AgentViews.task(getOrCreate(thread, task, stageId));
-    }
-
-    TaskAgent getOrCreateTaskAgent(Thread thread, Task task)
-    {
-        return AgentViews.task(getOrCreate(thread, task, null));
+        return getOrCreate(thread, task, null);
     }
 
     /** Evict and release every Task agent for the given thread. The
-     *  sessions are not stopped: call {@link ThreadAgent#stop} first if
+     *  sessions are not stopped: call {@link Agent#stop} first if
      *  that matters. Releases each worktree lease so the next attachment
      *  sees the worktree as free. */
     public void evict(String threadId)
@@ -644,7 +614,7 @@ public class ThreadRegistry
 
     /** Every cached runtime owned by one of the addressed Tasks. Includes a
      *  Task's development agent and its separate read-only Brain agent. */
-    public List<ThreadAgent> findTaskAgents(Collection<String> taskIds)
+    public List<Agent> findTaskAgents(Collection<String> taskIds)
     {
         if (taskIds == null || taskIds.isEmpty()) {
             return List.of();
@@ -757,7 +727,7 @@ public class ThreadRegistry
         }
     }
 
-    private ThreadAgent buildTaskRuntime(Thread thread, Task boundTask, String stageId)
+    private Agent buildTaskRuntime(Thread thread, Task boundTask, String stageId)
     {
         // The CLI agent binds to the explicit task the caller resolved for
         // this runtime, rather than re-deriving it inside the agent ctor.
@@ -771,7 +741,7 @@ public class ThreadRegistry
         // The Thread row is shared with the trunk runtime. Its status does
         // not describe this newly-created Task runtime, so normalize it below.
         Thread runtimeThread = runnableTaskThread(thread);
-        ThreadAgent agent;
+        Agent agent;
         if (runtimeThread.kind() == ThreadKind.BRAIN_AGENT) {
             agent = buildBrain(runtimeThread);
         }
@@ -795,12 +765,14 @@ public class ThreadRegistry
                                 runtimeThread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemorySupplier(runtimeThread, audience),
                                 resolveTaskRoleSkill(boundTask),
-                                boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved))
+                                CodexCliThreadAgent.DEFAULT_BINARY, null, boundTask,
+                                cliModelOverride(resolved), cliReasoningEffort(resolved))
                         : new ClaudeCodeCliThreadAgent(
                                 runtimeThread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemorySupplier(runtimeThread, audience), skillMaterializer,
+                                workspaceMemorySupplier(runtimeThread, audience),
                                 resolveTaskRoleSkill(boundTask),
-                                boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved));
+                                ClaudeCodeCliThreadAgent.DEFAULT_BINARY, null, boundTask,
+                                cliModelOverride(resolved), cliReasoningEffort(resolved));
             };
         }
         if (agent instanceof AbstractCliThreadAgent cli && boundTask != null) {
@@ -918,7 +890,7 @@ public class ThreadRegistry
         return workModelResolver.resolveForTask(thread.id(), boundTask.id()).choice();
     }
 
-    private ThreadAgent buildTrunk(Thread thread)
+    private Agent buildTrunk(Thread thread)
     {
         // Brain turns carry no task id in the turn row, but the thread
         // kind still builds the task-brain runtime, not a trunk planner.
@@ -931,7 +903,7 @@ public class ThreadRegistry
         // The resolver applies whatever base movement the background
         // fetcher brought down; an unmoved base reopens cheaply.
         String initialCwd = trunkCwdResolver.apply(thread);
-        ThreadAgent agent = switch (resolved.kind()) {
+        Agent agent = switch (resolved.kind()) {
             case API -> {
                 LogicLoopThreadAgent loop = new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
@@ -949,16 +921,14 @@ public class ThreadRegistry
                                 thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemorySupplier(thread, trunkAudience(thread)),
                                 roleRegistry == null ? null : roleRegistry.trunkTemplate(),
-                                initialCwd,
-                                CodexCliThreadAgent.TrunkMode.ENABLED,
+                                CodexCliThreadAgent.DEFAULT_BINARY, initialCwd, null,
                                 cliModelOverride(resolved),
                                 cliReasoningEffort(resolved))
                         : new ClaudeCodeCliThreadAgent(
                                 thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemorySupplier(thread, trunkAudience(thread)), skillMaterializer,
+                                workspaceMemorySupplier(thread, trunkAudience(thread)),
                                 roleRegistry == null ? null : roleRegistry.trunkTemplate(),
-                                initialCwd,
-                                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
+                                ClaudeCodeCliThreadAgent.DEFAULT_BINARY, initialCwd, null,
                                 cliModelOverride(resolved),
                                 cliReasoningEffort(resolved));
                 cli.setPreTurnHook(trunkPlanningPreTurnHook(thread));
@@ -1008,7 +978,7 @@ public class ThreadRegistry
      * and its working directory is the parent task's so file/git read tools
      * resolve against the right clone.
      */
-    private ThreadAgent buildBrain(Thread thread)
+    private Agent buildBrain(Thread thread)
     {
         WorkModel resolved = resolveWorkModel(thread);
         String workingDir = thread.parentTaskId() == null
@@ -1023,14 +993,14 @@ public class ThreadRegistry
             return switch (resolved.agentOrProvider()) {
                 case "codex" -> withManagedSkillBundle(new CodexCliThreadAgent(
                         thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                        workspaceMemorySupplier(thread, "plan"), brainSystemPrompt(thread), workingDir,
-                        CodexCliThreadAgent.TrunkMode.ENABLED,
+                        workspaceMemorySupplier(thread, "plan"), brainSystemPrompt(thread),
+                        CodexCliThreadAgent.DEFAULT_BINARY, workingDir, null,
                         cliModelOverride(resolved), cliReasoningEffort(resolved)));
                 case "claude-code" -> withManagedSkillBundle(new ClaudeCodeCliThreadAgent(
                         thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                        workspaceMemorySupplier(thread, "plan"), skillMaterializer,
-                        brainSystemPrompt(thread), workingDir,
-                        ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
+                        workspaceMemorySupplier(thread, "plan"),
+                        brainSystemPrompt(thread), ClaudeCodeCliThreadAgent.DEFAULT_BINARY,
+                        workingDir, null,
                         cliModelOverride(resolved), cliReasoningEffort(resolved)));
                 default -> throw new IllegalArgumentException(
                         "unsupported CLI brain agent: " + resolved.agentOrProvider());
@@ -1124,7 +1094,7 @@ public class ThreadRegistry
     /** Whether a live session is still the runtime the resolved choice
      *  asks for. A lane switch (CLI ↔ API) or a CLI family switch means
      *  the cached wrapper has to be rebuilt, not just re-modelled. */
-    private static boolean runtimeMatches(ThreadAgent agent, WorkModel resolved)
+    private static boolean runtimeMatches(Agent agent, WorkModel resolved)
     {
         if (resolved.kind() == WorkModelKind.API) {
             return agent instanceof LogicLoopThreadAgent;
@@ -1185,7 +1155,7 @@ public class ThreadRegistry
         return roleRegistry == null ? boundTask.roleSkill() : roleRegistry.resolveForTask(boundTask);
     }
 
-    private ThreadAgent withManagedSkillBundle(ThreadAgent agent)
+    private Agent withManagedSkillBundle(Agent agent)
     {
         ManagedSkillBundle bundle = ponytailBundleService == null
                 ? ManagedSkillBundle.empty()
@@ -1198,7 +1168,7 @@ public class ThreadRegistry
     {
         agentStageType(stageId).ifPresent(type -> {
             if (type == StageType.PLAN_STAGE) {
-                throw new IllegalArgumentException("PlanStage is backed by TaskBrainAgent");
+                throw new IllegalArgumentException("PlanStage is backed by a task-brain agent");
             }
             if (type == StageType.CLEANUP_STAGE) {
                 throw new IllegalArgumentException("CleanupStage does not have an agent runtime");

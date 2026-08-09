@@ -72,43 +72,32 @@ import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnSt
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteWorktreeQuarantineRepairStore;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
-import com.bytequay.app.developmentflow.stage.BranchSyncResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
-import com.bytequay.app.developmentflow.stage.LocalBrainResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
-import com.bytequay.app.developmentflow.stage.LocalPublishBaseSyncResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.LocalPublishBaseSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
-import com.bytequay.app.developmentflow.stage.LocalValidationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.ManualPrValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.ManualPrValidationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.MergeResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort;
-import com.bytequay.app.developmentflow.stage.RemoteCiEffectResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
-import com.bytequay.app.developmentflow.stage.RemoteCiRerunResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackBrainResultDeliveryPort;
-import com.bytequay.app.developmentflow.stage.RemoteFeedbackEffectResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
-import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationResultDeliveryPort;
-import com.bytequay.app.developmentflow.stage.RemoteMarkReadyResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
-import com.bytequay.app.developmentflow.stage.RemoteObservationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionOperationHandler;
-import com.bytequay.app.developmentflow.stage.RemoteRepairCommitAdoptionResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.V2ReadinessAssistanceRuntime;
@@ -241,10 +230,8 @@ public class DevelopmentFlowExecutionConfig
         AgentTurnOwnerResultCodec codec = new AgentTurnOwnerResultCodec(json);
         LocalDevelopmentResultDeliveryPort localDelivery =
                 new LocalDevelopmentResultDeliveryPort(codec, localRuntime);
-        LocalBrainResultDeliveryPort brain =
-                new LocalBrainResultDeliveryPort(localRuntime);
         ExecutionPorts.ResultDeliveryPort brainDelivery =
-                (owner, fence, result) -> brain.deliver(
+                (owner, fence, result) -> localRuntime.deliverBrainTurn(
                         codec.decode(owner, fence, result));
         ExecutionPorts.ResultDeliveryPort taskTurns =
                 new TaskTurnResultDeliveryRouter(jdbc, Map.of(
@@ -259,20 +246,20 @@ public class DevelopmentFlowExecutionConfig
                         new TaskOutcomeSummaryResultDeliveryPort(
                                 outcomeSummaries, outcomeSummaryRuntime,
                                 codec, json, Clock.systemUTC())));
-        LocalValidationResultDeliveryPort validation =
-                new LocalValidationResultDeliveryPort(localRuntime);
+        ExecutionPorts.ResultDeliveryPort validation =
+                localRuntime::deliverValidation;
         PublishResultDeliveryPort publish = new PublishResultDeliveryPort(
                 commands, localManager, localToRemote, remoteObservations,
                 prs, publishStore, localPublishBaseSync, json,
                 Clock.systemUTC());
-        LocalPublishBaseSyncResultDeliveryPort localBaseSync =
-                new LocalPublishBaseSyncResultDeliveryPort(localPublishBaseSync);
+        ExecutionPorts.ResultDeliveryPort localBaseSync =
+                localPublishBaseSync;
         CleanupOperationResultDelivery cleanup = new CleanupOperationResultDelivery(
                 cleanupStore, cleanupCompletion, Clock.systemUTC());
         RemoteFeedbackTurnResultDeliveryPort remoteTurn =
                 new RemoteFeedbackTurnResultDeliveryPort(codec, remoteFeedbackRuntime);
-        RemoteFeedbackValidationResultDeliveryPort remoteValidation =
-                new RemoteFeedbackValidationResultDeliveryPort(remoteFeedbackRuntime);
+        ExecutionPorts.ResultDeliveryPort remoteValidation =
+                remoteFeedbackRuntime::deliverValidation;
         RemoteFeedbackBrainResultDeliveryPort remoteBrain =
                 new RemoteFeedbackBrainResultDeliveryPort(remoteFeedbackRuntime);
         ExecutionPorts.ResultDeliveryPort remoteBrainDelivery =
@@ -281,19 +268,15 @@ public class DevelopmentFlowExecutionConfig
         ThreadTurnResultDeliveryPort threadTurns =
                 new ThreadTurnResultDeliveryPort(
                         trunks, codec, json, Clock.systemUTC());
-        RemoteObservationResultDeliveryPort observations =
-                new RemoteObservationResultDeliveryPort(remoteObservations);
-        RemoteCiRerunResultDeliveryPort ciRerun =
-                new RemoteCiRerunResultDeliveryPort(remoteCi);
-        RemoteCiEffectResultDeliveryPort ciEffects =
-                new RemoteCiEffectResultDeliveryPort(remoteCi);
-        BranchSyncResultDeliveryPort branches =
-                new BranchSyncResultDeliveryPort(branchSync);
+        ExecutionPorts.ResultDeliveryPort observations =
+                remoteObservations::deliver;
+        ExecutionPorts.ResultDeliveryPort ciRerun = remoteCi::deliverRerun;
+        ExecutionPorts.ResultDeliveryPort ciEffects = remoteCi::deliverEffect;
+        ExecutionPorts.ResultDeliveryPort branches = branchSync::deliver;
         RemoteRepairTurnResultDeliveryPort repairTurns =
                 new RemoteRepairTurnResultDeliveryPort(codec, remoteRepairTurns);
-        RemoteRepairCommitAdoptionResultDeliveryPort repairAdoption =
-                new RemoteRepairCommitAdoptionResultDeliveryPort(
-                        remoteRepairTurns);
+        ExecutionPorts.ResultDeliveryPort repairAdoption =
+                remoteRepairTurns::deliverAdoption;
         MergeResultDeliveryPort merge = new MergeResultDeliveryPort(
                 commands, remoteManager, mergeOperations, json);
         ReviewAssignmentTurnResultDeliveryPort reviews =
@@ -331,9 +314,9 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(RemoteFeedbackRuntimeCoordinator.BRAIN_CALLBACK,
                         remoteBrainDelivery),
                 Map.entry(RemoteDevelopmentRuntimeCoordinator.EFFECT_CALLBACK,
-                        new RemoteFeedbackEffectResultDeliveryPort(remoteRuntime)),
+                        remoteRuntime::deliverEffect),
                 Map.entry(RemoteDevelopmentRuntimeCoordinator.MARK_READY_CALLBACK,
-                        new RemoteMarkReadyResultDeliveryPort(remoteRuntime)),
+                        remoteRuntime::deliverMarkReady),
                 Map.entry(ThreadTurnOperationHandler.CALLBACK_ROUTE, threadTurns),
                 Map.entry(TaskOutcomeSummaryResultDeliveryPort.CALLBACK_ROUTE,
                         taskTurns),
@@ -517,13 +500,11 @@ public class DevelopmentFlowExecutionConfig
     public MergeOperationHandler v2MergeOperationHandler(
             SqliteMergeOperationStore operations,
             GitHubMergeEffects effects,
-            ObjectMapper json,
-            @Value("${bytequay.development-flow.merge.observation-poll-ms:20000}")
-            long observationPollMs)
+            ObjectMapper json)
     {
         return new MergeOperationHandler(
                 operations, effects, json, Clock.systemUTC(),
-                Duration.ofMillis(observationPollMs));
+                Duration.ofSeconds(20));
     }
 
     @Bean

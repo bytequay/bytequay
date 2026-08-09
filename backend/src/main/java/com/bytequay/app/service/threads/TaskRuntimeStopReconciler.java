@@ -127,7 +127,7 @@ public class TaskRuntimeStopReconciler
                         taskId, e.getMessage());
             }
             try {
-                registry.findTaskAgents(List.of(taskId)).forEach(ThreadAgent::interrupt);
+                registry.findTaskAgents(List.of(taskId)).forEach(Agent::interrupt);
             }
             finally {
                 registry.evictTaskAgent(task.threadId(), taskId);

@@ -55,7 +55,8 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
                 thread(), new EmptyThreadStore(), new EmptyTaskStore(),
                 new StreamJsonParser(mapper), mapper, new McpPermissionGate(),
                 sameThreadExecutor(), CheckpointTrigger.NOOP,
-                () -> "", null, "TASK ROLE", CWD, ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                () -> "", "TASK ROLE", ClaudeCodeCliThreadAgent.DEFAULT_BINARY,
+                CWD, null, null, null);
         agent.setManagedSkillBundle(new ManagedSkillBundle(
                 "test", "test", Map.of("ponytail",
                         new ManagedSkill("ponytail", "name: ponytail\n\nsmallest working change"))));
@@ -87,7 +88,8 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
                 thread(), new EmptyThreadStore(), new EmptyTaskStore(),
                 new StreamJsonParser(mapper), mapper, new McpPermissionGate(),
                 sameThreadExecutor(), CheckpointTrigger.NOOP,
-                () -> "", null, "TASK ROLE", CWD, ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                () -> "", "TASK ROLE", ClaudeCodeCliThreadAgent.DEFAULT_BINARY,
+                CWD, null, null, null);
         agent.setManagedSkillBundle(new ManagedSkillBundle(
                 "test", "test", Map.of(CavemanPrompt.NAME,
                         new ManagedSkill(CavemanPrompt.NAME, "CAVEMAN BODY"))));
@@ -113,7 +115,8 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
                 thread(), new EmptyThreadStore(), new EmptyTaskStore(),
                 new StreamJsonParser(mapper), mapper, new McpPermissionGate(),
                 sameThreadExecutor(), CheckpointTrigger.NOOP,
-                () -> "", null, "TASK ROLE", CWD, ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                () -> "", "TASK ROLE", ClaudeCodeCliThreadAgent.DEFAULT_BINARY,
+                CWD, null, null, null);
         agent.setActiveManagedSkills(List.of(new ManagedSkill("authored", "AUTHORED BODY")));
 
         try {

@@ -43,26 +43,21 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class ThreadSettingsService
 {
+    private static final int GLOBAL_SOFT_COST_USD_MILLI = 5_000;
+    private static final int GLOBAL_HARD_COST_USD_MILLI = 20_000;
+
     private final ThreadSettingsStore store;
     private final int defaultTrunkMaxRunningTasks;
-    private final int globalSoftCostUsdMilli;
-    private final int globalHardCostUsdMilli;
     private final CapacityManager capacity;
 
     public ThreadSettingsService(
             ThreadSettingsStore store,
             @Value("${bytequay.development-flow.capacity.default-trunk-running-tasks:4}")
             int defaultTrunkMaxRunningTasks,
-            @Value("${bytequay.threads.settings.global-soft-cost-usd-milli:5000}")
-            int globalSoftCostUsdMilli,
-            @Value("${bytequay.threads.settings.global-hard-cost-usd-milli:20000}")
-            int globalHardCostUsdMilli,
             CapacityManager capacity)
     {
         this.store = requireNonNull(store, "store is null");
         this.defaultTrunkMaxRunningTasks = defaultTrunkMaxRunningTasks;
-        this.globalSoftCostUsdMilli = globalSoftCostUsdMilli;
-        this.globalHardCostUsdMilli = globalHardCostUsdMilli;
         this.capacity = requireNonNull(capacity, "capacity is null");
     }
 
@@ -110,9 +105,9 @@ public class ThreadSettingsService
         int maxRunningTasks = overrides.flatMap(o -> Optional.ofNullable(o.maxRunningTasks()))
                 .orElse(defaultTrunkMaxRunningTasks);
         int softCost = overrides.flatMap(o -> Optional.ofNullable(o.softCostUsdMilli()))
-                .orElse(globalSoftCostUsdMilli);
+                .orElse(GLOBAL_SOFT_COST_USD_MILLI);
         int hardCost = overrides.flatMap(o -> Optional.ofNullable(o.hardCostUsdMilli()))
-                .orElse(globalHardCostUsdMilli);
+                .orElse(GLOBAL_HARD_COST_USD_MILLI);
         String promptAddendum = overrides.map(ThreadSettings::promptAddendum).orElse(null);
         return new EffectiveSettings(maxRunningTasks, softCost, hardCost, promptAddendum);
     }

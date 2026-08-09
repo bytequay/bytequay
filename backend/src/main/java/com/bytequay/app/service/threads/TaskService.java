@@ -864,7 +864,7 @@ public class TaskService
         // (SIGTERM); without the wait, `git worktree remove` can race a
         // still-live process that's mid-tool-call inside the worktree we're
         // deleting. Include the Task's development and Brain runtimes.
-        for (ThreadAgent agent : registry.findTaskAgents(List.of(taskId))) {
+        for (Agent agent : registry.findTaskAgents(List.of(taskId))) {
             agent.interrupt();
             awaitAgentStopped(agent);
         }
@@ -881,7 +881,7 @@ public class TaskService
 
     /** Block until the agent leaves RUNNING (its turn thread transitions to
      *  IDLE once the destroyed subprocess exits) or the timeout elapses. */
-    private void awaitAgentStopped(ThreadAgent agent)
+    private void awaitAgentStopped(Agent agent)
     {
         // Fully qualified: this file imports the domain Thread, which shadows
         // java.lang.Thread.
@@ -1732,10 +1732,10 @@ public class TaskService
     private void resumeRuntime(RuntimeResume runtime)
     {
         if (runtime.brain()) {
-            registry.getOrCreateTaskBrainAgent(runtime.thread()).resume();
+            registry.getOrCreateTaskBrain(runtime.thread()).resume();
             return;
         }
-        registry.getOrCreateTaskAgent(
+        registry.getOrCreate(
                 runtime.thread(), runtime.task(), runtime.stageId()).resume();
     }
 

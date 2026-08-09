@@ -251,20 +251,11 @@ public class DevelopmentFlowDomainConfig
             SqliteRemoteRuntimeStore store,
             RemoteCiFailureClassifier classifier,
             RemoteRepairTurnRuntime repairs,
-            ObjectMapper json,
-            @Value("${bytequay.development-flow.remote-ci.rerun-limit:1}")
-            int rerunLimit,
-            @Value("${bytequay.development-flow.remote-ci.fix-attempt-limit:3}")
-            int fixAttemptLimit,
-            @Value("${bytequay.development-flow.remote-ci.delivery-retry-limit:3}")
-            int deliveryRetryLimit,
-            @Value("${bytequay.development-flow.remote-ci.push-limit:3}")
-            int pushLimit)
+            ObjectMapper json)
     {
         return new RemoteCiRepairRuntimeCoordinator(
                 commands, store, classifier,
-                new SqliteRemoteRuntimeStore.CiBudgets(
-                        rerunLimit, fixAttemptLimit, deliveryRetryLimit, pushLimit),
+                new SqliteRemoteRuntimeStore.CiBudgets(1, 3, 3, 3),
                 repairs, json, Clock.systemUTC());
     }
 
@@ -274,13 +265,11 @@ public class DevelopmentFlowDomainConfig
             SqliteRemoteRuntimeStore store,
             V2BranchSyncPolicyManager policies,
             RemoteRepairTurnRuntime repairs,
-            ObjectMapper json,
-            @Value("${bytequay.development-flow.branch-sync.require-brain-review:true}")
-            boolean requireBrainReview)
+            ObjectMapper json)
     {
         return new BranchSyncRuntimeCoordinator(
                 commands, store, policies, repairs, repairs,
-                requireBrainReview, json, Clock.systemUTC());
+                true, json, Clock.systemUTC());
     }
 
     @Bean
@@ -340,15 +329,10 @@ public class DevelopmentFlowDomainConfig
     public RemoteObservationMaintainer remoteObservationMaintainer(
             SqliteRemoteRuntimeStore store,
             RemoteObservationRuntimeCoordinator observations,
-            DispatchTicketControl tickets,
-            @Value("${bytequay.development-flow.remote-observation.interval-ms:20000}")
-            long intervalMs,
-            @Value("${bytequay.development-flow.remote-observation.batch-size:100}")
-            int batchSize)
+            DispatchTicketControl tickets)
     {
         return new RemoteObservationMaintainer(
-                store, observations, tickets, Duration.ofMillis(intervalMs),
-                batchSize);
+                store, observations, tickets, Duration.ofSeconds(20), 100);
     }
 
     @Bean

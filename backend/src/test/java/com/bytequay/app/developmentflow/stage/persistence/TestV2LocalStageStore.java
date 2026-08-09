@@ -25,7 +25,6 @@ import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResult
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchTicketStore;
-import com.bytequay.app.developmentflow.stage.LocalBrainResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
@@ -423,9 +422,9 @@ class TestV2LocalStageStore
                 AgentTurnOperationHandler.Disposition.PROVIDER_FAILED,
                 "", "BRAIN_BUDGET_EXHAUSTED");
         PRService prs = mock(PRService.class);
-        DispatchTicket.DeliveryReceipt accepted = new LocalBrainResultDeliveryPort(
-                runtime(commands, tasks, local, runtime, mapper, prs))
-                .deliver(delivery);
+        DispatchTicket.DeliveryReceipt accepted = runtime(
+                commands, tasks, local, runtime, mapper, prs)
+                .deliverBrainTurn(delivery);
 
         assertThat(accepted.acceptance())
                 .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
@@ -451,12 +450,10 @@ class TestV2LocalStageStore
         LocalDevelopmentStageManager restartedLocal =
                 new LocalDevelopmentStageManager(
                         commands, new V2StageStore(jdbc), new V2StageStore(jdbc));
-        DispatchTicket.DeliveryReceipt duplicate = new LocalBrainResultDeliveryPort(
-                runtime(
-                        commands, restartedTasks, restartedLocal,
-                        new SqliteLocalDevelopmentRuntimeStore(jdbc), mapper,
-                        prs))
-                .deliver(delivery);
+        DispatchTicket.DeliveryReceipt duplicate = runtime(
+                commands, restartedTasks, restartedLocal,
+                new SqliteLocalDevelopmentRuntimeStore(jdbc), mapper, prs)
+                .deliverBrainTurn(delivery);
         assertThat(duplicate.acceptance())
                 .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
         assertThat(jdbc.queryForObject(
@@ -606,11 +603,10 @@ class TestV2LocalStageStore
                 null);
         seedBrainVerdict(jdbc, "CHANGES_REQUESTED", "one issue remains",
                 "[\"fix A\"]");
-        DispatchTicket.DeliveryReceipt accepted = new LocalBrainResultDeliveryPort(
-                runtime(
-                        commands, tasks, local,
-                        new SqliteLocalDevelopmentRuntimeStore(jdbc), mapper))
-                .deliver(delivery);
+        DispatchTicket.DeliveryReceipt accepted = runtime(
+                commands, tasks, local,
+                new SqliteLocalDevelopmentRuntimeStore(jdbc), mapper)
+                .deliverBrainTurn(delivery);
 
         assertThat(accepted.acceptance())
                 .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
@@ -681,11 +677,10 @@ class TestV2LocalStageStore
                 "cancel-task", "user", "task-1", 1, 2));
 
         ObjectMapper mapper = new ObjectMapper();
-        DispatchTicket.DeliveryReceipt receipt = new LocalBrainResultDeliveryPort(
-                runtime(
-                        commands, tasks, local,
-                        new SqliteLocalDevelopmentRuntimeStore(jdbc), mapper))
-                .deliver(brainDelivery(
+        DispatchTicket.DeliveryReceipt receipt = runtime(
+                commands, tasks, local,
+                new SqliteLocalDevelopmentRuntimeStore(jdbc), mapper)
+                .deliverBrainTurn(brainDelivery(
                         mapper, fence, DispatchTicket.Outcome.SUCCEEDED,
                         AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
                         """

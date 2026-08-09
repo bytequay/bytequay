@@ -61,7 +61,7 @@ class TestThreadSettingsServiceCapacity
                 """);
         CapacityManager capacity = mock(CapacityManager.class);
         ThreadSettingsService service = new ThreadSettingsService(
-                new JdbcThreadSettingsStore(jdbc), 4, 5_000, 20_000, capacity);
+                new JdbcThreadSettingsStore(jdbc), 4, capacity);
         TransactionTemplate transactions = new TransactionTemplate(
                 new DataSourceTransactionManager(dataSource));
 
@@ -130,8 +130,7 @@ class TestThreadSettingsServiceCapacity
                     """);
             CapacityManager capacity = mock(CapacityManager.class);
             ThreadSettingsService service = new ThreadSettingsService(
-                    new JdbcThreadSettingsStore(jdbc), 4, 5_000, 20_000,
-                    capacity);
+                    new JdbcThreadSettingsStore(jdbc), 4, capacity);
             TransactionTemplate transactions = new TransactionTemplate(
                     new DataSourceTransactionManager(dataSource));
 

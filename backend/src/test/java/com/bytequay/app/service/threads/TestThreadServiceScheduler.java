@@ -52,7 +52,7 @@ import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.skills.RoleSkillService;
+import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -153,7 +153,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(ThreadTurnScheduler.class),
                 Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
+                new RoleRegistry(new ConceptRegistry()), stubIdGenerator(),
                 Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -284,7 +284,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -321,7 +321,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -356,7 +356,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -397,7 +397,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 worktrees,
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -437,7 +437,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -471,7 +471,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -509,7 +509,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -545,7 +545,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
         enableV2Creation(service);
         // initialPrompt feeds title derivation but is treated as
@@ -594,7 +594,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
         enableV2Creation(service);
 
@@ -640,7 +640,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
         enableV2Creation(service);
 
@@ -681,7 +681,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
         enableV2Creation(service);
 
@@ -729,7 +729,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThatThrownBy(() -> service.send(thread.id(), task.id(), "next"))
@@ -765,7 +765,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThatThrownBy(() -> service.send(thread.id(), null, "keep going"))
@@ -801,7 +801,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.turns(thread.id()))
@@ -835,7 +835,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.turns(thread.id()))
@@ -870,7 +870,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.turnEvents(thread.id()))
@@ -903,7 +903,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.turnEvents(thread.id()))
@@ -932,7 +932,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.activeTurns(50))
@@ -966,7 +966,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -998,7 +998,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(ThreadTurnEventStore.class), registry,
                 Mockito.mock(McpPermissionGate.class), scheduler,
                 Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
-                noopWorktreeService(), new RoleSkillService(new ConceptRegistry()),
+                noopWorktreeService(), new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -1027,7 +1027,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.listByStatus(ThreadStatus.IDLE, 0)).isEmpty();
@@ -1053,7 +1053,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.listByGroup("group-1", 0)).isEmpty();
@@ -1079,7 +1079,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         ThreadGroup group = service.createGroup(new ThreadService.NewGroupRequest(
@@ -1111,7 +1111,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
         enableV2Creation(service);
 
@@ -1155,7 +1155,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThatThrownBy(() -> service.stop(thread.id()))
@@ -1185,7 +1185,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThatThrownBy(() -> service.stop(thread.id()))
@@ -1215,7 +1215,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThatThrownBy(() -> service.delete(thread.id()))
@@ -1257,7 +1257,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(ThreadTurnEventStore.class), registry,
                 Mockito.mock(McpPermissionGate.class), scheduler,
                 Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
-                noopWorktreeService(), new RoleSkillService(new ConceptRegistry()),
+                noopWorktreeService(), new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 dataPurger, Mockito.mock(CheckpointSummariser.class));
         service.setV2ThreadControls(typed);
@@ -1295,7 +1295,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(ThreadTurnEventStore.class), registry,
                 Mockito.mock(McpPermissionGate.class), scheduler,
                 Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
-                noopWorktreeService(), new RoleSkillService(new ConceptRegistry()),
+                noopWorktreeService(), new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -1334,7 +1334,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 worktrees,
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -1385,7 +1385,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 worktrees,
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThatThrownBy(() -> service.delete(thread.id()))
@@ -1432,7 +1432,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 git,
                 noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()),
+                new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         service.listWorkingChanges(thread.id(), null);
@@ -1487,7 +1487,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
                 new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
                 git, noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
+                new RoleRegistry(new ConceptRegistry()), stubIdGenerator(),
                 Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -1520,7 +1520,7 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
                 new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(), noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
+                new RoleRegistry(new ConceptRegistry()), stubIdGenerator(),
                 Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));
@@ -1556,7 +1556,7 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class), new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                new RoleRegistry(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.listTaskCommits(thread.id(), null)).isEmpty();
@@ -1599,7 +1599,7 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class), new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                new RoleRegistry(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         List<ThreadService.TaskDiffFile> diff = service.taskCumulativeDiff(thread.id(), null);
@@ -1646,7 +1646,7 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class), new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
-                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                new RoleRegistry(new ConceptRegistry()), stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
         assertThat(service.taskCumulativeDiff(thread.id(), null)).isEmpty();
@@ -1898,13 +1898,13 @@ class TestThreadServiceScheduler
         }
 
         @Override
-        public Optional<ThreadAgent> find(String threadId)
+        public Optional<Agent> find(String threadId)
         {
             return Optional.of(session);
         }
 
         @Override
-        public List<ThreadAgent> findAll(String threadId)
+        public List<Agent> findAll(String threadId)
         {
             return List.of(session);
         }
@@ -1917,7 +1917,7 @@ class TestThreadServiceScheduler
     }
 
     private static final class RecordingStopSession
-            implements ThreadAgent
+            implements Agent
     {
         private final List<String> events;
 
@@ -2588,7 +2588,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(McpPermissionGate.class),
                 Mockito.mock(ThreadTurnScheduler.class),
                 Mockito.mock(WorktreeLeaseService.class), new GitRunner(),
-                noopWorktreeService(), new RoleSkillService(new ConceptRegistry()),
+                noopWorktreeService(), new RoleRegistry(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class),
                 Mockito.mock(WorkspaceDataPurger.class),
                 Mockito.mock(CheckpointSummariser.class));

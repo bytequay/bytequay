@@ -34,7 +34,7 @@ import type { StageKind } from './StageDetailPage';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { diffInlineCommentFromLocalPr, isPublishableReviewDraft } from '../diff/DiffInlineComments';
-import { PlanCard, planStepComments } from '../threads/brain/TaskRootNode';
+import { PlanCard } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
@@ -484,8 +484,6 @@ export function StageDetailRoute({
       onToggleAutoApprove={brain.task.terminal ? undefined : toggleAutoApprove}
       onToggleAutoMerge={brain.task.terminal ? undefined : toggleAutoMerge}
       onSetMinApprovals={brain.task.terminal ? undefined : setMinApprovals}
-      onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
-      stepComments={planStepComments(brain.brainFeed)}
     />
   ) : null;
 

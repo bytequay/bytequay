@@ -56,13 +56,6 @@ public class ThreadSignalServiceImpl
         this.threads = requireNonNull(threads, "threads is null");
     }
 
-    /** Compatibility constructor for store-only unit tests. */
-    public ThreadSignalServiceImpl(ThreadSignalStore store)
-    {
-        this.store = requireNonNull(store, "store is null");
-        this.notifications = null;
-        this.threads = null;
-    }
     public ThreadSignal record(
             String threadId, String taskId, String sourceKind, String iconKind,
             String title, String body, String sourceUrl)
@@ -110,21 +103,16 @@ public class ThreadSignalServiceImpl
         store.save(new ThreadSignal(
                 s.id(), s.threadId(), s.taskId(), s.sourceKind(), s.iconKind(),
                 s.title(), s.body(), s.sourceUrl(), s.createdAt(), Instant.now()));
-        if (notifications != null) {
-            try {
-                notifications.markRead("signal:" + s.id());
-            }
-            catch (RuntimeException ignored) {
-                // The legacy row remains authoritative for compatibility.
-            }
+        try {
+            notifications.markRead("signal:" + s.id());
+        }
+        catch (RuntimeException ignored) {
+            // The legacy row remains authoritative for compatibility.
         }
     }
 
     private void mirrorCanonical(ThreadSignal signal)
     {
-        if (notifications == null || threads == null) {
-            return;
-        }
         String workspaceId = threads.findThreadById(signal.threadId())
                 .map(Thread::workspaceId)
                 .orElse(null);

@@ -43,7 +43,6 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.stage.ReadyToMergeService;
@@ -56,7 +55,6 @@ import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -151,7 +149,6 @@ public class PublishService
     private final PRService prService;
     private final PullRequestService pullRequestDetails;
     private final ReadyToMergeService readyToMerge;
-    private final ApplicationEventPublisher eventPublisher;
     private V2QualityIssuePublishRuntime qualityIssuePublishes;
 
     public PublishService(
@@ -169,8 +166,7 @@ public class PublishService
             StageStore stageStore,
             PRService prService,
             PullRequestService pullRequestDetails,
-            ReadyToMergeService readyToMerge,
-            ApplicationEventPublisher eventPublisher)
+            ReadyToMergeService readyToMerge)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -187,7 +183,6 @@ public class PublishService
         this.prService = requireNonNull(prService, "prService is null");
         this.pullRequestDetails = requireNonNull(pullRequestDetails, "pullRequestDetails is null");
         this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
-        this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
     }
 
     @Autowired(required = false)
@@ -1029,23 +1024,8 @@ public class PublishService
         // show "on remote" instead of looking stuck. Best-effort: a
         // bookkeeping miss must not fail an already-applied push.
         markTaskPushed(original);
-        syncPrIfAlreadyOpen(original);
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Pushed " + branch + " from " + worktree + ".", push.action());
-    }
-
-    /** A plain push doesn't open a PR itself — but if the task already has
-     *  one (e.g. pushing more commits after addressing comments), sync the
-     *  PR row so it doesn't keep offering "ready to push" for a push
-     *  that just landed on an already-open PR. */
-    private void syncPrIfAlreadyOpen(Notification original)
-    {
-        String taskId = original == null ? null : original.taskId();
-        if (taskId == null || taskId.isBlank()) {
-            return;
-        }
-        taskStore.findTaskById(taskId).ifPresent(task -> PullRequestRef.parse(task.linkedPrRef()).ifPresent(ref ->
-                eventPublisher.publishEvent(PrPushedEvent.of(task.id(), ref))));
     }
 
     /** Stamp the proposal's task as pushed-to-remote. Resolved by the
@@ -1164,8 +1144,7 @@ public class PublishService
             }
             throw e;
         }
-        // Advance a shipped task that owns this PR to COMPLETED — the
-        // dashboard merge does the same via PullRequestMergedEvent.
+        // Advance a shipped task that owns this PR to COMPLETED.
         taskService.completeTasksForMergedPr(pullRequest.owner() + "/" + pullRequest.repo(), pullRequest.number());
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Merged " + who + " (" + strategy + ").",
@@ -1316,8 +1295,7 @@ public class PublishService
 
     /** Best-effort: flip a still-{@code remote-drafted} PR row to
      *  {@code remote-open} once mark-ready resolves through this gate — same
-     *  rationale as {@link PrPushedEvent}, but this one has no other
-     *  path that creates it so it's kept local rather than centralized. */
+     *  rationale as a successful push, but this one has no other path. */
     private void syncPrMarkedReady(String taskId)
     {
         if (taskId == null || taskId.isBlank()) {
@@ -1458,7 +1436,6 @@ public class PublishService
                 log.warn("linking PR #{} to task {} failed: {}",
                         opened.number(), task.id(), e.getMessage());
             }
-            eventPublisher.publishEvent(new PrPushedEvent(task.id(), owner + "/" + repoName, opened.number(), opened.htmlUrl()));
         }
         String prRef = opened == null ? "" : " #" + opened.number();
         return new PublishResult(true, RESOLUTION_APPROVED,

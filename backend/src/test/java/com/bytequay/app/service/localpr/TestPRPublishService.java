@@ -20,17 +20,10 @@ import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
-import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewServiceImpl;
-import com.bytequay.app.service.stage.ReadyToMergeService;
-import com.bytequay.app.service.threads.TaskService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,10 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -60,28 +50,17 @@ class TestPRPublishService
 
     private final PRService prService = mock(PRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final PullRequestRepository pullRequests = mock(PullRequestRepository.class);
-    private final PatResolver patResolver = mock(PatResolver.class);
-    private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
-    private final PullRequestService pullRequestDetails = mock(PullRequestService.class);
-    private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
-    private final PullRequestDetail liveDetail = mock(PullRequestDetail.class);
-    private final TaskService taskService = mock(TaskService.class);
     private final V2PrRemoteControlService v2Controls = mock(V2PrRemoteControlService.class);
     private final V2UserRemoteActionRuntime v2UserRemoteActions =
             mock(V2UserRemoteActionRuntime.class);
     private final PRPublishService service =
             new PRPublishService(
-                    prService, taskStore, pullRequests, patResolver, brainReview,
-                    pullRequestDetails, readyToMerge, taskService,
-                    v2Controls, v2UserRemoteActions);
+                    prService, taskStore, v2Controls, v2UserRemoteActions);
 
     {
         when(prService.comments(anyString())).thenReturn(List.of());
         when(taskStore.findWorkflowVersion(anyString()))
                 .thenReturn(Optional.of("LEGACY"));
-        when(pullRequestDetails.fetchFreshPullRequestDetail(anyString(), anyInt())).thenReturn(liveDetail);
-        when(readyToMerge.isReadyForMerge(nullable(String.class), eq(liveDetail))).thenReturn(true);
     }
 
     private PR pr(String status)
@@ -212,8 +191,6 @@ class TestPRPublishService
                 .isSameAs(remote);
 
         verify(v2Controls).merge("merge-command", "task1", "squash");
-        verify(pullRequests, never()).mergePullRequest(any(), any(), any());
-        verify(taskService, never()).completeTasksForMergedPr(anyString(), anyInt());
     }
 
     @Test
@@ -238,11 +215,6 @@ class TestPRPublishService
         verify(v2UserRemoteActions).postTopLevelComment(
                 "comment-command", "task1", "pr1", "hello",
                 HandledAction.COMMENTED);
-
-        verify(pullRequests, never()).dequeuePullRequest(any(), any());
-        verify(pullRequests, never()).deleteBranch(any(), any(), anyString());
-        verify(pullRequests, never()).createIssueComment(any(), any(), anyString());
-        verify(pullRequests, never()).createReview(any(), any(), any());
     }
 
     @Test
@@ -260,7 +232,6 @@ class TestPRPublishService
         verify(v2UserRemoteActions).submitReview(
                 "review-command", "task1", "pr1", "APPROVE", "", List.of(),
                 HandledAction.APPROVED);
-        verify(pullRequests, never()).createReview(any(), any(), any());
     }
 
     @Test
@@ -305,18 +276,6 @@ class TestPRPublishService
     }
 
     @Test
-    void v2RemoteFactsNeverEnterTheLegacyPushAdoptionPath()
-    {
-        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
-
-        service.reconcilePushedElsewhere(new PrPushedEvent(
-                "task1", "acme/widget", 145,
-                "https://github.com/acme/widget/pull/145"));
-
-        verify(prService, never()).recordPush(any(), any(), anyInt(), any());
-    }
-
-    @Test
     void taskOwnedRemoteEffectFailsClosedWithoutAnImmutableWorkflowRoute()
     {
         PR local = pr(PR.STATUS_LOCAL_OPEN);
@@ -329,30 +288,6 @@ class TestPRPublishService
 
         verify(v2Controls, never()).approveAndShip(
                 any(), any(), any(), anyBoolean());
-    }
-
-    @Test
-    void historicalPushEventsCannotReenterLegacyReconciliation()
-    {
-        assertThatThrownBy(() -> service.onPushedElsewhere(new PrPushedEvent(
-                "task1", "acme/widget", 145,
-                "https://github.com/acme/widget/pull/145")))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Historical LEGACY Task-owned PR");
-
-        verify(prService, never()).recordPush(any(), any(), anyInt(), any());
-        verify(prService, never()).findByTask(any());
-    }
-
-    @Test
-    void historicalLocalReviewEventsCannotReenterLegacyAutoPush()
-    {
-        assertThatThrownBy(() -> service.onLocalReviewCleared(
-                new LocalReviewClearedEvent("task1", "pr1", true)))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Historical LEGACY Task-owned PR");
-
-        verify(prService, never()).recordGateApproval(any(), any(), any());
     }
 
     @Test
@@ -391,7 +326,6 @@ class TestPRPublishService
                 "comment-command", "pr-ext", null,
                 SemanticAction.POST_TOP_LEVEL_COMMENT,
                 ActionPayload.body("Thanks!"), HandledAction.COMMENTED.name());
-        verifyNoInteractions(pullRequests);
     }
 
     @Test
@@ -415,7 +349,6 @@ class TestPRPublishService
                 "review-command", "pr-ext", null, "APPROVE", "Looks good.",
                 List.of(selected), HandledAction.APPROVED);
         verify(prService, never()).markPublished(anyString(), any());
-        verifyNoInteractions(pullRequests);
     }
 
     @Test
@@ -437,7 +370,7 @@ class TestPRPublishService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Idempotency-Key is required");
 
-        verifyNoInteractions(v2UserRemoteActions, pullRequests);
+        verifyNoInteractions(v2UserRemoteActions);
     }
 
     private PR externalPr()

@@ -98,20 +98,6 @@ public class WorkspaceInsightsService
         this.runs = requireNonNull(runs, "runs is null");
     }
 
-    /** Compatibility constructor for focused unit tests. */
-    public WorkspaceInsightsService(
-            ThreadStore threadStore, TaskStore taskStore,
-            InvestigationReviewStore reviewStore,
-            GitHubRateLimitMonitor rateLimitMonitor)
-    {
-        this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.trunkRuntime = null;
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
-        this.rateLimitMonitor = requireNonNull(rateLimitMonitor, "rateLimitMonitor is null");
-        this.runs = null;
-    }
-
     /** Page size when scanning shipped tasks. Single-user local app,
      *  so 1000 covers the typical window comfortably; if the user
      *  hits the cap the count just rolls over (rare). */
@@ -197,7 +183,7 @@ public class WorkspaceInsightsService
 
         int tasksShipped = countTasksShippedSince(
                 windowStart, workspaceThreadIds, workspaceId == null);
-        List<AgentRun> workspaceRuns = runs == null || workspaceId == null
+        List<AgentRun> workspaceRuns = workspaceId == null
                 ? List.of()
                 : runs.findByWorkspace(workspaceId).stream()
                         .filter(run -> !run.startedAt().isBefore(windowStart))
@@ -226,15 +212,12 @@ public class WorkspaceInsightsService
                 ? threadStore.listThreadsUpdatedSince(since)
                 : threadStore.listThreadsByWorkspaceUpdatedSince(
                         workspaceId, since);
-        if (trunkRuntime != null) {
-            Map<String, Thread> byId = new LinkedHashMap<>();
-            stored.forEach(thread -> byId.put(thread.id(), thread));
-            threadStore.listTasksByIds(
-                            trunkRuntime.listIdsUpdatedSince(
-                                    workspaceId, since))
-                    .forEach(thread -> byId.put(thread.id(), thread));
-            stored = new ArrayList<>(byId.values());
-        }
+        Map<String, Thread> byId = new LinkedHashMap<>();
+        stored.forEach(thread -> byId.put(thread.id(), thread));
+        threadStore.listTasksByIds(
+                        trunkRuntime.listIdsUpdatedSince(workspaceId, since))
+                .forEach(thread -> byId.put(thread.id(), thread));
+        stored = new ArrayList<>(byId.values());
         return projectTrunkRuntime(stored).stream()
                 .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
                 .toList();
@@ -242,7 +225,7 @@ public class WorkspaceInsightsService
 
     private List<Thread> projectTrunkRuntime(List<Thread> threads)
     {
-        return trunkRuntime == null ? threads : trunkRuntime.projectAll(threads);
+        return trunkRuntime.projectAll(threads);
     }
 
     /** Per-repo split of PR-linked tasks: shipped (reached COMPLETED, cut

@@ -111,15 +111,6 @@ public class PermissionResolver
         this.activeContexts = requireNonNull(activeContexts, "activeContexts is null");
     }
 
-    /** Compatibility constructor for focused legacy permission tests. */
-    public PermissionResolver(
-            ThreadStore threadStore,
-            ThreadTurnStore turnStore,
-            PermissionGrantStore grantStore)
-    {
-        this(threadStore, turnStore, grantStore, new ActiveAgentContextRegistry());
-    }
-
     public AgentRole roleFor(String threadId, String agentKey)
     {
         return activeContexts.find(threadId, agentKey)

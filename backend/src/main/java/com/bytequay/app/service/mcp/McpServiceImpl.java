@@ -142,18 +142,6 @@ public class McpServiceImpl
         this.handlersByName = Map.copyOf(map);
     }
 
-    /** Compatibility constructor for focused unit tests. */
-    public McpServiceImpl(
-            AgentToolRegistry registry,
-            PermissionResolver permissions,
-            McpResponses responses,
-            ThreadStore threadStore,
-            List<ToolHandler> handlers)
-    {
-        this(registry, permissions, responses, threadStore, handlers,
-                new ActiveAgentContextRegistry(), null);
-    }
-
     @Override
     public DeferredResult<JsonNode> handle(String threadId, String agentKey, JsonNode request)
     {

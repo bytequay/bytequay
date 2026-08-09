@@ -43,8 +43,18 @@ import static org.mockito.Mockito.when;
 
 class TestAgentContextCompiler
 {
-    private final AgentContextCompiler compiler = new AgentContextCompiler(
-            new ManagedSkillPolicy(), new ToolExposurePolicy());
+    private final AgentContextCompiler compiler = compiler();
+
+    private static AgentContextCompiler compiler()
+    {
+        ByteQuaySkillSelector selector = mock(ByteQuaySkillSelector.class);
+        when(selector.select(anyList(), any(), anyString(), any(), anyString(), anyInt()))
+                .thenAnswer(invocation -> invocation.<List<String>>getArgument(0).stream()
+                        .map(name -> new ManagedSkill(name, ""))
+                        .toList());
+        return new AgentContextCompiler(
+                new ManagedSkillPolicy(), new ToolExposurePolicy(), selector);
+    }
 
     @Test
     void cliAndApiLanesResolveTheSameTaskContract()

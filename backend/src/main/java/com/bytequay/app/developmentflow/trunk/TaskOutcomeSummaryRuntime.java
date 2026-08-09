@@ -162,15 +162,6 @@ public final class TaskOutcomeSummaryRuntime
         }
     }
 
-    /** Compatibility constructor for focused migration tests. */
-    public TaskOutcomeSummaryRuntime(
-            TrunkManager trunks, TrunkManager.Store ignored,
-            SqliteTaskOutcomeSummaryStore store, ThreadTurnHandoff ignoredTurns,
-            LaunchResolver launches)
-    {
-        this(trunks, store, launches, new ObjectMapper(), 53123);
-    }
-
     @FunctionalInterface
     public interface LaunchResolver
     {

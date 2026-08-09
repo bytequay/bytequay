@@ -69,30 +69,6 @@ public final class V2TaskControlService
                 policyRedriver, "policyRedriver is null");
     }
 
-    /** Compatibility constructor for focused tests outside Spring. */
-    public V2TaskControlService(
-            TaskManager tasks,
-            TaskManager.Store store,
-            DispatchTicketControl tickets,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
-            JdbcTemplate jdbc,
-            V2UserWaitStore userWaits)
-    {
-        this(tasks, store, tickets, ciRepair, jdbc, userWaits, ignored -> {});
-    }
-
-    /** Compatibility constructor for focused tests outside Spring. */
-    public V2TaskControlService(
-            TaskManager tasks,
-            TaskManager.Store store,
-            DispatchTicketControl tickets,
-            RemoteCiRepairRuntimeCoordinator ciRepair,
-            JdbcTemplate jdbc)
-    {
-        this(tasks, store, tickets, ciRepair, jdbc,
-                new V2UserWaitStore(jdbc));
-    }
-
     public TaskManager.State cancel(String taskId)
     {
         return cancel(taskId, ACTOR);

@@ -84,7 +84,8 @@ class TestV2TaskControlService
                 eq("task-1")))
                 .thenReturn(List.of("episode-1"));
         V2TaskControlService controls = new V2TaskControlService(
-                tasks, store, tickets, ciRepair, jdbc);
+                tasks, store, tickets, ciRepair, jdbc,
+                new V2UserWaitStore(jdbc), ignored -> {});
 
         assertThat(controls.retryFailedCi("task-1")).isSameAs(state);
 

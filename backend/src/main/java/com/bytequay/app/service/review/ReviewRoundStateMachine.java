@@ -37,7 +37,6 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.checks.ValidationClaimService;
 import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.runs.AgentRunServiceImpl;
@@ -77,6 +76,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class ReviewRoundStateMachine
 {
+    private static final String CONTEXT_GATE_REVALIDATION = "review-gate-revalidation";
     private static final String DEV_VALIDATION_CONTEXT = "dev-round";
     private static final String LOCAL_REVIEW_VALIDATION_CONTEXT = "local-review";
     private static final String ROUND_VALIDATION_CONTEXT = "review-round";
@@ -869,14 +869,14 @@ public class ReviewRoundStateMachine
         AgentRun run = requireOwningRun(round);
         String currentFingerprint = currentFingerprint(task);
         ValidationClaim priorClaim = validations.findLatestByRoundAndContext(
-                roundId, ValidationClaimService.CONTEXT_GATE_REVALIDATION).orElse(null);
+                roundId, CONTEXT_GATE_REVALIDATION).orElse(null);
         if (round.status() == TRIAGING
                 && AgentRun.STATUS_QUEUED.equals(run.status())
                 && priorClaim != null
                 && observedFingerprint != null
                 && observedFingerprint.equals(currentFingerprint)
                 && observedFingerprint.equals(priorClaim.codeFingerprint())
-                && ValidationClaimService.gateRevalidationClaimKey(
+                && gateRevalidationClaimKey(
                         taskId, roundId, round.gateRevision(),
                         round.kickAttempt(), observedFingerprint)
                         .equals(priorClaim.claimKey())) {
@@ -894,7 +894,7 @@ public class ReviewRoundStateMachine
         }
         GRAPH.checkTransition(roundId, AWAITING_GATE, TRIAGING);
         int nextKickAttempt = round.kickAttempt() + 1;
-        String claimKey = ValidationClaimService.gateRevalidationClaimKey(
+        String claimKey = gateRevalidationClaimKey(
                 taskId, roundId, round.gateRevision(), nextKickAttempt, observedFingerprint);
         ValidationClaim existingClaim = validations.findByClaimKey(claimKey).orElse(null);
         if (existingClaim != null) {
@@ -908,7 +908,7 @@ public class ReviewRoundStateMachine
                 taskId, run.id(), AgentRun.STATUS_QUEUED, "round_gate_fingerprint_changed");
         if (existingClaim == null) {
             Optional<Long> inserted = validations.insertClaim(
-                    claimKey, taskId, ValidationClaimService.CONTEXT_GATE_REVALIDATION,
+                    claimKey, taskId, CONTEXT_GATE_REVALIDATION,
                     roundId, observedFingerprint, null, null, now());
             if (inserted.isEmpty()) {
                 requireGateValidationClaimIdentity(
@@ -941,8 +941,8 @@ public class ReviewRoundStateMachine
                 || !ReviewRound.ORIGIN_EXTERNAL.equals(round.origin())
                 || !AgentRun.STATUS_QUEUED.equals(run.status())
                 || !roundId.equals(claim.roundId())
-                || !ValidationClaimService.CONTEXT_GATE_REVALIDATION.equals(claim.context())
-                || !ValidationClaimService.gateRevalidationClaimKey(
+                || !CONTEXT_GATE_REVALIDATION.equals(claim.context())
+                || !gateRevalidationClaimKey(
                         taskId, roundId, round.gateRevision(),
                         round.kickAttempt(), claim.codeFingerprint())
                         .equals(claim.claimKey())) {
@@ -1035,7 +1035,7 @@ public class ReviewRoundStateMachine
         if (!taskId.equals(claim.taskId())
                 || !roundId.equals(claim.roundId())
                 || !fingerprint.equals(claim.codeFingerprint())
-                || !ValidationClaimService.CONTEXT_GATE_REVALIDATION.equals(claim.context())
+                || !CONTEXT_GATE_REVALIDATION.equals(claim.context())
                 || claim.cancelRequestedAt() != null
                 || claim.supersededAt() != null) {
             throw conflict("gate revalidation claim identity is already occupied");
@@ -1178,6 +1178,17 @@ public class ReviewRoundStateMachine
     {
         return ReviewRound.ORIGIN_EXTERNAL.equals(round.origin()) && round.iteration() == 0
                 ? "review-round" : "brain-review-fix";
+    }
+
+    private static String gateRevalidationClaimKey(
+            String taskId,
+            String roundId,
+            int gateRevision,
+            int kickAttempt,
+            String fingerprint)
+    {
+        return CONTEXT_GATE_REVALIDATION + ":" + taskId + ":" + roundId + ":"
+                + gateRevision + ":" + kickAttempt + ":" + fingerprint;
     }
 
     private ReviewRound requireOwnedRound(String taskId, String roundId)

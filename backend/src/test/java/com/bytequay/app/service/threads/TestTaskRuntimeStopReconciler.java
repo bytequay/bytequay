@@ -23,7 +23,6 @@ import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
-import com.bytequay.app.service.checks.ValidationExecutorRegistry;
 import com.bytequay.app.service.stage.PlanStageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -50,7 +49,6 @@ class TestTaskRuntimeStopReconciler
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final ValidationPassStore validationStore = mock(ValidationPassStore.class);
-    private final ValidationExecutorRegistry executorRegistry = mock(ValidationExecutorRegistry.class);
     private final TaskService taskService = mock(TaskService.class);
     private final PlanStageService planStages = mock(PlanStageService.class);
     private final ObjectProvider<TaskService> provider = new ObjectProvider<>()
@@ -63,7 +61,7 @@ class TestTaskRuntimeStopReconciler
     };
     private final TaskRuntimeStopReconciler reconciler = new TaskRuntimeStopReconciler(
             taskStore, turnStore, registry, scheduler,
-            validationStore, executorRegistry, provider, provider(planStages));
+            validationStore, provider, provider(planStages));
 
     @Test
     void teardownCancelsTurnsEvictsAgentsAndRequestsValidationCancel()
@@ -122,12 +120,6 @@ class TestTaskRuntimeStopReconciler
 
         when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of());
         when(validationStore.findOpenByTask("t1")).thenReturn(List.of(
-                claim("claim-1", null, null)));
-        when(executorRegistry.isInFlight("claim-1")).thenReturn(true);
-        assertThat(reconciler.runtimeStopped("t1")).isFalse();
-
-        when(executorRegistry.isInFlight("claim-1")).thenReturn(false);
-        when(validationStore.findOpenByTask("t1")).thenReturn(List.of(
                 claim("claim-1", null, Instant.now().plusSeconds(120))));
         assertThat(reconciler.runtimeStopped("t1")).isFalse();
     }
@@ -139,8 +131,6 @@ class TestTaskRuntimeStopReconciler
         // a crashed validator no longer blocks the barrier.
         when(validationStore.findOpenByTask("t1")).thenReturn(List.of(
                 claim("claim-1", null, NOW)));
-        when(executorRegistry.isInFlight("claim-1")).thenReturn(false);
-
         assertThat(reconciler.runtimeStopped("t1")).isTrue();
     }
 

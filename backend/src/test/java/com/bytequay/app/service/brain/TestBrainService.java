@@ -15,333 +15,55 @@ package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
 import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
-import com.bytequay.app.domain.StageEvent;
-import com.bytequay.app.domain.StageEventType;
-import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
-import com.bytequay.app.domain.Thread;
-import com.bytequay.app.domain.ThreadKind;
-import com.bytequay.app.domain.ThreadMessage;
-import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.domain.TurnInitiator;
-import com.bytequay.app.domain.WorkModel;
-import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.ids.IdGenerator;
-import com.bytequay.app.service.threads.ChatAttachmentStore;
-import com.bytequay.app.service.threads.PlanKickoffRequested;
-import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
-import com.bytequay.app.service.threads.ThreadTurnScheduler;
-import com.bytequay.app.service.workmodel.WorkModelResolver;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestBrainService
 {
     private static final String TASK_ID = "task-1";
-    private static final String DEV_THREAD = "dev-thread";
 
-    private final TaskStore taskStore = mock(TaskStore.class);
-    private final ThreadStore threadStore = mock(ThreadStore.class);
-    private final StageStore stageStore = mock(StageStore.class);
-    private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
-    private final IdGenerator idGenerator = mock(IdGenerator.class);
-    private final WorkModelResolver workModelResolver = mock(WorkModelResolver.class);
-    private final ChatAttachmentStore attachmentStore = new ChatAttachmentStore();
-
-    private final BrainServiceImpl service = new BrainServiceImpl(
-            taskStore, threadStore, stageStore, scheduler, idGenerator,
-            workModelResolver, attachmentStore, new ObjectMapper());
-
-    @BeforeEach
-    void resolveBrainToTheParentThreadDefault()
-    {
-        WorkModel choice = new WorkModel(WorkModelKind.CLI, "codex", null, null);
-        when(workModelResolver.resolveForThread(anyString())).thenReturn(
-                new WorkModelResolver.Resolved(choice,
-                        new WorkModelResolver.Provenance(
-                                WorkModelResolver.Source.THREAD, DEV_THREAD, DEV_THREAD)));
-        StageInstance plan = mock(StageInstance.class);
-        when(plan.id()).thenReturn(UUID.fromString("11111111-1111-1111-1111-111111111111"));
-        when(stageStore.findActiveStage(anyString())).thenReturn(Optional.of(plan));
-    }
+    private final TaskStore tasks = mock(TaskStore.class);
+    private final BrainServiceImpl service = new BrainServiceImpl(tasks);
 
     @Test
-    void rejectsLegacyMessageBeforeCreatingAThreadOrTurn()
+    void rejectsLegacyMessages()
     {
         Task task = mock(Task.class);
         when(task.id()).thenReturn(TASK_ID);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(taskStore.findWorkflowVersion(TASK_ID)).thenReturn(Optional.of("LEGACY"));
+        when(tasks.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
 
-        assertThatThrownBy(() -> service.sendMessage(
-                TASK_ID, "How many pushes?", List.of("image")))
+        assertThatThrownBy(() -> service.sendMessage(TASK_ID, "How many pushes?", List.of()))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
                         exception -> assertThat(exception.getStatusCode().value()).isEqualTo(409));
-
-        verify(threadStore, never()).findBrainThreadByTask(anyString());
-        verify(threadStore, never()).saveThread(any());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
-    void routesV2MessageToTypedTaskBrainWithoutLegacyScheduler()
+    void routesV2MessagesToTheTypedRuntime()
     {
-        TaskBrainConversationRuntime typed = mock(
-                TaskBrainConversationRuntime.class);
-        BrainMessageResponse expected = new BrainMessageResponse(
-                "typed-turn", "trunk-1");
+        TaskBrainConversationRuntime typed = mock(TaskBrainConversationRuntime.class);
+        BrainMessageResponse expected = new BrainMessageResponse("turn", "trunk");
         when(typed.isV2Task(TASK_ID)).thenReturn(true);
-        when(typed.sendMessage(TASK_ID, "Inspect this", List.of("image")))
-                .thenReturn(expected);
+        when(typed.sendMessage(TASK_ID, "Inspect this", List.of())).thenReturn(expected);
         service.setV2Brain(typed);
 
-        assertThat(service.sendMessage(
-                TASK_ID, "Inspect this", List.of("image")))
-                .isEqualTo(expected);
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any());
-        verify(taskStore, never()).findTaskById(TASK_ID);
+        assertThat(service.sendMessage(TASK_ID, "Inspect this", List.of())).isEqualTo(expected);
     }
 
     @Test
-    void planKickoffCreatesBrainThreadAndEnqueuesPlanningTurn()
-    {
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(TASK_ID);
-        when(task.threadId()).thenReturn(DEV_THREAD);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
-        Thread devThread = mock(Thread.class);
-        when(devThread.workspaceId()).thenReturn("ws-default");
-        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueStageTurnOnce(
-                anyString(), any(), anyString(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("plan-turn-1");
-
-        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "fix the flaky retry test", null));
-
-        // The brain thread is created and a planning turn is enqueued on it,
-        // carrying the seed prompt and the record_plan instruction.
-        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
-        verify(threadStore).saveThread(saved.capture());
-        assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
-        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueStageTurnOnce(
-                eq("plan-kickoff:" + TASK_ID
-                        + ":11111111-1111-1111-1111-111111111111:1"),
-                eq(saved.getValue()), prompt.capture(),
-                eq(TASK_ID), any(), any(), any(), any());
-        assertThat(prompt.getValue())
-                .contains("fix the flaky retry test")
-                .contains("at most two")
-                .contains("read-only")
-                .contains("Do not delegate trivial tasks")
-                .contains("synthesize")
-                .contains("record_plan")
-                .contains("After record_plan succeeds, do not restate or summarize the plan")
-                .contains("Plan recorded; Brain self-review is starting.")
-                .contains("If record_plan fails, instead report the failure concisely");
-    }
-
-    @Test
-    void planFailureAllowsANewKickoffAttempt()
-    {
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(TASK_ID);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        Thread existing = mock(Thread.class);
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(existing));
-        UUID stageId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        StageInstance plan = mock(StageInstance.class);
-        when(plan.id()).thenReturn(stageId);
-        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(plan));
-        when(stageStore.findEventsByStage(stageId)).thenReturn(List.of(
-                new StageEvent(UUID.randomUUID(), stageId, TASK_ID,
-                        StageEventType.PLAN_FAILED, Instant.now(), "{}")));
-
-        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "try again", null));
-
-        verify(scheduler).enqueueStageTurnOnce(
-                eq("plan-kickoff:" + TASK_ID + ":" + stageId + ":2"),
-                eq(existing), anyString(), eq(TASK_ID), eq(stageId.toString()),
-                any(), any(), any());
-    }
-
-    @Test
-    void planKickoffCopiesTheTrunkSeedOntoTheBrainThread()
-    {
-        Instant cut = Instant.parse("2026-06-22T10:00:00Z");
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(TASK_ID);
-        when(task.threadId()).thenReturn(DEV_THREAD);
-        when(task.createdAt()).thenReturn(cut);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(taskStore.listTasksByThread(DEV_THREAD)).thenReturn(List.of(task));
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
-        Thread devThread = mock(Thread.class);
-        when(devThread.workspaceId()).thenReturn("ws-default");
-        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(threadStore.listMessages(DEV_THREAD)).thenReturn(List.of(
-                msg(1, "user", "{\"text\":\"let's tidy the AssertJ nits\"}", cut.minusSeconds(60)),
-                msg(2, "assistant", "{\"text\":\"Got it — cutting the task.\"}", cut.minusSeconds(30))));
-        when(scheduler.enqueueStageTurnOnce(
-                anyString(), any(), anyString(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("plan-turn-1");
-
-        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "tidy nits", null));
-
-        // The trunk seed is copied onto the brain thread (single source),
-        // preserving roles — not inlined into the prompt.
-        ArgumentCaptor<ThreadMessage> copied = ArgumentCaptor.forClass(ThreadMessage.class);
-        verify(threadStore, times(2)).appendMessage(copied.capture());
-        assertThat(copied.getAllValues()).extracting(ThreadMessage::role)
-                .containsExactly("user", "assistant");
-        assertThat(copied.getAllValues().get(0).threadId()).isEqualTo("ws-default.brain-1");
-        assertThat(copied.getAllValues().get(0).contentJson()).contains("let's tidy the AssertJ nits");
-        assertThat(copied.getAllValues().get(1).contentJson()).contains("Got it — cutting the task.");
-    }
-
-    private static ThreadMessage msg(long seq, String role, String contentJson, Instant ts)
-    {
-        return new ThreadMessage(
-                "m" + seq, DEV_THREAD, null, seq, role, "text", contentJson,
-                null, null, null, null, ts, null, ThreadScope.TRUNK);
-    }
-
-    @Test
-    void taskCompletedKicksOffASummaryTurnAndRecordsItsTurnId()
-    {
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(TASK_ID);
-        when(task.threadId()).thenReturn(DEV_THREAD);
-        when(task.prNumber()).thenReturn(30);
-        when(task.prState()).thenReturn("merged");
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(taskStore.pendingCompletionSummaryTurnId(TASK_ID)).thenReturn(Optional.empty());
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
-        Thread devThread = mock(Thread.class);
-        when(devThread.workspaceId()).thenReturn("ws-default");
-        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("summary-turn-1");
-
-        service.onTaskCompleted(
-                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
-
-        ArgumentCaptor<Thread> saved = ArgumentCaptor.forClass(Thread.class);
-        verify(threadStore).saveThread(saved.capture());
-        assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
-        ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
-        verify(scheduler).enqueueTaskTurn(
-                eq(saved.getValue()), anyString(), eq(TASK_ID), initiator.capture(), any(), any());
-        assertThat(initiator.getValue().attended()).isFalse();
-        verify(taskStore).setPendingCompletionSummaryTurnId(TASK_ID, "summary-turn-1");
-    }
-
-    @Test
-    void taskCompletedPromptNamesTheMergedOrClosedPr()
-    {
-        Task merged = mock(Task.class);
-        when(merged.id()).thenReturn(TASK_ID);
-        when(merged.threadId()).thenReturn(DEV_THREAD);
-        when(merged.prNumber()).thenReturn(30);
-        when(merged.prState()).thenReturn("merged");
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(merged));
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
-        Thread devThread = mock(Thread.class);
-        when(devThread.workspaceId()).thenReturn("ws-default");
-        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("summary-turn-1");
-
-        service.onTaskCompleted(
-                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
-
-        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTaskTurn(
-                any(), prompt.capture(), eq(TASK_ID), any(), any(), any());
-        assertThat(prompt.getValue()).contains("#30").contains("was merged");
-    }
-
-    @Test
-    void taskCompletedSkipsWhenATurnIsAlreadyPending()
-    {
-        when(taskStore.pendingCompletionSummaryTurnId(TASK_ID)).thenReturn(Optional.of("already-pending"));
-
-        service.onTaskCompleted(
-                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
-
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any());
-    }
-
-    @Test
-    void taskCompletedLeavesNoPendingTurnIdWhenEnqueueFails()
-    {
-        Task task = mock(Task.class);
-        when(task.id()).thenReturn(TASK_ID);
-        when(task.threadId()).thenReturn(DEV_THREAD);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.empty());
-        Thread devThread = mock(Thread.class);
-        when(devThread.workspaceId()).thenReturn("ws-default");
-        when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
-        when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
-                .thenThrow(new RuntimeException("scheduler busy"));
-
-        service.onTaskCompleted(
-                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
-
-        // No pending turn id recorded — TaskCompletionAnnouncer's sweep is the backstop.
-        verify(taskStore, never()).setPendingCompletionSummaryTurnId(anyString(), anyString());
-    }
-
-    @Test
-    void ignoresNonCompletionPhaseTransitions()
-    {
-        service.onTaskCompleted(
-                new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING, "x"));
-
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any());
-    }
-
-    @Test
-    void rejectsBlankTextAndUnknownTask()
+    void rejectsBlankTextAndUnknownTasks()
     {
         assertThatThrownBy(() -> service.sendMessage(TASK_ID, "  ", null))
                 .isInstanceOf(ResponseStatusException.class);
-
-        when(taskStore.findTaskById("missing")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.sendMessage("missing", "hi", null))
                 .isInstanceOf(ResponseStatusException.class);
     }

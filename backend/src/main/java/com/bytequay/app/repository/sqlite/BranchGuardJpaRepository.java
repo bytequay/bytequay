@@ -15,10 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.List;
-
 interface BranchGuardJpaRepository
         extends JpaRepository<BranchGuardEntity, String>
 {
-    List<BranchGuardEntity> findByEnabledTrue();
 }

@@ -188,13 +188,6 @@ class TaskEntity
     @Column(name = "merge_queue_retries")
     private int mergeQueueRetries;
 
-    /** The brain's in-flight "summarize this task for the trunk" turn (V149),
-     *  set when the task reaches COMPLETED and cleared once
-     *  TaskCompletionAnnouncer picks up its finish event (or the
-     *  stale-completion sweep gives up). Null the rest of the time. */
-    @Column(name = "pending_completion_summary_turn_id")
-    private String pendingCompletionSummaryTurnId;
-
     /** V2 aggregate fence. The database owns increments and creation's
      * default; legacy full-row saves must never overwrite it. */
     @Column(name = "epoch", nullable = false, insertable = false, updatable = false)
@@ -374,9 +367,4 @@ class TaskEntity
 
     Long getReadyGateSentAtMs() { return readyGateSentAtMs; }
     void setReadyGateSentAtMs(Long readyGateSentAtMs) { this.readyGateSentAtMs = readyGateSentAtMs; }
-
-    String getPendingCompletionSummaryTurnId() { return pendingCompletionSummaryTurnId; }
-    void setPendingCompletionSummaryTurnId(String pendingCompletionSummaryTurnId) {
-        this.pendingCompletionSummaryTurnId = pendingCompletionSummaryTurnId;
-    }
 }

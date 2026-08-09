@@ -261,7 +261,7 @@ class TestSqliteStageStore
     }
 
     @Test
-    void unroundedQueryExcludesResolvedRemoteCommentsAndPersistsGeneralComments()
+    void persistsGeneralRemoteCommentsAndTheirResolutionNotification()
     {
         String taskId = seedTask();
         Instant now = Instant.parse("2026-06-20T10:00:00Z");
@@ -276,9 +276,6 @@ class TestSqliteStageStore
                 "https://github.com/acme/widgets/pull/42#discussion_r2",
                 true, 2L, null, null, null, "RIGHT", null, null));
 
-        assertThat(stageStore.findUnroundedRemoteComments(taskId))
-                .extracting(ReviewComment::id)
-                .containsExactly(openGeneral.id());
         assertThat(stageStore.findReviewCommentByRemoteLink(openGeneral.remoteLink()))
                 .get().extracting(ReviewComment::file).isNull();
 

@@ -253,16 +253,6 @@ class SqliteStageStore
     }
 
     @Override
-    public List<ReviewComment> findUnroundedRemoteComments(String taskId)
-    {
-        return comments.findByTaskIdAndSourceAndRoundIdIsNullAndResolvedFalse(
-                        taskId, ReviewCommentSource.REMOTE_REVIEWER.name())
-                .stream()
-                .map(SqliteStageStore::toComment)
-                .toList();
-    }
-
-    @Override
     public List<ReviewComment> findCommentsByRound(UUID roundId)
     {
         return comments.findByRoundIdOrderByCreatedAtMsAsc(roundId.toString()).stream()

@@ -134,7 +134,7 @@ class TestReviewPanelIntegration
         ReviewerSeat reviewerSeat = new ReviewerSeat(
                 turnRunner, new SeatContextAssembler(reviewStore), seatToolset,
                 endpoints, budget, diffCache, reviewStore, mapper,
-                new CliReviewRunner(mapper), new CliReviewSessionRegistry(), admission);
+                new CliReviewRunner(mapper), admission);
         LeadToolset leadToolset = new LeadToolset(
                 reviewStore, seatToolset, reviewerSeat, admission, mapper);
         LeadOrchestrator leadOrchestrator = new LeadOrchestrator(

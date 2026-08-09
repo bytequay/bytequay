@@ -13,196 +13,45 @@
  */
 package com.bytequay.app.service.stage;
 
-import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageType;
 import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.stage.StageMetrics.AutoPushBudget;
-import com.bytequay.app.service.threads.NotificationService;
-import com.bytequay.app.service.threads.TaskAutoPushEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
-/**
- * Owns the per-stage-instance auto-push budget. A fresh
- * {@code CiFixingStage} starts with {@link #DEFAULT_AUTO_PUSH_BUDGET}
- * autonomous pushes; each {@link TaskAutoPushEvent} spends one. On
- * exhaustion the stage records the audit event, flags itself exhausted,
- * and fires a needs-attention notification so the user can extend the
- * budget or fall back to per-push review (see {@code StageBudgetController}).
- *
- * <p>This is the per-instance accounting from the design; the task-level
- * consecutive-auto-push cap the phase machine enforces is a separate,
- * coarser guard that parks the phase.
- */
+/** Read projection for historical LEGACY stage budgets. */
 @Component
 public class StageBudgetService
 {
-    /** Default autonomous pushes per ci-fixing stage instance. */
-    public static final int DEFAULT_AUTO_PUSH_BUDGET = 5;
-
-    /** Default bump applied by the "extend budget" recovery action. */
-    public static final int DEFAULT_BUDGET_EXTENSION = 5;
-
     private static final Logger log = LoggerFactory.getLogger(StageBudgetService.class);
 
-    private final StageStore stageStore;
-    private final TaskStore taskStore;
-    private final NotificationService notifications;
+    private final StageStore stages;
     private final ObjectMapper mapper;
 
-    public StageBudgetService(
-            StageStore stageStore,
-            TaskStore taskStore,
-            NotificationService notifications,
-            ObjectMapper mapper)
+    public StageBudgetService(StageStore stages, ObjectMapper mapper)
     {
-        this.stageStore = requireNonNull(stageStore, "stageStore is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.notifications = requireNonNull(notifications, "notifications is null");
+        this.stages = requireNonNull(stages, "stages is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    /**
-     * Seed a freshly-opened monitor stage's metrics: ci-fixing gets a
-     * budget and autonomous pushes; remote development gates every push. A
-     * no-op for every other stage type.
-     */
-    @Transactional
     public void onStageOpened(StageInstance stage)
     {
-        rejectLegacyMutation();
-        switch (stage.type()) {
-            case CI_FIXING_STAGE -> writeMetrics(stage.id(),
-                    StageMetrics.empty().withBudget(AutoPushBudget.fresh(DEFAULT_AUTO_PUSH_BUDGET)));
-            case REMOTE_DEVELOPMENT_STAGE, REVIEW_MONITOR_STAGE -> writeMetrics(stage.id(),
-                    StageMetrics.empty().withInternalReviewEnabled(true));
-            default -> {
-                // No metrics seeded for non-monitor stages.
-            }
-        }
-    }
-
-    @Transactional
-    public void onAutoPush(TaskAutoPushEvent event)
-    {
-        rejectLegacyMutation();
-        Optional<StageInstance> active = stageStore.findActiveStage(event.taskId())
-                .filter(s -> s.type() == StageType.CI_FIXING_STAGE);
-        if (active.isEmpty()) {
-            return;
-        }
-        StageInstance stage = active.get();
-        StageMetrics metrics = readMetrics(stage.id());
-        if (metrics.autoPushBudget() == null) {
-            return;
-        }
-        AutoPushBudget spent = metrics.autoPushBudget().decremented();
-        StageMetrics updated = metrics.withBudget(spent);
-        if (spent.exhausted() && !metrics.budgetExhausted()) {
-            updated = updated.withBudgetExhausted(true);
-            onExhausted(event.taskId(), stage.id(), spent);
-        }
-        writeMetrics(stage.id(), updated);
-    }
-
-    /**
-     * Recovery action: extend the exhausted stage's budget by
-     * {@code additional} (default {@link #DEFAULT_BUDGET_EXTENSION}) and
-     * resume autonomous pushes. 404 if the stage is unknown, 422 unless its
-     * budget is actually exhausted.
-     */
-    @Transactional
-    public StageMetrics extendBudget(UUID stageId, Integer additional)
-    {
-        rejectLegacyMutation();
-        int bump = additional == null || additional <= 0 ? DEFAULT_BUDGET_EXTENSION : additional;
-        StageInstance stage = requireExhaustedStage(stageId);
-        StageMetrics metrics = readMetrics(stageId);
-        StageMetrics updated = metrics
-                .withBudget(metrics.autoPushBudget().extendedBy(bump))
-                .withBudgetExhausted(false);
-        writeMetrics(stageId, updated);
-
-        // Reset the task-level cap too, so autonomous pushes actually resume.
-        taskStore.setConsecutiveAutoPushes(stage.taskId(), 0);
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("decision", "extend");
-        payload.put("additional", bump);
-        stageStore.recordEvent(stageId, stage.taskId(), StageEventType.BUDGET_EXHAUSTED_DECISION, payload);
-        return updated;
-    }
-
-    /**
-     * Recovery action: leave the budget exhausted but flip the stage to
-     * gate every subsequent push behind internal review. 404 if unknown,
-     * 422 unless the budget is actually exhausted.
-     */
-    @Transactional
-    public StageMetrics fallbackToReview(UUID stageId)
-    {
-        rejectLegacyMutation();
-        StageInstance stage = requireExhaustedStage(stageId);
-        StageMetrics updated = readMetrics(stageId)
-                .withInternalReviewEnabled(true)
-                .withBudgetExhausted(false);
-        writeMetrics(stageId, updated);
-
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("decision", "fallback_to_internal_review");
-        stageStore.recordEvent(stageId, stage.taskId(), StageEventType.BUDGET_EXHAUSTED_DECISION, payload);
-        return updated;
-    }
-
-    private static void rejectLegacyMutation()
-    {
         throw new ResponseStatusException(
-                HttpStatusCode.valueOf(409),
+                HttpStatus.CONFLICT,
                 "LEGACY stage budgets are read-only; use typed V2 CI-repair recovery");
-    }
-
-    private StageInstance requireExhaustedStage(UUID stageId)
-    {
-        StageInstance stage = stageStore.findStageById(stageId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no stage: " + stageId));
-        if (!readMetrics(stageId).budgetExhausted()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
-                    "stage " + stageId + " is not awaiting a budget decision");
-        }
-        return stage;
-    }
-
-    private void onExhausted(String taskId, UUID stageId, AutoPushBudget budget)
-    {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("reason", "auto_push_budget_exhausted");
-        payload.put("limit", budget.limit());
-        payload.put("used", budget.used());
-        stageStore.recordEvent(stageId, taskId, StageEventType.BUDGET_EXHAUSTED, payload);
-
-        taskStore.findTaskById(taskId).ifPresent(task ->
-                notifications.notifyNeedsAttention(task.threadId(), taskId, toJson(payload)));
     }
 
     StageMetrics readMetrics(UUID stageId)
     {
-        String json = stageStore.findMetricsJson(stageId).orElse(null);
+        String json = stages.findMetricsJson(stageId).orElse(null);
         if (json == null || json.isBlank()) {
             return StageMetrics.empty();
         }
@@ -212,21 +61,6 @@ public class StageBudgetService
         catch (JsonProcessingException e) {
             log.warn("unparseable metrics_json for stage {}: {}", stageId, e.getMessage());
             return StageMetrics.empty();
-        }
-    }
-
-    void writeMetrics(UUID stageId, StageMetrics metrics)
-    {
-        stageStore.updateMetricsJson(stageId, toJson(metrics));
-    }
-
-    private String toJson(Object value)
-    {
-        try {
-            return mapper.writeValueAsString(value);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("stage metrics JSON serialise failed", e);
         }
     }
 }

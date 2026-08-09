@@ -108,7 +108,6 @@ class TestReviewerSeat
                 reviewStore,
                 mapper,
                 new CliReviewRunner(mapper),
-                new CliReviewSessionRegistry(),
                 admission);
     }
 

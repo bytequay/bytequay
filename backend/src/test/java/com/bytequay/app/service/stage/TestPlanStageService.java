@@ -34,8 +34,6 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.brain.BrainServiceImpl;
-import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -78,8 +76,6 @@ class TestPlanStageService
     private ThreadStore threadStore;
     @Autowired
     private ThreadTurnStore turnStore;
-    @Autowired
-    private BrainServiceImpl brainService;
     /** Mocked so the approval / replan kickoff enqueues a turn without the
      *  real scheduler dispatching an agent on a background thread (which would
      *  race this test's own SQLite writes). */
@@ -252,9 +248,7 @@ class TestPlanStageService
     {
         String taskId = seedTask();
         stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
-        // Create the brain thread (the kickoff enqueue is mocked away).
-        brainService.onPlanKickoff(new PlanKickoffRequested(taskId, "do the thing", null));
-        String brainId = threadStore.findBrainThreadByTask(taskId).orElseThrow().id();
+        String brainId = seedBrainThread(taskId);
         String turnId = saveKickoffTurn(taskId, brainId, "plan-kickoff");
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
@@ -361,6 +355,18 @@ class TestPlanStageService
     private String seedTask()
     {
         return seedTask("DEVELOP", null, Task.ORIGIN_USER);
+    }
+
+    private String seedBrainThread(String taskId)
+    {
+        Instant now = Instant.parse("2026-06-20T09:15:00Z");
+        Thread brain = new Thread(
+                UUID.randomUUID().toString(), ThreadKind.BRAIN_AGENT, "claude-code",
+                null, "Brain · " + taskId, ThreadStatus.IDLE, "claude-sonnet-4-6",
+                0L, 0L, 0L, now, now, null, null, ThreadFlow.BUILD, "ws-default",
+                null, null, 1, taskId);
+        threadStore.saveThread(brain);
+        return brain.id();
     }
 
     private String seedTask(String taskType, Integer issueNumber, String origin)

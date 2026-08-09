@@ -22,7 +22,6 @@ import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
-import com.bytequay.app.service.checks.ValidationExecutorRegistry;
 import com.bytequay.app.service.stage.PlanStageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,7 +74,6 @@ public class TaskRuntimeStopReconciler
     private final ThreadRegistry registry;
     private final ThreadTurnScheduler scheduler;
     private final ValidationPassStore validationStore;
-    private final ValidationExecutorRegistry executorRegistry;
     // Provider breaks the construction cycle: TaskService owns the resume
     // completion command's choreography and also calls back into this
     // reconciler from its pause teardown callback.
@@ -88,7 +86,6 @@ public class TaskRuntimeStopReconciler
             ThreadRegistry registry,
             ThreadTurnScheduler scheduler,
             ValidationPassStore validationStore,
-            ValidationExecutorRegistry executorRegistry,
             ObjectProvider<TaskService> taskService,
             ObjectProvider<PlanStageService> planStages)
     {
@@ -97,7 +94,6 @@ public class TaskRuntimeStopReconciler
         this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.validationStore = requireNonNull(validationStore, "validationStore is null");
-        this.executorRegistry = requireNonNull(executorRegistry, "executorRegistry is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.planStages = requireNonNull(planStages, "planStages is null");
     }
@@ -161,9 +157,6 @@ public class TaskRuntimeStopReconciler
         }
         Instant now = Instant.now();
         for (ValidationClaim claim : validationStore.findOpenByTask(taskId)) {
-            if (executorRegistry.isInFlight(claim.claimKey())) {
-                return false;
-            }
             if (claim.leaseUntil() != null && claim.leaseUntil().isAfter(now)) {
                 return false;
             }

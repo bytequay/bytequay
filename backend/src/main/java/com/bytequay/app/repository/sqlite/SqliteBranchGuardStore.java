@@ -24,7 +24,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -64,15 +63,6 @@ class SqliteBranchGuardStore
     public Optional<BranchGuard> findByTask(String taskId)
     {
         return guards.findById(taskId).map(this::toDomain);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<BranchGuard> findEnabled()
-    {
-        return guards.findByEnabledTrue().stream()
-                .map(this::toDomain)
-                .toList();
     }
 
     private BranchGuard toDomain(BranchGuardEntity e)

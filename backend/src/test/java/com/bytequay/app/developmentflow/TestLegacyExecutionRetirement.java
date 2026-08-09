@@ -13,18 +13,14 @@
  */
 package com.bytequay.app.developmentflow;
 
-import com.bytequay.app.developmentflow.execution.CapacityManager;
-import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestLegacyExecutionRetirement
 {
@@ -32,26 +28,7 @@ class TestLegacyExecutionRetirement
     private static final Path SERVICES = MAIN.resolve(
             "java/com/bytequay/app/service");
 
-    private static final List<String> DETACHED_LEGACY_OWNERS = List.of(
-            "stage/StageLifecycle.java",
-            "threads/TaskLifecycleDriver.java",
-            "threads/TaskPrePushDriver.java",
-            "threads/AutomationCoordinator.java",
-            "threads/CiFixRunExecutor.java",
-            "checks/ValidationCancellationReconciler.java",
-            "stage/ReviewStageCloser.java",
-            "threads/AutoApproveGateListener.java",
-            "review/BranchGuardJob.java",
-            "threads/TaskCompletionAnnouncer.java",
-            "threads/TaskSchedulerConflictBridge.java",
-            "threads/ThreadStartupReconciler.java",
-            "threads/PlanningBaseRefresher.java",
-            "IdleThreadArchiver.java",
-            "signal/ThreadSignalRecorder.java",
-            "checks/RoundValidationListener.java");
-
     private static final List<String> DIRECT_ONLY_LEGACY_CALLBACKS = List.of(
-            "checks/ValidationClaimService.java",
             "localpr/TaskPushSaga.java",
             "review/RoundGateSaga.java",
             "review/BrainReviewServiceImpl.java",
@@ -125,18 +102,6 @@ class TestLegacyExecutionRetirement
     }
 
     @Test
-    void retiredSagaGateRejectsInsteadOfSilentlyDeferring()
-    {
-        RetiredSagaGate gate = new RetiredSagaGate();
-
-        assertThatThrownBy(() -> gate.tryAcquire(
-                "legacy-task", "legacy-operation",
-                Set.of(CapacityManager.CapacityLane.GITHUB)))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("LEGACY saga execution is retired");
-    }
-
-    @Test
     void productionStorageRejectsFreshLegacyTasks()
             throws IOException
     {
@@ -152,18 +117,6 @@ class TestLegacyExecutionRetirement
     void legacyLifecycleOwnersCannotRejoinAutomaticSpringExecution()
             throws IOException
     {
-        for (String relative : DETACHED_LEGACY_OWNERS) {
-            String source = Files.readString(SERVICES.resolve(relative));
-            assertThat(source)
-                    .as(relative)
-                    .doesNotContain(
-                            "@Component",
-                            "@Service",
-                            "@Scheduled",
-                            "@Async",
-                            "@EventListener",
-                            "@TransactionalEventListener");
-        }
         for (String relative : DIRECT_ONLY_LEGACY_CALLBACKS) {
             String source = Files.readString(SERVICES.resolve(relative));
             assertThat(source)

@@ -14,10 +14,6 @@
 package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.threads.ThreadRegistry;
-import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.springframework.stereotype.Service;
 
 import java.util.NoSuchElementException;
@@ -30,18 +26,9 @@ public class SessionControlService
 {
     private final AgentRunServiceImpl runs;
 
-    public SessionControlService(
-            AgentRunServiceImpl runs,
-            ThreadStore threads,
-            ThreadTurnStore turns,
-            ThreadTurnScheduler scheduler,
-            ThreadRegistry registry)
+    public SessionControlService(AgentRunServiceImpl runs)
     {
         this.runs = requireNonNull(runs, "runs is null");
-        requireNonNull(threads, "threads is null");
-        requireNonNull(turns, "turns is null");
-        requireNonNull(scheduler, "scheduler is null");
-        requireNonNull(registry, "registry is null");
     }
 
     public AgentRun pause(String runId)

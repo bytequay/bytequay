@@ -19,7 +19,6 @@ import com.bytequay.app.repository.BranchGuardStore;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -129,12 +128,6 @@ class TestBranchGuardService
         public Optional<BranchGuard> findByTask(String taskId)
         {
             return Optional.ofNullable(row);
-        }
-
-        @Override
-        public List<BranchGuard> findEnabled()
-        {
-            return row != null && row.enabled() ? List.of(row) : List.of();
         }
     }
 }

@@ -35,7 +35,9 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
@@ -77,7 +79,7 @@ public class ReviewerSeat
     private final ReviewStore reviewStore;
     private final ObjectMapper mapper;
     private final CliReviewRunner cliRunner;
-    private final CliReviewSessionRegistry cliSessions;
+    private final Map<String, String> cliSessions = new ConcurrentHashMap<>();
     private final ReviewCallContext calls;
 
     public ReviewerSeat(
@@ -90,7 +92,6 @@ public class ReviewerSeat
             ReviewStore reviewStore,
             ObjectMapper mapper,
             CliReviewRunner cliRunner,
-            CliReviewSessionRegistry cliSessions,
             ReviewCallContext calls)
     {
         this.runner = requireNonNull(runner, "runner is null");
@@ -102,7 +103,6 @@ public class ReviewerSeat
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
-        this.cliSessions = requireNonNull(cliSessions, "cliSessions is null");
         this.calls = requireNonNull(calls, "calls is null");
     }
 

@@ -11,7 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { marked, Renderer } from 'marked';
+import { createElement, isValidElement, type ReactNode } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
+import remarkBreaks from 'remark-breaks';
+import remarkGfm from 'remark-gfm';
 import { escapeHtml, highlightToHtml } from './highlight';
 import { lookupEmoji } from './emoji';
 
@@ -38,35 +44,46 @@ function diffLineClass(line: string): string {
 }
 
 
-/** Render a fenced diff as a `<pre class="bq-diff">` of per-line spans
- *  so CSS can paint added / removed / hunk / meta rows the same way the
- *  native diff does. Empty lines get a zero-width space so the row
- *  keeps its height. */
-function renderDiffBlock(code: string): string {
-  const rows = code.replace(/\n$/, '').split('\n').map(line => {
+/** Render a fenced diff as per-line spans. Empty lines get a zero-width
+ *  space so the row keeps its height. */
+function renderDiffRows(code: string): string {
+  return code.replace(/\n$/, '').split('\n').map(line => {
     const content = line.length === 0 ? '​' : escapeHtml(line);
     return `<span class="bq-diff-line ${diffLineClass(line)}">${content}</span>`;
   }).join('');
-  return `<pre class="bq-diff"><code class="language-diff">${rows}</code></pre>`;
 }
 
-/** Shared renderer that special-cases diff fences as colored diff blocks
- *  and otherwise syntax-highlights the fence with highlight.js. Passed
- *  per-parse via options so we don't mutate the global marked singleton. */
-function makeChatRenderer(): Renderer {
-  const renderer = new Renderer();
-  renderer.code = (code: string, infostring: string | undefined): string => {
-    if (isDiffBlock(code, infostring)) {
-      return renderDiffBlock(code);
+const markdownComponents: Components = {
+  pre: ({ children }) => {
+    if (!isValidElement(children)) return createElement('pre', null, children);
+    const props = children.props as { className?: string; children?: ReactNode };
+    const code = plainCode(props.children);
+    if (code === null) return createElement('pre', null, children);
+    const lang = (props.className ?? '').replace(/^language-/, '').trim().toLowerCase();
+    if (isDiffBlock(code, lang)) {
+      return createElement('pre', { className: 'bq-diff' },
+        createElement('code', {
+          className: 'language-diff',
+          dangerouslySetInnerHTML: { __html: renderDiffRows(code) },
+        }));
     }
-    const lang = (infostring ?? '').trim().split(/\s+/)[0].toLowerCase();
-    const html = highlightToHtml(code, lang === '' ? undefined : lang);
-    return `<pre><code class="hljs${lang === '' ? '' : ` language-${lang}`}">${html}</code></pre>`;
-  };
-  return renderer;
-}
+    return createElement('pre', null,
+      createElement('code', {
+        className: `hljs${lang === '' ? '' : ` language-${lang}`}`,
+        dangerouslySetInnerHTML: {
+          __html: highlightToHtml(code, lang === '' ? undefined : lang),
+        },
+      }));
+  },
+};
 
-const diffAwareRenderer = makeChatRenderer();
+function plainCode(children: ReactNode): string | null {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children) && children.every(child => typeof child === 'string')) {
+    return children.join('');
+  }
+  return null;
+}
 
 /** Render a markdown string the same way GitHub does for PR comments:
  *  GFM rules (so triple-backtick fenced code blocks become <pre><code>)
@@ -98,9 +115,15 @@ export type MarkdownRepoContext = { owner: string; repo: string };
 export function renderMarkdown(text: string | null | undefined, repoContext?: MarkdownRepoContext): string {
   if (!text) return '';
   const normalised = text.replace(/\r\n/g, '\n');
-  const html = marked.parse(
-      normalised,
-      { gfm: true, breaks: true, async: false, renderer: diffAwareRenderer }) as string;
+  const html = renderToStaticMarkup(createElement(
+    ReactMarkdown,
+    {
+      remarkPlugins: [remarkGfm, remarkBreaks],
+      rehypePlugins: [rehypeRaw, rehypeSanitize],
+      components: markdownComponents,
+    },
+    normalised,
+  ));
   return decorateRefsAndMentions(html, repoContext);
 }
 

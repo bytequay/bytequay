@@ -115,22 +115,6 @@ interface TaskJpaRepository
     @Query("UPDATE TaskEntity t SET t.mergeQueueRetries = :retries WHERE t.id = :taskId")
     int setMergeQueueRetries(@Param("taskId") String taskId, @Param("retries") int retries);
 
-    // ── completion-summary brain turn (V149) ────────────────────────────
-
-    /** Record the in-flight "summarize this task" brain turn. */
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("UPDATE TaskEntity t SET t.pendingCompletionSummaryTurnId = :turnId WHERE t.id = :taskId")
-    int setPendingCompletionSummaryTurnId(@Param("taskId") String taskId, @Param("turnId") String turnId);
-
-    /** Clear it once the turn's finish event has been handled (or the
-     *  stale-completion sweep gives up on it). */
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("UPDATE TaskEntity t SET t.pendingCompletionSummaryTurnId = null WHERE t.id = :taskId")
-    int clearPendingCompletionSummaryTurnId(@Param("taskId") String taskId);
-
-    /** Resolve a finished turn id back to the task it was summarizing. */
-    Optional<TaskEntity> findByPendingCompletionSummaryTurnId(String pendingCompletionSummaryTurnId);
-
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.status = :to "
             + "WHERE t.id = :taskId AND t.status = :expected")

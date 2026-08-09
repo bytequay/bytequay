@@ -13,29 +13,16 @@
  */
 package com.bytequay.app.service.review;
 
-import com.bytequay.app.config.AsyncConfig;
-import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.RoundGateAuthorization;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.RoundGateStore;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.threads.TaskCommandExecutor;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
-import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
@@ -50,36 +37,10 @@ public class RoundGateSaga
     private final RoundGateStore gates;
     private final ObjectMapper mapper;
 
-    public RoundGateSaga(
-            ReviewRoundStore rounds,
-            RoundGateStore gates,
-            TaskStore tasks,
-            StageStore stages,
-            ReviewRoundStateMachine roundMachine,
-            TaskPhaseMachine taskMachine,
-            TaskCommandExecutor commands,
-            PRService prs,
-            PullRequestService pullRequests,
-            GitRunner git,
-            CodeFingerprints fingerprints,
-            RetiredSagaGate capacity,
-            ObjectMapper mapper,
-            @Qualifier(AsyncConfig.APPLICATION_EXECUTOR) Executor executor)
+    public RoundGateSaga(RoundGateStore gates, ObjectMapper mapper)
     {
-        requireNonNull(rounds, "rounds is null");
         this.gates = requireNonNull(gates, "gates is null");
-        requireNonNull(tasks, "tasks is null");
-        requireNonNull(stages, "stages is null");
-        requireNonNull(roundMachine, "roundMachine is null");
-        requireNonNull(taskMachine, "taskMachine is null");
-        requireNonNull(commands, "commands is null");
-        requireNonNull(prs, "prs is null");
-        requireNonNull(pullRequests, "pullRequests is null");
-        requireNonNull(git, "git is null");
-        requireNonNull(fingerprints, "fingerprints is null");
-        requireNonNull(capacity, "capacity is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
-        requireNonNull(executor, "executor is null");
     }
 
     public ReviewRound approve(String roundId)

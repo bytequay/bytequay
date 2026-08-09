@@ -13,17 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
-import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.RoundGateStore;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.threads.TaskCommandExecutor;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -37,22 +27,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 class TestLegacyRoundGateRetirement
 {
-    private final ReviewRoundStore rounds = mock(ReviewRoundStore.class);
     private final RoundGateStore gates = mock(RoundGateStore.class);
-    private final TaskStore tasks = mock(TaskStore.class);
-    private final StageStore stages = mock(StageStore.class);
-    private final ReviewRoundStateMachine roundMachine = mock(ReviewRoundStateMachine.class);
-    private final TaskPhaseMachine taskMachine = mock(TaskPhaseMachine.class);
-    private final TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
-    private final PRService prs = mock(PRService.class);
-    private final PullRequestService pullRequests = mock(PullRequestService.class);
-    private final GitRunner git = mock(GitRunner.class);
-    private final CodeFingerprints fingerprints = mock(CodeFingerprints.class);
-    private final RetiredSagaGate capacity = mock(RetiredSagaGate.class);
-    private final RoundGateSaga saga = new RoundGateSaga(
-            rounds, gates, tasks, stages, roundMachine, taskMachine, commands,
-            prs, pullRequests, git, fingerprints, capacity,
-            new ObjectMapper(), Runnable::run);
+    private final RoundGateSaga saga = new RoundGateSaga(gates, new ObjectMapper());
 
     @Test
     void everyLegacyMutationRejectsBeforeStoreCommandOrAdapterIo()
@@ -69,9 +45,7 @@ class TestLegacyRoundGateRetirement
         assertRetired(saga::reconcileActive);
 
         assertThat(payloadMutated).isFalse();
-        verifyNoInteractions(
-                rounds, gates, tasks, stages, roundMachine, taskMachine,
-                commands, prs, pullRequests, git, fingerprints, capacity);
+        verifyNoInteractions(gates);
     }
 
     private static void assertRetired(Runnable action)

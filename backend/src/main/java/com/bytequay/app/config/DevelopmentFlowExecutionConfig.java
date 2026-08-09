@@ -108,7 +108,6 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssista
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairNormalizationStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
-import com.bytequay.app.developmentflow.task.TaskBrainConversationResultDeliveryPort;
 import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskPolicyRevisionRedriver;
@@ -240,8 +239,8 @@ public class DevelopmentFlowExecutionConfig
                         "DEVELOPMENT_BRAIN_REVIEW", brainDelivery,
                         "DEVELOPMENT_BRAIN_RESULT_REPAIR", brainDelivery,
                         "TASK_BRAIN_CONVERSATION",
-                        new TaskBrainConversationResultDeliveryPort(
-                                codec, taskBrainConversation),
+                        (owner, fence, result) -> taskBrainConversation.deliver(
+                                codec.decode(owner, fence, result)),
                         "TASK_COMPLETION_SUMMARY",
                         new TaskOutcomeSummaryResultDeliveryPort(
                                 outcomeSummaries, outcomeSummaryRuntime,

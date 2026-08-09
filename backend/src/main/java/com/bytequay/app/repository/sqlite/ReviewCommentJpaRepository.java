@@ -35,7 +35,5 @@ interface ReviewCommentJpaRepository
 
     /** Remote comments not yet grouped into a round — what ReviewRoundServiceImpl
      *  batches on each reconcile sweep. */
-    List<ReviewCommentEntity> findByTaskIdAndSourceAndRoundIdIsNullAndResolvedFalse(String taskId, String source);
-
     List<ReviewCommentEntity> findByRoundIdOrderByCreatedAtMsAsc(String roundId);
 }

@@ -20,7 +20,6 @@ import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.ids.IdGenerator;
-import com.bytequay.app.service.stage.StageLifecycle;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.SqliteTestPools;
 import org.flywaydb.core.Flyway;
@@ -90,7 +89,6 @@ class TestV2RestartLegacyIsolation
                                 "--logging.level.root=WARN",
                                 "--spring.main.banner-mode=off")) {
             assertThat(ignored.isActive()).isTrue();
-            assertThat(ignored.getBeansOfType(StageLifecycle.class)).isEmpty();
         }
 
         assertNoLegacyRuntimeRows(jdbc, taskId);

@@ -406,34 +406,6 @@ public interface TaskStore
     {
     }
 
-    // ── completion-summary brain turn (V149) ────────────────────────────
-
-    /** Record the in-flight "summarize this task for the trunk" brain turn.
-     *  No-op default for test stores; the SQLite store overrides. */
-    default void setPendingCompletionSummaryTurnId(String taskId, String turnId)
-    {
-    }
-
-    /** Clear it once the turn's finish event has been handled, or the
-     *  stale-completion sweep gives up on it. No-op default. */
-    default void clearPendingCompletionSummaryTurnId(String taskId)
-    {
-    }
-
-    /** The task's in-flight completion-summary turn id, if any. Empty
-     *  default for test stores. */
-    default Optional<String> pendingCompletionSummaryTurnId(String taskId)
-    {
-        return Optional.empty();
-    }
-
-    /** The task a finished turn id was summarizing, if it was a tracked
-     *  completion-summary turn. Empty default for test stores. */
-    default Optional<Task> findTaskByPendingCompletionSummaryTurnId(String turnId)
-    {
-        return Optional.empty();
-    }
-
     /** Permanent removal. Drops the row plus its child {@code task_files};
      *  FK cascades handle the join. Callers must already have stopped
      *  any live agent attached to the task. */

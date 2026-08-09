@@ -14,17 +14,12 @@
 package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.threads.ThreadRegistry;
-import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestSessionControlService
@@ -33,21 +28,14 @@ class TestSessionControlService
     void allLegacyAgentRunControlsFailClosed()
     {
         AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
-        ThreadStore threads = mock(ThreadStore.class);
-        ThreadTurnStore turns = mock(ThreadTurnStore.class);
-        ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
-        ThreadRegistry registry = mock(ThreadRegistry.class);
         AgentRun run = mock(AgentRun.class);
         when(runs.findById("run-legacy")).thenReturn(Optional.of(run));
-        SessionControlService service = new SessionControlService(
-                runs, threads, turns, scheduler, registry);
+        SessionControlService service = new SessionControlService(runs);
 
         assertRetired(() -> service.pause("run-legacy"));
         assertRetired(() -> service.stop("run-legacy"));
         assertRetired(() -> service.resume("run-legacy"));
         assertRetired(() -> service.restart("run-legacy"));
-
-        verifyNoInteractions(threads, turns, scheduler, registry, run);
     }
 
     private static void assertRetired(Runnable action)

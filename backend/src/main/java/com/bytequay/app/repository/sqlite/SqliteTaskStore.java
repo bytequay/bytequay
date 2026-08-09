@@ -507,34 +507,6 @@ class SqliteTaskStore
     }
 
     @Override
-    @Transactional
-    public void setPendingCompletionSummaryTurnId(String taskId, String turnId)
-    {
-        tasks.setPendingCompletionSummaryTurnId(taskId, turnId);
-    }
-
-    @Override
-    @Transactional
-    public void clearPendingCompletionSummaryTurnId(String taskId)
-    {
-        tasks.clearPendingCompletionSummaryTurnId(taskId);
-    }
-
-    @Override
-    public Optional<String> pendingCompletionSummaryTurnId(String taskId)
-    {
-        return tasks.findById(taskId)
-                .map(TaskEntity::getPendingCompletionSummaryTurnId);
-    }
-
-    @Override
-    public Optional<Task> findTaskByPendingCompletionSummaryTurnId(String turnId)
-    {
-        return tasks.findByPendingCompletionSummaryTurnId(turnId)
-                .map(this::toTask);
-    }
-
-    @Override
     public Optional<Task> findActiveTaskByPrRef(String prRef)
     {
         return tasks.findFirstByLinkedPrRefAndPhaseNot(prRef, TaskPhase.COMPLETED.name())

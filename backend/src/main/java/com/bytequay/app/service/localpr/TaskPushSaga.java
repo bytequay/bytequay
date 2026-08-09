@@ -13,21 +13,10 @@
  */
 package com.bytequay.app.service.localpr;
 
-import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.TaskPushAuthorization;
-import com.bytequay.app.repository.LocalReviewSubmissionStore;
-import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.threads.NotificationService;
-import com.bytequay.app.service.threads.TaskCommandExecutor;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
@@ -50,37 +39,10 @@ public class TaskPushSaga
     private final TaskPushStore pushes;
     private final ObjectMapper mapper;
 
-    public TaskPushSaga(
-            PRService prs,
-            TaskStore tasks,
-            WatchedRepoStore watchedRepos,
-            GitRunner git,
-            PullRequestRepository pullRequests,
-            PatResolver pats,
-            ReviewRoundStore rounds,
-            CodeFingerprints fingerprints,
-            TaskPushStore pushes,
-            TaskCommandExecutor commands,
-            TaskPhaseMachine taskMachine,
-            NotificationService notifications,
-            LocalReviewSubmissionStore submissions,
-            RetiredSagaGate capacity,
-            ObjectMapper mapper)
+    public TaskPushSaga(TaskStore tasks, TaskPushStore pushes, ObjectMapper mapper)
     {
-        requireNonNull(prs, "prs is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
-        requireNonNull(watchedRepos, "watchedRepos is null");
-        requireNonNull(git, "git is null");
-        requireNonNull(pullRequests, "pullRequests is null");
-        requireNonNull(pats, "pats is null");
-        requireNonNull(rounds, "rounds is null");
-        requireNonNull(fingerprints, "fingerprints is null");
         this.pushes = requireNonNull(pushes, "pushes is null");
-        requireNonNull(commands, "commands is null");
-        requireNonNull(taskMachine, "taskMachine is null");
-        requireNonNull(notifications, "notifications is null");
-        requireNonNull(submissions, "submissions is null");
-        requireNonNull(capacity, "capacity is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 

@@ -15,7 +15,6 @@ package com.bytequay.app.repository;
 
 import com.bytequay.app.domain.BranchGuard;
 
-import java.util.List;
 import java.util.Optional;
 
 /** Persistence boundary for {@link BranchGuard} — one row per task. */
@@ -24,7 +23,4 @@ public interface BranchGuardStore
     BranchGuard save(BranchGuard guard);
 
     Optional<BranchGuard> findByTask(String taskId);
-
-    /** Every enabled guard — what {@code BranchGuardJob} scans each tick. */
-    List<BranchGuard> findEnabled();
 }

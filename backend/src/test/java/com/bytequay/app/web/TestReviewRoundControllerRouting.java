@@ -68,10 +68,8 @@ class TestReviewRoundControllerRouting
         verify(legacy).findByTask("legacy-task");
         verify(v2).findByTask("v2-task");
         verify(legacy).findById("legacy-round");
-        verify(legacy, never()).approve("legacy-round");
         verify(v2).approve("v2-batch");
         verify(legacy, never()).findByTask("v2-task");
-        verify(legacy, never()).approve("v2-batch");
     }
 
     private static ReviewRound round(String id, String taskId)

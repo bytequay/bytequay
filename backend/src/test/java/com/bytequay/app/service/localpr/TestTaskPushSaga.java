@@ -13,19 +13,8 @@
  */
 package com.bytequay.app.service.localpr;
 
-import com.bytequay.app.developmentflow.execution.RetiredSagaGate;
-import com.bytequay.app.repository.LocalReviewSubmissionStore;
-import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
-import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.threads.NotificationService;
-import com.bytequay.app.service.threads.TaskCommandExecutor;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,7 +26,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 class TestTaskPushSaga
 {
-    private PRService prs;
     private TaskStore tasks;
     private TaskPushStore pushes;
     private TaskPushSaga saga;
@@ -45,25 +33,9 @@ class TestTaskPushSaga
     @BeforeEach
     void setUp()
     {
-        prs = mock(PRService.class);
         tasks = mock(TaskStore.class);
         pushes = mock(TaskPushStore.class);
-        saga = new TaskPushSaga(
-                prs,
-                tasks,
-                mock(WatchedRepoStore.class),
-                mock(GitRunner.class),
-                mock(PullRequestRepository.class),
-                mock(PatResolver.class),
-                mock(ReviewRoundStore.class),
-                mock(CodeFingerprints.class),
-                pushes,
-                mock(TaskCommandExecutor.class),
-                mock(TaskPhaseMachine.class),
-                mock(NotificationService.class),
-                mock(LocalReviewSubmissionStore.class),
-                mock(RetiredSagaGate.class),
-                mock(ObjectMapper.class));
+        saga = new TaskPushSaga(tasks, pushes, mock(ObjectMapper.class));
     }
 
     @Test
@@ -81,7 +53,7 @@ class TestTaskPushSaga
         assertRetired(saga::reconcileActive);
         assertRetired(() -> saga.revokeUnclaimedInCommand("task-1", "replan"));
 
-        verifyNoInteractions(prs, tasks, pushes);
+        verifyNoInteractions(tasks, pushes);
     }
 
     private static void assertRetired(Runnable action)

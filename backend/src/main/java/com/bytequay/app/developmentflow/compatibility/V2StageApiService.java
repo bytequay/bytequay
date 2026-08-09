@@ -61,7 +61,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Compatibility adapter for Stage-detail HTTP routes whose immutable owner is
  * V2. It reads only typed V2 facts and controls exact DispatchTickets; it must
- * never resolve a legacy StageStore or ThreadRegistry agent.
+ * never resolve a legacy StageStore runtime.
  */
 @Service
 public final class V2StageApiService

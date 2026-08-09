@@ -323,8 +323,7 @@ public class StageDetailServiceImpl
     /**
      * The dev-thread messages that belong to {@code stage}: rows explicitly
      * stamped with this stage id — every message written by current code
-     * carries one (see {@code AbstractCliThreadAgent}/{@code
-     * LogicLoopThreadAgent}). A row stamped with a <em>different</em> stage
+     * carries one. A row stamped with a <em>different</em> stage
      * is excluded even when its timestamp overlaps with this one's, which is
      * what makes a callable sub-stage's transcript unambiguous.
      */

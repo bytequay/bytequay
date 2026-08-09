@@ -35,11 +35,8 @@ import static java.util.Objects.requireNonNull;
  * <p>Values are the picker's choice ids: {@code cli:<agent>},
  * {@code api:<provider>:<account>}, or {@code local} for the ds4 server.
  *
- * <p>Deliberately JDBC-direct instead of calling
- * {@code WorkspaceConfigurationService}: that service reaches
- * {@code ThreadRegistry} through {@code SessionControlService}, and the
- * registry depends on {@link WorkModelResolver} — going through it would
- * close a bean cycle.
+ * <p>Reads the narrow persisted value directly instead of constructing the
+ * broader workspace-settings response.
  */
 @Component
 public class WorkspaceEngineSettings

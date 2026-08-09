@@ -23,7 +23,7 @@ import java.util.Optional;
  * Converts one line of a CLI agent's streaming-JSON stdout into zero or
  * more {@link StreamEvent}s. Each supported CLI (Claude Code's
  * {@code stream-json}, Codex's {@code --json}) ships its own
- * implementation; {@link AbstractCliThreadAgent} holds one and feeds it
+ * implementation; the CLI provider session holds one and feeds it
  * every stdout line so the provider-agnostic lifecycle never has to know
  * the wire shape.
  *

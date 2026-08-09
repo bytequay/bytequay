@@ -48,7 +48,7 @@ export function extractImages(contentJson: string): string[] {
 }
 
 /** Read a `permission_request` message's envelope: `{callId, toolName,
- *  summary}` — see `AbstractCliThreadAgent`'s `StreamEvent.PermissionRequested`
+ *  summary}` — the `StreamEvent.PermissionRequested` payload
  *  mapping on the backend. */
 export function parsePermissionRequest(
   contentJson: string): { callId: string; toolName: string; summary: string } {

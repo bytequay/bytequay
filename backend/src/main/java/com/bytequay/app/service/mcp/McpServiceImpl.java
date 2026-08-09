@@ -30,7 +30,6 @@ import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.mcp.approval.ApprovalContext;
 import com.bytequay.app.service.skills.ByteQuayRole;
-import com.bytequay.app.service.threads.LogicLoopThreadAgent;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.PermissionResolver;
@@ -84,6 +83,24 @@ public class McpServiceImpl
      *  to switch tabs, read the call site, and decide; longer would
      *  leak DeferredResults if the browser tab dies. */
     private static final long DECISION_TIMEOUT_MS = 2L * 60L * 1000L;
+
+    private static final Set<String> BRAIN_TOOL_ALLOWLIST = ImmutableSet.of(
+            "codegraph_explore",
+            "count_operations",
+            "read_commit_summary",
+            "read_diff_summary",
+            "check_test_coverage",
+            "read_stage_metrics",
+            "read_phase_history",
+            "read_review_panel_findings",
+            "read_remote_pr_status",
+            "list_unresolved_comments",
+            "record_plan",
+            "read_plan_summary",
+            "read_dev_report",
+            "read_dev_conversation",
+            "record_pr_comment",
+            "record_review_verdict");
 
     private final AgentToolRegistry registry;
     private final PermissionResolver permissions;
@@ -257,7 +274,7 @@ public class McpServiceImpl
             // and the brain subprocess exits before it can plan.
             if (kind == ThreadKind.BRAIN_AGENT
                     && !ApprovalPromptHandler.NAME.equals(spec.name())
-                    && !LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST.contains(spec.name())) {
+                    && !BRAIN_TOOL_ALLOWLIST.contains(spec.name())) {
                 continue;
             }
             JsonNode schema;
@@ -332,7 +349,7 @@ public class McpServiceImpl
         if (!spec.availableToKind(kind)
                 || (kind == ThreadKind.BRAIN_AGENT
                         && !ApprovalPromptHandler.NAME.equals(name)
-                        && !LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST.contains(name))) {
+                        && !BRAIN_TOOL_ALLOWLIST.contains(name))) {
             // Kind gate (e.g. record_plan is brain-only) + the brain allowlist
             // scoping — same dual role as the role check: hidden in tools/list
             // and refused at call time.

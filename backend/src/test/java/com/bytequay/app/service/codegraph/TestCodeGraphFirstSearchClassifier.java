@@ -32,7 +32,7 @@ class TestCodeGraphFirstSearchClassifier
         assertThat(shell("rg -n 'DailyCard|daily-card'")).isTrue();
         assertThat(shell("pwd && rg --files -g '*.java'")).isTrue();
         assertThat(shell("grep -Rin controller backend/src")).isTrue();
-        assertThat(shell("git grep ThreadRegistry")).isTrue();
+        assertThat(shell("git grep PullRequestService")).isTrue();
         assertThat(shell("find . -type f")).isTrue();
         assertThat(shell("fd Controller frontend")).isTrue();
         assertThat(shell("tree backend/src")).isTrue();

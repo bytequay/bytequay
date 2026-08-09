@@ -118,9 +118,6 @@ public class WorkspaceService
             ThreadStore threadStore,
             WatchedRepoStore watchedRepos,
             GitRunner git,
-            // @Lazy breaks the cycle WorkspaceService → ThreadService →
-            // ThreadRegistry → WorkspaceService (the registry reads workspace
-            // context). The teardown only needs ThreadService at delete time.
             @Lazy ThreadService threadService,
             @Lazy InvestigationReviewService investigationReviews,
             ReviewSessionPurge reviewSessionPurge,

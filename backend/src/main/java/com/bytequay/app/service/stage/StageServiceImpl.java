@@ -925,7 +925,7 @@ public class StageServiceImpl
                 ? topLevelActiveStage(stages).orElse(null)
                 : null;
         return new TaskBrainViewData.RightRail(
-                buildApproval(stages, taskLiveRuns), linkedPr, List.<CommitDto>of(),
+                buildApproval(taskLiveRuns), linkedPr, List.<CommitDto>of(),
                 parentStage != null,
                 parentStage == null ? null : parentStage.id().toString(),
                 costBreakdown,
@@ -1150,7 +1150,7 @@ public class StageServiceImpl
     /** The highest-priority task decision: a workspace budget pause first,
      *  otherwise an exhausted CI auto-push approval. Null when neither is
      *  waiting on the user. */
-    private ApprovalDto buildApproval(List<StageInstance> stages, List<AgentRun> taskLiveRuns)
+    private ApprovalDto buildApproval(List<AgentRun> taskLiveRuns)
     {
         Optional<ApprovalDto> budgetPause = taskLiveRuns.stream()
                 .filter(run -> AgentRun.STATUS_PAUSED.equals(run.status()))
@@ -1166,26 +1166,7 @@ public class StageServiceImpl
                         new ApprovalDto.PrimaryAction(
                                 "Increase budget",
                                 "#/workspace/" + run.workspaceId() + "/settings/agents")));
-        if (budgetPause.isPresent()) {
-            return budgetPause.get();
-        }
-        return latestCiFixing(stages)
-                .map(stage -> Map.entry(stage, budgetService.readMetrics(stage.id())))
-                .filter(e -> e.getValue().budgetExhausted() && e.getValue().autoPushBudget() != null)
-                .map(e -> {
-                    StageInstance stage = e.getKey();
-                    StageMetrics.AutoPushBudget budget = e.getValue().autoPushBudget();
-                    return new ApprovalDto(
-                            "approve",
-                            stage.id().toString(),
-                            "CiFixingStage · push",
-                            "Auto-push budget exhausted (" + budget.used() + "/" + budget.limit() + ")",
-                            "",
-                            new ApprovalDto.PrimaryAction(
-                                    "Review & approve push",
-                                    "/api/stages/" + stage.id() + "/budget/extend"));
-                })
-                .orElse(null);
+        return budgetPause.orElse(null);
     }
 
     private static boolean isBudgetPauseReason(String reason)

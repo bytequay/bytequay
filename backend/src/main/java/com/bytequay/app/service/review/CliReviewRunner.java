@@ -45,7 +45,7 @@ import java.util.function.Consumer;
  * {@code codex exec}) and returns its assembled text plus the provider
  * session id, so the next phase can {@code --resume} the same session.
  *
- * <p>This mirrors how {@code AbstractCliThreadAgent} drives a turn — a
+ * <p>This drives one CLI turn — a
  * fresh subprocess per turn, JSONL stdout parsed by the same
  * {@link CliStreamParser}s — but stripped to what a read-only reviewer
  * needs (no MCP permission tool, no thread persistence). The provider

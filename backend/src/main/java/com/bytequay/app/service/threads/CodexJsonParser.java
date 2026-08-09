@@ -143,7 +143,7 @@ public class CodexJsonParser
     }
 
     /** {@code {"command": "<argv>"}} — the input shape the tool-call card
-     *  and {@code ToolFileOps} read. Built through the mapper so the
+     *  read. Built through the mapper so the
      *  command string is correctly JSON-escaped. */
     private String commandInputJson(JsonNode item)
     {

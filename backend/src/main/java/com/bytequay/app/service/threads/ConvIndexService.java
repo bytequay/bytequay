@@ -312,7 +312,7 @@ public class ConvIndexService
         return new ConvIndexEntry(m.seq(), summarise(text), m.ts().toEpochMilli());
     }
 
-    /** Parse {@code {"text":"…"}} (the shape ClaudeCodeCliThreadAgent
+    /** Parse {@code {"text":"…"}} (the shape Claude Code
      *  uses for user messages) and return the contained string. We
      *  fall back to the raw JSON on a parse failure so the preview
      *  still shows something — the doc's bias is "always show a

@@ -20,6 +20,7 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -81,17 +82,19 @@ class TestStageBrain
     {
         String taskId = seedTask();
         String threadId = taskStore.findTaskById(taskId).orElseThrow().threadId();
-        stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
         // Real monitor turns so the summary turn-event's turn_id FK holds.
         seedTurn("turn-a", threadId, taskId);
         seedTurn("turn-b", threadId, taskId);
 
         // Two iterations, each summarised in-line.
-        iterationService.begin(taskId, "turn-a", IterationService.TRIGGER_RED_CI);
-        UUID iterA = iterationStore.findByTurnId("turn-a").orElseThrow().id();
+        UUID iterA = UUID.randomUUID();
+        iterationStore.save(TaskStageIteration.opened(
+                iterA, stage.id(), taskId, "turn-a", 1, "red_ci", Instant.now()));
         iterationService.recordSummary(iterA, "fix #1: bumped retry default");
-        iterationService.begin(taskId, "turn-b", IterationService.TRIGGER_RED_CI);
-        UUID iterB = iterationStore.findByTurnId("turn-b").orElseThrow().id();
+        UUID iterB = UUID.randomUUID();
+        iterationStore.save(TaskStageIteration.opened(
+                iterB, stage.id(), taskId, "turn-b", 2, "red_ci", Instant.now()));
         iterationService.recordSummary(iterB, "fix #2: widened timeout");
 
         TaskBrainViewData brain = stageService.getBrain(taskId);

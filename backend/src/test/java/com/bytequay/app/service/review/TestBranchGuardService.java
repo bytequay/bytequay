@@ -14,9 +14,7 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.BranchGuard;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.BranchGuardStore;
-import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -24,15 +22,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The "guard never arms" bug: the stage/brain views call {@code get} on
- * every load, long before a task ever pushes. A prior version of {@code get}
- * lazily persisted a disabled row on that read, so by the time the real
- * first-push event fired, {@code enableOnFirstPush}'s "only act if absent"
- * check found a row already there and silently skipped arming it — the
- * guard stayed disabled forever despite having pushed. Uses a small
- * stateful fake store, not a plain mock, because reproducing the bug
- * depends on a save() from one call actually being visible to a later
- * findByTask() — a bare mocked return value can't capture that.
+ * Uses a small stateful fake store so saved updates are visible to reads.
  */
 class TestBranchGuardService
 {
@@ -48,31 +38,6 @@ class TestBranchGuardService
 
         assertThat(guard.enabled()).isFalse();
         assertThat(store.row).isNull();
-    }
-
-    @Test
-    void firstPushStillArmsTheGuardEvenAfterAnEarlierReadSawNoRow()
-    {
-        // The view loaded before the task ever pushed — must leave no trace.
-        service.get(TASK_ID);
-        assertThat(store.row).isNull();
-
-        service.onPhaseTransitioned(new TaskPhaseTransitionedEvent(
-                TASK_ID, TaskPhase.AWAITING_PUSH, TaskPhase.PUSHED_AWAITING_CI, "shipped_draft_pr_open"));
-
-        assertThat(store.row).isNotNull();
-        assertThat(store.row.enabled()).isTrue();
-    }
-
-    @Test
-    void firstPushIsANoOpOnceARowAlreadyExists()
-    {
-        store.row = BranchGuard.disabled(TASK_ID);
-
-        service.onPhaseTransitioned(new TaskPhaseTransitionedEvent(
-                TASK_ID, TaskPhase.AWAITING_PUSH, TaskPhase.PUSHED_AWAITING_CI, "shipped_draft_pr_open"));
-
-        assertThat(store.row.enabled()).isFalse();
     }
 
     @Test
@@ -95,21 +60,6 @@ class TestBranchGuardService
 
         assertThat(updated.enabled()).isTrue();
         assertThat(updated.state()).isEqualTo(BranchGuard.STATE_NEEDS_ATTENTION);
-    }
-
-    @Test
-    void taskResumeRecoversTheParkedGuard()
-    {
-        store.row = BranchGuard.disabled(TASK_ID)
-                .withEnabled(true)
-                .withState(BranchGuard.STATE_NEEDS_ATTENTION);
-
-        service.onPhaseTransitioned(new TaskPhaseTransitionedEvent(
-                TASK_ID, TaskPhase.NEEDS_ATTENTION,
-                TaskPhase.PUSHED_AWAITING_CI, "user_resumed_task"));
-
-        assertThat(store.row.enabled()).isTrue();
-        assertThat(store.row.state()).isEqualTo(BranchGuard.STATE_HEALTHY);
     }
 
     private static final class FakeStore

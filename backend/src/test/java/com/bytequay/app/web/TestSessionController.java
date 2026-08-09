@@ -21,7 +21,6 @@ import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.runs.AgentRunServiceImpl;
-import com.bytequay.app.service.runs.SessionControlService;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +32,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -44,7 +42,6 @@ class TestSessionController
     {
         AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
-        SessionControlService controls = mock(SessionControlService.class);
         V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
         AgentRun seat = new AgentRun(
                 "v2-ticket:review-seat", "task-1",
@@ -56,8 +53,7 @@ class TestSessionController
         when(v2.findById(seat.id())).thenReturn(Optional.of(seat));
         SessionProjectionService projections =
                 new SessionProjectionService(runs, reviews, v2);
-        SessionController controller = new SessionController(
-                projections, controls);
+        SessionController controller = new SessionController(projections);
 
         assertThat(controller.list("workspace-1")).isEmpty();
         assertThatThrownBy(() -> controller.get(seat.id()))
@@ -70,7 +66,6 @@ class TestSessionController
     {
         AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
-        SessionControlService controls = mock(SessionControlService.class);
         V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
         AgentRun typed = new AgentRun(
                 "v2-ticket:ticket-1", "task-1", AgentRun.KIND_DEV,
@@ -81,8 +76,7 @@ class TestSessionController
         when(v2.findById(typed.id())).thenReturn(Optional.of(typed));
         SessionProjectionService projections =
                 new SessionProjectionService(runs, reviews, v2);
-        SessionController controller = new SessionController(
-                projections, controls);
+        SessionController controller = new SessionController(projections);
 
         SessionDto detail = controller.get(typed.id());
         assertThat(detail.id()).isEqualTo(typed.id());
@@ -90,11 +84,7 @@ class TestSessionController
         assertThat(detail.controls().resume()).isFalse();
         assertThat(detail.controls().stop()).isFalse();
         assertThat(detail.controls().restart()).isFalse();
-        assertThatThrownBy(() -> controller.pause(typed.id()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("owning task or stage");
-
-        verifyNoInteractions(runs, reviews, controls);
+        verifyNoInteractions(runs, reviews);
     }
 
     @Test
@@ -120,11 +110,10 @@ class TestSessionController
         when(reviews.findRound("round-2")).thenReturn(Optional.of(latestRound));
         when(reviews.findReview("review-1")).thenReturn(Optional.of(review));
         when(reviews.rounds("review-1")).thenReturn(List.of(firstRound, latestRound));
-        SessionControlService controls = mock(SessionControlService.class);
         V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
         SessionProjectionService projections =
                 new SessionProjectionService(runs, reviews, v2);
-        SessionController controller = new SessionController(projections, controls);
+        SessionController controller = new SessionController(projections);
 
         List<SessionDto> sessions = controller.list("workspace-1");
 
@@ -142,14 +131,6 @@ class TestSessionController
         assertThat(controller.get("review-1").id()).isEqualTo("review-1");
         assertThat(projections.countLive("workspace-1")).isEqualTo(2);
 
-        when(runs.findById("task-review")).thenReturn(Optional.of(taskReview));
-        when(controls.pause("task-review")).thenReturn(taskReview.paused("paused by user"));
-        assertThat(controller.pause("task-review").trunkId()).isEqualTo("thread-1");
-        verify(controls).pause("task-review");
-
-        assertThatThrownBy(() -> controller.pause("review-1"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("pull request review panel");
         when(runs.findById("verifier")).thenReturn(Optional.of(verifier));
         assertThatThrownBy(() -> controller.get("verifier"))
                 .hasMessageContaining("no session");

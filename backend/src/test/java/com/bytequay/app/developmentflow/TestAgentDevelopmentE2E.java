@@ -26,7 +26,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.mcp.McpService;
+import com.bytequay.app.service.mcp.McpServiceImpl;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -91,7 +91,7 @@ class TestAgentDevelopmentE2E
     @Autowired
     private PlanMcpService planMcp;
     @Autowired
-    private McpService mcp;
+    private McpServiceImpl mcp;
     @Autowired
     private AgentTurnOperationHandler.Store turns;
     @Autowired
@@ -368,7 +368,7 @@ class TestAgentDevelopmentE2E
                 "Add MARKER.md at the repository root with a single line of text.";
 
         private final PlanMcpService planMcp;
-        private final McpService mcp;
+        private final McpServiceImpl mcp;
         private final AgentTurnOperationHandler.Store turns;
         private final JdbcTemplate jdbc;
         private final ObjectMapper json;
@@ -377,7 +377,7 @@ class TestAgentDevelopmentE2E
 
         private ScriptedAgent(
                 PlanMcpService planMcp,
-                McpService mcp,
+                McpServiceImpl mcp,
                 AgentTurnOperationHandler.Store turns,
                 JdbcTemplate jdbc,
                 ObjectMapper json)

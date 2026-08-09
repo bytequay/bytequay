@@ -362,7 +362,7 @@ public class WorkspaceRepositoryController
                 resolver.resolve(workspaceId);
         return interrupted(() -> local.listCommits(
                 repo.owner(), repo.repo(), revision,
-                Math.min(Math.max(limit, 1), 500)));
+                Math.clamp(limit, 1, 500)));
     }
 
     @GetMapping("/relation")
@@ -579,7 +579,7 @@ public class WorkspaceRepositoryController
                 resolver.resolve(workspaceId);
         return interrupted(() -> local.rewritableHistory(
                 repo.owner(), repo.repo(), revision,
-                Math.min(Math.max(limit, 1), 500),
+                Math.clamp(limit, 1, 500),
                 Math.max(skip, 0)));
     }
 

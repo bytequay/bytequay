@@ -19,7 +19,7 @@ import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
-import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
+import com.bytequay.app.developmentflow.stage.V2StageSteeringRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalTurn;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Predecessor;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
@@ -63,7 +63,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("append.db", false);
         Request request = request(
                 fixture, "steer-1", "command-1",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         fixture.commands().executeVoid("task-1", () ->
                 fixture.steering().insert(request, List.of()));
 
@@ -86,7 +86,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("cli-continuation.db", false, true);
         Request request = request(
                 fixture, "steer-cli", "command-cli",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         terminalizeSuccessfulCliPredecessor(fixture.jdbc());
 
         assertThat(fixture.steering().cliContinuation(
@@ -133,10 +133,10 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("cli-provider-fence.db", false, true);
         Request request = request(
                 fixture, "steer-cli", "command-cli",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         Request userWait = request(
                 fixture, "wait-cli", "wait-command-cli",
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         terminalizeSuccessfulCliPredecessor(fixture.jdbc(), "claude");
 
         assertThat(fixture.steering().cliContinuation(
@@ -218,10 +218,10 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("cli-late-user-wait.db", false, true);
         Request consumer = request(
                 fixture, "consumer", "consumer-command",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         Request lateAnswer = request(
                 fixture, "late-answer", "late-answer-command",
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         fixture.commands().executeVoid("task-1", () ->
                 fixture.steering().insert(consumer, List.of()));
         terminalizeSuccessfulCliPredecessor(fixture.jdbc());
@@ -251,7 +251,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("cli-append-lineage.db", false, true);
         Request first = request(
                 fixture, "z-steer-first", "command-first",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         Request second = new Request(
                 "a-steer-second", "command-second", first.taskId(),
                 first.taskEpoch(), first.stageId(), first.stageKind(),
@@ -288,7 +288,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("cli-append-fence.db", false, true);
         Request first = request(
                 fixture, "z-steer-first", "command-first",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         Request second = new Request(
                 "a-steer-second", "command-second", first.taskId(),
                 first.taskEpoch(), first.stageId(), first.stageKind(),
@@ -320,7 +320,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("cli-append-failed.db", false, true);
         Request first = request(
                 fixture, "z-steer-first", "command-first",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         Request second = new Request(
                 "a-steer-second", "command-second", first.taskId(),
                 first.taskEpoch(), first.stageId(), first.stageKind(),
@@ -365,7 +365,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("replace.db", false);
         Request request = request(
                 fixture, "steer-2", "command-2",
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         fixture.commands().executeVoid("task-1", () ->
                 fixture.steering().insert(request, List.of()));
         assertThat(fixture.steering().cancellationRequestedFor("operation-1"))
@@ -415,7 +415,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("malformed-result.db", false);
         Request request = request(
                 fixture, "steer-malformed", "command-malformed",
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         fixture.commands().executeVoid("task-1", () ->
                 fixture.steering().insert(request, List.of()));
         markMalformedResultPending(fixture.jdbc());
@@ -478,7 +478,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("malformed-result-live-authority.db", false);
         Request request = request(
                 fixture, "steer-malformed", "command-malformed",
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         fixture.commands().executeVoid("task-1", () ->
                 fixture.steering().insert(request, List.of()));
         markMalformedResultPending(fixture.jdbc());
@@ -549,7 +549,7 @@ class TestV2StageSteeringStore
         Fixture fixture = fixture("sibling.db", true);
         Request request = request(
                 fixture, "steer-3", "same-command",
-                V2StageSteeringControl.Mode.APPEND);
+                V2StageSteeringRuntime.Mode.APPEND);
         fixture.commands().executeVoid("task-1", () ->
                 fixture.steering().insert(request, List.of()));
 
@@ -723,7 +723,7 @@ class TestV2StageSteeringStore
 
     private static Request request(
             Fixture fixture, String id, String commandId,
-            V2StageSteeringControl.Mode mode)
+            V2StageSteeringRuntime.Mode mode)
     {
         Predecessor predecessor = fixture.steering()
                 .findPredecessor(fence("1")).orElseThrow();

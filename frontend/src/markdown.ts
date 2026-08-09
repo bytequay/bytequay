@@ -13,13 +13,10 @@
  */
 import { createElement, isValidElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import ReactMarkdown, { type Components } from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
-import rehypeSanitize from 'rehype-sanitize';
-import remarkBreaks from 'remark-breaks';
-import remarkGfm from 'remark-gfm';
+import { type Components } from 'react-markdown';
 import { escapeHtml, highlightToHtml } from './highlight';
 import { lookupEmoji } from './emoji';
+import { MarkdownRenderer } from './threads/MarkdownProse';
 
 /** Unified-diff hunk header, e.g. {@code @@ -140,20 +140,16 @@}. Its
  *  presence is the unambiguous signal that a fenced block is a diff
@@ -114,15 +111,12 @@ export type MarkdownRepoContext = { owner: string; repo: string };
 
 export function renderMarkdown(text: string | null | undefined, repoContext?: MarkdownRepoContext): string {
   if (!text) return '';
-  const normalised = text.replace(/\r\n/g, '\n');
   const html = renderToStaticMarkup(createElement(
-    ReactMarkdown,
+    MarkdownRenderer,
     {
-      remarkPlugins: [remarkGfm, remarkBreaks],
-      rehypePlugins: [rehypeRaw, rehypeSanitize],
+      text,
       components: markdownComponents,
     },
-    normalised,
   ));
   return decorateRefsAndMentions(html, repoContext);
 }

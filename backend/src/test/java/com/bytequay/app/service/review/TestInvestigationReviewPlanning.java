@@ -22,7 +22,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.InvestigationReviewContext.Snapshot;
-import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
+import com.bytequay.app.service.review.InvestigationReviewRunner.ReviewKnowledge;
 import com.bytequay.app.service.review.InvestigationReviewService.PlanDraft;
 import com.bytequay.app.service.review.InvestigationReviewService.PlanObjective;
 import com.bytequay.app.service.runs.AgentRunServiceImpl;
@@ -41,7 +41,7 @@ import static org.mockito.Mockito.when;
 class TestInvestigationReviewPlanning
 {
     private final InvestigationReviewContext contexts = mock(InvestigationReviewContext.class);
-    private final InvestigationReviewModel model = mock(InvestigationReviewModel.class);
+    private final InvestigationReviewRunner model = mock(InvestigationReviewRunner.class);
     private final PRService prs = mock(PRService.class);
     private final InvestigationReviewService service = new InvestigationReviewService(
             mock(InvestigationReviewStore.class), contexts, model,

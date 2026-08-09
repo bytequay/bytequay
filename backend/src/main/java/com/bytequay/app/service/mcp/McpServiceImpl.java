@@ -31,7 +31,9 @@ import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.mcp.approval.ApprovalContext;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.AgentTool;
 import com.bytequay.app.service.tools.AgentToolRegistry;
+import com.bytequay.app.service.tools.Gating;
 import com.bytequay.app.service.tools.PermissionResolver;
 import com.bytequay.app.service.tools.SecurityType;
 import com.bytequay.app.service.tools.ToolCall;
@@ -70,7 +72,6 @@ import static java.util.Objects.requireNonNull;
  */
 @Service
 public class McpServiceImpl
-        implements McpService
 {
     private static final Logger log = LoggerFactory.getLogger(McpServiceImpl.class);
 
@@ -142,7 +143,6 @@ public class McpServiceImpl
         this.handlersByName = Map.copyOf(map);
     }
 
-    @Override
     public DeferredResult<JsonNode> handle(String threadId, String agentKey, JsonNode request)
     {
         // Defensive guards for the cross-service reuse path — the
@@ -282,19 +282,32 @@ public class McpServiceImpl
     }
 
     // ── @AgentTool stub overrides ──────────────────────────────────────
-    // The tool catalog entries (name, description, args record,
-    // security, gating, roles) all live on {@link McpService} so the
-    // contract is readable in one place. The registry's startup scan
-    // walks each impl method's interface declarations via Spring's
-    // AnnotatedElementUtils, so the empty overrides below are all that's
-    // needed here — calling them directly is meaningless; dispatch
-    // always flows through {@link #handleToolCall}.
+    // These annotated stubs expose the tool catalog entries to the
+    // registry's startup scan. Calling them directly is meaningless;
+    // dispatch always flows through {@link #handleToolCall}.
 
-    @Override
+    @AgentTool(
+            name = "approval_prompt",
+            description = "Asks the user to allow or deny a tool call. "
+                    + "Returns a JSON envelope with behavior=allow|deny.",
+            security = SecurityType.MCP,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
     @SuppressWarnings("unused")
     public void declareApprovalPrompt(ApprovalPromptArgs args) {}
 
-    @Override
+    @AgentTool(
+            name = "run_shell",
+            description = "Run a bounded shell command in the active task's worktree. "
+                    + "Each call surfaces a permission prompt to the user — no command "
+                    + "runs without an explicit click. Policy: 60-second timeout, 256 KB "
+                    + "output cap, plain argv only, no shell operators. Quotes and "
+                    + "backslash escapes are honoured, so quote any path containing "
+                    + "spaces. Use as an escape hatch for ad-hoc probes; prefer the test "
+                    + "runner / ship_task / request_review for longer flows.",
+            security = SecurityType.CODE_EXEC,
+            gating = Gating.GATED,
+            roles = AgentRole.TASK)
     @SuppressWarnings("unused")
     public void declareRunShell(RunShellArgs args) {}
 

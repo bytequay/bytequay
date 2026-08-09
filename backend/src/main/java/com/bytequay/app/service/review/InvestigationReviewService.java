@@ -55,9 +55,9 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.CoverageReport;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.FailureClassResult;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.SweepResult;
-import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
-import com.bytequay.app.service.review.InvestigationReviewModel.ReviewTurnPrompt;
 import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
+import com.bytequay.app.service.review.InvestigationReviewRunner.ReviewKnowledge;
+import com.bytequay.app.service.review.InvestigationReviewRunner.ReviewTurnPrompt;
 import com.bytequay.app.service.review.InvestigationReviewRunner.RunOutcome;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FlowPhase;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FollowUpSeat;
@@ -148,7 +148,7 @@ public class InvestigationReviewService
 
     private final InvestigationReviewStore store;
     private final InvestigationReviewContext contexts;
-    private final InvestigationReviewModel runner;
+    private final InvestigationReviewRunner runner;
     private final AgentRunServiceImpl runs;
     private final PRService prs;
     private final TaskStore tasks;
@@ -169,28 +169,18 @@ public class InvestigationReviewService
     private TaskReviewRoundSnapshotRuntime taskReviewRoundSnapshots;
     private ReviewSessionSnapshotRuntime reviewSessionSnapshots;
 
-    @Autowired
-    public InvestigationReviewService(
-            InvestigationReviewStore store, InvestigationReviewContext contexts,
-            InvestigationReviewRunner runner, AgentRunServiceImpl runs,
-            PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper,
-            WorkspaceService workspaces)
-    {
-        this(store, contexts, (InvestigationReviewModel) runner, runs,
-                prs, tasks, threads, mapper, workspaces);
-    }
-
     InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
-            InvestigationReviewModel runner, AgentRunServiceImpl runs,
+            InvestigationReviewRunner runner, AgentRunServiceImpl runs,
             PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper)
     {
         this(store, contexts, runner, runs, prs, tasks, threads, mapper, null);
     }
 
-    private InvestigationReviewService(
+    @Autowired
+    public InvestigationReviewService(
             InvestigationReviewStore store, InvestigationReviewContext contexts,
-            InvestigationReviewModel runner, AgentRunServiceImpl runs,
+            InvestigationReviewRunner runner, AgentRunServiceImpl runs,
             PRService prs, TaskStore tasks, ThreadStore threads, ObjectMapper mapper,
             WorkspaceService workspaces)
     {
@@ -556,8 +546,7 @@ public class InvestigationReviewService
                                 assignment.id(), ROUND_GUIDANCE, subject, null,
                                 typedReviewTurns.freezeProvider(seat.provider()),
                                 typedWorkingDirectory(), prompt,
-                                Math.max(1, Math.min(
-                                        25, remainingTypedBudget(work)))));
+                                Math.clamp(remainingTypedBudget(work), 1, 25)));
                 return GuidanceProgress.WAITING;
             }
         }
@@ -682,7 +671,7 @@ public class InvestigationReviewService
                         findings.stream().map(FindingRow::id).sorted()
                                 .collect(Collectors.joining("|")),
                         null, frozenProvider(primary), typedWorkingDirectory(), prompt,
-                        Math.max(1, Math.min(10, remainingTypedBudget(work)))));
+                        Math.clamp(remainingTypedBudget(work), 1, 10)));
     }
 
     /** Returns true only after the phase moved and the caller may continue. */
@@ -761,8 +750,7 @@ public class InvestigationReviewService
                                     verifier.assignment().id(), BLIND_RECONSTRUCTION,
                                     finding.id(), null, verifier.provider(),
                                     typedWorkingDirectory(), prompt,
-                                    Math.max(1, Math.min(
-                                            10, remainingTypedBudget(work)))));
+                                    Math.clamp(remainingTypedBudget(work), 1, 10)));
                     return false;
                 }
                 if (!reconstruction.terminal()
@@ -785,9 +773,9 @@ public class InvestigationReviewService
                                 verifier.assignment().id(), INDEPENDENT_VERIFICATION,
                                 finding.id(), verifier.run().id(), verifier.provider(),
                                 typedWorkingDirectory(), prompt,
-                                Math.max(1, Math.min(
-                                        Math.max(1, currentCostCap(work) / 3),
-                                        remainingTypedBudget(work)))));
+                                Math.clamp(
+                                        remainingTypedBudget(work), 1,
+                                        Math.max(1, currentCostCap(work) / 3))));
                 return false;
             }
             if (!verification.terminal()
@@ -2000,7 +1988,7 @@ public class InvestigationReviewService
                     "epistemic_resolution must be confirmed, refuted, or unresolved");
         }
         int magnitude = input.styleEditMagnitude() == null ? 0
-                : Math.max(0, Math.min(100, input.styleEditMagnitude()));
+                : Math.clamp(input.styleEditMagnitude(), 0, 100);
         store.insertOutcome(new ReviewOutcomeRow(
                 findingId, disposition, authorResponse, resolution,
                 input.utilityAssessment() == null ? "not assessed"
@@ -2316,227 +2304,6 @@ public class InvestigationReviewService
         }
         return List.copyOf(rows);
     }
-
-    private void execute(RoundWork work)
-    {
-        int cost = 0;
-        try {
-            ensureRunning(work);
-            List<RunOutcome> investigations = new ArrayList<>();
-            CoverageReport coverage = persistMandatorySweeps(
-                    work, work.assignments().get(0).id());
-            List<ReviewObjectiveRow> applicableObjectives = work.objectives().stream()
-                    .filter(objective -> "applicable".equals(objective.applicabilityStatus()))
-                    .toList();
-            String investigationContext = investigationContext(work, coverage.promptContext());
-            boolean initialInvestigationAborted = false;
-            assignmentLoop:
-            for (int index = 0; index < work.assignments().size(); index++) {
-                AssignmentWork assignment = work.assignments().get(index);
-                int remainingAssignments = work.assignments().size() - index;
-                while (true) {
-                    int remaining = remainingBudget(work, cost);
-                    if (remaining == 0) {
-                        initialInvestigationAborted = true;
-                        break assignmentLoop;
-                    }
-                    BudgetReservation reservation = reserveProviderTurn(
-                            work, cost, Math.max(1, remaining / remainingAssignments));
-                    int capAtLaunch = reservation.roundCap();
-                    int assignmentCap = reservation.turnCap();
-                    if (assignmentCap == 0) {
-                        initialInvestigationAborted = true;
-                        break assignmentLoop;
-                    }
-                    RunOutcome investigation;
-                    try {
-                        investigation = runner.investigate(
-                                assignment.provider(), work.review().id(), assignment.id(),
-                                work.snapshot(), applicableObjectives,
-                                investigationContext, assignment.reviewerDef().persona(), assignmentCap);
-                    }
-                    catch (RuntimeException e) {
-                        releaseProviderTurn(work);
-                        throw e;
-                    }
-                    cost += investigation.costCents();
-                    completeProviderTurn(work, cost);
-                    ensureRunning(work);
-                    investigations.add(investigation);
-                    failIfProviderErrored(investigation, "investigation");
-                    boolean aborted = "ABORTED".equals(investigation.end());
-                    store.skipRunningSteps(assignment.id());
-                    cost = drainRoundMessages(
-                            work, investigations, applicableObjectives,
-                            coverage.promptContext(), cost);
-                    boolean retryWithRaisedBudget = aborted
-                            && investigation.costCents() > 0
-                            && currentCostCap(work) > capAtLaunch
-                            && remainingBudget(work, cost) > 0;
-                    if (retryWithRaisedBudget) {
-                        continue;
-                    }
-                    ReviewAssignmentRow recorded = store.assignments(work.review().id()).stream()
-                            .filter(row -> row.id().equals(assignment.id()))
-                            .findFirst()
-                            .orElseThrow();
-                    store.updateAssignmentWhileRoundRunning(
-                            assignment.id(), aborted ? "aborted" : "completed",
-                            recorded.understandingSummary().isBlank()
-                                    ? "Investigation complete." : recorded.understandingSummary(),
-                            recorded.assumptionsJson(), recorded.unknownsJson());
-                    if (aborted && remainingBudget(work, cost) == 0) {
-                        initialInvestigationAborted = true;
-                        break assignmentLoop;
-                    }
-                    // A panel seat owns only a slice of the round cap. Hitting
-                    // that slice must not discard the still-reserved budget
-                    // and skip the remaining independent seats.
-                    break;
-                }
-            }
-            if (initialInvestigationAborted) {
-                if (!store.finishRunningRound(work.round().id(), "ERRORED", null, cost)) {
-                    return;
-                }
-                reviewEvent(work.pr().id(), "round-budget-halted",
-                        node -> node.put("roundId", work.round().id()));
-                syncStandaloneOwnerAfterRound(
-                        work.review(), ThreadStatus.ERRORED, "review budget cap hit");
-                store.markRoundFinalized(work.round().id());
-                return;
-            }
-            cost = drainAndCloseMessageGate(
-                    work, investigations, applicableObjectives,
-                    coverage.promptContext(), cost);
-            List<FindingEvidenceRow> roundEvidence = store.evidence(work.review().id());
-            Map<String, List<FindingEvidenceRow>> roundEvidenceByFinding = roundEvidence.stream()
-                    .collect(Collectors.groupingBy(FindingEvidenceRow::findingId));
-            Map<String, ObservationRow> roundObservationsById = observationsById(work.review().id());
-            Set<String> findingsWithRefutes = roundEvidence.stream()
-                    .filter(edge -> "REFUTES".equals(edge.relation()))
-                    .map(FindingEvidenceRow::findingId)
-                    .collect(Collectors.toSet());
-            List<FindingRow> missingRefutationPass = store.findings(work.review().id()).stream()
-                    .filter(finding -> finding.roundId().equals(work.round().id()))
-                    .filter(finding -> !findingsWithRefutes.contains(finding.id()))
-                    .toList();
-            if (!missingRefutationPass.isEmpty()) {
-                int remaining = remainingBudget(work, cost);
-                if (remaining == 0) {
-                    for (FindingRow finding : missingRefutationPass) {
-                        insertUnknownVerification(work.run().id(), finding,
-                                "Round cost cap was reached before the mandatory counter-evidence pass.");
-                    }
-                }
-                else {
-                    AssignmentWork primary = work.assignments().get(0);
-                    int refutationCap = reserveProviderTurn(
-                            work, cost, Math.max(1, Math.min(10, remaining / 4))).turnCap();
-                    if (refutationCap == 0) {
-                        for (FindingRow finding : missingRefutationPass) {
-                            insertUnknownVerification(work.run().id(), finding,
-                                    "Round cost cap was lowered before the mandatory counter-evidence pass.");
-                        }
-                    }
-                    else {
-                        RunOutcome refutation;
-                        try {
-                            refutation = runner.selfRefute(
-                                    primary.provider(), work.review().id(), primary.id(), work.snapshot(),
-                                    missingRefutationPass.stream()
-                                            .map(finding -> findingBundle(
-                                                    finding,
-                                                    roundEvidenceByFinding.getOrDefault(
-                                                            finding.id(), List.of()),
-                                                    roundObservationsById))
-                                            .reduce("", (left, right) -> left + "\n---\n" + right),
-                                    refutationCap);
-                        }
-                        catch (RuntimeException e) {
-                            releaseProviderTurn(work);
-                            throw e;
-                        }
-                        cost += refutation.costCents();
-                        completeProviderTurn(work, cost);
-                        ensureRunning(work);
-                        investigations.add(refutation);
-                        failIfProviderErrored(refutation, "self-refutation");
-                        recordSelfRefutationPass(
-                                primary.id(), missingRefutationPass.size(), refutation);
-                        if ("ABORTED".equals(refutation.end())) {
-                            throw new IllegalStateException(
-                                    "mandatory self-refutation pass exceeded its budget");
-                        }
-                    }
-                }
-            }
-            List<FindingRow> candidates = consolidate(store.findings(work.review().id()).stream()
-                    .filter(finding -> finding.roundId().equals(work.round().id()))
-                    .toList());
-            VerificationOutcome verification;
-            if (candidates.isEmpty()) {
-                verification = VerificationOutcome.EMPTY;
-            }
-            else if (remainingBudget(work, cost) == 0) {
-                Set<String> alreadyVerified = store.verifications(work.review().id()).stream()
-                        .map(FindingVerificationRow::findingId).collect(Collectors.toSet());
-                candidates.stream().filter(finding -> !alreadyVerified.contains(finding.id()))
-                        .forEach(finding -> insertUnknownVerification(
-                                work.run().id(), finding,
-                                "Round cost cap was reached before verification."));
-                verification = VerificationOutcome.EMPTY;
-            }
-            else {
-                verification = "trivial".equals(work.plan().reviewClass())
-                        ? verifyTrivial(work, candidates) : verify(work, candidates, cost);
-            }
-            ensureRunning(work);
-            cost += verification.costCents();
-            List<FindingRow> finished = store.findings(work.review().id()).stream()
-                    .filter(finding -> finding.roundId().equals(work.round().id()))
-                    .toList();
-            materialiseComments(work, finished);
-            appendAnswerReply(work, investigations);
-            boolean coverageGaps = resolveObjectives(work, finished);
-            boolean questions = coverageGaps || finished.stream()
-                    .anyMatch(f -> !"dropped".equals(f.lifecycleStatus())
-                            && "unknown".equals(f.verificationStatus()));
-            String status = questions ? "COMPLETED_WITH_QUESTIONS" : "COMPLETED";
-            if (!store.finishRunningRoundAndAdvanceReview(
-                    work.round().id(), status, work.snapshot().headCommit(), cost)) {
-                return;
-            }
-            reviewEvent(work.pr().id(), "round-complete", node -> {
-                node.put("roundId", work.round().id());
-                node.put("findingCount", finished.size());
-            });
-            syncStandaloneOwnerAfterRound(work.review(), questions
-                    ? ThreadStatus.NEEDS_ATTENTION : ThreadStatus.AWAITING_REVIEW, null);
-            store.markRoundFinalized(work.round().id());
-        }
-        catch (RuntimeException e) {
-            // Providers preserve cancellation interrupts. Consume the flag so
-            // terminal database work can acquire the single SQLite connection.
-            Thread.interrupted();
-            if (store.findRound(work.round().id())
-                    .map(round -> "CANCELLED".equals(round.status())).orElse(false)) {
-                return;
-            }
-            log.error("Investigation round {} failed", work.round().id(), e);
-            if (!store.finishRunningRound(work.round().id(), "ERRORED", null, cost)) {
-                return;
-            }
-            reviewEvent(work.pr().id(), "round-error", node -> {
-                node.put("roundId", work.round().id());
-                node.put("message", e.getMessage() == null ? "review failed" : e.getMessage());
-            });
-            syncStandaloneOwnerAfterRound(work.review(), ThreadStatus.ERRORED,
-                    e.getMessage() == null ? "review failed" : e.getMessage());
-            store.markRoundFinalized(work.round().id());
-        }
-    }
-
     /** Mirror the standalone review lifecycle into its lightweight owner
      * thread so workspace navigation, status filters, and spend metrics see
      * the review. Task-owned reviews deliberately leave the development
@@ -2580,16 +2347,6 @@ public class InvestigationReviewService
                 .ifPresent(row -> syncStandaloneOwner(
                         row, ThreadStatus.NEEDS_ATTENTION, null));
     }
-
-    private void resyncStandaloneOwnerCost(AgentReviewRow review)
-    {
-        if (review.ownerTaskId() != null || review.ownerThreadId() == null) {
-            return;
-        }
-        threads.findThreadById(review.ownerThreadId()).ifPresent(current ->
-                syncStandaloneOwner(review, current.status(), current.errorMessage()));
-    }
-
     private void launchRound(RoundWork work)
     {
         if (typedReviewTurns == null) {
@@ -2654,152 +2411,6 @@ public class InvestigationReviewService
             throw new IllegalStateException("review round stopped");
         }
     }
-
-    private int drainAndCloseMessageGate(
-            RoundWork work, List<RunOutcome> investigations,
-            List<ReviewObjectiveRow> objectives, String coverageContext, int cost)
-    {
-        int total = cost;
-        while (true) {
-            ensureRunning(work);
-            total = drainRoundMessages(
-                    work, investigations, objectives, coverageContext, total);
-            if (store.closeMessageGateIfDrained(work.round().id())) {
-                return total;
-            }
-        }
-    }
-
-    private int drainRoundMessages(
-            RoundWork work, List<RunOutcome> investigations,
-            List<ReviewObjectiveRow> objectives, String coverageContext, int cost)
-    {
-        int total = cost;
-        while (true) {
-            List<ReviewRoundMessageRow> pending =
-                    store.pendingRoundMessages(work.round().id());
-            if (pending.isEmpty()) {
-                return total;
-            }
-            for (ReviewRoundMessageRow message : pending) {
-                ensureRunning(work);
-                if (!store.claimRoundMessage(message.id())) {
-                    continue;
-                }
-                total = processRoundMessage(
-                        work, message, investigations, objectives, coverageContext, total);
-            }
-        }
-    }
-
-    private int processRoundMessage(
-            RoundWork work, ReviewRoundMessageRow message,
-            List<RunOutcome> investigations, List<ReviewObjectiveRow> objectives,
-            String coverageContext, int cost)
-    {
-        String assignmentId = null;
-        int chargedCost = cost;
-        try {
-            int remaining = remainingBudget(work, cost);
-            if (remaining == 0) {
-                store.completeRoundMessage(
-                        message.id(), "failed",
-                        "No round budget remains for this guidance. Increase the cap and send it again.",
-                        Instant.now());
-                return cost;
-            }
-            PanelSeat seat = messageReviewer(work, message.target());
-            assignmentId = UUID.randomUUID().toString();
-            store.insertGuidanceAssignment(message.id(), new ReviewAssignmentRow(
-                    assignmentId, work.round().id(), seat.reviewerDef().id(),
-                    seat.provider().runner(), "queued", "", List.of(), List.of(),
-                    new AssignmentBudget(6, 3, 12, 5)));
-            int messageCap = reserveProviderTurn(
-                    work, cost, Math.max(1, Math.min(25, remaining))).turnCap();
-            if (messageCap == 0) {
-                store.updateAssignment(
-                        assignmentId, "aborted", "Guidance did not start because the budget was lowered.",
-                        List.of(), List.of());
-                store.completeRoundMessage(
-                        message.id(), "failed",
-                        "The round budget was lowered before this guidance could start.",
-                        Instant.now());
-                return cost;
-            }
-            String promptContext = investigationContext(work, coverageContext)
-                    + "\n\nUser guidance checkpoint\n"
-                    + "Target: " + message.target() + "\n"
-                    + "Guidance: " + message.body() + "\n"
-                    + "Address this guidance within the frozen round scope. Use read-only evidence tools "
-                    + "and record any resulting artifacts before responding.";
-            RunOutcome outcome;
-            try {
-                outcome = switch (message.target()) {
-                    case "planner" -> runner.planGuidance(
-                            seat.provider(), work.snapshot(), objectives,
-                            message.body(), messageCap);
-                    case "independent-verifier" -> runner.verifyGuidance(
-                            seat.provider(), work.snapshot(), objectives,
-                            message.body(), messageCap);
-                    default -> runner.investigate(
-                            seat.provider(), work.review().id(), assignmentId, work.snapshot(),
-                            objectives, promptContext, seat.reviewerDef().persona(), messageCap);
-                };
-            }
-            catch (RuntimeException e) {
-                releaseProviderTurn(work);
-                throw e;
-            }
-            int updatedCost = cost + outcome.costCents();
-            chargedCost = updatedCost;
-            completeProviderTurn(work, updatedCost);
-            ensureRunning(work);
-            investigations.add(outcome);
-            failIfProviderErrored(outcome, "guidance");
-            String completedAssignmentId = assignmentId;
-            ReviewAssignmentRow recorded = store.assignments(work.review().id()).stream()
-                    .filter(row -> row.id().equals(completedAssignmentId))
-                    .findFirst().orElseThrow();
-            boolean aborted = "ABORTED".equals(outcome.end());
-            store.skipRunningSteps(assignmentId);
-            store.updateAssignmentWhileRoundRunning(
-                    assignmentId, aborted ? "aborted" : "completed",
-                    recorded.understandingSummary().isBlank()
-                            ? "Guidance processed." : recorded.understandingSummary(),
-                    recorded.assumptionsJson(), recorded.unknownsJson());
-            store.completeRoundMessage(
-                    message.id(), aborted ? "failed" : "completed",
-                    aborted
-                            ? "The assigned reviewer reached the current budget boundary before completing this guidance."
-                            : messageResponse(seat.reviewerDef(), outcome, recorded),
-                    Instant.now());
-            return updatedCost;
-        }
-        catch (RuntimeException e) {
-            boolean stopped = Thread.interrupted()
-                    || store.findRound(work.round().id())
-                            .map(round -> !"RUNNING".equals(round.status())).orElse(true);
-            if (assignmentId != null) {
-                store.skipRunningSteps(assignmentId);
-                store.updateAssignment(
-                        assignmentId, stopped ? "cancelled" : "errored",
-                        stopped ? "Guidance stopped with the round." : "Guidance could not be processed.",
-                        List.of(), List.of());
-            }
-            if (stopped) {
-                throw e;
-            }
-            store.completeRoundMessage(
-                    message.id(), "failed", concise(
-                            "Guidance could not be processed: "
-                                    + (e.getMessage() == null ? "reviewer failed" : e.getMessage()),
-                            600), Instant.now());
-            log.warn("Review round {} could not process message {}: {}",
-                    work.round().id(), message.id(), e.getMessage());
-            return chargedCost;
-        }
-    }
-
     private PanelSeat messageReviewer(RoundWork work, String target)
     {
         AssignmentWork primary = work.assignments().get(0);
@@ -3071,8 +2682,8 @@ public class InvestigationReviewService
                 if (finding.severity() >= MIN_PUBLISHABLE_SEVERITY) {
                     int reconstructionCap = reserveProviderTurn(
                             work, priorCost + cost,
-                            Math.max(1, Math.min(
-                                    10, remainingBudget(work, priorCost + cost)))).turnCap();
+                            Math.clamp(
+                                    remainingBudget(work, priorCost + cost), 1, 10)).turnCap();
                     if (reconstructionCap == 0) {
                         insertUnknownVerification(verifierRun.id(), finding,
                                 "Round cost cap was lowered before blind reconstruction.");
@@ -3111,9 +2722,9 @@ public class InvestigationReviewService
                 }
                 int verificationCap = reserveProviderTurn(
                         work, priorCost + cost,
-                        Math.max(1, Math.min(
-                                Math.max(1, currentCostCap(work) / 3),
-                                verifyRemaining))).turnCap();
+                        Math.clamp(
+                                verifyRemaining, 1,
+                                Math.max(1, currentCostCap(work) / 3))).turnCap();
                 if (verificationCap == 0) {
                     insertUnknownVerification(verifierRun.id(), finding,
                             "Round cost cap was lowered before the evidence verdict.");

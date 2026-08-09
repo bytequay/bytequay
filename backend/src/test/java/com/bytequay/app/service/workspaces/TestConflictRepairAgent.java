@@ -82,7 +82,7 @@ class TestConflictRepairAgent
                         "", null, 0, "ERRORED",
                         "CLI agent exited with code 127: codex: command not found", null));
 
-        ConflictRepairAdvisor.Outcome outcome = agent.repair(
+        ConflictRepairAgent.Outcome outcome = agent.repair(
                 Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null, null);
 
         assertThat(outcome.resolved()).isFalse();
@@ -102,7 +102,7 @@ class TestConflictRepairAgent
         when(cli.run(any(), any(), any(), any(), any(), anyInt(), any(), any()))
                 .thenReturn(new CliReviewRunner.Result("", "session-1", 1_200));
 
-        ConflictRepairAdvisor.Outcome outcome = agent.repair(
+        ConflictRepairAgent.Outcome outcome = agent.repair(
                 Path.of("/tmp"), "ws-1", "Pick", List.of(), null, 1_000, null, null);
 
         // No verdict was written, so the agent would normally be asked again — but
@@ -129,13 +129,13 @@ class TestConflictRepairAgent
     @Test
     void anUnknownStatusParksAndNamesWhatWasWritten()
     {
-        ConflictRepairAdvisor.Outcome outcome = outcome("done", "all good");
+        ConflictRepairAgent.Outcome outcome = outcome("done", "all good");
 
         assertThat(outcome.resolved()).isFalse();
         assertThat(outcome.detail()).contains("unknown verdict status").contains("done");
     }
 
-    private ConflictRepairAdvisor.Outcome outcome(String status, String summary)
+    private ConflictRepairAgent.Outcome outcome(String status, String summary)
     {
         return agent.outcomeOf(
                 new AgentVerdictFile.Verdict(status, summary), null, 120, "session-9");

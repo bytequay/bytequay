@@ -181,7 +181,7 @@ public class LocalRepoController
     {
         // Cap matches what the Commits tab UI scrolls without paging.
         // Bump together when paging lands.
-        int capped = Math.min(Math.max(limit, 1), 500);
+        int capped = Math.clamp(limit, 1, 500);
         return runLocalRepoOperation(
                 () -> localRepoService.listCommits(owner, repo, revision, capped),
                 "commit listing interrupted");
@@ -358,7 +358,7 @@ public class LocalRepoController
             @PathVariable("repo") String repo,
             @RequestParam(name = "limit", required = false, defaultValue = "100") int limit)
     {
-        int capped = Math.min(Math.max(limit, 1), 500);
+        int capped = Math.clamp(limit, 1, 500);
         return runLocalRepoOperation(
                 () -> localRepoService.listActivity(owner, repo, capped),
                 "activity listing interrupted");

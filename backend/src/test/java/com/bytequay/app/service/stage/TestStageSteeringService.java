@@ -14,7 +14,7 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
-import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
+import com.bytequay.app.developmentflow.stage.V2StageSteeringRuntime;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.SqliteStageStore;
@@ -39,7 +39,7 @@ class TestStageSteeringService
     private SqliteStageStore stages;
     private TaskStore tasks;
     private V2ControlRouteStore routes;
-    private V2StageSteeringControl typed;
+    private V2StageSteeringRuntime typed;
     private StageSteeringServiceImpl service;
 
     @BeforeEach
@@ -48,7 +48,7 @@ class TestStageSteeringService
         stages = mock(SqliteStageStore.class);
         tasks = mock(TaskStore.class);
         routes = mock(V2ControlRouteStore.class);
-        typed = mock(V2StageSteeringControl.class);
+        typed = mock(V2StageSteeringRuntime.class);
         service = new StageSteeringServiceImpl(stages, tasks);
         service.setV2Routes(routes);
         service.setV2Steering(typed);
@@ -61,7 +61,7 @@ class TestStageSteeringService
         when(routes.taskForStage(stageId.toString())).thenReturn(Optional.of("task-v2"));
         when(typed.steer(
                 "task-v2", stageId.toString(), "change course", List.of(),
-                V2StageSteeringControl.Mode.APPEND, null))
+                V2StageSteeringRuntime.Mode.APPEND, null))
                 .thenReturn("stage-turn-v2");
 
         StageSteeringServiceImpl.SteerResult result = service.steer(
@@ -78,7 +78,7 @@ class TestStageSteeringService
         when(routes.taskForStage(stageId.toString())).thenReturn(Optional.of("task-v2"));
         when(typed.steer(
                 "task-v2", stageId.toString(), "replace it", List.of(),
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE,
                 "predecessor-turn"))
                 .thenReturn("replacement-turn");
 

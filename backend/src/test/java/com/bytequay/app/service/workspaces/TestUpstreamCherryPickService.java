@@ -16,6 +16,7 @@ package com.bytequay.app.service.workspaces;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.harness.HarnessService;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -260,7 +261,7 @@ class TestUpstreamCherryPickService
         when(relations.pickedCommitSubjects(any(), any()))
                 .thenReturn(ImmutableSet.of("already in the fork"));
         UpstreamCherryPickService service = service(
-                jdbc, relations, mock(ConflictRepairAdvisor.class),
+                jdbc, relations, mock(ConflictRepairAgent.class),
                 mock(PullRequestRepository.class));
 
         UpstreamCherryPickService.StartRequest request =
@@ -436,7 +437,7 @@ class TestUpstreamCherryPickService
         GitRunner git = mock(GitRunner.class);
         PatResolver pats = mock(PatResolver.class);
         PullRequestRepository pullRequests = mock(PullRequestRepository.class);
-        ObjectProvider<HarnessWatchHandoff> handoff = mock(ObjectProvider.class);
+        ObjectProvider<HarnessService> handoff = mock(ObjectProvider.class);
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
@@ -595,7 +596,7 @@ class TestUpstreamCherryPickService
         GitRunner git = mock(GitRunner.class);
         PatResolver pats = mock(PatResolver.class);
         PullRequestRepository pullRequests = mock(PullRequestRepository.class);
-        ObjectProvider<HarnessWatchHandoff> handoff = mock(ObjectProvider.class);
+        ObjectProvider<HarnessService> handoff = mock(ObjectProvider.class);
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
@@ -680,8 +681,8 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
         GitRunner git = mock(GitRunner.class);
         PRSyncService prSync = mock(PRSyncService.class);
-        ObjectProvider<HarnessWatchHandoff> provider = mock(ObjectProvider.class);
-        HarnessWatchHandoff handoff = mock(HarnessWatchHandoff.class);
+        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
+        HarnessService handoff = mock(HarnessService.class);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "fork", "acme/fork", "main");
@@ -732,7 +733,7 @@ class TestUpstreamCherryPickService
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        ConflictRepairAgent advisor = mock(ConflictRepairAgent.class);
         // The agent owns the repair now: it edits, commits the fixup and
         // validates. The program only reads the verdict off the end.
         when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
@@ -742,7 +743,7 @@ class TestUpstreamCherryPickService
                     Files.writeString(worktree.resolve("conflict.txt"), "fork and upstream\n");
                     run(worktree, "add", "conflict.txt");
                     run(worktree, "commit", "-m", "fixup! " + subject);
-                    return new ConflictRepairAdvisor.Outcome(
+                    return new ConflictRepairAgent.Outcome(
                             true, true, "kept the fork's line and upstream's change",
                             120, "session-1");
                 });
@@ -791,7 +792,7 @@ class TestUpstreamCherryPickService
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        ConflictRepairAgent advisor = mock(ConflictRepairAgent.class);
         // Claims success but leaves uncommitted work behind. A cherry-pick can
         // only be applied to a clean tree, so carrying on would fail later with
         // an error pointing at the wrong commit.
@@ -799,7 +800,7 @@ class TestUpstreamCherryPickService
                 .thenAnswer(invocation -> {
                     Path worktree = invocation.getArgument(0);
                     Files.writeString(worktree.resolve("conflict.txt"), "half done\n");
-                    return new ConflictRepairAdvisor.Outcome(
+                    return new ConflictRepairAgent.Outcome(
                             true, true, "resolved it", 100, "session-1");
                 });
         UpstreamCherryPickService service = service(jdbc, setup, advisor);
@@ -825,7 +826,7 @@ class TestUpstreamCherryPickService
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        ConflictRepairAgent advisor = mock(ConflictRepairAgent.class);
         AtomicInteger turns = new AtomicInteger();
         // The first turn never gets going — a spent budget, a dead binary — and
         // the run parks with git's own three-way output committed. The pick's
@@ -834,7 +835,7 @@ class TestUpstreamCherryPickService
         when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
                 .thenAnswer(invocation -> {
                     if (turns.incrementAndGet() == 1) {
-                        return new ConflictRepairAdvisor.Outcome(
+                        return new ConflictRepairAgent.Outcome(
                                 false, false, "the repair agent did not run: turn failed",
                                 100, "session-1");
                     }
@@ -843,7 +844,7 @@ class TestUpstreamCherryPickService
                     Files.writeString(worktree.resolve("conflict.txt"), "fork and upstream\n");
                     run(worktree, "add", "conflict.txt");
                     run(worktree, "commit", "-m", "fixup! " + subject);
-                    return new ConflictRepairAdvisor.Outcome(
+                    return new ConflictRepairAgent.Outcome(
                             true, true, "kept the fork's line and upstream's change",
                             120, "session-1");
                 });
@@ -880,13 +881,13 @@ class TestUpstreamCherryPickService
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        ConflictRepairAgent advisor = mock(ConflictRepairAgent.class);
         // Reports the conflict resolved without touching the conflicted file.
         // The worktree is clean — git's own three-way output was committed
         // before the agent started — so nothing else would notice, and the
         // markers used to be pushed and turn up in the pull request's diff.
         when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
-                .thenReturn(new ConflictRepairAdvisor.Outcome(
+                .thenReturn(new ConflictRepairAgent.Outcome(
                         true, true, "took upstream's version", 100, "session-1"));
         UpstreamCherryPickService service = service(jdbc, setup, advisor);
 
@@ -913,7 +914,7 @@ class TestUpstreamCherryPickService
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        ConflictRepairAgent advisor = mock(ConflictRepairAgent.class);
         // Commits its fixup and then reports it could not finish, so the run
         // parks with a branch that carries one more commit than it has picks.
         when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
@@ -923,7 +924,7 @@ class TestUpstreamCherryPickService
                     Files.writeString(worktree.resolve("conflict.txt"), "fork and upstream\n");
                     run(worktree, "add", "conflict.txt");
                     run(worktree, "commit", "-m", "fixup! " + subject);
-                    return new ConflictRepairAdvisor.Outcome(
+                    return new ConflictRepairAgent.Outcome(
                             false, false, "needs a human", 120, "session-1");
                 });
         UpstreamCherryPickService service = service(jdbc, setup, advisor);
@@ -957,9 +958,9 @@ class TestUpstreamCherryPickService
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        ConflictRepairAgent advisor = mock(ConflictRepairAgent.class);
         when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
-                .thenReturn(new ConflictRepairAdvisor.Outcome(
+                .thenReturn(new ConflictRepairAgent.Outcome(
                         false, false, "the repair agent did not run: claude: not found",
                         "{\"type\":\"result\",\"is_error\":true}", 0, null));
         UpstreamCherryPickService service = service(jdbc, setup, advisor);
@@ -989,9 +990,9 @@ class TestUpstreamCherryPickService
         Conflict setup = conflictingRepositories(root);
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
-        ConflictRepairAdvisor advisor = mock(ConflictRepairAdvisor.class);
+        ConflictRepairAgent advisor = mock(ConflictRepairAgent.class);
         when(advisor.repair(any(), any(), any(), any(), any(), anyLong(), any(), any()))
-                .thenReturn(new ConflictRepairAdvisor.Outcome(
+                .thenReturn(new ConflictRepairAgent.Outcome(
                         false, false, "upstream dropped the setter this fork calls",
                         500, "session-1"));
         PullRequestRepository pullRequests = mock(PullRequestRepository.class);
@@ -1050,8 +1051,8 @@ class TestUpstreamCherryPickService
 
         WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
         GitRunner git = mock(GitRunner.class);
-        ObjectProvider<HarnessWatchHandoff> provider = mock(ObjectProvider.class);
-        HarnessWatchHandoff handoff = mock(HarnessWatchHandoff.class);
+        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
+        HarnessService handoff = mock(HarnessService.class);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "fork", "acme/fork", "main");
@@ -1127,7 +1128,7 @@ class TestUpstreamCherryPickService
         JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
         createTable(jdbc);
         UpstreamCherryPickService service = service(
-                jdbc, new Conflict(target, upstream, last), mock(ConflictRepairAdvisor.class));
+                jdbc, new Conflict(target, upstream, last), mock(ConflictRepairAgent.class));
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
                 "fork-ws",
@@ -1190,8 +1191,8 @@ class TestUpstreamCherryPickService
 
         GitRunner git = mock(GitRunner.class);
         when(git.refExists(target, "pick-release")).thenReturn(true);
-        ObjectProvider<HarnessWatchHandoff> provider = mock(ObjectProvider.class);
-        HarnessWatchHandoff handoff = mock(HarnessWatchHandoff.class);
+        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
+        HarnessService handoff = mock(HarnessService.class);
         when(provider.getIfAvailable()).thenReturn(handoff);
         UpstreamCherryPickService service = new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations(target, upstream), git,
@@ -1279,8 +1280,8 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
         GitRunner git = mock(GitRunner.class);
         PRSyncService prSync = mock(PRSyncService.class);
-        ObjectProvider<HarnessWatchHandoff> provider = mock(ObjectProvider.class);
-        HarnessWatchHandoff handoff = mock(HarnessWatchHandoff.class);
+        ObjectProvider<HarnessService> provider = mock(ObjectProvider.class);
+        HarnessService handoff = mock(HarnessService.class);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "fork", "acme/fork", "main");
@@ -1391,7 +1392,7 @@ class TestUpstreamCherryPickService
     private static UpstreamCherryPickService service(
             JdbcTemplate jdbc,
             Conflict setup,
-            ConflictRepairAdvisor advisor)
+            ConflictRepairAgent advisor)
             throws Exception
     {
         return service(jdbc, setup, advisor, mock(PullRequestRepository.class));
@@ -1401,7 +1402,7 @@ class TestUpstreamCherryPickService
     private static UpstreamCherryPickService service(
             JdbcTemplate jdbc,
             Conflict setup,
-            ConflictRepairAdvisor advisor,
+            ConflictRepairAgent advisor,
             PullRequestRepository pullRequests)
             throws Exception
     {
@@ -1413,10 +1414,10 @@ class TestUpstreamCherryPickService
     private static UpstreamCherryPickService service(
             JdbcTemplate jdbc,
             WorkspaceRelationService relations,
-            ConflictRepairAdvisor advisor,
+            ConflictRepairAgent advisor,
             PullRequestRepository pullRequests)
     {
-        ObjectProvider<ConflictRepairAdvisor> advisorProvider = mock(ObjectProvider.class);
+        ObjectProvider<ConflictRepairAgent> advisorProvider = mock(ObjectProvider.class);
         when(advisorProvider.getIfAvailable()).thenReturn(advisor);
         return new UpstreamCherryPickService(
                 jdbc, new ObjectMapper(), relations, new GitRunner(),

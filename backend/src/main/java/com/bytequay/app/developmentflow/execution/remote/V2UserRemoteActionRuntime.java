@@ -732,13 +732,13 @@ public final class V2UserRemoteActionRuntime
     public void recoverCommittedDeliveries(int limit)
     {
         for (Action action : store.findCommittedUnfinalized(
-                Math.min(RECOVERY_LIMIT, Math.max(1, limit)))) {
+                Math.clamp(limit, 1, RECOVERY_LIMIT))) {
             finalizeAction(action);
         }
         if (reviewBuildComments != null) {
             for (CommentAction action : reviewBuildComments
                     .findCommittedUnfinalized(
-                            Math.min(RECOVERY_LIMIT, Math.max(1, limit)))) {
+                            Math.clamp(limit, 1, RECOVERY_LIMIT))) {
                 reviewBuildComments.finalizeAction(
                         action.id(), action.status(), clock.instant());
             }
@@ -746,14 +746,14 @@ public final class V2UserRemoteActionRuntime
         if (reviewPassPublications != null) {
             for (CommentAction action : reviewPassPublications
                     .findCommittedUnfinalized(
-                            Math.min(RECOVERY_LIMIT, Math.max(1, limit)))) {
+                            Math.clamp(limit, 1, RECOVERY_LIMIT))) {
                 reviewPassPublications.finalizeAction(
                         action.id(), action.status(), clock.instant());
             }
         }
         if (externalActions != null) {
             for (Action action : externalActions.findCommittedUnfinalized(
-                    Math.min(RECOVERY_LIMIT, Math.max(1, limit)))) {
+                    Math.clamp(limit, 1, RECOVERY_LIMIT))) {
                 finalizeExternalAction(action);
             }
         }

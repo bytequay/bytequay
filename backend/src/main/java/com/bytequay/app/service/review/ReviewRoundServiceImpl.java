@@ -20,9 +20,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
 import com.bytequay.app.service.localpr.PRService;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
@@ -81,12 +79,5 @@ public class ReviewRoundServiceImpl
                 : round.stats();
         return projected.withStats(new ReviewRound.ReviewRoundStats(
                 stats.fixed(), stats.replied(), stats.pushedBack(), openBrainFindings));
-    }
-
-    private static ResponseStatusException retired()
-    {
-        return new ResponseStatusException(
-                HttpStatus.CONFLICT,
-                "LEGACY review rounds are read-only; use typed V2 review controls");
     }
 }

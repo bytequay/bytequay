@@ -15,13 +15,12 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
+import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
-import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
-import com.bytequay.app.service.review.InvestigationReviewModel.ReviewTurnPrompt;
 import com.bytequay.app.service.skills.CavemanPrompt;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,8 +39,22 @@ import static java.util.Objects.requireNonNull;
 /** One bounded API or CLI turn against the frozen investigation tools. */
 @Component
 public class InvestigationReviewRunner
-        implements InvestigationReviewModel
 {
+    public record ReviewKnowledge(
+            String id,
+            String kind,
+            String statement,
+            List<KnowledgeItem.Applicability> applicability,
+            long updatedAtMs)
+    {
+        public ReviewKnowledge
+        {
+            applicability = applicability == null ? List.of() : List.copyOf(applicability);
+        }
+    }
+
+    public record ReviewTurnPrompt(String systemPrompt, String prompt) {}
+
     private static final Logger log = LoggerFactory.getLogger(InvestigationReviewRunner.class);
     private static final int MAX_OUTPUT_TOKENS = 4_096;
     private static final int MAX_TOOL_ITERATIONS = 18;
@@ -72,7 +85,6 @@ public class InvestigationReviewRunner
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    @Override
     public List<ReviewKnowledge> reviewKnowledge(InvestigationReviewContext.Snapshot snapshot)
     {
         return projectKnowledge.reviewKnowledgeForRepository(
@@ -86,7 +98,6 @@ public class InvestigationReviewRunner
                 .toList();
     }
 
-    @Override
     public ProviderChoice choose(String requestedRunner, String requestedProvider)
     {
         List<ReviewPassService.RosterEntry> configured = legacyRoster.roster().stream()
@@ -125,7 +136,6 @@ public class InvestigationReviewRunner
                                 "No API reviewer or Claude CLI is configured")));
     }
 
-    @Override
     public ProviderChoice chooseVerifier(ProviderChoice investigator, String requiredRunner)
     {
         return legacyRoster.roster().stream()
@@ -141,7 +151,6 @@ public class InvestigationReviewRunner
                         "Independent verification requires a configured cross-family provider"));
     }
 
-    @Override
     public RunOutcome investigate(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot,
@@ -155,7 +164,6 @@ public class InvestigationReviewRunner
                 launch.systemPrompt(), launch.prompt(), false, costCapCents);
     }
 
-    @Override
     public ReviewTurnPrompt investigationPrompt(
             String reviewId,
             InvestigationReviewContext.Snapshot snapshot,
@@ -213,7 +221,6 @@ public class InvestigationReviewRunner
         return new ReviewTurnPrompt(CavemanPrompt.wrap(system), prompt);
     }
 
-    @Override
     public RunOutcome planGuidance(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
@@ -223,7 +230,6 @@ public class InvestigationReviewRunner
                 planGuidancePrompt(snapshot, objectives, guidance), costCapCents);
     }
 
-    @Override
     public ReviewTurnPrompt planGuidancePrompt(
             InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives,
@@ -237,7 +243,6 @@ public class InvestigationReviewRunner
                 """, "User guidance for the planner");
     }
 
-    @Override
     public RunOutcome verifyGuidance(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
@@ -247,7 +252,6 @@ public class InvestigationReviewRunner
                 verifyGuidancePrompt(snapshot, objectives, guidance), costCapCents);
     }
 
-    @Override
     public ReviewTurnPrompt verifyGuidancePrompt(
             InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives,
@@ -307,7 +311,6 @@ public class InvestigationReviewRunner
                         + "\n\n" + heading + ":\n" + guidance);
     }
 
-    @Override
     public RunOutcome selfRefute(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String findingBundles,
@@ -319,7 +322,6 @@ public class InvestigationReviewRunner
                 prepared.systemPrompt(), prepared.prompt(), false, costCapCents);
     }
 
-    @Override
     public ReviewTurnPrompt selfRefutationPrompt(
             InvestigationReviewContext.Snapshot snapshot, String findingBundles)
     {
@@ -334,7 +336,6 @@ public class InvestigationReviewRunner
         return new ReviewTurnPrompt(CavemanPrompt.wrap(system), prompt);
     }
 
-    @Override
     public RunOutcome reconstruct(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String locations,
@@ -346,7 +347,6 @@ public class InvestigationReviewRunner
                 prepared.systemPrompt(), prepared.prompt(), true, costCapCents);
     }
 
-    @Override
     public ReviewTurnPrompt reconstructionPrompt(
             InvestigationReviewContext.Snapshot snapshot, String locations,
             String persona)
@@ -365,7 +365,6 @@ public class InvestigationReviewRunner
         return new ReviewTurnPrompt(CavemanPrompt.wrap(system), prompt);
     }
 
-    @Override
     public RunOutcome verify(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
@@ -379,7 +378,6 @@ public class InvestigationReviewRunner
                 prepared.systemPrompt(), prepared.prompt(), true, costCapCents);
     }
 
-    @Override
     public ReviewTurnPrompt verificationPrompt(
             InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
             String findingBundle, String blindReconstruction, String persona)
@@ -409,7 +407,6 @@ public class InvestigationReviewRunner
     /** One cheap, non-blocking planning pass. Its output is presentation-only:
      * the started round remains immutable and the service posts this as a
      * suggested amendment event. */
-    @Override
     public String suggestPlanAmendment(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives)

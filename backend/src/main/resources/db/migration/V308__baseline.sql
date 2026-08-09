@@ -240,11 +240,6 @@ CREATE INDEX idx_email_messages_inbox
     ON email_messages(account_email, is_in_inbox, received_at_ms DESC);
 CREATE INDEX idx_email_messages_thread
     ON email_messages(account_email, gmail_thread_id);
-CREATE TABLE email_account_sync (
-    account_email    TEXT NOT NULL PRIMARY KEY,
-    last_history_id  TEXT,
-    last_sync_at_ms  INTEGER
-);
 CREATE TABLE email_muted_senders (
     account_email  TEXT    NOT NULL,
     sender_email   TEXT    NOT NULL,
@@ -675,13 +670,6 @@ CREATE TABLE skill (
 , usage TEXT NOT NULL DEFAULT 'build');
 CREATE INDEX skill_scope_idx ON skill(scope, repo, enabled);
 CREATE INDEX skill_role_idx ON skill(role_tag, enabled);
-CREATE TABLE skill_asset (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    skill_id INTEGER NOT NULL REFERENCES skill(id) ON DELETE CASCADE,
-    filename TEXT NOT NULL,
-    content BLOB NOT NULL
-);
-CREATE INDEX skill_asset_skill_idx ON skill_asset(skill_id);
 CREATE TABLE permission_grant (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     scope_kind TEXT NOT NULL CHECK (scope_kind IN ('global', 'workspace', 'thread', 'task')),
@@ -1212,14 +1200,6 @@ CREATE TABLE review_outcome (
     recorded_at_ms       INTEGER NOT NULL,
     PRIMARY KEY (finding_id, user_disposition)
 );
-CREATE TABLE repo_review_conf (
-    repo_id            TEXT NOT NULL PRIMARY KEY,
-    pins_bans_json     TEXT NOT NULL DEFAULT '{}',
-    rule_deltas_json   TEXT NOT NULL DEFAULT '{}',
-    policy_deltas_json TEXT NOT NULL DEFAULT '{}',
-    auto_start         INTEGER NOT NULL DEFAULT 0,
-    auto_continue      INTEGER NOT NULL DEFAULT 1
-);
 CREATE INDEX idx_pr_comment_finding ON pr_comment(finding_id);
 CREATE INDEX idx_agent_review_owner_thread ON review_session(owner_thread_id);
 CREATE INDEX idx_agent_review_owner_task ON review_session(owner_task_id);
@@ -1247,12 +1227,6 @@ CREATE TABLE review_round_commit (
     position INTEGER NOT NULL,
     PRIMARY KEY (round_id, sha),
     UNIQUE (round_id, position)
-);
-CREATE TABLE workspace_recovery (
-    old_workspace_id TEXT PRIMARY KEY,
-    name             TEXT NOT NULL,
-    memory_md        TEXT NOT NULL,
-    created_at_ms    INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX idx_workspace_repos_one_repo_per_workspace
     ON workspace_repos(workspace_id);

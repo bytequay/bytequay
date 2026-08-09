@@ -31,7 +31,6 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -66,12 +65,11 @@ class TestPRSyncService
     private final PRService prService = mock(PRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final GitRunner git = mock(GitRunner.class);
-    private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     /** Direct executor, so background syncs run inline and assertions stay
      *  deterministic. */
     private final PRSyncService service =
-            new PRSyncService(prService, taskStore, git, brainReview, pullRequests, Runnable::run);
+            new PRSyncService(prService, taskStore, git, pullRequests, Runnable::run);
 
     private Task task(TaskPhase phase)
     {
@@ -116,7 +114,7 @@ class TestPRSyncService
     {
         List<Runnable> queued = new ArrayList<>();
         PRSyncService deferred = new PRSyncService(
-                prService, taskStore, git, brainReview, pullRequests, queued::add);
+                prService, taskStore, git, pullRequests, queued::add);
         when(prService.findTaskByRepoAndNumber("acme/widget", 42)).thenReturn(Optional.empty());
         when(prService.findByRepoAndNumber("acme/widget", 42)).thenReturn(Optional.of(pushedPr()));
         when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr()));
@@ -139,7 +137,7 @@ class TestPRSyncService
     {
         List<Runnable> queued = new ArrayList<>();
         PRSyncService deferred = new PRSyncService(
-                prService, taskStore, git, brainReview, pullRequests, queued::add);
+                prService, taskStore, git, pullRequests, queued::add);
         when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
 
         deferred.syncInBackground("pr1");
@@ -195,8 +193,6 @@ class TestPRSyncService
         when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
 
         assertThat(service.syncPRForDisplay("pr1")).contains(draft);
-
-        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
     }
 
     @Test
@@ -213,7 +209,6 @@ class TestPRSyncService
 
         service.syncList();
 
-        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
         verify(prService, never()).updateAuthor(any(), any());
         verify(prService, never()).updateSyncSnapshot(any(), any());
         verify(pullRequests, never()).refreshPullRequestDetail(any(), anyInt(), anyInt());

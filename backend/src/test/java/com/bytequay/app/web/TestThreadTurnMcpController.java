@@ -14,7 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.developmentflow.execution.agentturn.ThreadTurnOperationHandler;
-import com.bytequay.app.service.mcp.McpService;
+import com.bytequay.app.service.mcp.McpServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -40,7 +40,7 @@ class TestThreadTurnMcpController
 {
     private static final Instant NOW = Instant.parse("2026-07-28T00:00:00Z");
     private final ObjectMapper json = new ObjectMapper();
-    private final McpService service = mock(McpService.class);
+    private final McpServiceImpl service = mock(McpServiceImpl.class);
     private final ThreadTurnOperationHandler.Store turns =
             mock(ThreadTurnOperationHandler.Store.class);
     private final ThreadTurnMcpController controller =

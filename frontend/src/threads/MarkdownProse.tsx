@@ -33,6 +33,11 @@ type Props = {
   text: string;
 };
 
+type MarkdownRendererProps = {
+  text: string;
+  components?: Components;
+};
+
 const monoFont = 'var(--font-mono)';
 
 // Memoized (and the components map built once at module scope) so a
@@ -41,16 +46,23 @@ const monoFont = 'var(--font-mono)';
 export const MarkdownProse = memo(function MarkdownProse({ text }: Props) {
   return (
     <div style={cardStyles.root}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkBreaks]}
-        rehypePlugins={[rehypeRaw, rehypeSanitize]}
-        components={cardComponents}
-      >
-        {normalizeForMarkdown(text)}
-      </ReactMarkdown>
+      <MarkdownRenderer text={text} components={cardComponents} />
     </div>
   );
 });
+
+/** Shared sanitized GFM pipeline used by both React prose and HTML previews. */
+export function MarkdownRenderer({ text, components }: MarkdownRendererProps) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkBreaks]}
+      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      components={components}
+    >
+      {normalizeForMarkdown(text)}
+    </ReactMarkdown>
+  );
+}
 
 function buildComponents(styles: StyleBundle): Components {
   return {
@@ -174,6 +186,7 @@ function buildComponents(styles: StyleBundle): Components {
  */
 function normalizeForMarkdown(text: string): string {
   return text
+    .replace(/\r\n/g, '\n')
     .replace(/(?<=[.!?])[ \t]+(?=\d+\.\s)/g, '\n\n')
     .replace(/(?<=[.!?])[ \t]+(?=[-*•]\s)/g, '\n\n');
 }

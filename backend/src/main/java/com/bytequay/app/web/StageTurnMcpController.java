@@ -15,7 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
-import com.bytequay.app.service.mcp.McpService;
+import com.bytequay.app.service.mcp.McpServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,20 +39,20 @@ public final class StageTurnMcpController
 {
     private static final String SESSION_HEADER = "Mcp-Session-Id";
 
-    private final McpService service;
+    private final McpServiceImpl service;
     private final AgentTurnOperationHandler.Store turns;
     private final Clock clock;
 
     @Autowired
     public StageTurnMcpController(
-            McpService service,
+            McpServiceImpl service,
             AgentTurnOperationHandler.Store turns)
     {
         this(service, turns, Clock.systemUTC());
     }
 
     StageTurnMcpController(
-            McpService service,
+            McpServiceImpl service,
             AgentTurnOperationHandler.Store turns,
             Clock clock)
     {

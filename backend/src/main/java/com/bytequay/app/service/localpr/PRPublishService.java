@@ -19,10 +19,8 @@ import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperati
 import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.domain.HandledAction;
-import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
-import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
 import com.google.common.collect.ImmutableSet;
@@ -336,15 +334,6 @@ public class PRPublishService
         return v2UserRemoteActions.findExternalReviewPublication(prId);
     }
 
-    private void markReviewRequestHandled(PR pr, HandledAction action)
-    {
-        if (!pr.isTerminal()
-                && pr.githubSync() != null
-                && pr.githubSync().watchReason() == PullRequest.Origin.REVIEW_REQUESTED) {
-            prService.markHandled(pr.id(), action);
-        }
-    }
-
     /**
      * Resolve the immutable workflow owner for a GitHub PR before a generic
      * dashboard endpoint performs a remote write. An empty result is a proven
@@ -424,11 +413,6 @@ public class PRPublishService
         return commandId;
     }
 
-    private boolean isV2Task(String taskId)
-    {
-        return taskId != null && !taskId.isBlank() && workflowVersion(taskId);
-    }
-
     private boolean workflowVersion(String taskId)
     {
         return taskStore.findWorkflowVersion(taskId)
@@ -443,14 +427,5 @@ public class PRPublishService
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.CONFLICT,
                         "Task " + taskId + " has no immutable workflow route"));
-    }
-
-    private static MergePullRequestCommand mergeCommand(String method)
-    {
-        return switch (method == null ? "squash" : method) {
-            case "merge" -> MergePullRequestCommand.mergeCommit();
-            case "rebase" -> MergePullRequestCommand.rebase();
-            default -> MergePullRequestCommand.squash();
-        };
     }
 }

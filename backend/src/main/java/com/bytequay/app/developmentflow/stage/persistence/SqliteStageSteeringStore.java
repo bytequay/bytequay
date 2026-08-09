@@ -17,7 +17,7 @@ import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
-import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
+import com.bytequay.app.developmentflow.stage.V2StageSteeringRuntime;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -314,7 +314,7 @@ public final class SqliteStageSteeringStore
                 previous == null ? null : previous.codeFingerprint(),
                 previous == null ? null : previous.headSha(),
                 previous == null ? null : previous.baseSha(),
-                request.mode() == V2StageSteeringControl.Mode.CANCEL_AND_REPLACE
+                request.mode() == V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE
                         ? request.requestedAt().toEpochMilli() : null,
                 request.requestedBy(), request.requestedAt().toEpochMilli());
         for (Attachment attachment : attachments) {
@@ -386,7 +386,7 @@ public final class SqliteStageSteeringStore
         Predecessor predecessor = request.predecessor();
         if (request.stageKind() != StageKind.LOCAL_DEVELOPMENT
                 || request.mode()
-                        != V2StageSteeringControl.Mode.CANCEL_AND_REPLACE
+                        != V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE
                 || predecessor == null
                 || !"STAGE_TURN".equals(predecessor.ownerKind())) {
             return false;
@@ -1345,7 +1345,7 @@ public final class SqliteStageSteeringStore
                 rs.getLong("stage_generation"),
                 rs.getLong("accepted_stage_version"),
                 StageCheckpoint.valueOf(rs.getString("accepted_checkpoint")),
-                V2StageSteeringControl.Mode.valueOf(rs.getString("mode")),
+                V2StageSteeringRuntime.Mode.valueOf(rs.getString("mode")),
                 rs.getString("body"), rs.getString("content_digest"),
                 predecessor, rs.getString("status"),
                 rs.getString("successor_owner_kind"),
@@ -1408,7 +1408,7 @@ public final class SqliteStageSteeringStore
             String id, String commandId, String taskId, long taskEpoch,
             String stageId, StageKind stageKind, long stageGeneration,
             long acceptedStageVersion, StageCheckpoint acceptedCheckpoint,
-            V2StageSteeringControl.Mode mode, String body, String contentDigest,
+            V2StageSteeringRuntime.Mode mode, String body, String contentDigest,
             Predecessor predecessor, String status, String successorOwnerKind,
             String successorOwnerId, String successorOperationId,
             String requestedBy, Instant requestedAt) {}

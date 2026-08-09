@@ -20,6 +20,8 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.harness.HarnessRetrospectiveWriter;
+import com.bytequay.app.service.harness.HarnessService;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -88,12 +90,10 @@ public class UpstreamCherryPickService
     private final PatResolver pats;
     private final PullRequestRepository pullRequests;
     private final PRSyncService prSync;
-    private final ObjectProvider<HarnessWatchHandoff> harnessHandoff;
-    /** Optional by design: with no writer registered a merge simply tears down. */
-    private final ObjectProvider<SyncRetrospectiveWriter> retrospective;
+    private final ObjectProvider<HarnessService> harnessHandoff;
+    private final ObjectProvider<HarnessRetrospectiveWriter> retrospective;
     private final SyncRunStream stream;
-    /** Optional by design: with no agent registered a conflict simply parks. */
-    private final ObjectProvider<ConflictRepairAdvisor> repairAdvisor;
+    private final ObjectProvider<ConflictRepairAgent> repairAdvisor;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
 
     public UpstreamCherryPickService(
@@ -104,9 +104,9 @@ public class UpstreamCherryPickService
             PatResolver pats,
             PullRequestRepository pullRequests,
             PRSyncService prSync,
-            ObjectProvider<HarnessWatchHandoff> harnessHandoff,
-            ObjectProvider<SyncRetrospectiveWriter> retrospective,
-            ObjectProvider<ConflictRepairAdvisor> repairAdvisor,
+            ObjectProvider<HarnessService> harnessHandoff,
+            ObjectProvider<HarnessRetrospectiveWriter> retrospective,
+            ObjectProvider<ConflictRepairAgent> repairAdvisor,
             SyncRunStream stream)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
@@ -622,7 +622,7 @@ public class UpstreamCherryPickService
      */
     private void writeRetrospective(JobRow row)
     {
-        SyncRetrospectiveWriter writer = retrospective.getIfAvailable();
+        HarnessRetrospectiveWriter writer = retrospective.getIfAvailable();
         String session = agentSessionId(row.id());
         if (writer == null || row.worktreePath() == null || session == null) {
             // No session means no picks were repaired and nothing was chased —
@@ -651,7 +651,7 @@ public class UpstreamCherryPickService
         if (row.harnessWatchId() == null) {
             return;
         }
-        HarnessWatchHandoff handoff = harnessHandoff.getIfAvailable();
+        HarnessService handoff = harnessHandoff.getIfAvailable();
         if (handoff == null) {
             return;
         }
@@ -766,7 +766,7 @@ public class UpstreamCherryPickService
 
     private List<UpstreamCherryPickEventDto> events(String jobId, int requestedLimit)
     {
-        int limit = Math.min(Math.max(requestedLimit, 1), 2_000);
+        int limit = Math.clamp(requestedLimit, 1, 2_000);
         List<UpstreamCherryPickEventDto> newestFirst = jdbc.query("""
                 SELECT * FROM upstream_cherry_pick_event
                 WHERE job_id = ?
@@ -889,7 +889,7 @@ public class UpstreamCherryPickService
     /** Durable newest-first discovery for restoring the dialog after reload. */
     public List<UpstreamCherryPickJobDto> list(String workspaceId, int requestedLimit)
     {
-        int limit = Math.min(Math.max(requestedLimit, 1), 100);
+        int limit = Math.clamp(requestedLimit, 1, 100);
         return jdbc.query("""
                 SELECT * FROM upstream_cherry_pick_job
                 WHERE workspace_id = ?
@@ -1267,7 +1267,7 @@ public class UpstreamCherryPickService
                 row = requireRow(id);
             }
             if (row.createHarnessWatch() && row.harnessWatchId() == null) {
-                HarnessWatchHandoff handoff = harnessHandoff.getIfAvailable();
+                HarnessService handoff = harnessHandoff.getIfAvailable();
                 if (handoff == null) {
                     throw new IllegalStateException(
                             "CI harness watch service is unavailable");
@@ -1364,7 +1364,7 @@ public class UpstreamCherryPickService
             throws IOException, InterruptedException
     {
         JobRow row = requireRow(id);
-        ConflictRepairAdvisor advisor = repairAdvisor.getIfAvailable();
+        ConflictRepairAgent advisor = repairAdvisor.getIfAvailable();
         if (advisor == null) {
             return parked(id, index, commit, "no repair agent is configured");
         }
@@ -1377,7 +1377,7 @@ public class UpstreamCherryPickService
         record(id, index, "note", "Repairing " + commit.subject(),
                 "the agent is resolving this pick's conflict", null, null);
         long startedAt = System.currentTimeMillis();
-        ConflictRepairAdvisor.Outcome outcome;
+        ConflictRepairAgent.Outcome outcome;
         try {
             outcome = advisor.repair(
                     worktree, row.workspaceId(), commit.subject(), conflictPaths,
@@ -1658,11 +1658,6 @@ public class UpstreamCherryPickService
     }
 
     private static final int MAX_PR_DESCRIPTION = 60_000;
-
-    private static String blankToNull(String value)
-    {
-        return value == null || value.isBlank() ? null : value.strip();
-    }
 
     private static String normalizedDescription(String value)
     {

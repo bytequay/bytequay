@@ -39,7 +39,6 @@ import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.harness.HarnessModels.WatchSummary;
 import com.bytequay.app.service.threads.NotificationService;
-import com.bytequay.app.service.workspaces.HarnessWatchHandoff;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -72,7 +71,6 @@ import static java.util.Objects.requireNonNull;
 /** CRUD and renderer projection for the durable harness aggregate. */
 @Service
 public class HarnessService
-        implements HarnessWatchHandoff
 {
     public static final long DEFAULT_BUDGET_MILLI_USD = 10_000;
     private static final long MAX_BUDGET_MILLI_USD = 100_000;
@@ -226,7 +224,6 @@ public class HarnessService
         }
     }
 
-    @Override
     public String create(
             String workspaceId,
             String repoFullName,
@@ -247,7 +244,6 @@ public class HarnessService
         return dashboard.watchId();
     }
 
-    @Override
     public void stopWatch(String workspaceId, String watchId)
     {
         stop(workspaceId, watchId);

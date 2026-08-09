@@ -328,7 +328,7 @@ public class InvestigationReviewTools
         boolean scopeAccurate = input.path("claim_scope_accurate").asBoolean(false);
         boolean severityAccurate = input.path("severity_accurate").asBoolean(false);
         int severity = input.has("revised_severity")
-                ? Math.max(1, Math.min(5, input.path("revised_severity").asInt(finding.severity())))
+                ? Math.clamp(input.path("revised_severity").asInt(finding.severity()), 1, 5)
                 : finding.severity();
         String claim = input.path("revised_claim").asText(finding.claim());
         String confidence = switch (status) {

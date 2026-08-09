@@ -171,7 +171,7 @@ public class DevReportToolHandlers
                 .toList();
         String query = args == null ? null : args.query();
         int limit = args == null || args.limit() == null ? CONVERSATION_DEFAULT_LIMIT
-                : Math.min(Math.max(1, args.limit()), CONVERSATION_MAX_LIMIT);
+                : Math.clamp(args.limit(), 1, CONVERSATION_MAX_LIMIT);
         List<ThreadMessage> matched;
         if (query == null || query.isBlank()) {
             int from = Math.max(0, messages.size() - limit);

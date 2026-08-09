@@ -40,6 +40,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -600,7 +601,7 @@ public class AgentToolHandlers
     private static ToolContext skillContext(ToolCall call)
     {
         return new ToolContext(
-                Set.of(),
+                ImmutableSet.of(),
                 Optional.of(call.threadId()),
                 Optional.of(call.role().name().toLowerCase(Locale.ROOT)));
     }

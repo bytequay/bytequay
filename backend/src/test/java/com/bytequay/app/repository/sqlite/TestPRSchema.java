@@ -28,6 +28,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,7 +39,6 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -307,7 +307,7 @@ class TestPRSchema
                 "current", pr.id(), PRCheck.KIND_REMOTE, "build", PRCheck.STATUS_PASSED,
                 null, now, now, "current-run"));
 
-        prStore.retainChecks(pr.id(), PRCheck.KIND_REMOTE, Set.of("current-run"));
+        prStore.retainChecks(pr.id(), PRCheck.KIND_REMOTE, ImmutableSet.of("current-run"));
 
         assertThat(prStore.checksFor(pr.id())).extracting(PRCheck::id)
                 .containsExactlyInAnyOrder("local", "current");

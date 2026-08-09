@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +33,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.CLI;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
@@ -356,7 +356,7 @@ class TestTerminalExecutionEvidenceRecoveryMigration
                 new CapacityManager.CapacityRequest(
                         operationId,
                         CapacityManager.WorkflowSource.V2,
-                        Set.of(CLI),
+                        ImmutableSet.of(CLI),
                         new CapacityManager.CapacityScope(
                                 "workspace", "trunk", taskId, 1L),
                         false, true, true);

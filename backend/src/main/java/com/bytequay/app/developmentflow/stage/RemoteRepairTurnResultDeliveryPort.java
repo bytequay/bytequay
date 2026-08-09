@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.stage;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
 
@@ -26,7 +27,7 @@ import static java.util.Objects.requireNonNull;
 public final class RemoteRepairTurnResultDeliveryPort
         implements ExecutionPorts.ResultDeliveryPort
 {
-    private static final Set<String> ROUTES = Set.of(
+    private static final Set<String> ROUTES = ImmutableSet.of(
             RemoteRepairTurnRuntime.CI_STAGE_CALLBACK,
             RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK,
             RemoteRepairTurnRuntime.BRANCH_STAGE_CALLBACK,

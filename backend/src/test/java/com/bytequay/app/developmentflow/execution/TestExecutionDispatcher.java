@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -1486,7 +1487,7 @@ class TestExecutionDispatcher
         return new CapacityManager.CapacityRequest(
                 operationId,
                 CapacityManager.WorkflowSource.V2,
-                Set.of(lane),
+                ImmutableSet.of(lane),
                 new CapacityManager.CapacityScope(
                         workspaceId, trunkId, taskId, 1L),
                 false,

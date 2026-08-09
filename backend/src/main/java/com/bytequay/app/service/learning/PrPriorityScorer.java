@@ -17,6 +17,7 @@ import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -47,9 +48,9 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class PrPriorityScorer
 {
-    private static final Set<String> MECHANICAL_LABELS = Set.of(
+    private static final Set<String> MECHANICAL_LABELS = ImmutableSet.of(
             "dependencies", "mechanical", "automated", "style", "formatting", "chore");
-    private static final Set<String> BOT_LOGINS = Set.of(
+    private static final Set<String> BOT_LOGINS = ImmutableSet.of(
             "dependabot[bot]", "renovate[bot]", "github-actions[bot]");
 
     private final ObjectMapper json;
@@ -143,7 +144,7 @@ public class PrPriorityScorer
     {
         JsonNode node = meta.path("labels");
         if (!node.isArray()) {
-            return Set.of();
+            return ImmutableSet.of();
         }
         return StreamSupport.stream(node.spliterator(), false)
                 .map(n -> n.asText("").toLowerCase(Locale.ROOT))

@@ -33,6 +33,7 @@ import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,7 +41,6 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -161,8 +161,8 @@ class TestMcpRecallThread
                 now, now, now, null, null, TurnInitiator.user(), null, ThreadScope.TRUNK));
         activeContexts.put(threadId, "trunk", new ResolvedAgentContext(
                 ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
-                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), Set.of(),
-                Set.of("recall_thread")));
+                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), ImmutableSet.of(),
+                ImmutableSet.of("recall_thread")));
         DeferredResult<JsonNode> deferred = controller.handle(threadId, "trunk", mapper.readTree(rpc));
         // recall_thread is read-only and never parks the request; the
         // result lands synchronously on the calling thread.

@@ -30,6 +30,7 @@ import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.Qu
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.QueueEntryStatus;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.RemoteTruthPendingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -37,7 +38,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.MERGE;
@@ -355,7 +355,7 @@ class TestMergeOperationHandler
                 operation.semanticAttempt(), null, expectedHead,
                 operation.baseSha());
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
-                operation.operationId(), V2, Set.of(MERGE),
+                operation.operationId(), V2, ImmutableSet.of(MERGE),
                 new CapacityManager.CapacityScope(
                         operation.workspaceId(), operation.trunkId(),
                         operation.taskId(), operation.taskEpoch()),
@@ -370,7 +370,7 @@ class TestMergeOperationHandler
                 fence, request);
         CapacityManager.CapacityLease lease = new CapacityManager.CapacityLease(
                 "lease", "ticket", operation.operationId(), V2,
-                Set.of(MERGE), request.scope(), false, true, false,
+                ImmutableSet.of(MERGE), request.scope(), false, true, false,
                 "worker", null, NOW, clock.instant(), NOW.plusSeconds(90),
                 null, null);
         return new ExecutionContext(

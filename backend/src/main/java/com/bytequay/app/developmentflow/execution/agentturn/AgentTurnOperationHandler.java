@@ -37,6 +37,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -174,8 +175,8 @@ public final class AgentTurnOperationHandler
         };
         Set<CapacityManager.CapacityLane> requiredLanes =
                 completionSummary(turn) || terminalTaskBrainConversation(turn)
-                ? Set.of(CapacityManager.CapacityLane.REVIEW, requiredLane)
-                : Set.of(requiredLane);
+                ? ImmutableSet.of(CapacityManager.CapacityLane.REVIEW, requiredLane)
+                : ImmutableSet.of(requiredLane);
         if (!envelope.capacityRequest().lanes().equals(requiredLanes)) {
             return failure(envelope, turn, Disposition.INVALID_LAUNCH_INPUT,
                     input.transport() + " Agent Turn requires exact capacity lanes "
@@ -202,7 +203,7 @@ public final class AgentTurnOperationHandler
                 || agentContext.toolNames().contains("approval_prompt")
                 ? endpoint.approvalPromptTool() : null;
         Set<String> preapprovedMcpTools = permissionPromptTool == null
-                ? agentContext.toolNames() : Set.of();
+                ? agentContext.toolNames() : ImmutableSet.of();
         AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
                 input.transport(),
                 input.provider(),
@@ -319,7 +320,7 @@ public final class AgentTurnOperationHandler
     {
         if (developmentBrainResultRepair(turn)
                 || remoteRepairResultNormalization(turn)) {
-            return Set.of();
+            return ImmutableSet.of();
         }
         if (completionSummary(turn)) {
             return tools.completionSummaryTools();
@@ -1222,7 +1223,7 @@ public final class AgentTurnOperationHandler
                 return "Agent Turn capacity scope or writer mode is invalid";
             }
             boolean lifecycleAllows = completionSummary || terminalConversation
-                    ? Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED")
+                    ? ImmutableSet.of("COMPLETED", "CANCELED", "REMOTE_CLOSED")
                             .contains(taskLifecycle)
                     : "ACTIVE".equals(taskLifecycle);
             if (!lifecycleAllows
@@ -1265,7 +1266,7 @@ public final class AgentTurnOperationHandler
     private static boolean automaticTaskBrainReview(ExactTurn turn)
     {
         return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
-                && Set.of(
+                && ImmutableSet.of(
                         "REMOTE_CI_BRAIN_REVIEW",
                         "BRANCH_SYNC_BRAIN_REVIEW").contains(turn.purpose());
     }
@@ -1311,7 +1312,7 @@ public final class AgentTurnOperationHandler
     {
         return taskBrainConversation(turn)
                 && turn.stageId() == null
-                && Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED")
+                && ImmutableSet.of("COMPLETED", "CANCELED", "REMOTE_CLOSED")
                         .contains(turn.taskLifecycle());
     }
 

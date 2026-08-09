@@ -17,6 +17,7 @@ import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.service.learning.KnowledgeRetrievalService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -49,7 +50,7 @@ public class SessionKnowledgeProvider
     static final int RETRIEVED_CHAR_CAP = 8_000;
     static final int QUERY_HINT_CHAR_CAP = 4_000;
 
-    private static final Set<String> AUDIENCES = Set.of(
+    private static final Set<String> AUDIENCES = ImmutableSet.of(
             "plan", "dev", "review", "ci-fix");
 
     private final JdbcTemplate jdbc;

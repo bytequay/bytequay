@@ -16,6 +16,7 @@ package com.bytequay.app.service.harness;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Locale;
@@ -238,8 +239,8 @@ public final class HarnessModels
     {
         public static BootstrapProfile empty()
         {
-            return new BootstrapProfile("github-actions", Set.of(), List.of(), Map.of(),
-                    Set.of(), Set.of(), Map.of(), Map.of(), Map.of(), List.of());
+            return new BootstrapProfile("github-actions", ImmutableSet.of(), List.of(), Map.of(),
+                    ImmutableSet.of(), ImmutableSet.of(), Map.of(), Map.of(), Map.of(), List.of());
         }
     }
 

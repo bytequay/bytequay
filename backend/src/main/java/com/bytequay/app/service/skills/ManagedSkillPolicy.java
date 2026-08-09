@@ -16,6 +16,7 @@ package com.bytequay.app.service.skills;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadTurn;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -31,7 +32,7 @@ public class ManagedSkillPolicy
     static final String CODEGRAPH_FIRST = "codegraph-first";
     static final String TASK_EXECUTION = "task-execution";
     private static final String BRAIN_REVIEW_SOURCE = "brain-review";
-    private static final Set<StageType> CODING_STAGE_TYPES = Set.of(
+    private static final Set<StageType> CODING_STAGE_TYPES = ImmutableSet.of(
             StageType.DEVELOPMENT_STAGE,
             StageType.REMOTE_DEVELOPMENT_STAGE,
             StageType.CI_FIXING_STAGE,

@@ -19,6 +19,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
@@ -102,7 +103,7 @@ class TestUpstreamCherryPickService
                         "main", "same-pr-pick", List.of(first, second),
                         null, null, null, null, null, false, false, null));
         UpstreamCherryPickService.UpstreamCherryPickJobDto completed = awaitStatus(
-                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+                service, "fork-ws", started.jobId(), ImmutableSet.of("COMPLETED", "FAILED"));
 
         assertThat(completed.status()).isEqualTo("COMPLETED");
         assertThat(completed.appliedCount()).isEqualTo(2);
@@ -201,7 +202,7 @@ class TestUpstreamCherryPickService
                 .thenReturn(List.of(new GitRunner.CommitEntry(
                         "picked-head", "picked", "Test", "test@example.com",
                         "2026-08-05T00:00:00Z", "2026-08-05T00:00:00Z", "First")));
-        when(relations.pickedCommitSubjects(resolved, "base-sha")).thenReturn(Set.of());
+        when(relations.pickedCommitSubjects(resolved, "base-sha")).thenReturn(ImmutableSet.of());
         when(git.cherryPick(worktree, List.of("commit-2"), true))
                 .thenReturn(new GitRunner.CherryPickOutcome(
                         true, 1, null, List.of(),
@@ -257,7 +258,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService relations = relations(target, upstream);
         // The fork already carries the middle commit's subject.
         when(relations.pickedCommitSubjects(any(), any()))
-                .thenReturn(Set.of("already in the fork"));
+                .thenReturn(ImmutableSet.of("already in the fork"));
         UpstreamCherryPickService service = service(
                 jdbc, relations, mock(ConflictRepairAdvisor.class),
                 mock(PullRequestRepository.class));
@@ -276,7 +277,7 @@ class TestUpstreamCherryPickService
         assertThat(started.skippedCount()).isEqualTo(2);
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto completed = awaitStatus(
-                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+                service, "fork-ws", started.jobId(), ImmutableSet.of("COMPLETED", "FAILED"));
 
         assertThat(completed.status()).isEqualTo("COMPLETED");
         assertThat(completed.appliedCount()).isEqualTo(1);
@@ -538,7 +539,7 @@ class TestUpstreamCherryPickService
                 .thenReturn(history);
         // "First" is already on the target branch, so it is skipped by subject.
         when(relations.pickedCommitSubjects(resolved, "base-sha"))
-                .thenReturn(Set.of("first"));
+                .thenReturn(ImmutableSet.of("first"));
         when(git.cherryPick(worktree, List.of("commit-2"), true))
                 .thenReturn(new GitRunner.CherryPickOutcome(
                         true, 0, "commit-2", List.of(), null));
@@ -636,7 +637,7 @@ class TestUpstreamCherryPickService
         service.recover();
 
         UpstreamCherryPickService.UpstreamCherryPickJobDto job = awaitStatus(
-                service, "fork-ws", "job-1", Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+                service, "fork-ws", "job-1", ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
         assertThat(job.status()).isEqualTo("PAUSED_CONFLICT");
         assertThat(job.errorMessage()).contains("no repair agent");
         // The pick itself did land — git finished it; only the judging is missing.
@@ -753,7 +754,7 @@ class TestUpstreamCherryPickService
                         "main", "repaired-pick", List.of(setup.upstreamSha()),
                         null, null, null, null, null, false, false, null));
         UpstreamCherryPickService.UpstreamCherryPickJobDto done = awaitStatus(
-                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+                service, "fork-ws", started.jobId(), ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         assertThat(done.status()).isEqualTo("COMPLETED");
         // The fixup sits beside its pick rather than inside it.
@@ -810,7 +811,7 @@ class TestUpstreamCherryPickService
                         null, null, null, null, null, false, false, null));
         UpstreamCherryPickService.UpstreamCherryPickJobDto parked = awaitStatus(
                 service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+                ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
         assertThat(parked.errorMessage()).contains("uncommitted changes");
@@ -854,12 +855,12 @@ class TestUpstreamCherryPickService
                         "main", "retried-pick", List.of(setup.upstreamSha()),
                         null, null, null, null, null, false, false, null));
         assertThat(awaitStatus(service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT")).status())
+                ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT")).status())
                 .isEqualTo("PAUSED_CONFLICT");
 
         service.resume("fork-ws", started.jobId());
         UpstreamCherryPickService.UpstreamCherryPickJobDto done = awaitStatus(
-                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+                service, "fork-ws", started.jobId(), ImmutableSet.of("COMPLETED", "FAILED"));
 
         assertThat(done.status()).isEqualTo("COMPLETED");
         assertThat(turns).hasValue(2);
@@ -896,7 +897,7 @@ class TestUpstreamCherryPickService
                         null, null, null, null, null, false, false, null));
         UpstreamCherryPickService.UpstreamCherryPickJobDto parked = awaitStatus(
                 service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+                ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
         assertThat(parked.errorMessage())
@@ -933,12 +934,12 @@ class TestUpstreamCherryPickService
                         "main", "resumed-pick", List.of(setup.upstreamSha()),
                         null, null, null, null, null, false, false, null));
         assertThat(awaitStatus(service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT")).status())
+                ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT")).status())
                 .isEqualTo("PAUSED_CONFLICT");
 
         service.resume("fork-ws", started.jobId());
         UpstreamCherryPickService.UpstreamCherryPickJobDto done = awaitStatus(
-                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+                service, "fork-ws", started.jobId(), ImmutableSet.of("COMPLETED", "FAILED"));
 
         // The fixup used to be counted as a pick, and the resume refused to run.
         assertThat(done.status()).isEqualTo("COMPLETED");
@@ -969,7 +970,7 @@ class TestUpstreamCherryPickService
                         "main", "logged-pick", List.of(setup.upstreamSha()),
                         null, null, null, null, null, false, false, null));
         awaitStatus(service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+                ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         // This used to be written by a hand-rolled INSERT that named columns the
         // table does not have; it threw on every run and the failure was caught
@@ -1003,7 +1004,7 @@ class TestUpstreamCherryPickService
                         null, null, null, null, null, true, false, null));
         UpstreamCherryPickService.UpstreamCherryPickJobDto parked = awaitStatus(
                 service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+                ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         assertThat(parked.status()).isEqualTo("PAUSED_CONFLICT");
         // The agent's own reason reaches the user, not a generic one.
@@ -1135,7 +1136,7 @@ class TestUpstreamCherryPickService
                         null, null, false, false, null));
         UpstreamCherryPickService.UpstreamCherryPickJobDto done = awaitStatus(
                 service, "fork-ws", started.jobId(),
-                Set.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
+                ImmutableSet.of("COMPLETED", "FAILED", "PAUSED_CONFLICT"));
 
         // git refuses to record the empty commit and holds the sequencer open;
         // the run must skip it and carry on rather than park a human on a pick
@@ -1337,7 +1338,7 @@ class TestUpstreamCherryPickService
             throws InterruptedException
     {
         return awaitStatus(
-                service, "fork-ws", "job-1", Set.of("COMPLETED", "FAILED"));
+                service, "fork-ws", "job-1", ImmutableSet.of("COMPLETED", "FAILED"));
     }
 
     private static UpstreamCherryPickService.UpstreamCherryPickJobDto awaitStatus(

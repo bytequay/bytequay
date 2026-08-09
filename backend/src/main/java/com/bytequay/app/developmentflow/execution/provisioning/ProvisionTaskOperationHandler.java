@@ -25,6 +25,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.util.Objects;
@@ -556,8 +557,8 @@ public final class ProvisionTaskOperationHandler
         Set<CapacityManager.CapacityLane> expectedLanes =
                 request.baseSource() == BaseSource.EXISTING_PR_HEAD
                         && request.expectedHeadSha() == null
-                        ? Set.of(LOCAL_GIT, GITHUB)
-                        : Set.of(LOCAL_GIT);
+                        ? ImmutableSet.of(LOCAL_GIT, GITHUB)
+                        : ImmutableSet.of(LOCAL_GIT);
         if (!OPERATION_KIND.equals(envelope.operationKind())
                 || envelope.family() != DispatchTicket.AsyncFamily.LOCAL_GIT
                 || envelope.owner().kind() != TASK
@@ -626,7 +627,7 @@ public final class ProvisionTaskOperationHandler
                 }
             }
             case FRESH_REMOTE_BASE -> {
-                if (!Set.of(
+                if (!ImmutableSet.of(
                                 "NEW_FROM_TRUNK", "ISSUE", "AUTOMATION", "QUALITY_SCAN")
                         .contains(request.assignmentKind())
                         || request.expectedBaseSha() != null
@@ -659,7 +660,7 @@ public final class ProvisionTaskOperationHandler
                                 request.expectedBaseSha())
                         && Objects.equals(request.assignmentRemoteHeadSha(),
                                 request.expectedHeadSha());
-                if (!Set.of("EXISTING_OWN_PR", "REVIEW_FINDINGS")
+                if (!ImmutableSet.of("EXISTING_OWN_PR", "REVIEW_FINDINGS")
                         .contains(request.assignmentKind())
                         || request.pullRequestNumber() < 1
                         || !request.repositoryId().equals(

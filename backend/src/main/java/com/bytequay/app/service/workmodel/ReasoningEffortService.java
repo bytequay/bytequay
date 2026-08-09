@@ -17,6 +17,7 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.sqlite.WorkModelJson;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -37,7 +38,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class ReasoningEffortService
 {
-    private static final Set<String> VALUES = Set.of(
+    private static final Set<String> VALUES = ImmutableSet.of(
             "none", "minimal", "low", "medium", "high", "xhigh", "max");
 
     private final JdbcTemplate jdbc;

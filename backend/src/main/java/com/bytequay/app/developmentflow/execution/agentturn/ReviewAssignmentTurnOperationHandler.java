@@ -21,6 +21,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -31,7 +32,6 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.AsyncFamily.AGENT_TURN;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.CANCELED;
@@ -183,7 +183,7 @@ public final class ReviewAssignmentTurnOperationHandler
             case API -> CapacityManager.CapacityLane.API;
         };
         if (!envelope.capacityRequest().lanes().equals(
-                Set.of(CapacityManager.CapacityLane.REVIEW, runnerLane))) {
+                ImmutableSet.of(CapacityManager.CapacityLane.REVIEW, runnerLane))) {
             return input.transport() + " review Turn requires exactly REVIEW and "
                     + runnerLane + " capacity";
         }

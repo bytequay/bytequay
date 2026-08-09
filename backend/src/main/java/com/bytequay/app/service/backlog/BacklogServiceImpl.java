@@ -22,6 +22,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.distillation.DistillationSignalServiceImpl;
 import com.bytequay.app.service.threads.ThreadService;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -524,7 +525,7 @@ public class BacklogServiceImpl
         return PRIORITIES.contains(value) ? value : BacklogItem.PRIORITY_MEDIUM;
     }
 
-    private static final Set<String> PRIORITIES = Set.of("low", "medium", "high");
+    private static final Set<String> PRIORITIES = ImmutableSet.of("low", "medium", "high");
 
     private static boolean isUniqueTaskLinkViolation(DataAccessException exception)
     {

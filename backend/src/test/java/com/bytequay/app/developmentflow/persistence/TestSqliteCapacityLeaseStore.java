@@ -21,6 +21,7 @@ import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,7 +36,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -106,7 +106,7 @@ class TestSqliteCapacityLeaseStore
         CapacityManager.CapacityRequest unscoped = new CapacityManager.CapacityRequest(
                 "legacy-unscoped",
                 CapacityManager.WorkflowSource.LEGACY,
-                Set.of(CLI),
+                ImmutableSet.of(CLI),
                 new CapacityManager.CapacityScope(null, null, null, null),
                 false,
                 false,
@@ -339,7 +339,7 @@ class TestSqliteCapacityLeaseStore
         CapacityManager.CapacityRequest stale = new CapacityManager.CapacityRequest(
                 "operation",
                 CapacityManager.WorkflowSource.V2,
-                Set.of(VALIDATION),
+                ImmutableSet.of(VALIDATION),
                 new CapacityManager.CapacityScope(
                         "workspace", "trunk", "task", 2L),
                 false,

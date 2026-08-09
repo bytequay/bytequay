@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.codegraph;
 
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,7 +60,7 @@ public final class CodeGraphFirstRuntime
     private static final String METRICS_FILE = "metrics-events";
     private static final String STATE_DIRECTORY_ENV = "BYTEQUAY_CODEGRAPH_STATE_DIR";
     private static final String SHIM_DIRECTORY_ENV = "BYTEQUAY_CODEGRAPH_SHIM_DIR";
-    private static final Set<String> GUARDED_COMMANDS = Set.of(
+    private static final Set<String> GUARDED_COMMANDS = ImmutableSet.of(
             "rg", "grep", "egrep", "fgrep", "git", "find", "fd", "fdfind", "tree");
 
     private static final Path ROOT = Path.of(System.getProperty("java.io.tmpdir"),

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.statemachine;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -63,8 +65,8 @@ public final class StateMachine<S>
     {
         this.name = requireNonNull(name, "name is null");
         this.edges = Map.copyOf(edges);
-        this.terminalStates = Set.copyOf(terminalStates);
-        this.universalTargets = Set.copyOf(universalTargets);
+        this.terminalStates = ImmutableSet.copyOf(terminalStates);
+        this.universalTargets = ImmutableSet.copyOf(universalTargets);
     }
 
     /** True when {@code from -> to} is a legal edge: an explicit forward
@@ -81,7 +83,7 @@ public final class StateMachine<S>
         if (universalTargets.contains(to)) {
             return true;
         }
-        return edges.getOrDefault(from, Set.of()).contains(to);
+        return edges.getOrDefault(from, ImmutableSet.of()).contains(to);
     }
 
     /**
@@ -116,15 +118,15 @@ public final class StateMachine<S>
     {
         requireNonNull(from, "from is null");
         if (isTerminal(from)) {
-            return Set.of();
+            return ImmutableSet.of();
         }
-        Set<S> next = new LinkedHashSet<>(edges.getOrDefault(from, Set.of()));
+        Set<S> next = new LinkedHashSet<>(edges.getOrDefault(from, ImmutableSet.of()));
         for (S universal : universalTargets) {
             if (!universal.equals(from)) {
                 next.add(universal);
             }
         }
-        return Set.copyOf(next);
+        return ImmutableSet.copyOf(next);
     }
 
     public String name()
@@ -184,7 +186,7 @@ public final class StateMachine<S>
         public StateMachine<S> build()
         {
             for (S terminalState : terminalStates) {
-                if (!edges.getOrDefault(terminalState, Set.of()).isEmpty()) {
+                if (!edges.getOrDefault(terminalState, ImmutableSet.of()).isEmpty()) {
                     throw new IllegalStateException(
                             name + " declares outgoing edges from terminal state " + terminalState);
                 }

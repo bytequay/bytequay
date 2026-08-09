@@ -35,6 +35,7 @@ import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,7 +44,6 @@ import org.springframework.web.context.request.async.DeferredResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -198,8 +198,8 @@ class TestMcpPermissionFilter
                 .orElse(permissionRole == AgentRole.TRUNK ? ByteQuayRole.TRUNK : ByteQuayRole.TASK);
         activeContexts.put(threadId, key, new ResolvedAgentContext(
                 role, "1", permissionRole, null,
-                RoleCapabilities.forRole(permissionRole), List.of(), Set.of(),
-                Set.of("approval_prompt", "recall_thread", "read_current_repository",
+                RoleCapabilities.forRole(permissionRole), List.of(), ImmutableSet.of(),
+                ImmutableSet.of("approval_prompt", "recall_thread", "read_current_repository",
                         "push", "post_comment", "request_review", "codegraph_explore",
                         "record_plan", "read_plan_summary", "read_diff_summary",
                         "create_task", "queue_task")));

@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.execution.agentturn;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.net.URI;
@@ -97,7 +98,7 @@ public interface AgentTurnProviderSession
             requireNonNull(toolEndpoint, "toolEndpoint is null");
             requireNonNull(access, "access is null");
             preapprovedMcpTools = preapprovedMcpTools == null
-                    ? Set.of() : Set.copyOf(preapprovedMcpTools);
+                    ? ImmutableSet.of() : ImmutableSet.copyOf(preapprovedMcpTools);
             if (permissionPromptTool != null
                     && !permissionPromptTool.equals(
                             toolEndpoint.approvalPromptTool())) {
@@ -192,7 +193,7 @@ public interface AgentTurnProviderSession
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
                     List.of(), toolEndpoint, toolEndpoint.approvalPromptTool(),
-                    access, null, null, null, 0, 0, Set.of());
+                    access, null, null, null, 0, 0, ImmutableSet.of());
         }
 
         public Request(
@@ -211,7 +212,7 @@ public interface AgentTurnProviderSession
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
                     images, toolEndpoint, toolEndpoint.approvalPromptTool(),
-                    access, null, null, null, 0, 0, Set.of());
+                    access, null, null, null, 0, 0, ImmutableSet.of());
         }
 
         public Request(
@@ -231,7 +232,7 @@ public interface AgentTurnProviderSession
             this(transport, provider, credentialAccount, model,
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
                     images, toolEndpoint, toolEndpoint.approvalPromptTool(),
-                    access, maxCostUsdMilli, null, null, 0, 0, Set.of());
+                    access, maxCostUsdMilli, null, null, 0, 0, ImmutableSet.of());
         }
 
         public Request(
@@ -254,7 +255,7 @@ public interface AgentTurnProviderSession
                     reasoningEffort, workingDirectory, systemPrompt, prompt,
                     images, toolEndpoint, toolEndpoint.approvalPromptTool(),
                     access, maxCostUsdMilli,
-                    resumeSessionId, fallbackPrompt, 0, 0, Set.of());
+                    resumeSessionId, fallbackPrompt, 0, 0, ImmutableSet.of());
         }
 
         /** Compatibility constructor for callers whose complete catalog exposes the gate. */
@@ -281,7 +282,7 @@ public interface AgentTurnProviderSession
                     images, toolEndpoint, toolEndpoint.approvalPromptTool(),
                     access, maxCostUsdMilli, resumeSessionId, fallbackPrompt,
                     priorCumulativeInputTokens, priorCumulativeOutputTokens,
-                    Set.of());
+                    ImmutableSet.of());
         }
 
         /** Compatibility shape for callers that choose the permission bridge. */
@@ -309,7 +310,7 @@ public interface AgentTurnProviderSession
                     images, toolEndpoint, permissionPromptTool, access,
                     maxCostUsdMilli, resumeSessionId, fallbackPrompt,
                     priorCumulativeInputTokens, priorCumulativeOutputTokens,
-                    Set.of());
+                    ImmutableSet.of());
         }
     }
 

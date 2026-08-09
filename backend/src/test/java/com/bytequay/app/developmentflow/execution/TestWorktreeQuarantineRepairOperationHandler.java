@@ -21,6 +21,7 @@ import com.bytequay.app.developmentflow.execution.worktree.WorktreeQuarantineRep
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,7 +34,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -330,7 +330,7 @@ class TestWorktreeQuarantineRepairOperationHandler
             long stageGeneration)
     {
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
-                operationId, V2, Set.of(LOCAL_GIT),
+                operationId, V2, ImmutableSet.of(LOCAL_GIT),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", "task-1", 3L),
                 false, true, true);

@@ -24,6 +24,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.ReflogEntry;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -33,7 +34,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -433,7 +433,7 @@ public final class RemoteRepairCommitAdoptionOperationHandler
                 && operation.expectedBaseSha().equals(fence.expectedBaseSha())
                 && operation.operationId().equals(capacity.operationId())
                 && capacity.source() == V2
-                && capacity.lanes().equals(Set.of(LOCAL_GIT))
+                && capacity.lanes().equals(ImmutableSet.of(LOCAL_GIT))
                 && !capacity.trunkControl()
                 && capacity.exclusiveTask()
                 && capacity.writerRequired()

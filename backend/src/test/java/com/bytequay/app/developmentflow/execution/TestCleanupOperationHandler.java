@@ -26,13 +26,13 @@ import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandle
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler.StepResult;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler.StepStatus;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.CLEANUP;
@@ -143,7 +143,7 @@ class TestCleanupOperationHandler
                 operation.stageGeneration(), operation.operationId(),
                 operation.semanticAttempt(), null, null, null);
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
-                operation.operationId(), V2, Set.of(CLEANUP),
+                operation.operationId(), V2, ImmutableSet.of(CLEANUP),
                 new CapacityManager.CapacityScope(
                         operation.workspaceId(), operation.trunkId(),
                         operation.taskId(), operation.taskEpoch()),
@@ -158,7 +158,7 @@ class TestCleanupOperationHandler
                 fence, request);
         CapacityManager.CapacityLease lease = new CapacityManager.CapacityLease(
                 "lease", operation.dispatchTicketId(), operation.operationId(), V2,
-                Set.of(CLEANUP), request.scope(), false, true, true,
+                ImmutableSet.of(CLEANUP), request.scope(), false, true, true,
                 "worker", 1L, NOW, NOW, NOW.plusSeconds(60), null, null);
         return new ExecutionContext(
                 envelope, lease, new ExecutionContext.Cancellation(),

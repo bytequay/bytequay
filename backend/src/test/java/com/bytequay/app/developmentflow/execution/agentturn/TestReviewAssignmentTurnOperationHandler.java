@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -59,7 +60,7 @@ class TestReviewAssignmentTurnOperationHandler
             throws Exception
     {
         DispatchTicket.DispatchResult result = handler.execute(
-                context(envelope(Set.of(REVIEW, API)), false));
+                context(envelope(ImmutableSet.of(REVIEW, API)), false));
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
         assertThat(store.starts).isOne();
@@ -78,13 +79,13 @@ class TestReviewAssignmentTurnOperationHandler
             throws Exception
     {
         DispatchTicket.DispatchResult wrong = handler.execute(
-                context(envelope(Set.of(REVIEW)), false));
+                context(envelope(ImmutableSet.of(REVIEW)), false));
         assertThat(wrong.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
         assertThat(wrong.error()).contains("requires exactly REVIEW and API");
         assertThat(provider.opens).isZero();
 
         DispatchTicket.DispatchResult canceled = handler.execute(
-                context(envelope(Set.of(REVIEW, API)), true));
+                context(envelope(ImmutableSet.of(REVIEW, API)), true));
         assertThat(canceled.outcome()).isEqualTo(DispatchTicket.Outcome.CANCELED);
         assertThat(provider.opens).isZero();
     }
@@ -96,7 +97,7 @@ class TestReviewAssignmentTurnOperationHandler
         provider.costUsdMilli = 501;
 
         DispatchTicket.DispatchResult result = handler.execute(
-                context(envelope(Set.of(REVIEW, API)), false));
+                context(envelope(ImmutableSet.of(REVIEW, API)), false));
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
         assertThat(result.error()).contains("exceeded the frozen review Turn cost cap");
@@ -107,12 +108,12 @@ class TestReviewAssignmentTurnOperationHandler
     {
         store.start = ReviewAssignmentTurnOperationHandler.StartDisposition.ROUND_WAITING;
         assertThatThrownBy(() -> handler.execute(
-                context(envelope(Set.of(REVIEW, API)), false)))
+                context(envelope(ImmutableSet.of(REVIEW, API)), false)))
                 .isInstanceOf(ExecutionPorts.RetryableExecutionException.class);
         assertThat(provider.opens).isZero();
 
         DispatchTicket.DispatchResult reconciled = handler.reconcile(
-                context(envelope(Set.of(REVIEW, API)), false));
+                context(envelope(ImmutableSet.of(REVIEW, API)), false));
         assertThat(reconciled.outcome())
                 .isEqualTo(DispatchTicket.Outcome.INDETERMINATE);
         assertThat(provider.opens).isZero();
@@ -127,7 +128,7 @@ class TestReviewAssignmentTurnOperationHandler
                 store, provider, JSON, Clock.fixed(NOW, ZoneOffset.UTC));
 
         DispatchTicket.DispatchResult result = handler.execute(
-                context(envelope(Set.of(REVIEW, API)), false));
+                context(envelope(ImmutableSet.of(REVIEW, API)), false));
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
         assertThat(result.error()).contains("exact ReviewAssignmentTurn");

@@ -30,6 +30,7 @@ import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.C
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ObservationDelivery;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ObservationEvidence;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -66,17 +67,17 @@ class TestRemoteCiFailureClassifier
         assertThat(classifier.classify(candidate(
                 List.of(check), provenance(List.of(comparison(
                         "check-1", "build", CheckState.PASSED,
-                        Set.of()))), 3, "forged failure-origin: base")))
+                        ImmutableSet.of()))), 3, "forged failure-origin: base")))
                 .isEqualTo(Classification.TASK_DETERMINISTIC);
         assertThat(classifier.classify(candidate(
                 List.of(check), provenance(List.of(comparison(
                         "check-1", "build", CheckState.FAILED,
-                        Set.of("failure-a", "failure-b")))), 3, "")))
+                        ImmutableSet.of("failure-a", "failure-b")))), 3, "")))
                 .isEqualTo(Classification.BASE_DETERMINISTIC);
         assertThat(classifier.classify(candidate(
                 List.of(check), provenance(List.of(comparison(
                         "check-1", "build", CheckState.FAILED,
-                        Set.of("different")))), 3, "")))
+                        ImmutableSet.of("different")))), 3, "")))
                 .isEqualTo(Classification.TASK_BRANCH_REPAIRABLE);
     }
 
@@ -95,14 +96,14 @@ class TestRemoteCiFailureClassifier
         CheckEvidence head = new CheckEvidence(
                 "github-check:11", profile, 31L, 31L, 101L, 1,
                 "merge-1", "merge-1", "pull_request", CheckState.FAILED,
-                true, Set.of(fingerprint), new PullRequestAssociation(
+                true, ImmutableSet.of(fingerprint), new PullRequestAssociation(
                         41, "head-1", "base-1"), null,
                 jobLog(101L, 1, 1_001L, 11L, "merge-1", diagnostic,
                         RemoteCiProvenance.MAVEN_COMPILER_PARSER, true));
         CheckEvidence base = new CheckEvidence(
                 "github-check:12", profile, 32L, 32L, 102L, 1,
                 "base-1", "base-1", "push", CheckState.FAILED,
-                true, Set.of(fingerprint), null, null,
+                true, ImmutableSet.of(fingerprint), null, null,
                 jobLog(102L, 1, 2_001L, 12L, "base-1", diagnostic,
                         RemoteCiProvenance.MAVEN_COMPILER_PARSER, true));
         Check failed = check(
@@ -142,7 +143,7 @@ class TestRemoteCiFailureClassifier
                 base.workflowCheckSuiteId(), base.workflowRunId(),
                 base.workflowRunAttempt(), base.checkTestedSha(),
                 base.workflowTestedSha(), base.workflowEvent(),
-                CheckState.PASSED, true, Set.of(), null, null,
+                CheckState.PASSED, true, ImmutableSet.of(), null, null,
                 jobLog(102L, 1, 2_001L, 12L, "base-1", diagnostic,
                         RemoteCiProvenance.MAVEN_COMPILER_PARSER, false));
         assertThat(classifier.classify(candidate(
@@ -176,13 +177,13 @@ class TestRemoteCiFailureClassifier
         assertThat(classifier.classify(candidate(
                 List.of(build, test), provenance(List.of(
                         comparison("check-1", "build", CheckState.PASSED,
-                                Set.of()),
+                                ImmutableSet.of()),
                         comparison("check-2", "test", CheckState.FAILED,
-                                Set.of("failure-a")))), 3, "")))
+                                ImmutableSet.of("failure-a")))), 3, "")))
                 .isEqualTo(Classification.TASK_BRANCH_REPAIRABLE);
 
         CheckComparison incomplete = comparison(
-                "check-1", "build", CheckState.FAILED, Set.of("failure-a"));
+                "check-1", "build", CheckState.FAILED, ImmutableSet.of("failure-a"));
         incomplete = new CheckComparison(incomplete.head(), new CheckEvidence(
                 incomplete.base().externalId(), incomplete.base().profile(),
                 incomplete.base().checkSuiteId(),
@@ -191,42 +192,42 @@ class TestRemoteCiFailureClassifier
                 incomplete.base().workflowRunAttempt(),
                 incomplete.base().checkTestedSha(),
                 incomplete.base().workflowTestedSha(), "push",
-                CheckState.FAILED, false, Set.of("failure-a"), null));
+                CheckState.FAILED, false, ImmutableSet.of("failure-a"), null));
         assertThat(classifier.classify(candidate(
                 List.of(build), provenance(List.of(incomplete)), 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
 
         CheckComparison missingHeadFingerprint = withHead(
                 comparison(
-                        "check-1", "build", CheckState.PASSED, Set.of()),
-                CheckState.FAILED, true, Set.of());
+                        "check-1", "build", CheckState.PASSED, ImmutableSet.of()),
+                CheckState.FAILED, true, ImmutableSet.of());
         assertThat(classifier.classify(candidate(
                 List.of(build), provenance(List.of(missingHeadFingerprint)),
                 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
 
         CheckComparison failedBaseWithoutFingerprint = comparison(
-                "check-1", "build", CheckState.FAILED, Set.of());
+                "check-1", "build", CheckState.FAILED, ImmutableSet.of());
         assertThat(classifier.classify(candidate(
                 List.of(build),
                 provenance(List.of(failedBaseWithoutFingerprint)), 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
         CheckComparison nonterminalBase = comparison(
-                "check-1", "build", CheckState.PENDING, Set.of());
+                "check-1", "build", CheckState.PENDING, ImmutableSet.of());
         assertThat(classifier.classify(candidate(
                 List.of(build), provenance(List.of(nonterminalBase)), 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
         CheckComparison passedBaseWithFingerprint = comparison(
-                "check-1", "build", CheckState.PASSED, Set.of("stale"));
+                "check-1", "build", CheckState.PASSED, ImmutableSet.of("stale"));
         assertThat(classifier.classify(candidate(
                 List.of(build), provenance(List.of(passedBaseWithFingerprint)),
                 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
 
         CheckComparison first = comparison(
-                "check-1", "build", CheckState.PASSED, Set.of());
+                "check-1", "build", CheckState.PASSED, ImmutableSet.of());
         CheckComparison duplicate = comparison(
-                "check-2", "build", CheckState.PASSED, Set.of());
+                "check-2", "build", CheckState.PASSED, ImmutableSet.of());
         assertThat(classifier.classify(candidate(
                 List.of(build, check("check-2", "build", CheckState.FAILED,
                         "failure")),
@@ -236,9 +237,9 @@ class TestRemoteCiFailureClassifier
         assertThat(classifier.classify(candidate(
                 List.of(build, build), provenance(List.of(
                         comparison("check-1", "build", CheckState.PASSED,
-                                Set.of()),
+                                ImmutableSet.of()),
                         comparison("check-2", "test", CheckState.PASSED,
-                                Set.of()))), 3, "")))
+                                ImmutableSet.of()))), 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
     }
 
@@ -249,7 +250,7 @@ class TestRemoteCiFailureClassifier
                 "check-1", "build", CheckState.FAILED, "failure");
         CheckComparison exact = comparison(
                 "check-1", "build", CheckState.FAILED,
-                Set.of("failure-a"));
+                ImmutableSet.of("failure-a"));
         CheckEvidence head = exact.head();
         CheckEvidence blankExternalId = new CheckEvidence(
                 "", head.profile(), head.checkSuiteId(),
@@ -268,7 +269,7 @@ class TestRemoteCiFailureClassifier
                 "completed", "failure", null, 10L, "{}");
         assertThat(classifier.classify(candidate(
                 List.of(statusContext), provenance(List.of(comparison(
-                        "check-1", "build", CheckState.PASSED, Set.of()))),
+                        "check-1", "build", CheckState.PASSED, ImmutableSet.of()))),
                 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
 
@@ -286,7 +287,7 @@ class TestRemoteCiFailureClassifier
                 .isEqualTo(Classification.UNKNOWN);
         assertThat(classifier.classify(candidate(
                 List.of(failed), provenance(List.of(withHead(
-                        exact, CheckState.FAILED, true, Set.of("")))),
+                        exact, CheckState.FAILED, true, ImmutableSet.of("")))),
                 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
         assertThat(classifier.classify(candidate(
@@ -305,7 +306,7 @@ class TestRemoteCiFailureClassifier
         Check check = check("check-1", "build", CheckState.FAILED,
                 "failure");
         CheckComparison comparison = comparison(
-                "check-1", "build", CheckState.PASSED, Set.of());
+                "check-1", "build", CheckState.PASSED, ImmutableSet.of());
         CheckEvidence wrong = new CheckEvidence(
                 comparison.head().externalId(), comparison.head().profile(),
                 comparison.head().checkSuiteId(),
@@ -313,7 +314,7 @@ class TestRemoteCiFailureClassifier
                 comparison.head().workflowRunId(),
                 comparison.head().workflowRunAttempt(), "merge-1", "merge-1",
                 "pull_request", CheckState.FAILED, true,
-                Set.of("failure-a"), new PullRequestAssociation(
+                ImmutableSet.of("failure-a"), new PullRequestAssociation(
                         41, "another-head", "base-1"));
         assertThat(classifier.classify(candidate(
                 List.of(check), provenance(List.of(
@@ -326,13 +327,13 @@ class TestRemoteCiFailureClassifier
     void infrastructureConclusionStillRequiresTheExactTypedEnvelope()
     {
         RemoteCiProvenance exact = provenance(List.of(comparison(
-                "check-1", "build", CheckState.PASSED, Set.of())));
+                "check-1", "build", CheckState.PASSED, ImmutableSet.of())));
         assertThat(classifier.classify(candidate(
                 List.of(check("check-1", "build", CheckState.FAILED,
                         "timed_out")), exact, 3, "")))
                 .isEqualTo(Classification.INFRASTRUCTURE);
         CheckComparison canceled = withHead(
-                exact.checks().getFirst(), CheckState.CANCELED, true, Set.of());
+                exact.checks().getFirst(), CheckState.CANCELED, true, ImmutableSet.of());
         assertThat(classifier.classify(candidate(
                 List.of(check("check-1", "build", CheckState.CANCELED,
                         "cancelled")), provenance(List.of(canceled)), 3, "")))
@@ -354,12 +355,12 @@ class TestRemoteCiFailureClassifier
         assertThat(classifier.classify(candidate(
                 List.of(timedOut), provenance(List.of(comparison(
                         "another-check", "build", CheckState.PASSED,
-                        Set.of()))), 3, "")))
+                        ImmutableSet.of()))), 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
 
         CheckComparison incomplete = withHead(
-                comparison("check-1", "build", CheckState.PASSED, Set.of()),
-                CheckState.FAILED, false, Set.of());
+                comparison("check-1", "build", CheckState.PASSED, ImmutableSet.of()),
+                CheckState.FAILED, false, ImmutableSet.of());
         assertThat(classifier.classify(candidate(
                 List.of(timedOut), provenance(List.of(incomplete)), 3, "")))
                 .isEqualTo(Classification.UNKNOWN);
@@ -369,9 +370,9 @@ class TestRemoteCiFailureClassifier
         assertThat(classifier.classify(candidate(
                 List.of(timedOut, deterministic), provenance(List.of(
                         comparison("check-1", "build", CheckState.PASSED,
-                                Set.of()),
+                                ImmutableSet.of()),
                         comparison("check-2", "test", CheckState.PASSED,
-                                Set.of()))), 3, "")))
+                                ImmutableSet.of()))), 3, "")))
                 .isEqualTo(Classification.TASK_BRANCH_REPAIRABLE);
     }
 
@@ -383,7 +384,7 @@ class TestRemoteCiFailureClassifier
                 List.of(build), provenance(
                         4, List.of(comparison(
                                 "check-1", "build", CheckState.PASSED,
-                                Set.of()))), 4, "")))
+                                ImmutableSet.of()))), 4, "")))
                 .isEqualTo(Classification.TASK_DETERMINISTIC);
 
         Check aggregate = check(
@@ -400,13 +401,13 @@ class TestRemoteCiFailureClassifier
                 List.of(aggregate, build, lint), provenance(4, List.of(
                         aggregateProof,
                         comparison("check-1", "build", CheckState.PASSED,
-                                Set.of()))), 4, "")))
+                                ImmutableSet.of()))), 4, "")))
                 .isEqualTo(Classification.TASK_DETERMINISTIC);
         assertThat(classifier.classify(candidate(
                 List.of(aggregate, build, lint), provenance(5, List.of(
                         aggregateProof,
                         comparison("check-1", "build", CheckState.PASSED,
-                                Set.of()))), 5, "")))
+                                ImmutableSet.of()))), 5, "")))
                 .isEqualTo(Classification.TASK_DETERMINISTIC);
     }
 
@@ -432,7 +433,7 @@ class TestRemoteCiFailureClassifier
                                         "test", "test-1", CheckState.FAILED))),
                         comparison(
                                 "test-1", "test", CheckState.FAILED,
-                                Set.of("failure-a")))), 4, "")))
+                                ImmutableSet.of("failure-a")))), 4, "")))
                 .isEqualTo(Classification.BASE_DETERMINISTIC);
     }
 
@@ -463,7 +464,7 @@ class TestRemoteCiFailureClassifier
                                         CheckState.FAILED))),
                         new CheckComparison(comparison(
                                 "check-1", "build", CheckState.PASSED,
-                                Set.of()).head(), null))), 4, "")))
+                                ImmutableSet.of()).head(), null))), 4, "")))
                 .isEqualTo(Classification.UNKNOWN);
 
         assertThat(classifier.classify(candidate(
@@ -475,7 +476,7 @@ class TestRemoteCiFailureClassifier
                                         CheckState.FAILED))),
                         comparison(
                                 "unrelated", "unrelated", CheckState.PASSED,
-                                Set.of()))), 4, "")))
+                                ImmutableSet.of()))), 4, "")))
                 .isEqualTo(Classification.UNKNOWN);
 
         assertThat(classifier.classify(candidate(
@@ -491,10 +492,10 @@ class TestRemoteCiFailureClassifier
                                                 CheckState.FAILED))),
                         comparison(
                                 "check-1", "build", CheckState.PASSED,
-                                Set.of()),
+                                ImmutableSet.of()),
                         comparison(
                                 "check-2", "test", CheckState.FAILED,
-                                Set.of("failure-a")))), 4, "")))
+                                ImmutableSet.of("failure-a")))), 4, "")))
                 .isEqualTo(Classification.TASK_BRANCH_REPAIRABLE);
 
         assertThat(classifier.classify(candidate(
@@ -510,10 +511,10 @@ class TestRemoteCiFailureClassifier
                                                 CheckState.FAILED))),
                         comparison(
                                 "check-1", "build", CheckState.PASSED,
-                                Set.of()),
+                                ImmutableSet.of()),
                         comparison(
                                 "check-2", "test", CheckState.PASSED,
-                                Set.of()))), 4, "")))
+                                ImmutableSet.of()))), 4, "")))
                 .isEqualTo(Classification.UNKNOWN);
     }
 
@@ -552,7 +553,7 @@ class TestRemoteCiFailureClassifier
                         withAggregate(exact, wrongPath),
                         comparison(
                                 "check-1", "build", CheckState.PASSED,
-                                Set.of()))), 4, "")))
+                                ImmutableSet.of()))), 4, "")))
                 .isEqualTo(Classification.UNKNOWN);
     }
 
@@ -568,7 +569,7 @@ class TestRemoteCiFailureClassifier
                 List.of(dependency(
                         "build", "check-1", CheckState.FAILED)));
         CheckComparison concrete = comparison(
-                "check-1", "build", CheckState.PASSED, Set.of());
+                "check-1", "build", CheckState.PASSED, ImmutableSet.of());
 
         assertThat(classifier.classify(candidate(
                 List.of(aggregate, build), provenance(4, List.of(
@@ -616,7 +617,7 @@ class TestRemoteCiFailureClassifier
                 List.of(check(
                         "check-1", "build", CheckState.FAILED, "failure")),
                 provenance(3, List.of(comparison(
-                        "check-1", "build", CheckState.PASSED, Set.of()))),
+                        "check-1", "build", CheckState.PASSED, ImmutableSet.of()))),
                 4, ""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("version must match");
@@ -641,7 +642,7 @@ class TestRemoteCiFailureClassifier
                 "stage-1", 1, "binding-1", "policy-1",
                 "acme/widget", 41, "head-1", "base-1",
                 "head-1", "base-1", 0, 1, true,
-                policy(), Set.of());
+                policy(), ImmutableSet.of());
         RemoteObservationOperationHandler.Observation observation =
                 schemaVersion >= 3
                         ? new RemoteObservationOperationHandler.Observation(
@@ -697,7 +698,7 @@ class TestRemoteCiFailureClassifier
         CheckEvidence head = new CheckEvidence(
                 externalId, profile, 11L, 11L, 101L, 1,
                 "merge-1", "merge-1", "pull_request", CheckState.FAILED,
-                true, Set.of(), new PullRequestAssociation(
+                true, ImmutableSet.of(), new PullRequestAssociation(
                         41, "head-1", "base-1"), aggregate);
         return new CheckComparison(head, null);
     }
@@ -750,7 +751,7 @@ class TestRemoteCiFailureClassifier
         CheckEvidence head = new CheckEvidence(
                 externalId, profile, 11L, 11L, 101L, 1,
                 "merge-1", "merge-1", "pull_request", CheckState.FAILED,
-                true, Set.of("failure-a"), new PullRequestAssociation(
+                true, ImmutableSet.of("failure-a"), new PullRequestAssociation(
                         41, "head-1", "base-1"));
         CheckEvidence base = new CheckEvidence(
                 "base-" + externalId, profile, 12L, 12L, 102L, 1,

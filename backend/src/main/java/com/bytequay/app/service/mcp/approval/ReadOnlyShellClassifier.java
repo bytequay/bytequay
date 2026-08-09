@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.mcp.approval;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Set;
 
 /**
@@ -39,7 +41,7 @@ public final class ReadOnlyShellClassifier
 {
     private ReadOnlyShellClassifier() {}
 
-    private static final Set<String> READ_ONLY_COMMANDS = Set.of(
+    private static final Set<String> READ_ONLY_COMMANDS = ImmutableSet.of(
             "grep", "egrep", "fgrep", "rg", "ls", "cat", "head", "tail", "wc",
             "sort", "uniq", "nl", "cut", "comm", "tac", "column",
             "basename", "dirname", "realpath", "pwd", "tree", "stat", "file",
@@ -52,17 +54,17 @@ public final class ReadOnlyShellClassifier
      *  remote or the worktree, so it's allow-listed alongside the rest —
      *  {@link DenyRemoteGitStep} still hard-denies anything that pushes or
      *  mutates GitHub-side state regardless of this list. */
-    private static final Set<String> GIT_READ_SUBCOMMANDS = Set.of(
+    private static final Set<String> GIT_READ_SUBCOMMANDS = ImmutableSet.of(
             "status", "diff", "log", "show", "ls-files", "ls-tree",
             "cat-file", "rev-parse", "rev-list", "blame", "describe", "shortlog", "fetch");
 
     /** {@code find} primaries that run a command — only allowed when the
      *  command they run is itself read-only. */
-    private static final Set<String> FIND_EXEC_PRIMARIES = Set.of(
+    private static final Set<String> FIND_EXEC_PRIMARIES = ImmutableSet.of(
             "-exec", "-execdir", "-ok", "-okdir");
 
     /** {@code find} primaries that write / delete — never allowed. */
-    private static final Set<String> FIND_WRITE_PRIMARIES = Set.of(
+    private static final Set<String> FIND_WRITE_PRIMARIES = ImmutableSet.of(
             "-delete", "-fprint", "-fprintf", "-fls");
 
     /** True only when {@code command} is provably a read-only shell. */

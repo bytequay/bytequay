@@ -16,6 +16,7 @@ package com.bytequay.app.service.agents;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.service.agents.ToolExposurePolicy.V2Profile;
 import com.bytequay.app.service.skills.ByteQuayRole;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -94,7 +95,7 @@ class TestToolExposurePolicy
     @Test
     void everyV2CatalogExcludesLegacyLifecycleAndArtifactMutators()
     {
-        Set<String> retired = Set.of(
+        Set<String> retired = ImmutableSet.of(
                 "create_task", "record_plan", "record_review_verdict",
                 "record_round_reply", "validate", "record_iteration_summary",
                 "record_dev_report", "record_pr_progress",

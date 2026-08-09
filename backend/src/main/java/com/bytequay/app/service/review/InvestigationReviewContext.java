@@ -24,6 +24,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -35,7 +36,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 import static java.lang.Math.toIntExact;
@@ -187,7 +187,7 @@ public class InvestigationReviewContext
                     "full review has no repository source to freeze");
         }
         List<String> paths = snapshot.files().stream()
-                .filter(file -> !Set.of("deleted", "removed", "D").contains(
+                .filter(file -> !ImmutableSet.of("deleted", "removed", "D").contains(
                         file.status()))
                 .map(DiffFile::filename)
                 .toList();

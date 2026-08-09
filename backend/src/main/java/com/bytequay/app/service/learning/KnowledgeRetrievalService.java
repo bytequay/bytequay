@@ -19,6 +19,7 @@ import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeSearchIndex;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -296,7 +297,7 @@ public class KnowledgeRetrievalService
         return List.copyOf(tokens);
     }
 
-    private static final Set<String> STOP_WORDS = Set.of(
+    private static final Set<String> STOP_WORDS = ImmutableSet.of(
             "the", "and", "for", "with", "that", "this", "from", "into", "what",
             "how", "does", "where", "when", "are", "was", "has", "have", "should",
             "would", "could", "here", "there", "then", "them", "they", "its");

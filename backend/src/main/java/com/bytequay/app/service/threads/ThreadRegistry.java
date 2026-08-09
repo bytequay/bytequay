@@ -46,6 +46,7 @@ import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -429,7 +430,7 @@ public class ThreadRegistry
             return List.of();
         }
         List<Agent> out = new ArrayList<>();
-        for (String key : Set.copyOf(keys)) {
+        for (String key : ImmutableSet.copyOf(keys)) {
             Agent agent = sessions.get(new SessionKey(threadId, key));
             if (agent != null) {
                 out.add(agent);

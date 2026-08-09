@@ -39,6 +39,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,7 +51,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /** Compact JDBC store for the typed investigation-review artifact graph. */
 @Repository
@@ -429,7 +429,7 @@ public class InvestigationReviewStore
                 row.startCommit(), row.endCommit(), row.status(), json(row.budgetJson()),
                 row.costCents(), json(row.capabilitiesJson()), row.triggerStageId(),
                 row.messageGateOpen() ? 1 : 0,
-                Set.of("QUEUED", "RUNNING").contains(row.status()) ? 0 : 1,
+                ImmutableSet.of("QUEUED", "RUNNING").contains(row.status()) ? 0 : 1,
                 now.toEpochMilli());
     }
 

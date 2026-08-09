@@ -43,6 +43,7 @@ import com.bytequay.app.service.workspaces.HarnessWatchHandoff;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -545,11 +546,11 @@ public class HarnessService
         }
         return new BootstrapProfile(
                 parsed.forge() == null ? "github-actions" : parsed.forge(),
-                parsed.ecosystems() == null ? Set.of() : parsed.ecosystems(),
+                parsed.ecosystems() == null ? ImmutableSet.of() : parsed.ecosystems(),
                 parsed.workflowFiles() == null ? List.of() : parsed.workflowFiles(),
                 parsed.verifySteps() == null ? Map.of() : parsed.verifySteps(),
-                parsed.aggregatorJobs() == null ? Set.of() : parsed.aggregatorJobs(),
-                parsed.infraJobs() == null ? Set.of() : parsed.infraJobs(),
+                parsed.aggregatorJobs() == null ? ImmutableSet.of() : parsed.aggregatorJobs(),
+                parsed.infraJobs() == null ? ImmutableSet.of() : parsed.infraJobs(),
                 parsed.modules() == null ? Map.of() : parsed.modules(),
                 parsed.runtimeMetadata() == null ? Map.of() : parsed.runtimeMetadata(),
                 parsed.verificationEnvironment() == null ? Map.of() : parsed.verificationEnvironment(),

@@ -21,6 +21,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -57,7 +58,7 @@ public class WorktreeEditStep
         implements ApprovalStep
 {
     private static final Set<String> FILE_EDIT_TOOLS =
-            Set.of("Edit", "Write", "MultiEdit", "NotebookEdit");
+            ImmutableSet.of("Edit", "Write", "MultiEdit", "NotebookEdit");
 
     /** The autonomous work stages whose whole job is editing the worktree —
      *  Development, Remote Development and Cleanup.
@@ -66,7 +67,7 @@ public class WorktreeEditStep
      *  read-only PlanStage is deliberately excluded. CI-fixing is no longer
      *  a stage a task's phase resolves into — its live-run check below
      *  covers it instead. */
-    private static final Set<StageType> ALWAYS_EDIT_STAGES = Set.of(
+    private static final Set<StageType> ALWAYS_EDIT_STAGES = ImmutableSet.of(
             StageType.DEVELOPMENT_STAGE,
             StageType.REMOTE_DEVELOPMENT_STAGE,
             StageType.CLEANUP_STAGE);

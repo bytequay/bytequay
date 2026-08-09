@@ -15,6 +15,7 @@ package com.bytequay.app.service.codegraph;
 
 import com.bytequay.app.service.mcp.approval.ApprovalContext;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Locale;
 import java.util.Set;
@@ -25,7 +26,7 @@ public final class CodeGraphFirstSearchClassifier
 {
     private CodeGraphFirstSearchClassifier() {}
 
-    private static final Set<String> GUIDANCE_FILES = Set.of("AGENTS.md", "CLAUDE.md");
+    private static final Set<String> GUIDANCE_FILES = ImmutableSet.of("AGENTS.md", "CLAUDE.md");
     private static final Pattern RG = command("rg");
     private static final Pattern RECURSIVE_GREP = Pattern.compile(
             "(?s)(?:^|[;&|()]|\\s)(?:[^\\s]*/)?(?:grep|egrep|fgrep)\\s+[^;&|]*(?:-[^\\s]*[rR]|--recursive)");
@@ -38,7 +39,7 @@ public final class CodeGraphFirstSearchClassifier
     private static final Pattern SEARCH_COMMAND = Pattern.compile(
             "(?s)(?:^|[;&|()]|\\s)(?:[^\\s]*/)?(?:rg|grep|egrep|fgrep)\\s+([^;&|]+)");
     private static final Pattern SYMBOL = Pattern.compile("[A-Za-z_$][A-Za-z0-9_.$:-]*");
-    private static final Set<String> OPTIONS_WITH_VALUES = Set.of(
+    private static final Set<String> OPTIONS_WITH_VALUES = ImmutableSet.of(
             "-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not",
             "-e", "--regexp", "-f", "--file", "--encoding", "--engine");
 

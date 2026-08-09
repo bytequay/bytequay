@@ -42,6 +42,7 @@ import com.bytequay.app.service.learning.KnowledgeIngestor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
@@ -82,9 +83,9 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class WorkspaceKnowledgeService
 {
-    private static final Set<String> AUDIENCES = Set.of(
+    private static final Set<String> AUDIENCES = ImmutableSet.of(
             "plan", "dev", "review", "ci-fix");
-    private static final Set<String> DECISIONS = Set.of(
+    private static final Set<String> DECISIONS = ImmutableSet.of(
             "accepted", "edited", "skipped");
     private static final TypeReference<List<Map<String, Object>>> MAP_LIST = new TypeReference<>() {};
     private static final TypeReference<List<DistillOperationDto>> OPERATIONS = new TypeReference<>() {};

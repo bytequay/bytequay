@@ -26,6 +26,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -468,8 +469,8 @@ class TestProvisionTaskOperationHandler
                         V2,
                         request.baseSource() == BaseSource.EXISTING_PR_HEAD
                                 && request.expectedHeadSha() == null
-                                ? Set.of(LOCAL_GIT, GITHUB)
-                                : Set.of(LOCAL_GIT),
+                                ? ImmutableSet.of(LOCAL_GIT, GITHUB)
+                                : ImmutableSet.of(LOCAL_GIT),
                         new CapacityManager.CapacityScope(
                                 request.workspaceId(), request.trunkId(),
                                 request.taskId(), request.taskEpoch()),

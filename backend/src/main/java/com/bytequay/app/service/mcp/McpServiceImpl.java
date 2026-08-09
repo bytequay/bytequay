@@ -40,6 +40,7 @@ import com.bytequay.app.service.tools.ToolOutcome;
 import com.bytequay.app.service.tools.ToolSpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -234,7 +235,7 @@ public class McpServiceImpl
         Set<String> activeToolNames = activeContexts.find(threadId, agentKey)
                 .map(ResolvedAgentContext::toolNames)
                 // Runtime URLs are deny-by-default between turns.
-                .orElse(Set.of());
+                .orElse(ImmutableSet.of());
         List<ToolDescriptor> tools = new ArrayList<>();
         for (ToolSpec spec : registry.visibleTo(role)) {
             if (!grants.contains(spec.security())

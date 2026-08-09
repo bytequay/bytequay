@@ -15,6 +15,7 @@ package com.bytequay.app.service.skills;
 
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.SecurityType;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
 
@@ -37,8 +38,8 @@ public record RoleDefinition(
         requireNonNull(character, "character is null");
         requireNonNull(instructions, "instructions is null");
         requireNonNull(permissionRole, "permissionRole is null");
-        capabilities = Set.copyOf(requireNonNull(capabilities, "capabilities is null"));
-        resources = Set.copyOf(requireNonNull(resources, "resources is null"));
+        capabilities = ImmutableSet.copyOf(requireNonNull(capabilities, "capabilities is null"));
+        resources = ImmutableSet.copyOf(requireNonNull(resources, "resources is null"));
     }
 
     public String reference()

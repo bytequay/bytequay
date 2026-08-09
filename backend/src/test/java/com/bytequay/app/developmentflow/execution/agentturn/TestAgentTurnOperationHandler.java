@@ -24,6 +24,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,7 +36,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -1338,7 +1338,7 @@ class TestAgentTurnOperationHandler
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
                 "operation-1",
                 CapacityManager.WorkflowSource.V2,
-                Set.of(lane),
+                ImmutableSet.of(lane),
                 new CapacityManager.CapacityScope("workspace-1", "trunk-1", "task-1", 1L),
                 false,
                 true,
@@ -1359,7 +1359,7 @@ class TestAgentTurnOperationHandler
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
                 "operation-1",
                 CapacityManager.WorkflowSource.V2,
-                Set.of(
+                ImmutableSet.of(
                         CapacityManager.CapacityLane.CLI,
                         CapacityManager.CapacityLane.REVIEW),
                 new CapacityManager.CapacityScope(
@@ -1383,7 +1383,7 @@ class TestAgentTurnOperationHandler
                 "fingerprint-1", "head-1", "base-1");
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
                 "operation-1", CapacityManager.WorkflowSource.V2,
-                Set.of(
+                ImmutableSet.of(
                         CapacityManager.CapacityLane.CLI,
                         CapacityManager.CapacityLane.REVIEW),
                 new CapacityManager.CapacityScope(

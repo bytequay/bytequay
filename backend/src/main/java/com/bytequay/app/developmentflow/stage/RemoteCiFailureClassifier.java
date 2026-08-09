@@ -24,6 +24,7 @@ import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.CheckProfile;
 import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.PullRequestAssociation;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator.Classification;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -602,7 +603,7 @@ public final class RemoteCiFailureClassifier
                 .sorted()
                 .toList();
         if (fingerprints.size() != new HashSet<>(fingerprints).size()
-                || !Set.copyOf(fingerprints).equals(
+                || !ImmutableSet.copyOf(fingerprints).equals(
                         evidence.failureFingerprints())) {
             return false;
         }
@@ -661,7 +662,7 @@ public final class RemoteCiFailureClassifier
         if (check.state() == CheckState.CANCELED) {
             return true;
         }
-        return Set.of(
+        return ImmutableSet.of(
                 "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "STALE")
                 .contains(normalize(check.providerConclusion()));
     }

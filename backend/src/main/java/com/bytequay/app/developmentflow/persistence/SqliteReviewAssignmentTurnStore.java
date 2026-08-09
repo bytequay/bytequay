@@ -32,6 +32,7 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RoundFlow;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.TurnState;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,7 +42,6 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.ROUND_GUIDANCE;
@@ -1244,7 +1244,7 @@ public class SqliteReviewAssignmentTurnStore
                     UPDATE review_assignment
                     SET status = ?
                     WHERE id = ? AND status IN ('queued', 'verifying', 'completed')
-                    """, Set.of("self-refutation", ROUND_GUIDANCE).contains(purpose)
+                    """, ImmutableSet.of("self-refutation", ROUND_GUIDANCE).contains(purpose)
                     ? "completed" : "verifying", assignmentId);
             return;
         }

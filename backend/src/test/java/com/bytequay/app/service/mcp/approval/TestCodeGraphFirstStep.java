@@ -19,9 +19,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,7 +110,7 @@ class TestCodeGraphFirstStep
         ObjectNode input = mapper.createObjectNode().put("command", "rg Thing");
         ApprovalContext unscoped = new ApprovalContext(
                 scope.threadId(), scope.taskId(), null,
-                JsonNodeFactory.instance.numberNode(1), "Bash", "call-1", input, Set.of());
+                JsonNodeFactory.instance.numberNode(1), "Bash", "call-1", input, ImmutableSet.of());
         assertThat(step.apply(unscoped)).isInstanceOf(ApprovalStepResult.Continue.class);
     }
 
@@ -129,7 +129,7 @@ class TestCodeGraphFirstStep
     {
         return new ApprovalContext(
                 scope.threadId(), scope.taskId(), scope.agentKey(),
-                JsonNodeFactory.instance.numberNode(1), toolName, "call-1", input, Set.of());
+                JsonNodeFactory.instance.numberNode(1), toolName, "call-1", input, ImmutableSet.of());
     }
 
     private static Scope scope()

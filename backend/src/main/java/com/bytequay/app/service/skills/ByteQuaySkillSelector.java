@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Skill;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
@@ -35,7 +36,7 @@ import static java.util.Objects.requireNonNull;
 public class ByteQuaySkillSelector
 {
     private static final Pattern WORD_BREAK = Pattern.compile("[^a-z0-9]+");
-    private static final Set<String> STOP_WORDS = Set.of(
+    private static final Set<String> STOP_WORDS = ImmutableSet.of(
             "about", "after", "again", "also", "before", "from", "have", "into",
             "just", "more", "please", "that", "this", "using", "want", "with");
 

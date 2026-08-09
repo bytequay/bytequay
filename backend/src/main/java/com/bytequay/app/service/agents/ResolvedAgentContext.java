@@ -19,6 +19,7 @@ import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.SecurityType;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
@@ -37,11 +38,11 @@ public record ResolvedAgentContext(
 {
     public ResolvedAgentContext
     {
-        capabilities = Set.copyOf(capabilities);
+        capabilities = ImmutableSet.copyOf(capabilities);
         skillNames = List.copyOf(skillNames);
         skills = List.copyOf(skills);
-        resources = Set.copyOf(resources);
-        toolNames = Set.copyOf(toolNames);
+        resources = ImmutableSet.copyOf(resources);
+        toolNames = ImmutableSet.copyOf(toolNames);
     }
 
     /** Compatibility shape for contexts that carry names but no resolved bodies. */

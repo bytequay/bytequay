@@ -39,6 +39,7 @@ import com.bytequay.app.service.tools.ToolOutcome;
 import com.bytequay.app.service.tools.ToolSpec;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +55,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -346,7 +346,7 @@ class TestLogicLoopThreadAgentCharacterization
                     .getDeclaredMethod("pushHandler");
             return new ToolSpec(
                     "push", "Push commits to the remote.", "",
-                    SecurityType.GIT_PUSH, Gating.PARKED, Set.of(AgentRole.ANY), Set.of(),
+                    SecurityType.GIT_PUSH, Gating.PARKED, ImmutableSet.of(AgentRole.ANY), ImmutableSet.of(),
                     "{\"type\":\"object\"}", Object.class, this, handler);
         }
         catch (NoSuchMethodException e) {

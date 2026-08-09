@@ -35,6 +35,7 @@ import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -1152,7 +1153,7 @@ public class LocalRepoService
                 ? branch
                 : gitRunner.trackingRef(path, branch).orElse(null);
         Set<String> unpushed = remoteOnly
-                ? Set.of()
+                ? ImmutableSet.of()
                 : gitRunner.unpushedShas(path, branch, tracking);
         Map<String, GitRunner.LineStats> stats =
                 gitRunner.commitLineStats(path, resolved, limit, skip);

@@ -17,10 +17,10 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -68,7 +68,7 @@ class TestTypedPolicyGuardStep
                 "thread-1", taskId, "agent-1",
                 JsonNodeFactory.instance.numberNode(1),
                 "Bash", "call-1",
-                JsonNodeFactory.instance.objectNode(), Set.of(), typed);
+                JsonNodeFactory.instance.objectNode(), ImmutableSet.of(), typed);
     }
 
     private static TaskManager.PolicyRevision policy()

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.mcp.approval;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -53,16 +55,16 @@ public final class RemoteGitClassifier
     /** A blocked command and the tool the agent should use instead. */
     public record Match(String blocked, String useInstead) {}
 
-    private static final Set<String> GIT_REMOTE_MUTATIONS = Set.of(
+    private static final Set<String> GIT_REMOTE_MUTATIONS = ImmutableSet.of(
             "add", "set-url", "remove", "rename");
 
-    private static final Set<String> GH_PR_MUTATIONS = Set.of(
+    private static final Set<String> GH_PR_MUTATIONS = ImmutableSet.of(
             "create", "merge", "ready", "edit", "close", "reopen", "review", "comment");
 
-    private static final Set<String> GH_RELEASE_MUTATIONS = Set.of(
+    private static final Set<String> GH_RELEASE_MUTATIONS = ImmutableSet.of(
             "create", "edit", "delete", "upload");
 
-    private static final Set<String> MUTATING_HTTP_METHODS = Set.of(
+    private static final Set<String> MUTATING_HTTP_METHODS = ImmutableSet.of(
             "POST", "PUT", "PATCH", "DELETE");
 
     /**

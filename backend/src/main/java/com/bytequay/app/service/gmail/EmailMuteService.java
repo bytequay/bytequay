@@ -14,6 +14,7 @@
 package com.bytequay.app.service.gmail;
 
 import com.bytequay.app.repository.sqlite.EmailMutedSenderStore;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -77,7 +78,7 @@ public class EmailMuteService
      *  query so the per-thread check is an in-memory hash lookup. */
     public Set<String> mutedSet(String accountEmail)
     {
-        return Set.copyOf(store.listMuted(accountEmail));
+        return ImmutableSet.copyOf(store.listMuted(accountEmail));
     }
 
     /**

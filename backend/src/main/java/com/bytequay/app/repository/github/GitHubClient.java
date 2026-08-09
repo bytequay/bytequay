@@ -65,6 +65,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.slf4j.Logger;
@@ -128,7 +129,7 @@ public class GitHubClient
 
     /** Notification reasons that mean "a pull request wants my attention":
      *  asked to review (incl. re-requests) or directly @-mentioned. */
-    private static final Set<String> ATTENTION_REASONS = Set.of("review_requested", "mention");
+    private static final Set<String> ATTENTION_REASONS = ImmutableSet.of("review_requested", "mention");
 
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;

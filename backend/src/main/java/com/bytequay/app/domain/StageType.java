@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.domain;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Optional;
 import java.util.Set;
 
@@ -41,10 +43,10 @@ public enum StageType
      *  user-approved plan here. Opens at Task creation and closes on
      *  approval, which is the only thing that lets the DevelopmentStage
      *  open. */
-    PLAN_STAGE(Set.of(TaskPhase.PLANNING)),
+    PLAN_STAGE(ImmutableSet.of(TaskPhase.PLANNING)),
 
     /** First-time creation of the change. */
-    DEVELOPMENT_STAGE(Set.of(
+    DEVELOPMENT_STAGE(ImmutableSet.of(
             TaskPhase.IMPLEMENTING,
             TaskPhase.VALIDATING,
             TaskPhase.INTERNAL_REVIEW,
@@ -53,7 +55,7 @@ public enum StageType
 
     /** Remote PR work after the first push: CI, mark-ready, reviewer
      *  comments, branch-guard catchups, and merge-readiness checks. */
-    REMOTE_DEVELOPMENT_STAGE(Set.of(
+    REMOTE_DEVELOPMENT_STAGE(ImmutableSet.of(
             TaskPhase.PUSHED_AWAITING_CI,
             TaskPhase.AWAITING_READY,
             TaskPhase.AWAITING_REMOTE_REVIEW)),
@@ -62,31 +64,31 @@ public enum StageType
      *  a phase transition; {@link AgentRun} opens one directly as a run's
      *  backing stage. Empty {@code allowedPhases} mirrors {@code
      *  REVIEW_STAGE}. */
-    CI_FIXING_STAGE(Set.of()),
+    CI_FIXING_STAGE(ImmutableSet.of()),
 
     /** Legacy remote-review monitor. New tasks use
      *  {@link #REMOTE_DEVELOPMENT_STAGE}; this remains readable for old
      *  stage rows and historical detail screens. */
-    REVIEW_MONITOR_STAGE(Set.of()),
+    REVIEW_MONITOR_STAGE(ImmutableSet.of()),
 
     /** Terminal stage; runs once the PR closes. */
-    CLEANUP_STAGE(Set.of(TaskPhase.COMPLETED)),
+    CLEANUP_STAGE(ImmutableSet.of(TaskPhase.COMPLETED)),
 
     /** Callable multi-agent review sub-stage with its own internal phases —
      *  left empty here; populated when the panel lifecycle lands. */
-    REVIEW_STAGE(Set.of()),
+    REVIEW_STAGE(ImmutableSet.of()),
 
     /** Pure container for {@code review_round} {@link AgentRun}s — never
      *  opened via a phase transition; {@link AgentRun} opens one directly
      *  as a round's backing stage. Empty {@code allowedPhases} mirrors
      *  {@code CI_FIXING_STAGE}. */
-    REVIEW_ROUND_STAGE(Set.of()),
+    REVIEW_ROUND_STAGE(ImmutableSet.of()),
 
     /** Pure container for {@code branch_guard} {@link AgentRun}s — never
      *  opened via a phase transition; {@code BranchGuardJob} opens one
      *  directly per tick as its backing stage. Empty {@code allowedPhases}
      *  mirrors {@code CI_FIXING_STAGE}. */
-    BRANCH_GUARD_STAGE(Set.of());
+    BRANCH_GUARD_STAGE(ImmutableSet.of());
 
     private final Set<TaskPhase> allowedPhases;
 

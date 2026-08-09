@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumMap;
@@ -64,11 +65,11 @@ class TestStageCheckpoint
     private static boolean belongsToKind(StageCheckpoint checkpoint, StageKind kind)
     {
         return switch (kind) {
-            case PLAN -> Set.of(
+            case PLAN -> ImmutableSet.of(
                     StageCheckpoint.DRAFTING,
                     StageCheckpoint.SELF_REVIEW,
                     StageCheckpoint.AWAITING_APPROVAL).contains(checkpoint);
-            case LOCAL_DEVELOPMENT -> Set.of(
+            case LOCAL_DEVELOPMENT -> ImmutableSet.of(
                     StageCheckpoint.IMPLEMENTING,
                     StageCheckpoint.VALIDATING,
                     StageCheckpoint.BRAIN_REVIEW,
@@ -76,14 +77,14 @@ class TestStageCheckpoint
                     StageCheckpoint.PUBLISHING,
                     StageCheckpoint.ADDRESSING_BRAIN_FINDINGS,
                     StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK).contains(checkpoint);
-            case REMOTE_DEVELOPMENT -> Set.of(
+            case REMOTE_DEVELOPMENT -> ImmutableSet.of(
                     StageCheckpoint.WAITING_CI,
                     StageCheckpoint.AWAITING_READY,
                     StageCheckpoint.WAITING_REMOTE_REVIEW,
                     StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
                     StageCheckpoint.READY_TO_MERGE,
                     StageCheckpoint.MERGING).contains(checkpoint);
-            case CLEANUP -> Set.of(
+            case CLEANUP -> ImmutableSet.of(
                     StageCheckpoint.WAITING_QUIESCENCE,
                     StageCheckpoint.CLEANING).contains(checkpoint);
         };
@@ -93,49 +94,49 @@ class TestStageCheckpoint
     {
         Map<StageCheckpoint, Set<StageCheckpoint>> edges =
                 new EnumMap<>(StageCheckpoint.class);
-        edges.put(StageCheckpoint.DRAFTING, Set.of(StageCheckpoint.SELF_REVIEW));
-        edges.put(StageCheckpoint.SELF_REVIEW, Set.of(
+        edges.put(StageCheckpoint.DRAFTING, ImmutableSet.of(StageCheckpoint.SELF_REVIEW));
+        edges.put(StageCheckpoint.SELF_REVIEW, ImmutableSet.of(
                 StageCheckpoint.DRAFTING, StageCheckpoint.AWAITING_APPROVAL));
-        edges.put(StageCheckpoint.AWAITING_APPROVAL, Set.of(
+        edges.put(StageCheckpoint.AWAITING_APPROVAL, ImmutableSet.of(
                 StageCheckpoint.DRAFTING, StageCheckpoint.COMPLETED));
-        edges.put(StageCheckpoint.IMPLEMENTING, Set.of(StageCheckpoint.VALIDATING));
-        edges.put(StageCheckpoint.VALIDATING, Set.of(StageCheckpoint.BRAIN_REVIEW));
-        edges.put(StageCheckpoint.BRAIN_REVIEW, Set.of(
+        edges.put(StageCheckpoint.IMPLEMENTING, ImmutableSet.of(StageCheckpoint.VALIDATING));
+        edges.put(StageCheckpoint.VALIDATING, ImmutableSet.of(StageCheckpoint.BRAIN_REVIEW));
+        edges.put(StageCheckpoint.BRAIN_REVIEW, ImmutableSet.of(
                 StageCheckpoint.LOCAL_REVIEW,
                 StageCheckpoint.ADDRESSING_BRAIN_FINDINGS));
         edges.put(StageCheckpoint.ADDRESSING_BRAIN_FINDINGS,
-                Set.of(StageCheckpoint.IMPLEMENTING));
-        edges.put(StageCheckpoint.LOCAL_REVIEW, Set.of(
+                ImmutableSet.of(StageCheckpoint.IMPLEMENTING));
+        edges.put(StageCheckpoint.LOCAL_REVIEW, ImmutableSet.of(
                 StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK,
                 StageCheckpoint.IMPLEMENTING,
                 StageCheckpoint.PUBLISHING));
         edges.put(StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK,
-                Set.of(StageCheckpoint.IMPLEMENTING));
-        edges.put(StageCheckpoint.PUBLISHING, Set.of(
+                ImmutableSet.of(StageCheckpoint.IMPLEMENTING));
+        edges.put(StageCheckpoint.PUBLISHING, ImmutableSet.of(
                 StageCheckpoint.LOCAL_REVIEW,
                 StageCheckpoint.COMPLETED));
-        edges.put(StageCheckpoint.WAITING_CI, Set.of(StageCheckpoint.AWAITING_READY));
+        edges.put(StageCheckpoint.WAITING_CI, ImmutableSet.of(StageCheckpoint.AWAITING_READY));
         edges.put(StageCheckpoint.AWAITING_READY,
-                Set.of(StageCheckpoint.WAITING_REMOTE_REVIEW,
+                ImmutableSet.of(StageCheckpoint.WAITING_REMOTE_REVIEW,
                         StageCheckpoint.WAITING_CI));
-        edges.put(StageCheckpoint.WAITING_REMOTE_REVIEW, Set.of(
+        edges.put(StageCheckpoint.WAITING_REMOTE_REVIEW, ImmutableSet.of(
                 StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
                 StageCheckpoint.READY_TO_MERGE,
                 StageCheckpoint.WAITING_CI));
         edges.put(StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
-                Set.of(StageCheckpoint.WAITING_CI,
+                ImmutableSet.of(StageCheckpoint.WAITING_CI,
                         StageCheckpoint.WAITING_REMOTE_REVIEW));
-        edges.put(StageCheckpoint.READY_TO_MERGE, Set.of(
+        edges.put(StageCheckpoint.READY_TO_MERGE, ImmutableSet.of(
                 StageCheckpoint.MERGING,
                 StageCheckpoint.WAITING_CI,
                 StageCheckpoint.WAITING_REMOTE_REVIEW));
-        edges.put(StageCheckpoint.MERGING, Set.of(
+        edges.put(StageCheckpoint.MERGING, ImmutableSet.of(
                 StageCheckpoint.READY_TO_MERGE,
                 StageCheckpoint.COMPLETED,
                 StageCheckpoint.WAITING_CI));
-        edges.put(StageCheckpoint.WAITING_QUIESCENCE, Set.of(StageCheckpoint.CLEANING));
-        edges.put(StageCheckpoint.CLEANING, Set.of(StageCheckpoint.COMPLETED));
-        edges.put(StageCheckpoint.COMPLETED, Set.of());
+        edges.put(StageCheckpoint.WAITING_QUIESCENCE, ImmutableSet.of(StageCheckpoint.CLEANING));
+        edges.put(StageCheckpoint.CLEANING, ImmutableSet.of(StageCheckpoint.COMPLETED));
+        edges.put(StageCheckpoint.COMPLETED, ImmutableSet.of());
         return edges;
     }
 }

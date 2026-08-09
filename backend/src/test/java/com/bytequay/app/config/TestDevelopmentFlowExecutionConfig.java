@@ -140,6 +140,7 @@ import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -563,7 +564,7 @@ class TestDevelopmentFlowExecutionConfig
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
                 "legacy",
                 CapacityManager.WorkflowSource.LEGACY,
-                Set.of(CapacityManager.CapacityLane.CLI),
+                ImmutableSet.of(CapacityManager.CapacityLane.CLI),
                 new CapacityManager.CapacityScope("workspace", "trunk", null, null),
                 true,
                 false,

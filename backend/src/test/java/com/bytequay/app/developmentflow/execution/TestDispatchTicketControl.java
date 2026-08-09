@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -20,7 +21,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
@@ -109,7 +109,7 @@ class TestDispatchTicketControl
                 1L, "stage", 1L, "operation", 1,
                 "fingerprint", "head", "base");
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
-                "operation", V2, Set.of(VALIDATION),
+                "operation", V2, ImmutableSet.of(VALIDATION),
                 new CapacityManager.CapacityScope(
                         "workspace", "trunk", "task", 1L),
                 false, true, false);

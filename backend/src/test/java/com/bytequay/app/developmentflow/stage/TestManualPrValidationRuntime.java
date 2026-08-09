@@ -27,6 +27,7 @@ import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -36,7 +37,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Supplier;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
@@ -200,7 +200,7 @@ class TestManualPrValidationRuntime
                         ManualPrValidationOperationHandler.CALLBACK_ROUTE),
                 fence,
                 new CapacityManager.CapacityRequest(
-                        "operation-1", V2, Set.of(VALIDATION),
+                        "operation-1", V2, ImmutableSet.of(VALIDATION),
                         new CapacityManager.CapacityScope(
                                 "workspace-1", "trunk-1", "task-1", 2L),
                         false, true, false));

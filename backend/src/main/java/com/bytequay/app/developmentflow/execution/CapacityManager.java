@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -39,7 +41,7 @@ import static java.util.Objects.requireNonNull;
 public final class CapacityManager
 {
     private static final String UNSCOPED = "\u0000";
-    private static final Set<CapacityLane> TASK_EXCLUSIVE_LANES = Set.of(
+    private static final Set<CapacityLane> TASK_EXCLUSIVE_LANES = ImmutableSet.of(
             CapacityLane.CLI,
             CapacityLane.API,
             CapacityLane.VALIDATION,
@@ -520,7 +522,7 @@ public final class CapacityManager
 
     private static boolean isWorkspaceRepositoryGit(CapacityRequest request)
     {
-        return request.lanes().equals(Set.of(
+        return request.lanes().equals(ImmutableSet.of(
                     CapacityLane.LOCAL_GIT, CapacityLane.GITHUB))
                 && request.scope().workspaceId() != null
                 && request.scope().trunkId() == null
@@ -532,7 +534,7 @@ public final class CapacityManager
 
     private static boolean isWorkspaceRepositoryGit(CapacityLease lease)
     {
-        return lease.lanes().equals(Set.of(
+        return lease.lanes().equals(ImmutableSet.of(
                     CapacityLane.LOCAL_GIT, CapacityLane.GITHUB))
                 && lease.scope().workspaceId() != null
                 && lease.scope().trunkId() == null
@@ -588,7 +590,7 @@ public final class CapacityManager
                     lanes.add(lane);
                 }
             }
-            return Set.copyOf(lanes);
+            return ImmutableSet.copyOf(lanes);
         }
     }
 
@@ -654,7 +656,7 @@ public final class CapacityManager
             requireNonNull(operationId, "operationId is null");
             requireNonNull(source, "source is null");
             requireNonNull(lanes, "lanes is null");
-            lanes = Set.copyOf(lanes);
+            lanes = ImmutableSet.copyOf(lanes);
             requireNonNull(scope, "scope is null");
             if (operationId.isBlank()) {
                 throw new IllegalArgumentException("operationId must not be blank");
@@ -690,10 +692,10 @@ public final class CapacityManager
                 throw new IllegalArgumentException(
                         "REMOTE_OBSERVATION capacity is a read-only lane");
             }
-            boolean trunkPlanningGit = lanes.equals(Set.of(CapacityLane.LOCAL_GIT))
+            boolean trunkPlanningGit = lanes.equals(ImmutableSet.of(CapacityLane.LOCAL_GIT))
                     && trunkControl
                     && scope.taskId() == null;
-            boolean workspaceRepositoryGit = lanes.equals(Set.of(
+            boolean workspaceRepositoryGit = lanes.equals(ImmutableSet.of(
                         CapacityLane.LOCAL_GIT, CapacityLane.GITHUB))
                     && scope.workspaceId() != null
                     && scope.trunkId() == null
@@ -778,7 +780,7 @@ public final class CapacityManager
             requireNonNull(operationId, "operationId is null");
             requireNonNull(source, "source is null");
             requireNonNull(lanes, "lanes is null");
-            lanes = Set.copyOf(lanes);
+            lanes = ImmutableSet.copyOf(lanes);
             requireNonNull(scope, "scope is null");
             requireNonNull(leaseOwner, "leaseOwner is null");
             requireNonNull(acquiredAt, "acquiredAt is null");

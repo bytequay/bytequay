@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
@@ -26,7 +27,6 @@ import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Instant;
-import java.util.Set;
 
 public final class SqliteExecutionTestSupport
 {
@@ -176,7 +176,7 @@ public final class SqliteExecutionTestSupport
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
                 operationId,
                 CapacityManager.WorkflowSource.V2,
-                Set.of(lane),
+                ImmutableSet.of(lane),
                 new CapacityManager.CapacityScope(
                         workspaceId, trunkId, taskId, 1L),
                 false,
@@ -208,7 +208,7 @@ public final class SqliteExecutionTestSupport
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
                 operationId,
                 CapacityManager.WorkflowSource.V2,
-                Set.of(CapacityManager.CapacityLane.CLI),
+                ImmutableSet.of(CapacityManager.CapacityLane.CLI),
                 new CapacityManager.CapacityScope(workspaceId, trunkId, null, null),
                 true,
                 false,

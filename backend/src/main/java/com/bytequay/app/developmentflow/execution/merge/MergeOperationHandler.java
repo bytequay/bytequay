@@ -19,12 +19,12 @@ import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.MERGE;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -273,7 +273,7 @@ public final class MergeOperationHandler
                 && request.headSha().equals(fence.expectedHeadSha())
                 && request.baseSha().equals(fence.expectedBaseSha())
                 && capacity.source() == V2
-                && capacity.lanes().equals(Set.of(MERGE))
+                && capacity.lanes().equals(ImmutableSet.of(MERGE))
                 && !capacity.trunkControl()
                 && capacity.exclusiveTask()
                 && !capacity.writerRequired()
@@ -456,7 +456,7 @@ public final class MergeOperationHandler
             requireText(workspaceId, "workspaceId");
             requireNonNull(mode, "mode is null");
             requireText(mergeMethod, "mergeMethod");
-            if (!Set.of("merge", "squash", "rebase").contains(mergeMethod)) {
+            if (!ImmutableSet.of("merge", "squash", "rebase").contains(mergeMethod)) {
                 throw new IllegalArgumentException("unsupported mergeMethod");
             }
             requireNonNull(status, "status is null");

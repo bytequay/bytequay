@@ -39,6 +39,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestRepository.ReviewThreadMeta;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -1117,7 +1118,7 @@ public final class GitHubUserRemoteActionGateway
             throws RetryableActionException
     {
         Target target = requireExactTarget(action);
-        Set<String> before = Set.copyOf(baseline(action));
+        Set<String> before = ImmutableSet.copyOf(baseline(action));
         List<PrCheckRunState> checks = pullRequests.fetchPrCheckRunsStrict(
                 target.pat(), target.ref().owner(), target.ref().repo(),
                 action.headSha());
@@ -1551,14 +1552,14 @@ public final class GitHubUserRemoteActionGateway
     private static boolean failedCheck(PrCheckRunState check)
     {
         return "COMPLETED".equals(normalize(check.status()))
-                && Set.of("FAILURE", "CANCELLED", "TIMED_OUT",
+                && ImmutableSet.of("FAILURE", "CANCELLED", "TIMED_OUT",
                         "ACTION_REQUIRED", "STARTUP_FAILURE")
                 .contains(normalize(check.conclusion()));
     }
 
     private static boolean successfulConclusion(String conclusion)
     {
-        return Set.of("SUCCESS", "NEUTRAL", "SKIPPED")
+        return ImmutableSet.of("SUCCESS", "NEUTRAL", "SKIPPED")
                 .contains(normalize(conclusion));
     }
 

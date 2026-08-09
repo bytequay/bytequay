@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
@@ -26,7 +27,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class PullRequestDetailPatcher
 {
-    static final Set<String> ALLOWED_REACTION_CONTENT = Set.of(
+    static final Set<String> ALLOWED_REACTION_CONTENT = ImmutableSet.of(
             "+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes");
 
     private PullRequestDetailPatcher() {}

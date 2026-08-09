@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -51,9 +52,9 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class InvestigationReviewTools
 {
-    private static final Set<String> CRITERION_KINDS = Set.of(
+    private static final Set<String> CRITERION_KINDS = ImmutableSet.of(
             "hard-invariant", "engineering-principle", "repo-convention");
-    private static final Set<String> DEPENDENCY_MODES = Set.of(
+    private static final Set<String> DEPENDENCY_MODES = ImmutableSet.of(
             "DIRECT_ONLY", "SYMBOL_BODY", "CALLER_SET", "MODULE_CONTRACT");
     private static final int MAX_HYPOTHESES = 6;
     private static final int MAX_ACTIVE_HYPOTHESES = 3;
@@ -291,7 +292,7 @@ public class InvestigationReviewTools
             return error("observation does not belong to review");
         }
         String relation = input.path("relation").asText("");
-        if (!Set.of("SUPPORTS", "REFUTES").contains(relation)) {
+        if (!ImmutableSet.of("SUPPORTS", "REFUTES").contains(relation)) {
             return error("relation must be SUPPORTS or REFUTES");
         }
         String mode = input.path("dependency_mode").asText("DIRECT_ONLY");
@@ -320,7 +321,7 @@ public class InvestigationReviewTools
                 .filter(row -> row.reviewId().equals(reviewId))
                 .orElseThrow(() -> new IllegalArgumentException("finding does not belong to review"));
         String status = input.path("status").asText("");
-        if (!Set.of("verified", "partially", "unknown", "rejected").contains(status)) {
+        if (!ImmutableSet.of("verified", "partially", "unknown", "rejected").contains(status)) {
             return error("invalid verification status");
         }
         boolean evidenceAccurate = input.path("evidence_accurate").asBoolean(false);

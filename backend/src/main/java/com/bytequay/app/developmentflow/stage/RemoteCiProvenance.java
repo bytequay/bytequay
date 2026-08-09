@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -105,7 +107,7 @@ public record RemoteCiProvenance(
     {
         public CheckEvidence
         {
-            failureFingerprints = Set.copyOf(requireNonNull(
+            failureFingerprints = ImmutableSet.copyOf(requireNonNull(
                     failureFingerprints, "failureFingerprints is null"));
         }
 

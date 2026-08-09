@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +21,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.API;
@@ -94,7 +94,7 @@ class TestWorktreeWriterLeaseManager
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
                 "read-only",
                 V2,
-                Set.of(API, REVIEW),
+                ImmutableSet.of(API, REVIEW),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", "task-1", 3L),
                 false,
@@ -382,7 +382,7 @@ class TestWorktreeWriterLeaseManager
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
                 operationId,
                 V2,
-                Set.of(LOCAL_GIT),
+                ImmutableSet.of(LOCAL_GIT),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", "task-1", 3L),
                 false,
@@ -397,7 +397,7 @@ class TestWorktreeWriterLeaseManager
             String owner)
     {
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
-                operationId, V2, Set.of(CLEANUP),
+                operationId, V2, ImmutableSet.of(CLEANUP),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", "task-1", 3L),
                 false, true, true);
@@ -427,7 +427,7 @@ class TestWorktreeWriterLeaseManager
             String owner)
     {
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
-                operationId, V2, Set.of(LOCAL_GIT),
+                operationId, V2, ImmutableSet.of(LOCAL_GIT),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", "task-1", 3L),
                 false, true, true);

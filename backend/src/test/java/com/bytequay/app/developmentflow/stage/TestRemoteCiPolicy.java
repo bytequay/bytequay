@@ -13,11 +13,11 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.CANCELED;
 import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.FAILED;
@@ -62,7 +62,7 @@ class TestRemoteCiPolicy
     {
         RemoteCiPolicy.Policy policy = policy();
 
-        assertThat(RemoteCiPolicy.evaluate(List.of(), Set.of(), policy).outcome())
+        assertThat(RemoteCiPolicy.evaluate(List.of(), ImmutableSet.of(), policy).outcome())
                 .isEqualTo(ACCEPTED);
         assertThat(evaluate(MISSING, policy))
                 .isEqualTo(RemoteCiPolicy.PolicyOutcome.FAILED);
@@ -82,7 +82,7 @@ class TestRemoteCiPolicy
     {
         RemoteCiPolicy.Evaluation result = RemoteCiPolicy.evaluate(
                 List.of(check("build", QUEUED), check("lint", FAILED)),
-                Set.of("build", "lint", "security"), policy());
+                ImmutableSet.of("build", "lint", "security"), policy());
 
         assertThat(result.outcome()).isEqualTo(
                 RemoteCiPolicy.PolicyOutcome.FAILED);
@@ -97,14 +97,14 @@ class TestRemoteCiPolicy
             RemoteCiPolicy.CheckState state, RemoteCiPolicy.Policy policy)
     {
         if (state == NONE) {
-            return RemoteCiPolicy.evaluate(List.of(), Set.of(), policy).outcome();
+            return RemoteCiPolicy.evaluate(List.of(), ImmutableSet.of(), policy).outcome();
         }
         RemoteCiPolicy.Check check = state == MISSING
                 ? new RemoteCiPolicy.Check(
                         "REQUIRED_MISSING", "missing:build", "build", state,
                         null, null, null, null, null)
                 : check("build", state);
-        return RemoteCiPolicy.evaluate(List.of(check), Set.of(), policy).outcome();
+        return RemoteCiPolicy.evaluate(List.of(check), ImmutableSet.of(), policy).outcome();
     }
 
     private static RemoteCiPolicy.Check check(

@@ -61,6 +61,7 @@ import com.bytequay.app.service.runs.AgentRunServiceImpl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -371,7 +372,7 @@ public class StageDetailServiceImpl
      *  review_round {@code AgentRun} handles each beside whatever phase the
      *  task is already on), so neither is a backflow anymore. */
     private static final Set<Map.Entry<TaskPhase, TaskPhase>> BACKFLOWS =
-            Set.of(
+            ImmutableSet.of(
                     Map.entry(TaskPhase.INTERNAL_REVIEW, TaskPhase.IMPLEMENTING),
                     Map.entry(TaskPhase.VALIDATING, TaskPhase.IMPLEMENTING),
                     Map.entry(TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS));

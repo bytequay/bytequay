@@ -21,6 +21,7 @@ import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -32,7 +33,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.CLEANUP;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -265,7 +265,7 @@ public final class CleanupOperationHandler
                 || !operation.cleanupStageId().equals(fence.stageId())
                 || !Objects.equals(operation.stageGeneration(), fence.stageGeneration())
                 || capacity.source() != V2
-                || !capacity.lanes().equals(Set.of(CLEANUP))
+                || !capacity.lanes().equals(ImmutableSet.of(CLEANUP))
                 || !capacity.exclusiveTask()
                 || !capacity.writerRequired()
                 || !operation.taskId().equals(capacity.scope().taskId())

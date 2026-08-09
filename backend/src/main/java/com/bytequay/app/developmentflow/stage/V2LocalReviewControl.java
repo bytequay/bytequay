@@ -30,6 +30,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -322,7 +323,7 @@ public final class V2LocalReviewControl
             PRComment comment = requireComment(commentId);
             String threadId = requireThreadId(commentId);
             Revision latest = requireLatestRevision(threadId);
-            if (Set.of("PENDING", "SUBMITTED", "DRAFT").contains(latest.state())) {
+            if (ImmutableSet.of("PENDING", "SUBMITTED", "DRAFT").contains(latest.state())) {
                 terminalizeRevision(latest,
                         dismissed ? "dismissed by user" : "resolved by user",
                         clock.instant());
@@ -346,7 +347,7 @@ public final class V2LocalReviewControl
             PRComment comment = requireComment(commentId);
             String threadId = requireThreadId(commentId);
             Revision latest = requireLatestRevision(threadId);
-            if (!Set.of("ADDRESSED", "DISMISSED", "SUPERSEDED").contains(latest.state())) {
+            if (!ImmutableSet.of("ADDRESSED", "DISMISSED", "SUPERSEDED").contains(latest.state())) {
                 return comment;
             }
             Subject subject = requireSubject(taskId, comment.prId());
@@ -393,7 +394,7 @@ public final class V2LocalReviewControl
         inCommand(taskId, () -> {
             PRComment comment = requireComment(commentId);
             Revision latest = requireLatestRevision(requireThreadId(commentId));
-            if (!Set.of("DRAFT", "PENDING").contains(latest.state())) {
+            if (!ImmutableSet.of("DRAFT", "PENDING").contains(latest.state())) {
                 throw conflict("submitted Local Review history cannot be deleted");
             }
             terminalizeRevision(latest, "deleted by user", clock.instant());
@@ -425,7 +426,7 @@ public final class V2LocalReviewControl
                 return duplicate;
             }
         }
-        if (!Set.of("LOCAL_REVIEW", "BRAIN_REVIEW").contains(subject.checkpoint())) {
+        if (!ImmutableSet.of("LOCAL_REVIEW", "BRAIN_REVIEW").contains(subject.checkpoint())) {
             throw conflict("Task is not accepting a Local Review submission");
         }
         if (!body.isEmpty()) {
@@ -575,7 +576,7 @@ public final class V2LocalReviewControl
         }
         TaskCommandExecutor.requireCurrent(taskId);
         String status = required(terminalStatus, "terminalStatus");
-        if (!Set.of("FAILED", "CANCELED", "SUPERSEDED").contains(status)) {
+        if (!ImmutableSet.of("FAILED", "CANCELED", "SUPERSEDED").contains(status)) {
             throw new IllegalArgumentException("unsupported feedback terminal status " + status);
         }
         Batch batch = requireBatch(batchId);
@@ -795,7 +796,7 @@ public final class V2LocalReviewControl
             if (latest.matches(current)) {
                 continue;
             }
-            if (Set.of("DRAFT", "PENDING").contains(latest.state())) {
+            if (ImmutableSet.of("DRAFT", "PENDING").contains(latest.state())) {
                 supersedePending(latest, reason, now);
             }
             appendRevision(
@@ -1168,7 +1169,7 @@ public final class V2LocalReviewControl
         if (batch.stageTurnId() != null) {
             return batch.stageTurnId();
         }
-        if (!Set.of("FROZEN", "QUEUED").contains(batch.status())) {
+        if (!ImmutableSet.of("FROZEN", "QUEUED").contains(batch.status())) {
             throw conflict("Local feedback batch is no longer dispatchable");
         }
         Subject subject = requireSubject(batch.taskId(), batch.prId());
@@ -1445,10 +1446,10 @@ public final class V2LocalReviewControl
             return Optional.empty();
         }
         String batchId = batchIds.getFirst();
-        Set<String> frozenThreads = Set.copyOf(jdbc.query("""
+        Set<String> frozenThreads = ImmutableSet.copyOf(jdbc.query("""
                 SELECT thread_id FROM local_feedback_batch_item WHERE batch_id = ?
                 """, (rs, row) -> rs.getString(1), batchId));
-        if (!frozenThreads.equals(Set.copyOf(requestedThreads))) {
+        if (!frozenThreads.equals(ImmutableSet.copyOf(requestedThreads))) {
             return Optional.empty();
         }
         Batch batch = requireBatch(batchId);
@@ -1461,7 +1462,7 @@ public final class V2LocalReviewControl
                 SELECT finding_id FROM local_review_imported_finding
                 WHERE request_id = ? ORDER BY finding_id
                 """, (rs, row) -> rs.getString(1), requestId);
-        if (!Set.copyOf(imported).equals(Set.copyOf(findingIds))) {
+        if (!ImmutableSet.copyOf(imported).equals(ImmutableSet.copyOf(findingIds))) {
             throw conflict("Agent review was already imported with another selection");
         }
         List<String> batches = jdbc.query("""
@@ -1532,7 +1533,7 @@ public final class V2LocalReviewControl
 
     private void supersedePending(Revision revision, String reason, Instant now)
     {
-        if (!Set.of("DRAFT", "PENDING").contains(revision.state())) {
+        if (!ImmutableSet.of("DRAFT", "PENDING").contains(revision.state())) {
             return;
         }
         if (jdbc.update("""

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.review;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -397,7 +399,7 @@ final class DeterministicReviewCoverage
                     languages.add("rust");
                 }
             }
-            return Set.copyOf(languages);
+            return ImmutableSet.copyOf(languages);
         }
     }
 

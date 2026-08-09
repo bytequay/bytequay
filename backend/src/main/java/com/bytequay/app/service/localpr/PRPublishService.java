@@ -31,6 +31,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.threads.TaskService;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -337,8 +338,8 @@ public class PRPublishService
         if (pr.repo() == null || pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
         }
-        Set<String> selectedFindings = findingIds == null ? Set.of() : Set.copyOf(findingIds);
-        Set<String> selectedComments = commentIds == null ? Set.of() : Set.copyOf(commentIds);
+        Set<String> selectedFindings = findingIds == null ? ImmutableSet.of() : ImmutableSet.copyOf(findingIds);
+        Set<String> selectedComments = commentIds == null ? ImmutableSet.of() : ImmutableSet.copyOf(commentIds);
         boolean selectAll = findingIds == null && commentIds == null;
         List<PRComment> drafts = prService.comments(prId).stream()
                 .filter(c -> PRComment.ORIGIN_LOCAL.equals(c.origin()))

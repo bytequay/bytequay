@@ -31,6 +31,7 @@ import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -86,7 +87,7 @@ class TestDevelopmentFlowWriterBoundary
     @Test
     void publicManagersExposeNoGenericTransitionOrUpdateCommand()
     {
-        Set<Class<?>> managers = Set.of(
+        Set<Class<?>> managers = ImmutableSet.of(
                 TrunkManager.class,
                 TaskManager.class,
                 PlanStageManager.class,
@@ -287,7 +288,7 @@ class TestDevelopmentFlowWriterBoundary
     @Test
     void managersOwnNoAsynchronousWorker()
     {
-        assertThat(Set.of(
+        assertThat(ImmutableSet.of(
                         TrunkManager.class,
                         TaskManager.class,
                         StageManager.class,

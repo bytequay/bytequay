@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.execution.agentturn;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -22,7 +23,6 @@ import org.mockito.InOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -162,7 +162,7 @@ class TestCliAgentTurnProviderSession
                         exposed.fallbackPrompt(),
                         exposed.priorCumulativeInputTokens(),
                         exposed.priorCumulativeOutputTokens(),
-                        Set.of("read_remote_pr_status", "read_dev_report"));
+                        ImmutableSet.of("read_remote_pr_status", "read_dev_report"));
 
         List<String> argv = CliAgentTurnProviderSession.buildArgv(
                 readOnlyBrain, CLAUDE_CODE, "claude", Path.of("/tmp/mcp.json"));
@@ -584,7 +584,7 @@ class TestCliAgentTurnProviderSession
                         resumed.fallbackPrompt(),
                         resumed.priorCumulativeInputTokens(),
                         resumed.priorCumulativeOutputTokens(),
-                        Set.of("read_remote_pr_status", "read_dev_report"));
+                        ImmutableSet.of("read_remote_pr_status", "read_dev_report"));
 
         AgentTurnProviderSession.Result result;
         try (AgentTurnProviderSession.Session session = provider.open(

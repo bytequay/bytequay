@@ -22,12 +22,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import java.util.List;
 import java.util.OptionalInt;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -114,6 +114,6 @@ class TestApprovalPromptHandler
         return new ToolDispatchContext(
                 "thread-1", "task-1", "stage-1", JsonNodeFactory.instance.numberNode(1),
                 new ToolCallParams("approval_prompt", args),
-                /* role */ null, Set.of(), /* spec */ null);
+                /* role */ null, ImmutableSet.of(), /* spec */ null);
     }
 }

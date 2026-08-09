@@ -20,6 +20,7 @@ import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -3361,7 +3362,7 @@ public class SqliteRemoteRuntimeStore
                 rs.getString("remote_head_ref"), rs.getString("worktree_path"),
                 rs.getString("current_head_sha"),
                 rs.getString("current_base_sha"),
-                rs.getString("ci_policy_revision_id"), policy(rs), Set.of());
+                rs.getString("ci_policy_revision_id"), policy(rs), ImmutableSet.of());
     }
 
     private ObservationDelivery observationDelivery(ResultSet rs)
@@ -3392,7 +3393,7 @@ public class SqliteRemoteRuntimeStore
                 rs.getString("current_head_sha"),
                 rs.getString("current_base_sha"),
                 rs.getInt("accepted_observation_revision"),
-                rs.getInt("semantic_attempt"), current, policy(rs), Set.of());
+                rs.getInt("semantic_attempt"), current, policy(rs), ImmutableSet.of());
     }
 
     private static RemoteCiPolicy.Policy policy(ResultSet rs)
@@ -3820,7 +3821,7 @@ public class SqliteRemoteRuntimeStore
     {
         public RemoteContext
         {
-            requiredChecks = Set.copyOf(requiredChecks);
+            requiredChecks = ImmutableSet.copyOf(requiredChecks);
         }
 
         private RemoteContext withRequiredChecks(Set<String> required)
@@ -3875,7 +3876,7 @@ public class SqliteRemoteRuntimeStore
     {
         public ObservationDelivery
         {
-            requiredChecks = Set.copyOf(requiredChecks);
+            requiredChecks = ImmutableSet.copyOf(requiredChecks);
         }
 
         private ObservationDelivery withRequiredChecks(List<String> required)

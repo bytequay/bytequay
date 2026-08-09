@@ -17,9 +17,9 @@ import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
-import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.distillation.DistillationSignalServiceImpl;
 import com.bytequay.app.service.threads.ThreadService;
 import com.google.common.collect.ImmutableSet;
@@ -50,14 +50,14 @@ public class BacklogServiceImpl
     public record BatchResult(
             List<String> backlogItemIds, String relatedBacklogGroupId) {}
 
-    private final BacklogStore store;
+    private final SqliteBacklogStore store;
     private final ThreadService threadService;
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
     private final DistillationSignalServiceImpl distillation;
 
     public BacklogServiceImpl(
-            BacklogStore store,
+            SqliteBacklogStore store,
             ThreadService threadService,
             ThreadStore threadStore,
             TaskStore taskStore,

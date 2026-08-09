@@ -23,8 +23,6 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.StageMessageStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -54,9 +52,9 @@ class TestSqliteStageMessageStore
     private static final Instant NOW = Instant.parse("2026-06-29T09:00:00Z");
 
     @Autowired
-    private StageMessageStore store;
+    private SqliteStageMessageStore store;
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Autowired
     private TaskStore taskStore;
     @Autowired

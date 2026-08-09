@@ -1323,15 +1323,6 @@ export type LocalFileDiffDto = {
   truncated: boolean;
 };
 
-/** Subject + body of a single commit. Lazy-fetched when a commit is
- *  selected in the Commits tab so the listCommits payload stays
- *  small even on branches with long release-note style commits. */
-export type LocalCommitDetailDto = {
-  sha: string;
-  subject: string;
-  body: string;
-};
-
 export type ThreadKindDto = 'CLI_AGENT' | 'LOGIC_LOOP';
 
 export type ThreadStatusDto =

@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.repository.LocalReviewBrainHandoffStore;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,9 +23,15 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 @Repository
-class SqliteLocalReviewBrainHandoffStore
-        implements LocalReviewBrainHandoffStore
+public class SqliteLocalReviewBrainHandoffStore
 {
+    public record Handoff(
+            String validationClaimKey,
+            String taskId,
+            long throughSequence,
+            String codeFingerprint,
+            int deliveryFailures) {}
+
     private final JdbcTemplate jdbc;
 
     SqliteLocalReviewBrainHandoffStore(JdbcTemplate jdbc)
@@ -34,7 +39,6 @@ class SqliteLocalReviewBrainHandoffStore
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
 
-    @Override
     @Transactional
     public void insert(
             String validationClaimKey, String taskId, long throughSequence,
@@ -49,7 +53,6 @@ class SqliteLocalReviewBrainHandoffStore
                 createdAt.toEpochMilli());
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<Handoff> listUnconsumedByTask(String taskId)
     {
@@ -65,7 +68,6 @@ class SqliteLocalReviewBrainHandoffStore
                 taskId);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<Handoff> listUnconsumed(int limit)
     {
@@ -82,7 +84,6 @@ class SqliteLocalReviewBrainHandoffStore
                 limit);
     }
 
-    @Override
     @Transactional
     public void markConsumed(String validationClaimKey, Instant at)
     {
@@ -93,7 +94,6 @@ class SqliteLocalReviewBrainHandoffStore
                 at.toEpochMilli(), validationClaimKey);
     }
 
-    @Override
     @Transactional
     public void incrementDeliveryFailures(String validationClaimKey)
     {

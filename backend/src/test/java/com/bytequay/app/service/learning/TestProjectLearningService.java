@@ -15,8 +15,8 @@ package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.bytequay.app.testing.SqliteTestPools;
@@ -106,7 +106,7 @@ class TestProjectLearningService
         when(ingestor.ingest(anyString(), any(), any(), any()))
                 .thenReturn(new KnowledgeIngestor.IngestResult(0, 0, 0));
         KnowledgeItemStore knowledge = new KnowledgeItemStore(jdbc, new ObjectMapper());
-        WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
+        SqliteWorkspaceStore workspaceStore = mock(SqliteWorkspaceStore.class);
         when(workspaceStore.listWorkspaces()).thenReturn(List.of());
 
         service = new ProjectLearningService(store, resolver, watchedRepos, workspaceStore,

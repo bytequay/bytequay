@@ -25,9 +25,9 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.tools.PlanToolHandlers.RecordPlanArgs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,7 +60,7 @@ class TestPlanToolHandlers
     @Autowired
     private PlanToolHandlers tools;
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Autowired
     private TaskStore taskStore;
     @Autowired

@@ -25,10 +25,10 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -61,8 +61,8 @@ class TestWorkModelResolver
 
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
-    private final StageStore stageStore = mock(StageStore.class);
+    private final SqliteWorkspaceStore workspaceStore = mock(SqliteWorkspaceStore.class);
+    private final SqliteStageStore stageStore = mock(SqliteStageStore.class);
     private final WorkspaceEngineSettings engineSettings = mock(WorkspaceEngineSettings.class);
     private final ThreadEngineOverrides threadEngines = mock(ThreadEngineOverrides.class);
 

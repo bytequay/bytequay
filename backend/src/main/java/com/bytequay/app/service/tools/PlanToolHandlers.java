@@ -20,8 +20,8 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,12 +57,12 @@ public class PlanToolHandlers
     private static final int CONVO_DEFAULT_LIMIT = 50;
     private static final int CONVO_MAX_LIMIT = 200;
 
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final ThreadStore threadStore;
     private final ObjectMapper mapper;
 
     public PlanToolHandlers(
-            StageStore stageStore, ThreadStore threadStore, ObjectMapper mapper)
+            SqliteStageStore stageStore, ThreadStore threadStore, ObjectMapper mapper)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");

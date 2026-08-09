@@ -14,7 +14,7 @@
 package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.repository.AgentRunStore;
+import com.bytequay.app.repository.sqlite.SqliteAgentRunStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -38,16 +38,16 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class AgentRunServiceImpl
 {
-    private final AgentRunStore store;
+    private final SqliteAgentRunStore store;
     private final Clock clock;
 
     @Autowired
-    AgentRunServiceImpl(AgentRunStore store)
+    AgentRunServiceImpl(SqliteAgentRunStore store)
     {
         this(store, Clock.systemUTC());
     }
 
-    AgentRunServiceImpl(AgentRunStore store, Clock clock)
+    AgentRunServiceImpl(SqliteAgentRunStore store, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.clock = requireNonNull(clock, "clock is null");

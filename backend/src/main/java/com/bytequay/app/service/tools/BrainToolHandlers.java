@@ -28,8 +28,8 @@ import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.local.LocalRepoService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -79,7 +79,7 @@ public class BrainToolHandlers
             "@Test\\b|\\b(?:it|test)\\s*\\(", Pattern.CASE_INSENSITIVE);
 
     private final TaskStore taskStore;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final PullRequestService pullRequests;
     private final LocalRepoService localRepos;
     private final PRService prService;
@@ -87,7 +87,7 @@ public class BrainToolHandlers
 
     public BrainToolHandlers(
             TaskStore taskStore,
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             PullRequestService pullRequests,
             LocalRepoService localRepos,
             PRService prService,

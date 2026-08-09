@@ -427,15 +427,6 @@ public class HarnessService
                 json(Map.of("watchId", watch.id(), "summary", summary)));
     }
 
-    public void notifyComplete(Watch watch, String summary)
-    {
-        notifications.createCanonical(
-                NotificationKind.AUTO_FIX_DONE, watch.workspaceId(), null, null,
-                "ci", "CI harness is ready for handoff", summary, itemPath(watch),
-                "ci-harness:" + watch.id() + ":handoff:" + watch.headSha(),
-                json(Map.of("watchId", watch.id(), "summary", summary)));
-    }
-
     private HarnessDashboard dashboard(Watch watch)
     {
         List<Cycle> cycles = store.listCycles(watch.id(), 50);

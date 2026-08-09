@@ -30,10 +30,10 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
-import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import com.bytequay.app.service.threads.NotificationService;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,7 +62,7 @@ public class WorkspaceOverviewService
     private final TaskStore tasks;
     private final V2DevelopmentFlowProjection taskRuntime;
     private final SessionProjectionService sessions;
-    private final BacklogStore backlog;
+    private final SqliteBacklogStore backlog;
     private final NotificationService notifications;
     private final WatchedRepoStore watchedRepos;
     private final JdbcTemplate jdbc;
@@ -76,7 +76,7 @@ public class WorkspaceOverviewService
             TaskStore tasks,
             V2DevelopmentFlowProjection taskRuntime,
             SessionProjectionService sessions,
-            BacklogStore backlog,
+            SqliteBacklogStore backlog,
             NotificationService notifications,
             WatchedRepoStore watchedRepos,
             JdbcTemplate jdbc)

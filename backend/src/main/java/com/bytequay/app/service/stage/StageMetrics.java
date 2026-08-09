@@ -37,21 +37,6 @@ public record StageMetrics(
         return new StageMetrics(null, false, false);
     }
 
-    public StageMetrics withBudget(AutoPushBudget budget)
-    {
-        return new StageMetrics(budget, internalReviewEnabled, budgetExhausted);
-    }
-
-    public StageMetrics withInternalReviewEnabled(boolean enabled)
-    {
-        return new StageMetrics(autoPushBudget, enabled, budgetExhausted);
-    }
-
-    public StageMetrics withBudgetExhausted(boolean exhausted)
-    {
-        return new StageMetrics(autoPushBudget, internalReviewEnabled, exhausted);
-    }
-
     /**
      * Per-stage-instance autonomous-push allowance. Each new
      * {@code CiFixingStage} starts fresh; on exhaustion the stage falls
@@ -69,12 +54,6 @@ public record StageMetrics(
         {
             int nextUsed = used + 1;
             return new AutoPushBudget(limit, nextUsed, Math.max(0, limit - nextUsed));
-        }
-
-        public AutoPushBudget extendedBy(int additional)
-        {
-            int nextLimit = limit + additional;
-            return new AutoPushBudget(nextLimit, used, Math.max(0, nextLimit - used));
         }
 
         public boolean exhausted()

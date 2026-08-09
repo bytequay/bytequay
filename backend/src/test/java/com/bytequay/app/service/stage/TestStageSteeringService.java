@@ -16,8 +16,8 @@ package com.bytequay.app.service.stage;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
 
 class TestStageSteeringService
 {
-    private StageStore stages;
+    private SqliteStageStore stages;
     private TaskStore tasks;
     private V2ControlRouteStore routes;
     private V2StageSteeringControl typed;
@@ -45,7 +45,7 @@ class TestStageSteeringService
     @BeforeEach
     void setUp()
     {
-        stages = mock(StageStore.class);
+        stages = mock(SqliteStageStore.class);
         tasks = mock(TaskStore.class);
         routes = mock(V2ControlRouteStore.class);
         typed = mock(V2StageSteeringControl.class);

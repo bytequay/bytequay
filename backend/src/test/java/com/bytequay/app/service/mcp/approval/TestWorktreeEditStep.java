@@ -19,8 +19,8 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteAgentRunStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.mcp.McpResponses;
@@ -50,7 +50,7 @@ class TestWorktreeEditStep
     private final ObjectMapper mapper = new ObjectMapper();
     private final McpResponses responses = new McpResponses(mapper);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final AgentRunStore agentRuns = mock(AgentRunStore.class);
+    private final SqliteAgentRunStore agentRuns = mock(SqliteAgentRunStore.class);
     private final ActiveAgentContextRegistry activeContexts =
             new ActiveAgentContextRegistry();
     private final WorktreeEditStep step = new WorktreeEditStep(

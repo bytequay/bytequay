@@ -17,9 +17,9 @@ import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
-import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.distillation.DistillationSignalServiceImpl;
 import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,7 +49,7 @@ class TestBacklogService
 {
     private static final Instant NOW = Instant.parse("2026-06-24T09:00:00Z");
 
-    private BacklogStore store;
+    private SqliteBacklogStore store;
     private ThreadService threadService;
     private ThreadStore threadStore;
     private TaskStore taskStore;
@@ -59,7 +59,7 @@ class TestBacklogService
     @BeforeEach
     void setUp()
     {
-        store = mock(BacklogStore.class);
+        store = mock(SqliteBacklogStore.class);
         threadService = mock(ThreadService.class);
         threadStore = mock(ThreadStore.class);
         taskStore = mock(TaskStore.class);

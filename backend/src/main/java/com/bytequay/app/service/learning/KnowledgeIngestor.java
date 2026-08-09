@@ -19,8 +19,8 @@ import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemOrigin;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptScope;
@@ -316,7 +316,7 @@ public class KnowledgeIngestor
         String text = lesson.rationale() == null || lesson.rationale().isBlank()
                 ? lesson.statement()
                 : lesson.statement() + " — " + lesson.rationale();
-        memoryItems.propose(new MemoryItemStore.NewItem(
+        memoryItems.propose(new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 workspaceId,
                 "CONVENTION".equals(lesson.memoryKind())

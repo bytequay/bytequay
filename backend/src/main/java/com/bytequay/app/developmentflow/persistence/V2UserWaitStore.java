@@ -114,23 +114,6 @@ public class V2UserWaitStore
                 V2UserWaitStore::question, trunkId);
     }
 
-    public boolean hasOpenWait(ActiveAgentContextRegistry.TypedOwner owner)
-    {
-        requireOwner(owner);
-        String questionTable = supportPrefix(owner.kind()) + "_question";
-        Integer count = jdbc.queryForObject("""
-                SELECT
-                    (SELECT COUNT(*) FROM %s
-                     WHERE turn_id = ? AND state = 'OPEN')
-                  + (SELECT COUNT(*) FROM permission_request
-                     WHERE turn_kind = ? AND turn_id = ? AND operation_id = ?
-                       AND state = 'OPEN')
-                """.formatted(questionTable), Integer.class,
-                owner.turnId(), turnKind(owner.kind()), owner.turnId(),
-                owner.operationId());
-        return count != null && count > 0;
-    }
-
     /**
      * Archive liveness for one Task. An unanswered wait and an answered wait
      * whose owner has not admitted its exact successor are both live work.
@@ -746,16 +729,6 @@ public class V2UserWaitStore
         }
         return consumedGrantRemaining(
                 currentOwner, callId, toolName, parametersDigest);
-    }
-
-    public boolean wasGrantConsumed(
-            ActiveAgentContextRegistry.TypedOwner owner,
-            String callId,
-            String toolName,
-            String parametersDigest)
-    {
-        return consumedGrantRemaining(
-                owner, callId, toolName, parametersDigest).isPresent();
     }
 
     private OptionalInt consumedGrantRemaining(

@@ -14,7 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.WorkspaceRepo;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.service.learning.ProjectLearningService;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -60,7 +60,7 @@ class TestWorkspaceController
     @Autowired
     private WorkspaceService workspaces;
     @Autowired
-    private WorkspaceStore workspaceStore;
+    private SqliteWorkspaceStore workspaceStore;
     @Autowired
     private JdbcTemplate jdbc;
     @MockitoBean

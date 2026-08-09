@@ -19,8 +19,8 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
@@ -42,7 +42,7 @@ class TestDevReportToolHandlers
     private static final Instant NOW = Instant.parse("2026-07-05T00:00:00Z");
 
     private final DevReportServiceImpl devReports = mock(DevReportServiceImpl.class);
-    private final StageStore stageStore = mock(StageStore.class);
+    private final SqliteStageStore stageStore = mock(SqliteStageStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final DevReportToolHandlers tools =
             new DevReportToolHandlers(devReports, stageStore, threadStore, new ObjectMapper().findAndRegisterModules());

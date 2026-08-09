@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.harness;
 
-import com.bytequay.app.repository.PRStore;
+import com.bytequay.app.repository.sqlite.SqlitePRStore;
 import com.bytequay.app.service.harness.GitHubActionsProbe.FailedJob;
 import com.bytequay.app.service.harness.GitHubActionsProbe.ProbeResult;
 import com.bytequay.app.service.harness.HarnessLogParser.ParsedFailure;
@@ -74,7 +74,7 @@ class TestHarnessOrchestrator
     private final WorkspaceKnowledgeService knowledge = mock(WorkspaceKnowledgeService.class);
     private final HarnessGitSafety gitSafety = mock(HarnessGitSafety.class);
     private final GitRunner git = mock(GitRunner.class);
-    private final PRStore prs = mock(PRStore.class);
+    private final SqlitePRStore prs = mock(SqlitePRStore.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final HarnessOrchestrator orchestrator = new HarnessOrchestrator(
             store, service, probe, parser, agent, knowledge, new SyncRunStream(),

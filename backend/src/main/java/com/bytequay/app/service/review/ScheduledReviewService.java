@@ -21,8 +21,8 @@ import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.scheduler.QuietHoursPolicy;
 import com.bytequay.app.service.localpr.PRSyncService;
 import org.slf4j.Logger;
@@ -58,7 +58,7 @@ public class ScheduledReviewService
     private final PRSyncService prSync;
     private final InvestigationReviewService reviews;
     private final InvestigationReviewStore reviewStore;
-    private final WorkspaceStore workspaces;
+    private final SqliteWorkspaceStore workspaces;
     private final QuietHoursPolicy quietHours;
 
     public ScheduledReviewService(
@@ -67,7 +67,7 @@ public class ScheduledReviewService
             PRSyncService prSync,
             InvestigationReviewService reviews,
             InvestigationReviewStore reviewStore,
-            WorkspaceStore workspaces,
+            SqliteWorkspaceStore workspaces,
             QuietHoursPolicy quietHours)
     {
         this.appSettings = requireNonNull(appSettings, "appSettings is null");

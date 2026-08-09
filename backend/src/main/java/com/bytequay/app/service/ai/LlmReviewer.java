@@ -18,8 +18,6 @@ import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.service.skills.SkillDraft;
 
-import java.util.function.Consumer;
-
 /**
  * Provider-agnostic interface for producing an AI-drafted PR review.
  * Implementations: {@code ClaudeReviewer} (Anthropic), {@code OpenAIReviewer},
@@ -59,18 +57,6 @@ public interface LlmReviewer
      * Throws on any error — the caller is expected to translate it for the HTTP layer.
      */
     ReviewOutput review(ReviewRequest request);
-
-    /**
-     * Streaming variant: forwards raw text deltas as they arrive from the
-     * model, then returns the same final {@link ReviewOutput} that
-     * {@link #review} would have produced. Default implementation runs the
-     * non-streaming path and emits the parsed JSON in one chunk so callers
-     * always have a working stream regardless of which provider is active.
-     */
-    default ReviewOutput reviewStream(ReviewRequest request, Consumer<String> textChunk)
-    {
-        return review(request);
-    }
 
     /**
      * A generic structured completion used by the review orchestrator

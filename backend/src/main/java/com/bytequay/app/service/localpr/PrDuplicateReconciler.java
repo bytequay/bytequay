@@ -14,7 +14,7 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.PR;
-import com.bytequay.app.repository.PRStore;
+import com.bytequay.app.repository.sqlite.SqlitePRStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -48,10 +48,10 @@ public class PrDuplicateReconciler
 {
     private static final Logger log = LoggerFactory.getLogger(PrDuplicateReconciler.class);
 
-    private final PRStore store;
+    private final SqlitePRStore store;
     private final PRService prService;
 
-    public PrDuplicateReconciler(PRStore store, PRService prService)
+    public PrDuplicateReconciler(SqlitePRStore store, PRService prService)
     {
         this.store = requireNonNull(store, "store is null");
         this.prService = requireNonNull(prService, "prService is null");

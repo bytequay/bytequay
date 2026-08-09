@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.ValidationClaim;
-import com.bytequay.app.repository.ValidationPassStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,9 +24,15 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteValidationPassStore
-        implements ValidationPassStore
+public class SqliteValidationPassStore
 {
+    public record PendingValidationCancel(
+            String claimKey,
+            String taskId,
+            String executorIdentity,
+            Instant leaseUntil,
+            Instant deadline) {}
+
     private final ValidationPassJpaRepository rows;
 
     SqliteValidationPassStore(ValidationPassJpaRepository rows)
@@ -35,7 +40,6 @@ class SqliteValidationPassStore
         this.rows = requireNonNull(rows, "rows is null");
     }
 
-    @Override
     @Transactional
     public long startPass(String taskId, Instant startedAt)
     {
@@ -45,7 +49,6 @@ class SqliteValidationPassStore
         return rows.save(e).getId();
     }
 
-    @Override
     @Transactional
     public void finishPass(long id, Instant endedAt, boolean passed, int fixRounds, String failuresJson)
     {
@@ -58,7 +61,6 @@ class SqliteValidationPassStore
         });
     }
 
-    @Override
     @Transactional
     public Optional<Long> insertClaim(
             String claimKey, String taskId, String context, String roundId,
@@ -82,14 +84,12 @@ class SqliteValidationPassStore
         return Optional.of(rows.saveAndFlush(e).getId());
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<ValidationClaim> findByClaimKey(String claimKey)
     {
         return rows.findByClaimKey(claimKey).map(SqliteValidationPassStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<ValidationClaim> findLatestGreenByTaskAndContext(
             String taskId, String context)
@@ -99,14 +99,12 @@ class SqliteValidationPassStore
                 .map(SqliteValidationPassStore::toDomain);
     }
 
-    @Override
     @Transactional
     public boolean bindRoundIfUnbound(String claimKey, String roundId)
     {
         return rows.bindRoundIfUnbound(claimKey, roundId) == 1;
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<ValidationClaim> findLatestByRoundAndContext(
             String roundId, String context)
@@ -115,7 +113,6 @@ class SqliteValidationPassStore
                 .map(SqliteValidationPassStore::toDomain);
     }
 
-    @Override
     @Transactional
     public boolean acquireOwner(
             String claimKey, String ownerId, String executorIdentity, Instant leaseUntil, Instant now)
@@ -124,7 +121,6 @@ class SqliteValidationPassStore
                 claimKey, ownerId, executorIdentity, leaseUntil.toEpochMilli(), now.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean renewLease(String claimKey, String ownerId, Instant leaseUntil, Instant heartbeatAt)
     {
@@ -132,7 +128,6 @@ class SqliteValidationPassStore
                 claimKey, ownerId, leaseUntil.toEpochMilli(), heartbeatAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean completeOwned(
             String claimKey, String ownerId, String codeFingerprint,
@@ -142,21 +137,18 @@ class SqliteValidationPassStore
                 claimKey, ownerId, codeFingerprint, endedAt.toEpochMilli(), passed, failuresJson) == 1;
     }
 
-    @Override
     @Transactional
     public boolean requestCancel(String claimKey, Instant requestedAt, Instant deadline)
     {
         return rows.requestCancel(claimKey, requestedAt.toEpochMilli(), deadline.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean markSuperseded(String claimKey, Instant at)
     {
         return rows.markSuperseded(claimKey, at.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<ValidationClaim> findResumableStarted(Instant now)
     {
@@ -165,7 +157,6 @@ class SqliteValidationPassStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<ValidationClaim> findOpenByTask(String taskId)
     {
@@ -174,7 +165,6 @@ class SqliteValidationPassStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PendingValidationCancel> findCancelPending()
     {
@@ -190,7 +180,6 @@ class SqliteValidationPassStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void incrementCancelAttempts(String claimKey)
     {

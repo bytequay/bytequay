@@ -28,10 +28,10 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.threads.NotificationService;
 import org.junit.jupiter.api.Test;
@@ -73,9 +73,9 @@ class TestReadyToMerge
     @Autowired
     private TaskStore taskStore;
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Autowired
-    private ReviewRoundStore reviewRounds;
+    private SqliteReviewRoundStore reviewRounds;
     @Autowired
     private ThreadStore threadStore;
     @Autowired

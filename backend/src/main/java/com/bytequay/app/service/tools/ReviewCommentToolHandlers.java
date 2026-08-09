@@ -16,8 +16,8 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.review.ReviewCommentServiceImpl;
 import org.springframework.stereotype.Component;
 
@@ -35,13 +35,13 @@ import static java.util.Objects.requireNonNull;
 public class ReviewCommentToolHandlers
 {
     private final ReviewCommentServiceImpl reviewComments;
-    private final StageStore stageStore;
-    private final ReviewRoundStore roundStore;
+    private final SqliteStageStore stageStore;
+    private final SqliteReviewRoundStore roundStore;
 
     public ReviewCommentToolHandlers(
             ReviewCommentServiceImpl reviewComments,
-            StageStore stageStore,
-            ReviewRoundStore roundStore)
+            SqliteStageStore stageStore,
+            SqliteReviewRoundStore roundStore)
     {
         this.reviewComments = requireNonNull(reviewComments, "reviewComments is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");

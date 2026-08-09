@@ -26,8 +26,8 @@ import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
 import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import com.bytequay.app.service.question.AgentQuestionServiceImpl;
 import com.bytequay.app.service.runs.AgentRunServiceImpl;
@@ -63,7 +63,7 @@ public class TrunkActivityService
     private final AgentRunServiceImpl runs;
     private final TaskStore tasks;
     private final BacklogServiceImpl backlog;
-    private final ReviewRoundStore reviewRounds;
+    private final SqliteReviewRoundStore reviewRounds;
     private final WorkspaceKnowledgeService knowledge;
     private final V2AgentRunProjection v2Runs;
     private final V2UserWaitService v2Waits;
@@ -75,7 +75,7 @@ public class TrunkActivityService
             AgentRunServiceImpl runs,
             TaskStore tasks,
             BacklogServiceImpl backlog,
-            ReviewRoundStore reviewRounds,
+            SqliteReviewRoundStore reviewRounds,
             WorkspaceKnowledgeService knowledge,
             V2AgentRunProjection v2Runs,
             V2UserWaitService v2Waits)

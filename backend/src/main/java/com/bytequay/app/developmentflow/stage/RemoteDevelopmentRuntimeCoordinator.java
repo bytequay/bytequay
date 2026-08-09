@@ -110,14 +110,6 @@ public final class RemoteDevelopmentRuntimeCoordinator
                 deliverMarkReadyInCommand(owner, fence, result));
     }
 
-    /** Called after RemoteObserver accepts a new pushed snapshot. */
-    public Optional<EffectCompletion> resumeFeedbackCompletion(
-            String taskId, String batchId)
-    {
-        return commands.execute(taskId,
-                () -> resumeFeedbackCompletionInCommand(taskId, batchId));
-    }
-
     public Optional<EffectCompletion> resumeFeedbackCompletionInCommand(
             String taskId, String batchId)
     {

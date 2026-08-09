@@ -16,7 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
-import com.bytequay.app.repository.NotificationStore;
+import com.bytequay.app.repository.sqlite.SqliteNotificationStore;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
@@ -40,7 +40,7 @@ import static org.mockito.Mockito.when;
 
 class TestNotificationService
 {
-    private final NotificationStore store = mock(NotificationStore.class);
+    private final SqliteNotificationStore store = mock(SqliteNotificationStore.class);
     private final NotificationService service = new NotificationService(store);
 
     @Test

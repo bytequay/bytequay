@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.repository.UserConceptStore;
+import com.bytequay.app.repository.sqlite.SqliteUserConceptStore;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.concepts.SavedViewsService;
 import org.springframework.http.HttpStatusCode;
@@ -49,7 +49,7 @@ public class SavedViewsController
         this.service = requireNonNull(service, "service is null");
     }
 
-    /** Wire shape — matches {@link UserConceptStore.UserConceptRow}
+    /** Wire shape — matches {@link SqliteUserConceptStore.UserConceptRow}
      *  plus a stringified {@code kind} so the frontend doesn't have
      *  to know the enum's exact JSON encoding. */
     public record SavedViewDto(
@@ -88,7 +88,7 @@ public class SavedViewsController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "unknown kind: " + body.kind());
         }
-        UserConceptStore.UserConceptRow row = service.save(
+        SqliteUserConceptStore.UserConceptRow row = service.save(
                 body.name(),
                 kind,
                 body.definition(),
@@ -103,7 +103,7 @@ public class SavedViewsController
         service.delete(name);
     }
 
-    private static SavedViewDto toDto(UserConceptStore.UserConceptRow row)
+    private static SavedViewDto toDto(SqliteUserConceptStore.UserConceptRow row)
     {
         return new SavedViewDto(
                 row.name(),

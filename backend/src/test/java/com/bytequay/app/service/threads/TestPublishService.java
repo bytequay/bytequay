@@ -18,8 +18,8 @@ import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.IssueOriginService;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -79,7 +79,7 @@ class TestPublishService
                 mock(TaskService.class),
                 mock(ReviewPassResolver.class),
                 mock(TaskPhaseMachine.class),
-                mock(StageStore.class),
+                mock(SqliteStageStore.class),
                 mock(PRService.class),
                 mock(PullRequestService.class),
                 mock(ReadyToMergeService.class));

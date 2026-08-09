@@ -17,7 +17,6 @@ import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserStats;
-import com.bytequay.app.repository.GithubHomeCacheStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,8 +32,15 @@ import static java.util.Objects.requireNonNull;
 
 @Repository
 public class SqliteGithubHomeCacheStore
-        implements GithubHomeCacheStore
 {
+    public enum EventFeed
+    {
+        RECENT,
+        FOLLOWING
+    }
+
+    public record TimedValue<T>(T value, Instant fetchedAt) {}
+
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<List<RecentEvent>> EVENT_LIST = new TypeReference<>() {};
     private static final TypeReference<List<UserOrg>> ORG_LIST = new TypeReference<>() {};
@@ -56,14 +62,12 @@ public class SqliteGithubHomeCacheStore
         this.orgsRepo = requireNonNull(orgsRepo, "orgsRepo is null");
     }
 
-    @Override
     public Optional<TimedValue<UserProfile>> findProfile(String login)
     {
         return profileRepo.findById(login)
                 .map(e -> new TimedValue<>(read(e.getPayload(), UserProfile.class), e.getFetchedAt()));
     }
 
-    @Override
     @Transactional
     public void putProfile(String login, UserProfile profile, Instant fetchedAt)
     {
@@ -75,7 +79,6 @@ public class SqliteGithubHomeCacheStore
         profileRepo.save(entity);
     }
 
-    @Override
     public Optional<TimedValue<List<RecentEvent>>> findEvents(String login, EventFeed feed)
     {
         var key = new GithubUserEventCacheEntity.GithubUserEventCacheKey(login, feed.name());
@@ -85,7 +88,6 @@ public class SqliteGithubHomeCacheStore
                         e.getFetchedAt()));
     }
 
-    @Override
     @Transactional
     public void putEvents(String login, EventFeed feed, List<RecentEvent> events, Instant fetchedAt)
     {
@@ -98,14 +100,12 @@ public class SqliteGithubHomeCacheStore
         eventRepo.save(entity);
     }
 
-    @Override
     public Optional<TimedValue<UserStats>> findStats(String login)
     {
         return statsRepo.findById(login)
                 .map(e -> new TimedValue<>(read(e.getPayload(), UserStats.class), e.getFetchedAt()));
     }
 
-    @Override
     @Transactional
     public void putStats(String login, UserStats stats, Instant fetchedAt)
     {
@@ -117,7 +117,6 @@ public class SqliteGithubHomeCacheStore
         statsRepo.save(entity);
     }
 
-    @Override
     public Optional<TimedValue<List<UserOrg>>> findOrgs(String login)
     {
         return orgsRepo.findById(login)
@@ -126,7 +125,6 @@ public class SqliteGithubHomeCacheStore
                         e.getFetchedAt()));
     }
 
-    @Override
     @Transactional
     public void putOrgs(String login, List<UserOrg> orgs, Instant fetchedAt)
     {

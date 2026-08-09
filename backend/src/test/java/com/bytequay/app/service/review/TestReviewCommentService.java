@@ -19,8 +19,8 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.localpr.PRService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,7 +47,7 @@ class TestReviewCommentService
     private static final PR TASK_PR = PR.create(
             "pr-v2", "task-v2", "dev/task-v2", "main", "Task", "", NOW);
 
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     private PRService prService;
     private TaskStore taskStore;
     private V2LocalReviewControl typed;
@@ -56,7 +56,7 @@ class TestReviewCommentService
     @BeforeEach
     void setUp()
     {
-        stageStore = mock(StageStore.class);
+        stageStore = mock(SqliteStageStore.class);
         prService = mock(PRService.class);
         taskStore = mock(TaskStore.class);
         typed = mock(V2LocalReviewControl.class);

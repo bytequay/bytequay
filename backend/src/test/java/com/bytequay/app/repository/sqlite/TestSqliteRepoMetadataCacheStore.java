@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.IssueDetail;
-import com.bytequay.app.repository.RepoMetadataCacheStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteRepoMetadataCacheStore
 {
     @Autowired
-    private RepoMetadataCacheStore store;
+    private SqliteRepoMetadataCacheStore store;
 
     @Test
     void roundTripsRepositoryChoices()
@@ -47,7 +46,7 @@ class TestSqliteRepoMetadataCacheStore
 
         store.save(repo, users, labels, fetchedAt);
 
-        RepoMetadataCacheStore.Snapshot snapshot = store.find(repo).orElseThrow();
+        SqliteRepoMetadataCacheStore.Snapshot snapshot = store.find(repo).orElseThrow();
         assertThat(snapshot.users()).isEqualTo(users);
         assertThat(snapshot.labels()).isEqualTo(labels);
         assertThat(snapshot.fetchedAt()).isEqualTo(fetchedAt);

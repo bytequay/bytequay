@@ -16,7 +16,6 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
-import com.bytequay.app.repository.NotificationStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,8 +27,7 @@ import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteNotificationStore
-        implements NotificationStore
+public class SqliteNotificationStore
 {
     private final NotificationJpaRepository notifications;
 
@@ -38,7 +36,6 @@ class SqliteNotificationStore
         this.notifications = requireNonNull(notifications, "notifications is null");
     }
 
-    @Override
     @Transactional
     public void save(Notification notification)
     {
@@ -60,55 +57,47 @@ class SqliteNotificationStore
         notifications.save(entity);
     }
 
-    @Override
     @Transactional
     public boolean claimResolution(String id, long readAtMs)
     {
         return notifications.claimResolution(id, readAtMs) == 1;
     }
 
-    @Override
     @Transactional
     public boolean finishResolution(String id)
     {
         return notifications.finishResolution(id) == 1;
     }
 
-    @Override
     @Transactional
     public boolean resolveOpen(String id)
     {
         return notifications.resolveOpen(id) == 1;
     }
 
-    @Override
     @Transactional
     public boolean releaseResolution(String id)
     {
         return notifications.releaseResolution(id) == 1;
     }
 
-    @Override
     @Transactional
     public boolean markRead(String id, long readAtMs)
     {
         return notifications.markRead(id, readAtMs) == 1;
     }
 
-    @Override
     @Transactional
     public boolean dismiss(String id, long readAtMs)
     {
         return notifications.dismiss(id, readAtMs) == 1;
     }
 
-    @Override
     public Optional<Notification> findById(String id)
     {
         return notifications.findById(id).map(SqliteNotificationStore::toDomain);
     }
 
-    @Override
     public List<Notification> listRecent(int limit)
     {
         return notifications.findAllByOrderByCreatedAtMsDesc(firstPage(limit))
@@ -117,7 +106,6 @@ class SqliteNotificationStore
                 .toList();
     }
 
-    @Override
     public List<Notification> listByStatus(NotificationStatus status, int limit)
     {
         return notifications.findByStatusOrderByCreatedAtMsDesc(status.name(), firstPage(limit))
@@ -126,7 +114,6 @@ class SqliteNotificationStore
                 .toList();
     }
 
-    @Override
     public List<Notification> listForThread(String threadId, int limit)
     {
         return notifications.findByThreadIdOrderByCreatedAtMsDesc(threadId, firstPage(limit))
@@ -135,7 +122,6 @@ class SqliteNotificationStore
                 .toList();
     }
 
-    @Override
     public List<Notification> listForWorkspace(String workspaceId, int limit)
     {
         return notifications.findByWorkspaceIdOrderByCreatedAtMsDesc(
@@ -145,21 +131,18 @@ class SqliteNotificationStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public int markAllReadForWorkspace(String workspaceId, long readAtMs)
     {
         return notifications.markAllReadForWorkspace(workspaceId, readAtMs);
     }
 
-    @Override
     public Optional<Notification> findByDedupKey(String dedupKey)
     {
         return notifications.findByDedupKey(dedupKey)
                 .map(SqliteNotificationStore::toDomain);
     }
 
-    @Override
     @Transactional
     public void delete(String id)
     {

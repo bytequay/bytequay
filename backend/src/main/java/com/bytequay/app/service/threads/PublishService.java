@@ -36,8 +36,8 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.IssueOriginService;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -145,7 +145,7 @@ public class PublishService
      *  which fire at most once per parked notification. */
     private final TaskService taskService;
     private final ReviewPassResolver reviewPassResolver;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final PRService prService;
     private final PullRequestService pullRequestDetails;
     private final ReadyToMergeService readyToMerge;
@@ -163,7 +163,7 @@ public class PublishService
             @Lazy TaskService taskService,
             ReviewPassResolver reviewPassResolver,
             TaskPhaseMachine phaseMachine,
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             PRService prService,
             PullRequestService pullRequestDetails,
             ReadyToMergeService readyToMerge)

@@ -14,7 +14,7 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -33,10 +33,10 @@ public class StageBudgetService
 {
     private static final Logger log = LoggerFactory.getLogger(StageBudgetService.class);
 
-    private final StageStore stages;
+    private final SqliteStageStore stages;
     private final ObjectMapper mapper;
 
-    public StageBudgetService(StageStore stages, ObjectMapper mapper)
+    public StageBudgetService(SqliteStageStore stages, ObjectMapper mapper)
     {
         this.stages = requireNonNull(stages, "stages is null");
         this.mapper = requireNonNull(mapper, "mapper is null");

@@ -19,8 +19,8 @@ import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.WorkspaceMemoryProposalStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -124,7 +124,7 @@ public class WorkspaceMemoryProposalService
         // keeps both shapes alive; the blob path remains the
         // user-facing artifact for the existing banner UI.
         boolean autoApplyFocusShift = isAutoApplyFocusShiftEnabled();
-        for (MemoryItemStore.NewItem typed : parser.parse(workspaceId, proposedMd)) {
+        for (SqliteMemoryItemStore.NewItem typed : parser.parse(workspaceId, proposedMd)) {
             try {
                 MemoryItem persisted = memoryItems.propose(typed);
                 // Phase F: FOCUS_SHIFT is the only kind eligible

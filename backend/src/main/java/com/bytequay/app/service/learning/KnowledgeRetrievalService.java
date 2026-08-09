@@ -16,9 +16,9 @@ package com.bytequay.app.service.learning;
 import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.MemoryItem;
 import com.bytequay.app.domain.MemoryItemScopeKind;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeSearchIndex;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -58,13 +58,13 @@ public class KnowledgeRetrievalService
     private final JdbcTemplate jdbc;
     private final KnowledgeItemStore store;
     private final KnowledgeSearchIndex searchIndex;
-    private final MemoryItemStore memoryStore;
+    private final SqliteMemoryItemStore memoryStore;
 
     public KnowledgeRetrievalService(
             JdbcTemplate jdbc,
             KnowledgeItemStore store,
             KnowledgeSearchIndex searchIndex,
-            MemoryItemStore memoryStore)
+            SqliteMemoryItemStore memoryStore)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.store = requireNonNull(store, "store is null");

@@ -31,7 +31,7 @@ import java.util.Optional;
  * findings) because they share a transactional lifecycle — a pass is
  * created with its participants in one shot, messages stream into
  * the pass, findings come out of consensus extraction. Mirrors the
- * shape of {@link WorkspaceStore} which similarly fronts a related
+ * shape of {@link SqliteWorkspaceStore} which similarly fronts a related
  * pair of tables.
  */
 public interface ReviewStore

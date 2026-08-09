@@ -20,10 +20,10 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -51,16 +51,16 @@ public class WorkModelResolver
 
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
-    private final WorkspaceStore workspaceStore;
-    private final StageStore stageStore;
+    private final SqliteWorkspaceStore workspaceStore;
+    private final SqliteStageStore stageStore;
     private final WorkspaceEngineSettings engineSettings;
     private final ThreadEngineOverrides threadEngines;
 
     WorkModelResolver(
             ThreadStore threadStore,
             TaskStore taskStore,
-            WorkspaceStore workspaceStore,
-            StageStore stageStore,
+            SqliteWorkspaceStore workspaceStore,
+            SqliteStageStore stageStore,
             WorkspaceEngineSettings engineSettings,
             ThreadEngineOverrides threadEngines)
     {

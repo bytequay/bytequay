@@ -17,8 +17,8 @@ import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.local.LocalRepoService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -51,7 +51,7 @@ class TestBrainToolHandlersRemoteReads
     @Mock
     private TaskStore taskStore;
     @Mock
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Mock
     private PullRequestService pullRequests;
     @Mock

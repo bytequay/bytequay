@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.LocalReviewSubmission;
-import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,8 +25,7 @@ import static com.bytequay.app.repository.sqlite.Timestamps.epochMilli;
 import static java.util.Objects.requireNonNull;
 
 @Repository
-class SqliteLocalReviewSubmissionStore
-        implements LocalReviewSubmissionStore
+public class SqliteLocalReviewSubmissionStore
 {
     private final LocalReviewSubmissionJpaRepository rows;
 
@@ -36,7 +34,6 @@ class SqliteLocalReviewSubmissionStore
         this.rows = requireNonNull(rows, "rows is null");
     }
 
-    @Override
     @Transactional
     public void insert(LocalReviewSubmission submission)
     {
@@ -61,21 +58,18 @@ class SqliteLocalReviewSubmissionStore
         rows.save(entity);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public long nextSeq(String taskId)
     {
         return rows.maxSeq(taskId) + 1;
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<LocalReviewSubmission> findById(String id)
     {
         return rows.findById(id).map(SqliteLocalReviewSubmissionStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<LocalReviewSubmission> listOpenByTask(String taskId)
     {
@@ -84,14 +78,12 @@ class SqliteLocalReviewSubmissionStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void bindRun(String id, String agentRunId, Instant activatedAt)
     {
         rows.bindRun(id, agentRunId, activatedAt.toEpochMilli());
     }
 
-    @Override
     @Transactional
     public void bindRunThrough(
             String taskId, long throughSequence, String agentRunId, Instant activatedAt)
@@ -100,21 +92,18 @@ class SqliteLocalReviewSubmissionStore
                 taskId, throughSequence, agentRunId, activatedAt.toEpochMilli());
     }
 
-    @Override
     @Transactional
     public void markCompleted(String id, Instant at)
     {
         rows.markCompleted(id, at.toEpochMilli());
     }
 
-    @Override
     @Transactional
     public void cancelOpenForTask(String taskId, String reason, Instant at)
     {
         rows.cancelOpenForTask(taskId, reason, at.toEpochMilli());
     }
 
-    @Override
     @Transactional
     public void incrementFailures(String id)
     {

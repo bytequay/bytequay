@@ -31,11 +31,11 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
-import com.bytequay.app.repository.LocalReviewSubmissionStore;
-import com.bytequay.app.repository.PRStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.sqlite.SqliteLocalReviewSubmissionStore;
+import com.bytequay.app.repository.sqlite.SqlitePRStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
 import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -111,13 +111,13 @@ public class PRService
     private static final String SOURCE_BRAIN_REVIEW_FIX = "brain-review-fix";
     private static final int TURN_SCAN_LIMIT = 100;
 
-    private final PRStore store;
+    private final SqlitePRStore store;
     private final DevReportServiceImpl devReports;
     private final ObjectMapper mapper;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final TaskStore taskStore;
     private final ThreadTurnStore turnStore;
-    private final LocalReviewSubmissionStore submissionStore;
+    private final SqliteLocalReviewSubmissionStore submissionStore;
     private final TaskPushStore pushStore;
     private final TaskCommandExecutor commands;
     private final ApplicationEventPublisher events;
@@ -126,9 +126,9 @@ public class PRService
 
     @Autowired
     PRService(
-            PRStore store, DevReportServiceImpl devReports, ObjectMapper mapper, StageStore stageStore,
+            SqlitePRStore store, DevReportServiceImpl devReports, ObjectMapper mapper, SqliteStageStore stageStore,
             TaskStore taskStore, ThreadTurnStore turnStore,
-            LocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
+            SqliteLocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
             TaskCommandExecutor commands, ApplicationEventPublisher events)
     {
         this(store, devReports, mapper, stageStore, taskStore, turnStore,
@@ -136,9 +136,9 @@ public class PRService
     }
 
     PRService(
-            PRStore store, DevReportServiceImpl devReports, ObjectMapper mapper, StageStore stageStore,
+            SqlitePRStore store, DevReportServiceImpl devReports, ObjectMapper mapper, SqliteStageStore stageStore,
             TaskStore taskStore, ThreadTurnStore turnStore,
-            LocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
+            SqliteLocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
             TaskCommandExecutor commands, ApplicationEventPublisher events, Clock clock)
     {
         this.submissionStore = requireNonNull(submissionStore, "submissionStore is null");
@@ -570,30 +570,6 @@ public class PRService
         }
         catch (JsonProcessingException | RuntimeException e) {
             return false;
-        }
-    }
-
-    public void recordGateApproval(String prId, String gate, String reason)
-    {
-        PR pr = require(prId);
-        boolean exists = store.timelineFor(prId).stream().anyMatch(event -> {
-            if (!PRTimelineEntry.TYPE_STATUS.equals(event.eventType())) {
-                return false;
-            }
-            try {
-                var value = mapper.readTree(event.payloadJson());
-                return gate.equals(value.path("gate").asText())
-                        && "approved".equals(value.path("decision").asText())
-                        && reason.equals(value.path("reason").asText());
-            }
-            catch (JsonProcessingException | RuntimeException e) {
-                return false;
-            }
-        });
-        if (!exists) {
-            appendEvent(pr.id(), PRTimelineEntry.TYPE_STATUS, PRTimelineEntry.ACTOR_USER,
-                    /* localOnly */ false, now(),
-                    payload("gate", gate, "decision", "approved", "automatic", true, "reason", reason));
         }
     }
 
@@ -1629,13 +1605,6 @@ public class PRService
             throw new IllegalArgumentException("only pending local comments can be edited");
         }
         PRComment saved = store.saveComment(comment.withBody(body.strip()));
-        return saved;
-    }
-
-    public PR markLocalAddressed(String prId, Instant through)
-    {
-        PR pr = require(prId);
-        PR saved = store.save(pr.withLocalAddressedThrough(through));
         return saved;
     }
 

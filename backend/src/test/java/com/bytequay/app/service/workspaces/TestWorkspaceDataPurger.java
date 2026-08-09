@@ -14,9 +14,9 @@
 package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.MemoryItemScopeKind;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.sqlite.DistillationSignalStore;
 import com.bytequay.app.repository.sqlite.PermissionGrantStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.bytequay.app.repository.sqlite.SurfaceVisitStore;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +30,7 @@ import static org.mockito.Mockito.verify;
 
 class TestWorkspaceDataPurger
 {
-    private final MemoryItemStore memoryItems = mock(MemoryItemStore.class);
+    private final SqliteMemoryItemStore memoryItems = mock(SqliteMemoryItemStore.class);
     private final PermissionGrantStore permissionGrants = mock(PermissionGrantStore.class);
     private final DistillationSignalStore distillationSignals = mock(DistillationSignalStore.class);
     private final SurfaceVisitStore surfaceVisits = mock(SurfaceVisitStore.class);

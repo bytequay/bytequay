@@ -14,7 +14,7 @@
 package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.repository.AgentRunStore;
+import com.bytequay.app.repository.sqlite.SqliteAgentRunStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -32,7 +32,7 @@ class TestAgentRunService
 {
     private static final Instant NOW = Instant.parse("2026-07-29T00:00:00Z");
 
-    private final AgentRunStore store = mock(AgentRunStore.class);
+    private final SqliteAgentRunStore store = mock(SqliteAgentRunStore.class);
     private final AgentRunServiceImpl service = new AgentRunServiceImpl(
             store, Clock.fixed(NOW, ZoneOffset.UTC));
 

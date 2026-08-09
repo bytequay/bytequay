@@ -88,11 +88,4 @@ public class SyncRunStream
     private static void noop()
     {
     }
-
-    /** Whether anyone is watching — lets the caller skip the work when nobody is. */
-    public boolean hasListeners(String jobId)
-    {
-        List<Consumer<String>> forRun = listeners.get(jobId);
-        return forRun != null && !forRun.isEmpty();
-    }
 }

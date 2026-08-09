@@ -192,7 +192,7 @@ public interface ThreadStore
     // ── Stage transcripts (the decoupled stage_messages store) ────────────
     // A STAGE-scoped message has its own per-stage seq space so exact-stage
     // transcripts remain independent from the thread-global sequence.
-    // These delegate to StageMessageStore; defaults are no-ops for test
+    // These delegate to SqliteStageMessageStore; defaults are no-ops for test
     // stores that don't opt in.
 
     /** Append a STAGE-scoped message to its stage's transcript.

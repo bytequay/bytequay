@@ -16,8 +16,8 @@ package com.bytequay.app.service.learning;
 import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.scheduler.QuietHoursPolicy;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.bytequay.app.testing.SqliteTestPools;
@@ -76,7 +76,7 @@ class TestLearningCatchUpJob
         runs = new ProjectLearningStore(jdbc);
         knowledge = new KnowledgeItemStore(jdbc, new ObjectMapper());
         learning = mock(ProjectLearningService.class);
-        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        SqliteWorkspaceStore workspaces = mock(SqliteWorkspaceStore.class);
         WorkspaceRepositoryResolver resolver = mock(WorkspaceRepositoryResolver.class);
         WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
         QuietHoursPolicy quietHours = mock(QuietHoursPolicy.class);

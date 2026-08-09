@@ -35,9 +35,9 @@ import com.bytequay.app.domain.MemoryItemSource;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.bytequay.app.service.learning.KnowledgeIngestor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -97,7 +97,7 @@ public class WorkspaceKnowledgeService
     private final WorkspaceService workspaces;
     private final WorkspaceConfigurationService configuration;
     private final MemoryItemService memoryItems;
-    private final MemoryItemStore memoryStore;
+    private final SqliteMemoryItemStore memoryStore;
     private final KnowledgeItemStore knowledgeStore;
     private final KnowledgeIngestor ingestor;
     private final WorkspaceRepositoryResolver repositories;
@@ -111,7 +111,7 @@ public class WorkspaceKnowledgeService
             WorkspaceService workspaces,
             WorkspaceConfigurationService configuration,
             MemoryItemService memoryItems,
-            MemoryItemStore memoryStore,
+            SqliteMemoryItemStore memoryStore,
             KnowledgeItemStore knowledgeStore,
             KnowledgeIngestor ingestor,
             WorkspaceRepositoryResolver repositories,
@@ -432,30 +432,6 @@ public class WorkspaceKnowledgeService
         }
     }
 
-    /** Render only entries whose audience includes this public session kind. */
-    public String renderKnowledgeForSession(String workspaceId, String audience)
-    {
-        String kind = required(audience, "audience").toLowerCase(Locale.ROOT);
-        if (!AUDIENCES.contains(kind)) {
-            throw status(400, "unknown session kind: " + audience);
-        }
-        if (!configuration.settings(workspaceId).kbAudiences().contains(kind)) {
-            return "";
-        }
-        StringBuilder out = new StringBuilder();
-        for (KBEntryDto entry : listKnowledge(workspaceId)) {
-            if (!entry.audience().contains(kind)) {
-                continue;
-            }
-            if (!out.isEmpty()) {
-                out.append("\n\n");
-            }
-            out.append("## ").append(entry.title()).append("\n\n")
-                    .append(entry.body().strip());
-        }
-        return out.toString();
-    }
-
     @Transactional
     public DistillRunDto createPreview(
             String workspaceId,
@@ -535,10 +511,10 @@ public class WorkspaceKnowledgeService
             advanceWatermarks(workspaceId, sources);
             return run;
         }
-        List<MemoryItemStore.NewItem> candidates =
+        List<SqliteMemoryItemStore.NewItem> candidates =
                 proposalParser.parse(workspaceId, proposal.proposedMd());
         List<DistillOperationDto> operations = new ArrayList<>();
-        for (MemoryItemStore.NewItem candidate : candidates) {
+        for (SqliteMemoryItemStore.NewItem candidate : candidates) {
             for (MemoryItemSource source : candidate.sources()) {
                 Map<String, Object> value = new LinkedHashMap<>();
                 if (source.threadId() != null) value.put("threadId", source.threadId());
@@ -1004,7 +980,7 @@ public class WorkspaceKnowledgeService
             MemoryItemOrigin origin,
             MemoryItemSource source)
     {
-        MemoryItem pending = memoryItems.propose(new MemoryItemStore.NewItem(
+        MemoryItem pending = memoryItems.propose(new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 workspaceId,
                 kind,

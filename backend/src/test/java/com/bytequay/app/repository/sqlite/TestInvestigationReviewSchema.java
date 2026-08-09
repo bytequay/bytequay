@@ -35,7 +35,6 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.InvestigationReviewService;
@@ -78,7 +77,7 @@ class TestInvestigationReviewSchema
     @Autowired
     private InvestigationReviewStore reviews;
     @Autowired
-    private PRStore prs;
+    private SqlitePRStore prs;
     @Autowired
     private InvestigationReviewService investigationReviews;
     @Autowired

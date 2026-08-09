@@ -25,9 +25,9 @@ import com.bytequay.app.developmentflow.stage.ManualPrValidationRuntime;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRTimelineEntry;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PRSyncService;
@@ -226,7 +226,7 @@ class TestDevelopmentFlowCompatibilityApi
                 service,
                 mock(StageDetailServiceImpl.class),
                 mock(StageSteeringServiceImpl.class),
-                mock(StageStore.class),
+                mock(SqliteStageStore.class),
                 mock(TaskStore.class),
                 mock(ThreadStore.class),
                 mock(WorkModelResolver.class));

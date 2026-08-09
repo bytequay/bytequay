@@ -17,8 +17,8 @@ import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
 import com.bytequay.app.service.localpr.PRService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,10 +34,10 @@ import static java.util.Objects.requireNonNull;
 public class ReviewRoundServiceImpl
 {
     private final TaskStore tasks;
-    private final ReviewRoundStore rounds;
+    private final SqliteReviewRoundStore rounds;
     private final PRService prs;
 
-    public ReviewRoundServiceImpl(TaskStore tasks, ReviewRoundStore rounds, PRService prs)
+    public ReviewRoundServiceImpl(TaskStore tasks, SqliteReviewRoundStore rounds, PRService prs)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.rounds = requireNonNull(rounds, "rounds is null");
@@ -66,11 +66,6 @@ public class ReviewRoundServiceImpl
                         .count())
                 .orElse(0);
         return found.stream().map(round -> project(round, parked, openBrainFindings)).toList();
-    }
-
-    public void closeOpenRoundsInCommand(String taskId, String reason)
-    {
-        throw retired();
     }
 
     private static ReviewRound project(ReviewRound round, boolean parked, int openBrainFindings)

@@ -16,8 +16,8 @@ package com.bytequay.app.service.mcp.approval;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteAgentRunStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -76,13 +76,13 @@ public class WorktreeEditStep
     private static final String[] PATH_KEYS = {"file_path", "notebook_path", "path"};
 
     private final TaskStore taskStore;
-    private final AgentRunStore agentRuns;
+    private final SqliteAgentRunStore agentRuns;
     private final ActiveAgentContextRegistry activeContexts;
     private final McpResponses responses;
 
     public WorktreeEditStep(
             TaskStore taskStore,
-            AgentRunStore agentRuns,
+            SqliteAgentRunStore agentRuns,
             ActiveAgentContextRegistry activeContexts,
             McpResponses responses)
     {

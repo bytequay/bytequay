@@ -31,13 +31,9 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
-import com.bytequay.app.repository.LocalReviewSubmissionStore;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.repository.ValidationPassStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -72,13 +68,13 @@ class TestLifecycleTargetedUpdates
     @Autowired
     private ThreadTurnStore turnStore;
     @Autowired
-    private ValidationPassStore validationStore;
+    private SqliteValidationPassStore validationStore;
     @Autowired
-    private ReviewRoundStore roundStore;
+    private SqliteReviewRoundStore roundStore;
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Autowired
-    private LocalReviewSubmissionStore submissionStore;
+    private SqliteLocalReviewSubmissionStore submissionStore;
 
     @Test
     void taskStatusCasOnlyMovesFromTheExpectedState()
@@ -279,13 +275,13 @@ class TestLifecycleTargetedUpdates
 
         assertThat(roundStore.finishAddressingIf(
                 roundId,
-                new ReviewRoundStore.AttemptFence(
+                new SqliteReviewRoundStore.AttemptFence(
                         1, 0, 0, "stale-turn", kickKey),
                 claimKey, "sha256:after"))
                 .isFalse();
         assertThat(roundStore.finishAddressingIf(
                 roundId,
-                new ReviewRoundStore.AttemptFence(
+                new SqliteReviewRoundStore.AttemptFence(
                         1, 0, 0, turnId, kickKey),
                 claimKey, "sha256:after"))
                 .isTrue();
@@ -318,12 +314,12 @@ class TestLifecycleTargetedUpdates
 
         assertThat(roundStore.concludeIf(
                 roundId, ReviewRound.STATUS_TRIAGING, ReviewRound.STATUS_CLOSED,
-                new ReviewRoundStore.AttemptFence(2, 1, 3, turnId, "stale-kick"),
+                new SqliteReviewRoundStore.AttemptFence(2, 1, 3, turnId, "stale-kick"),
                 stats, ReviewRound.VERDICT_APPROVED, null, NOW))
                 .isFalse();
         assertThat(roundStore.concludeIf(
                 roundId, ReviewRound.STATUS_TRIAGING, ReviewRound.STATUS_CLOSED,
-                new ReviewRoundStore.AttemptFence(2, 1, 3, turnId, kickKey),
+                new SqliteReviewRoundStore.AttemptFence(2, 1, 3, turnId, kickKey),
                 stats, ReviewRound.VERDICT_APPROVED, null, NOW))
                 .isTrue();
         ReviewRound updated = roundStore.findById(roundId).orElseThrow();

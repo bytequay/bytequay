@@ -14,7 +14,7 @@
 package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.MemoryItemKind;
-import com.bytequay.app.repository.MemoryItemStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -49,7 +49,7 @@ class TestWorkspaceMemoryProposalParser
                 - Use SQLite as the local store. [thread:t-9]
                 """;
 
-        List<MemoryItemStore.NewItem> items = parser.parse("ws-1", body);
+        List<SqliteMemoryItemStore.NewItem> items = parser.parse("ws-1", body);
 
         assertThat(items).hasSize(2);
         assertThat(items).allMatch(i -> i.kind() == MemoryItemKind.DECISION);
@@ -76,9 +76,9 @@ class TestWorkspaceMemoryProposalParser
                 - Should we adopt SSE for live updates? [thread:t-4]
                 """;
 
-        List<MemoryItemStore.NewItem> items = parser.parse("ws-1", body);
+        List<SqliteMemoryItemStore.NewItem> items = parser.parse("ws-1", body);
 
-        assertThat(items).extracting(MemoryItemStore.NewItem::kind)
+        assertThat(items).extracting(SqliteMemoryItemStore.NewItem::kind)
                 .containsExactly(
                         MemoryItemKind.DECISION,
                         MemoryItemKind.BLOCKER,
@@ -100,7 +100,7 @@ class TestWorkspaceMemoryProposalParser
                 - Real attributed decision. [thread:t-9]
                 """;
 
-        List<MemoryItemStore.NewItem> items = parser.parse("ws-bytequay", body);
+        List<SqliteMemoryItemStore.NewItem> items = parser.parse("ws-bytequay", body);
 
         assertThat(items).hasSize(1);
         assertThat(items.get(0).text()).isEqualTo("Real attributed decision.");
@@ -117,7 +117,7 @@ class TestWorkspaceMemoryProposalParser
                 - Use sqlite. [thread:t-9]
                 """;
 
-        List<MemoryItemStore.NewItem> items = parser.parse("ws-1", body);
+        List<SqliteMemoryItemStore.NewItem> items = parser.parse("ws-1", body);
 
         assertThat(items.get(0).text())
                 .as("the back-link goes into sources, not the user-facing text")
@@ -135,7 +135,7 @@ class TestWorkspaceMemoryProposalParser
                 - Real decision. [thread:t-4]
                 """;
 
-        List<MemoryItemStore.NewItem> items = parser.parse("ws-1", body);
+        List<SqliteMemoryItemStore.NewItem> items = parser.parse("ws-1", body);
 
         assertThat(items).hasSize(1);
         assertThat(items.get(0).text()).isEqualTo("Real decision.");
@@ -149,7 +149,7 @@ class TestWorkspaceMemoryProposalParser
                 - Rebuild the activity feed. [thread:t-1]
                 """;
 
-        List<MemoryItemStore.NewItem> items = parser.parse("ws-1", body);
+        List<SqliteMemoryItemStore.NewItem> items = parser.parse("ws-1", body);
 
         assertThat(items.get(0).kind()).isEqualTo(MemoryItemKind.FOCUS_SHIFT);
         // FOCUS_SHIFT uses HIGH; the other kinds default to MEDIUM.

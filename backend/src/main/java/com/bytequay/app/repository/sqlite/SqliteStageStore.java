@@ -22,7 +22,6 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.WorkModel;
-import com.bytequay.app.repository.StageStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -39,8 +38,7 @@ import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteStageStore
-        implements StageStore
+public class SqliteStageStore
 {
     /** The one live state — the "currently active stage" query set. */
     private static final List<String> ACTIVE_STATES =
@@ -63,7 +61,20 @@ class SqliteStageStore
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
     }
 
-    @Override
+    public Optional<StageInstance> findLiveStageByType(String taskId, StageType type)
+    {
+        return findStagesByTask(taskId).stream()
+                .filter(stage -> stage.type() == type && stage.state() != StageState.CLOSED)
+                .reduce((first, second) -> second);
+    }
+
+    public Optional<StageInstance> findStageByType(String taskId, StageType type)
+    {
+        return findStagesByTask(taskId).stream()
+                .filter(stage -> stage.type() == type)
+                .reduce((first, second) -> second);
+    }
+
     @Transactional
     public StageInstance openStage(String taskId, StageType type, UUID callerStageId)
     {
@@ -96,7 +107,6 @@ class SqliteStageStore
         return toStage(row);
     }
 
-    @Override
     @Transactional
     public boolean updateStateIf(UUID stageId, StageState expected, StageState to, Instant closedAt)
     {
@@ -105,14 +115,12 @@ class SqliteStageStore
                 closedAt == null ? null : closedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public void closeStage(UUID stageId, String reason)
     {
         closeStage(stageId, reason, Map.of());
     }
 
-    @Override
     @Transactional
     public void closeStage(UUID stageId, String reason, Map<String, Object> extraPayload)
     {
@@ -135,7 +143,6 @@ class SqliteStageStore
         });
     }
 
-    @Override
     @Transactional
     public StageInstance reopenStage(UUID stageId)
     {
@@ -152,26 +159,22 @@ class SqliteStageStore
         return stages.findById(stageId.toString()).map(this::toStage).orElse(null);
     }
 
-    @Override
     public Optional<StageInstance> findStageById(UUID stageId)
     {
         return stages.findById(stageId.toString()).map(this::toStage);
     }
 
-    @Override
     public Optional<String> findMetricsJson(UUID stageId)
     {
         return stages.findById(stageId.toString()).map(TaskStageEntity::getMetricsJson);
     }
 
-    @Override
     @Transactional
     public void updateMetricsJson(UUID stageId, String metricsJson)
     {
         stages.updateMetricsJson(stageId.toString(), metricsJson);
     }
 
-    @Override
     @Transactional
     public void updateWorkModel(UUID stageId, WorkModel workModel)
     {
@@ -180,7 +183,6 @@ class SqliteStageStore
                 WorkModelJson.serialise(objectMapper, workModel));
     }
 
-    @Override
     public List<StageInstance> findStagesByTask(String taskId)
     {
         return stages.findByTaskIdOrderByOpenedAtMsAsc(taskId).stream()
@@ -188,14 +190,12 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     public Optional<StageInstance> findActiveStage(String taskId)
     {
         return stages.findFirstByTaskIdAndStateInOrderByOpenedAtMsDesc(taskId, ACTIVE_STATES)
                 .map(this::toStage);
     }
 
-    @Override
     public List<StageEvent> findEventsByStage(UUID stageId)
     {
         return events.findByStageIdOrderByEventAtMsAsc(stageId.toString()).stream()
@@ -203,7 +203,6 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     public List<StageEvent> findRecentEventsByStage(UUID stageId, int limit)
     {
         return events.findByStageIdOrderByEventAtMsDesc(stageId.toString(), firstPage(limit)).stream()
@@ -211,7 +210,6 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     public List<StageEvent> findEventsByTask(String taskId)
     {
         return events.findByTaskIdOrderByEventAtMsAsc(taskId).stream()
@@ -219,7 +217,6 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public ReviewComment saveReviewComment(ReviewComment comment)
     {
@@ -252,7 +249,6 @@ class SqliteStageStore
         return toComment(entity);
     }
 
-    @Override
     public List<ReviewComment> findCommentsByRound(UUID roundId)
     {
         return comments.findByRoundIdOrderByCreatedAtMsAsc(roundId.toString()).stream()
@@ -260,7 +256,6 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void assignCommentsToRound(List<UUID> commentIds, UUID roundId)
     {
@@ -272,26 +267,22 @@ class SqliteStageStore
         }
     }
 
-    @Override
     public Optional<ReviewComment> findReviewCommentById(UUID id)
     {
         return comments.findById(id.toString()).map(SqliteStageStore::toComment);
     }
 
-    @Override
     public Optional<ReviewComment> findReviewCommentByRemoteLink(String remoteLink)
     {
         return remoteLink == null ? Optional.empty() : comments.findByRemoteLink(remoteLink)
                 .map(SqliteStageStore::toComment);
     }
 
-    @Override
     public boolean reviewCommentExistsByRemoteLink(String remoteLink)
     {
         return remoteLink != null && comments.existsByRemoteLink(remoteLink);
     }
 
-    @Override
     public List<ReviewComment> findUnresolvedComments(String taskId)
     {
         return comments.findByTaskIdAndResolvedFalse(taskId).stream()
@@ -299,7 +290,6 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     public List<ReviewComment> findCommentsBySource(String taskId, ReviewCommentSource source)
     {
         return comments.findByTaskIdAndSource(taskId, source.name()).stream()
@@ -307,7 +297,6 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     public List<ReviewComment> findCommentsByTask(String taskId)
     {
         return comments.findByTaskIdOrderByCreatedAtMsAsc(taskId).stream()
@@ -315,7 +304,6 @@ class SqliteStageStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void setReviewCommentResolved(UUID id, boolean resolved)
     {
@@ -325,7 +313,6 @@ class SqliteStageStore
         });
     }
 
-    @Override
     public boolean isRemoteThreadResolutionPosted(UUID commentId)
     {
         return comments.findById(commentId.toString())
@@ -333,7 +320,6 @@ class SqliteStageStore
                 .orElse(false);
     }
 
-    @Override
     @Transactional
     public void markRemoteThreadResolutionPosted(UUID commentId, Instant postedAt)
     {
@@ -343,20 +329,17 @@ class SqliteStageStore
         });
     }
 
-    @Override
     @Transactional
     public StageEvent recordEvent(UUID stageId, String taskId, StageEventType type, Map<String, Object> payload)
     {
         return writeEvent(stageId.toString(), taskId, type, payload, Instant.now());
     }
 
-    @Override
     public Optional<StageEvent> findEventById(UUID eventId)
     {
         return events.findById(eventId.toString()).map(SqliteStageStore::toEvent);
     }
 
-    @Override
     @Transactional
     public void updateEventPayload(UUID eventId, Map<String, Object> payload)
     {

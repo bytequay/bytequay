@@ -20,8 +20,8 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.BrainReviewServiceImpl;
@@ -63,7 +63,7 @@ class TestPRRecordToolHandlers
     private final PRService prService = mock(PRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
-    private final ReviewRoundStore roundStore = mock(ReviewRoundStore.class);
+    private final SqliteReviewRoundStore roundStore = mock(SqliteReviewRoundStore.class);
     private final AgentRunServiceImpl agentRuns = mock(AgentRunServiceImpl.class);
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final GitRunner git = mock(GitRunner.class);

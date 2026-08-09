@@ -16,7 +16,7 @@ package com.bytequay.app.service.workspaces;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,14 +53,14 @@ public class WatchedRepoPurger
     private static final Logger log = LoggerFactory.getLogger(WatchedRepoPurger.class);
 
     private final WatchedRepoStore watchedRepos;
-    private final WorkspaceStore workspaceStore;
+    private final SqliteWorkspaceStore workspaceStore;
     private final WorkspaceService workspaces;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
 
     public WatchedRepoPurger(
             WatchedRepoStore watchedRepos,
-            WorkspaceStore workspaceStore,
+            SqliteWorkspaceStore workspaceStore,
             WorkspaceService workspaces,
             JdbcTemplate jdbc,
             TransactionTemplate transactions)

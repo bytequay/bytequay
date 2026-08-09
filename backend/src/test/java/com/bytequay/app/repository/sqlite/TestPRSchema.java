@@ -25,7 +25,6 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.google.common.collect.ImmutableSet;
@@ -59,7 +58,7 @@ class TestPRSchema
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
-    private PRStore prStore;
+    private SqlitePRStore prStore;
     @Autowired
     private TaskStore taskStore;
     @Autowired

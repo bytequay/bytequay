@@ -39,11 +39,11 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadTurnEvent;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.review.BranchGuardServiceImpl;
 import com.bytequay.app.service.review.ReviewRoundServiceImpl;
 import com.bytequay.app.service.runs.AgentRunServiceImpl;
@@ -81,7 +81,7 @@ public class StageServiceImpl
     private static final String VALIDATION_PASSED_REASON = "validation_passed";
 
     private final TaskStore taskStore;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final StageBudgetService budgetService;
     private final ThreadTurnEventStore turnEventStore;
     private final ThreadStore threadStore;
@@ -94,7 +94,7 @@ public class StageServiceImpl
 
     public StageServiceImpl(
             TaskStore taskStore,
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             StageBudgetService budgetService,
             ThreadTurnEventStore turnEventStore,
             ThreadStore threadStore,

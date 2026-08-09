@@ -16,7 +16,7 @@ package com.bytequay.app.service.workspaces;
 import com.bytequay.app.domain.MemoryItem;
 import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemScopeKind;
-import com.bytequay.app.repository.MemoryItemStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -25,7 +25,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
@@ -65,9 +64,9 @@ public class MemoryItemService
             MemoryItemKind.OPEN_QUESTION, "Open questions",
             MemoryItemKind.RECURRING_PATTERN, "Recurring patterns");
 
-    private final MemoryItemStore store;
+    private final SqliteMemoryItemStore store;
 
-    public MemoryItemService(MemoryItemStore store)
+    public MemoryItemService(SqliteMemoryItemStore store)
     {
         this.store = requireNonNull(store, "store is null");
     }
@@ -79,7 +78,7 @@ public class MemoryItemService
      * the distiller catches its own bug rather than putting an
      * unattributed row in front of the user.
      */
-    public MemoryItem propose(MemoryItemStore.NewItem newItem)
+    public MemoryItem propose(SqliteMemoryItemStore.NewItem newItem)
     {
         requireNonNull(newItem, "newItem is null");
         if (newItem.sources() == null || newItem.sources().isEmpty()) {
@@ -193,12 +192,5 @@ public class MemoryItemService
             }
         }
         return out.toString();
-    }
-
-    /** Public for the proposal banner so the chip label stays in
-     *  sync with the renderer's section heading. */
-    public static String sectionTitle(MemoryItemKind kind)
-    {
-        return SECTION_TITLES.getOrDefault(kind, kind.name().toLowerCase(Locale.ROOT));
     }
 }

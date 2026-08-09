@@ -22,7 +22,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.ValidationPassStore;
+import com.bytequay.app.repository.sqlite.SqliteValidationPassStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -48,7 +48,7 @@ class TestValidationClaims
     private static final Instant NOW = Instant.parse("2026-07-25T09:00:00Z");
 
     @Autowired
-    private ValidationPassStore store;
+    private SqliteValidationPassStore store;
     @Autowired
     private TaskStore taskStore;
     @Autowired

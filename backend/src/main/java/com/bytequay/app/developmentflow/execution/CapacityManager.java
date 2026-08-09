@@ -255,32 +255,6 @@ public final class CapacityManager
         return expired;
     }
 
-    /**
-     * Releases a restart/orphaned LEGACY operation only when its stable
-     * operation id and owner still identify the live lease.
-     */
-    public boolean releaseLegacyOperation(String operationId, String leaseOwner)
-    {
-        requireNonNull(operationId, "operationId is null");
-        requireNonNull(leaseOwner, "leaseOwner is null");
-        if (operationId.isBlank() || leaseOwner.isBlank()) {
-            throw new IllegalArgumentException(
-                    "operationId and leaseOwner must not be blank");
-        }
-        Instant now = clock.instant();
-        boolean released = store.inAdmissionTransaction(transaction ->
-                transaction.findActiveByOperation(operationId, now)
-                        .filter(lease -> lease.source() == WorkflowSource.LEGACY)
-                        .filter(lease -> lease.leaseOwner().equals(leaseOwner))
-                        .map(lease -> transaction.release(
-                                lease.id(), leaseOwner, now))
-                        .orElse(false));
-        if (released) {
-            signalCapacityAvailable();
-        }
-        return released;
-    }
-
     /** Monotonic hint used to avoid a missed release/requeue wake race. */
     public long availabilityVersion()
     {

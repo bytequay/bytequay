@@ -18,8 +18,8 @@ import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
 import com.bytequay.app.domain.Thread;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -68,11 +68,11 @@ public class MemoryToolHandlers
      *  whichever is shorter. */
     private static final int ONE_LINE_CAP = 120;
 
-    private final MemoryItemStore store;
+    private final SqliteMemoryItemStore store;
     private final ThreadStore threadStore;
     private final ObjectMapper mapper;
 
-    public MemoryToolHandlers(MemoryItemStore store, ThreadStore threadStore, ObjectMapper mapper)
+    public MemoryToolHandlers(SqliteMemoryItemStore store, ThreadStore threadStore, ObjectMapper mapper)
     {
         this.store = requireNonNull(store, "store is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");

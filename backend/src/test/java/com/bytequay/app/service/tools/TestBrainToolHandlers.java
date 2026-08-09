@@ -25,9 +25,9 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.tools.BrainToolHandlers.CheckCoverageArgs;
 import com.bytequay.app.service.tools.BrainToolHandlers.CountOperationsArgs;
 import com.bytequay.app.service.tools.BrainToolHandlers.PanelFindingsArgs;
@@ -64,7 +64,7 @@ class TestBrainToolHandlers
     @Autowired
     private BrainToolHandlers tools;
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Autowired
     private TaskStore taskStore;
     @Autowired

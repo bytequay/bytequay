@@ -903,36 +903,6 @@ public final class TaskManager
         return new AcceptedCleanupQuiescence(command, evidence);
     }
 
-    /** Reuses the already-satisfied CANCEL barrier for the new Cleanup owner. */
-    public AcceptedCleanupQuiescence acceptCanceledCleanupQuiescenceInCommand(
-            AcceptedCancellation cancellation, StageOpening opening)
-    {
-        requireNonNull(cancellation, "cancellation is null");
-        requireNonNull(opening, "opening is null");
-        CancellationCommand source = cancellation.command;
-        State task = opening.taskState();
-        TaskCommandExecutor.requireCurrent(source.taskId());
-        if (!opening.taskId().equals(source.taskId())
-                || opening.taskEpoch() != source.taskEpoch()
-                || opening.kind() != StageKind.CLEANUP
-                || !opening.stageId().equals(source.cleanupStageId())
-                || opening.stageGeneration() != source.cleanupStageGeneration()
-                || !same(opening.proofId(), source.barrierId())
-                || task.lifecycle() != TaskLifecycle.CLEANING
-                || task.terminalIntent() != TerminalOutcome.CANCELED) {
-            throw rejected(INVALID_STATE,
-                    "Canceled Cleanup does not own its satisfied barrier");
-        }
-        CleanupQuiescenceCommand command = new CleanupQuiescenceCommand(
-                "cancel-cleanup-quiescence/" + source.commandId(),
-                source.actor(), source.taskId(), source.taskEpoch(), task.version(),
-                source.cleanupStageId(), source.cleanupStageGeneration(), 0,
-                source.barrierId());
-        return new AcceptedCleanupQuiescence(command, new QuiescenceEvidence(
-                source.taskId(), source.taskEpoch(), source.barrierId(),
-                QuiescenceReason.CANCEL));
-    }
-
     /** Semantic command step for a cross-domain use case already holding the Task stripe. */
     public CommandResult<State> requestBrainReview(BrainReviewRequestCommand command)
     {

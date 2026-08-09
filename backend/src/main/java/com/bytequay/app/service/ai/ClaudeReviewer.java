@@ -20,7 +20,6 @@ import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.skills.SkillDraft;
-import com.bytequay.app.service.threads.StreamLine;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -32,21 +31,11 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Consumer;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -65,14 +54,8 @@ public class ClaudeReviewer
     private static final String PROVIDER_ID = "claude";
     private static final String DEFAULT_MODEL = "claude-opus-4-7";
     private static final int MAX_OUTPUT_TOKENS = 8_192;
-    private static final String ANTHROPIC_VERSION = "2023-06-01";
-    private static final String ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
-    // Streaming responses can run minutes; honour the standard read window
-    // here rather than the shorter 120s used by the non-streaming RestClient.
-    private static final Duration STREAM_TIMEOUT = Duration.ofMinutes(5);
 
     private final RestClient client;
-    private final HttpClient httpClient;
     private final CredentialService credentialService;
     private final AppSettingsStore appSettings;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -85,13 +68,6 @@ public class ClaudeReviewer
         this.client = requireNonNull(anthropicRestClient, "anthropicRestClient is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
-        // RestClient (SimpleClientHttpRequestFactory under the hood) buffers
-        // response bodies — useless for SSE. The streaming path uses java.net.http
-        // because it exposes the response body as a real InputStream we can read
-        // line-by-line as bytes arrive on the wire.
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
     }
 
     @Override
@@ -193,103 +169,6 @@ public class ClaudeReviewer
             return 0L;
         }
         return usage.get(key) instanceof Number n ? n.longValue() : 0L;
-    }
-
-    @Override
-    public ReviewOutput reviewStream(ReviewRequest request, Consumer<String> textChunk)
-    {
-        requireNonNull(textChunk, "textChunk is null");
-        String apiKey = credentialService.getSecret(CredentialType.AI, ANTHROPIC_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Anthropic API key not configured. Add it in Settings → AI review."));
-        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
-                .filter(s -> !s.isBlank())
-                .orElse(DEFAULT_MODEL);
-
-        MessagesRequest body = new MessagesRequest(
-                model,
-                MAX_OUTPUT_TOKENS,
-                ReviewPrompt.systemPrompt(request),
-                ImmutableList.of(new MessagesRequest.Message("user", ReviewPrompt.userMessage(request))),
-                true);
-        String requestJson;
-        try {
-            requestJson = objectMapper.writeValueAsString(body);
-        }
-        catch (Exception e) {
-            throw new IllegalStateException("Failed to encode Anthropic request body", e);
-        }
-
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(ANTHROPIC_MESSAGES_URL))
-                .timeout(STREAM_TIMEOUT)
-                .header("Content-Type", "application/json")
-                .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("x-api-key", apiKey)
-                .header("accept", "text/event-stream")
-                .POST(HttpRequest.BodyPublishers.ofString(requestJson, StandardCharsets.UTF_8))
-                .build();
-
-        StringBuilder accumulated = new StringBuilder();
-        try {
-            HttpResponse<InputStream> response = httpClient.send(
-                    httpRequest, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() / 100 != 2) {
-                String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                log.warn("Anthropic stream returned {}: {}", response.statusCode(), errBody);
-                throw new IllegalStateException(
-                        "Claude streaming error (" + response.statusCode() + "). Check your API key and try again.");
-            }
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.startsWith("data: ")) {
-                        continue;
-                    }
-                    String payload = line.substring("data: ".length());
-                    String delta = extractTextDelta(payload);
-                    if (delta == null) {
-                        continue;
-                    }
-                    accumulated.append(delta);
-                    textChunk.accept(delta);
-                }
-            }
-        }
-        catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            throw new IllegalStateException("Claude streaming connection failed: " + e.getMessage(), e);
-        }
-        return parseReviewOutput(accumulated.toString(), model);
-    }
-
-    /**
-     * Pull a {@code text} payload out of a single Anthropic SSE
-     * {@code data: ...} line. Returns null when the line is a non-text frame
-     * ({@code message_start}, {@code message_delta}, {@code ping}, etc.) so
-     * the caller can simply skip it.
-     */
-    String extractTextDelta(String payload)
-    {
-        try {
-            StreamLine.SseEvent event = objectMapper.readValue(payload, StreamLine.SseEvent.class);
-            if (event instanceof StreamLine.SseEvent.ContentBlockDelta cbd
-                    && cbd.delta() instanceof StreamLine.SseDelta.TextDelta td
-                    && td.text() != null
-                    && !td.text().isEmpty()) {
-                return td.text();
-            }
-            return null;
-        }
-        catch (Exception e) {
-            // A malformed SSE frame is not fatal — just skip it. Anthropic
-            // occasionally sends comment lines (": ping") which `readLine`
-            // surfaces as plain text we can safely ignore.
-            return null;
-        }
     }
 
     @Override

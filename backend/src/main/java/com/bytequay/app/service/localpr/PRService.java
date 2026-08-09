@@ -279,7 +279,6 @@ public class PRService
         PR pr = PR.create(
                 UUID.randomUUID().toString(), taskId, branchName, baseBranch, title, description, now());
         PR saved = store.save(pr);
-        notifyUpdated(saved.id());
         return saved;
     }
 
@@ -300,7 +299,6 @@ public class PRService
                 UUID.randomUUID().toString(), repo, remotePrNumber, remotePrUrl, author,
                 branchName, baseBranch, title, description, status, createdAt, mergedAt, closedAt);
         PR saved = store.save(pr);
-        notifyUpdated(saved.id());
         return saved;
     }
 
@@ -308,7 +306,6 @@ public class PRService
     {
         PR pr = require(prId);
         PR saved = store.save(pr.withSynced(when));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -335,7 +332,6 @@ public class PRService
                         current.mergeableState(), current.headPushedAt(), current.reviewerVerdicts(),
                         current.requestedReviewers(), current.mergeQueueEnabled(), current.mergeQueueState());
         PR saved = store.save(pr.withGithubSync(updated));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -343,7 +339,6 @@ public class PRService
     {
         PR pr = require(prId);
         PR saved = store.save(pr.withGithubSync(snapshot));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -415,7 +410,6 @@ public class PRService
     private void saveTriage(PRTriageState state)
     {
         store.saveTriage(state);
-        notifyUpdated(state.prId());
     }
 
     private static PRTriageState withViewedAt(PRTriageState state, Instant viewedAt)
@@ -459,7 +453,6 @@ public class PRService
                             "iteration", iteration, "roundId", roundId,
                             "attemptId", attemptId,
                             "findingCount", commentIds.size(), "commentIds", commentIds));
-            notifyUpdated(pr.id());
         });
     }
 
@@ -506,7 +499,6 @@ public class PRService
                     /* localOnly */ true, now(),
                     payload("reviewEvent", "failed", "scope", scope, "iteration", iteration,
                             "roundId", roundId, "reason", reason, "attemptId", attemptId));
-            notifyUpdated(pr.id());
         });
     }
 
@@ -527,7 +519,6 @@ public class PRService
             appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, actor, /* localOnly */ true, now(),
                     payload("reviewEvent", activity, "scope", scope, "iteration", iteration,
                             "roundId", roundId, "attemptId", attemptId));
-            notifyUpdated(pr.id());
         });
     }
 
@@ -603,7 +594,6 @@ public class PRService
             appendEvent(pr.id(), PRTimelineEntry.TYPE_STATUS, PRTimelineEntry.ACTOR_USER,
                     /* localOnly */ false, now(),
                     payload("gate", gate, "decision", "approved", "automatic", true, "reason", reason));
-            notifyUpdated(pr.id());
         }
     }
 
@@ -612,7 +602,6 @@ public class PRService
         store.findByTaskId(taskId).ifPresent(pr -> {
             appendEvent(pr.id(), PRTimelineEntry.TYPE_PLAN_FINALIZED, PRTimelineEntry.ACTOR_USER,
                     /* localOnly */ true, now(), payload("planStageId", planStageId));
-            notifyUpdated(pr.id());
         });
     }
 
@@ -625,7 +614,6 @@ public class PRService
         }
         rejectTaskOwnedFallback(pr, "title/body editing");
         PR saved = store.save(pr.withDetails(title, description));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -656,7 +644,6 @@ public class PRService
                     .ifPresent(stage -> stageStore.recordEvent(
                             stage.id(), pr.taskId(), StageEventType.PULL_REQUEST_PROGRESS, data));
         }
-        notifyUpdated(prId);
     }
 
     private Optional<String> progressPhase(PRTimelineEntry event)
@@ -700,14 +687,12 @@ public class PRService
         stageStore.findStageByType(pr.taskId(), StageType.DEVELOPMENT_STAGE)
                 .ifPresent(stage -> stageStore.recordEvent(
                         stage.id(), pr.taskId(), StageEventType.PULL_REQUEST_PROGRESS, data));
-        notifyUpdated(prId);
     }
 
     public PR updateBranches(String prId, String branchName, String baseBranch)
     {
         PR pr = require(prId);
         PR saved = store.save(pr.withBranches(branchName, baseBranch));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -718,7 +703,6 @@ public class PRService
             return pr;
         }
         PR saved = store.save(pr.withAuthor(author));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -743,7 +727,6 @@ public class PRService
         appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMIT, actor, /* localOnly */ false, when,
                 payload("sha", sha, "message", commit.message(),
                         "additions", additions, "deletions", deletions));
-        notifyUpdated(pr.id());
         return commit;
     }
 
@@ -764,7 +747,6 @@ public class PRService
                     PRCheck.KIND_LOCAL.equals(kind), when,
                     payload("kind", kind, "name", name, "status", status, "durationMs", durationMs));
         }
-        notifyUpdated(pr.id());
         return check;
     }
 
@@ -785,7 +767,6 @@ public class PRService
                 0, 0, when, /* pushedAt */ null));
         appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMIT, actor, /* localOnly */ false, when,
                 payload("sha", sha, "message", commit.message(), "additions", 0, "deletions", 0));
-        notifyUpdated(pr.id());
         return commit;
     }
 
@@ -814,7 +795,6 @@ public class PRService
                 existing == null ? UUID.randomUUID().toString() : existing.id(),
                 pr.id(), PRCheck.KIND_REMOTE, name, status, /* durationMs */ null,
                 effectiveStart, effectiveFinish, runId));
-        notifyUpdated(pr.id());
         return check;
     }
 
@@ -832,7 +812,6 @@ public class PRService
                 payload("kind", PRCheck.KIND_REMOTE, "status", status,
                         "previousStatus", previousStatus, "headSha", headSha,
                         "checkCount", checkCount));
-        notifyUpdated(pr.id());
     }
 
     /** The PR detail can be refreshed concurrently by polling, dashboard sync,
@@ -877,14 +856,12 @@ public class PRService
                 payload("kind", PRCheck.KIND_REMOTE, "status", "rerun_requested",
                         "previousStatus", PRCheck.STATUS_FAILED, "headSha", headSha,
                         "checkCount", workflowCount, "trigger", trigger));
-        notifyUpdated(pr.id());
     }
 
     public void retainSyncedChecks(String prId, Set<String> runIds)
     {
         PR pr = require(prId);
         store.retainChecks(pr.id(), PRCheck.KIND_REMOTE, ImmutableSet.copyOf(runIds));
-        notifyUpdated(pr.id());
     }
 
     public PR requestUserReview(String prId, String actor)
@@ -946,7 +923,6 @@ public class PRService
         PR flipped = store.save(pr.withStatus(newStatus, when));
         appendEvent(pr.id(), PRTimelineEntry.TYPE_STATUS, actor, /* localOnly */ false, when,
                 payload("from", from, "to", newStatus));
-        notifyUpdated(pr.id());
         if (PR.STATUS_MERGED.equals(newStatus)
                 && flipped.repo() != null && flipped.remotePrNumber() != null) {
             events.publishEvent(new PrMergedEvent(
@@ -964,7 +940,6 @@ public class PRService
         // this (repo, number) before we stamped it here, fold it into this task
         // row so one GitHub PR maps to one aggregate row.
         PR result = foldExternalTwinIntoTask(prId);
-        notifyUpdated(prId);
         return result;
     }
 
@@ -1112,7 +1087,6 @@ public class PRService
     {
         PR pr = require(prId);
         PR saved = store.save(pr.withBranchDeleted(now()));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -1245,7 +1219,6 @@ public class PRService
                     /* localOnly */ true, when,
                     payload("reviewEvent", "updated", "commentId", parent.id()));
         }
-        notifyUpdated(pr.id());
         return comment;
     }
 
@@ -1280,7 +1253,6 @@ public class PRService
                 DiffSide.RIGHT, /* startLine */ null, /* startSide */ null));
         appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMENT, author, /* localOnly */ false, createdAt,
                 payload("commentId", comment.id()), remoteCommentId);
-        notifyUpdated(pr.id());
         return comment;
     }
 
@@ -1301,7 +1273,6 @@ public class PRService
             throw new IllegalArgumentException("comment is not an open local draft: " + commentId);
         }
         store.deleteComment(comment.id());
-        notifyUpdated(comment.prId());
     }
 
     public void recordRemoteReview(
@@ -1310,7 +1281,6 @@ public class PRService
         PR pr = require(prId);
         appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, reviewer, /* localOnly */ false, when,
                 payload("verdict", verdict, "body", body), remoteReviewId);
-        notifyUpdated(pr.id());
     }
 
     public void recordLocalReviewSubmission(
@@ -1394,7 +1364,6 @@ public class PRService
                     when, /* activatedAt */ null, /* completedAt */ null,
                     /* canceledAt */ null, /* cancelReason */ null));
         }
-        notifyUpdated(pr.id());
     }
 
     /** Freeze each submitted root's revision (body, anchor, order) so
@@ -1438,7 +1407,6 @@ public class PRService
     {
         PR pr = require(prId);
         appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, actor, true, now(), payloadJson);
-        notifyUpdated(pr.id());
     }
 
     public PRComment resolveComment(String commentId)
@@ -1450,7 +1418,6 @@ public class PRService
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         rejectTaskOwnedFallback(require(comment.prId()), "comment resolution");
         PRComment saved = store.saveComment(comment.withResolved(now(), PRTimelineEntry.ACTOR_USER));
-        notifyUpdated(comment.prId());
         return saved;
     }
 
@@ -1493,7 +1460,6 @@ public class PRService
                     /* localOnly */ true, now(),
                     payload("reviewEvent", "reopened", "commentId", comment.id()));
         }
-        notifyUpdated(comment.prId());
         return saved;
     }
 
@@ -1549,7 +1515,6 @@ public class PRService
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         rejectTaskOwnedFallback(require(comment.prId()), "comment dismissal");
         PRComment saved = store.saveComment(comment.withDismissed(now()));
-        notifyUpdated(comment.prId());
         return saved;
     }
 
@@ -1627,7 +1592,6 @@ public class PRService
         PRComment saved = store.saveComment(dismissed
                 ? comment.withDismissed(now())
                 : comment.withResolved(now(), PRTimelineEntry.ACTOR_AGENT));
-        notifyUpdated(comment.prId());
         return saved;
     }
 
@@ -1636,7 +1600,6 @@ public class PRService
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PRComment saved = store.saveComment(comment.withPublished(when));
-        notifyUpdated(comment.prId());
         return saved;
     }
 
@@ -1648,7 +1611,6 @@ public class PRService
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PRComment saved = store.saveComment(comment.withFinding(findingId));
-        notifyUpdated(comment.prId());
         return saved;
     }
 
@@ -1667,7 +1629,6 @@ public class PRService
             throw new IllegalArgumentException("only pending local comments can be edited");
         }
         PRComment saved = store.saveComment(comment.withBody(body.strip()));
-        notifyUpdated(comment.prId());
         return saved;
     }
 
@@ -1675,7 +1636,6 @@ public class PRService
     {
         PR pr = require(prId);
         PR saved = store.save(pr.withLocalAddressedThrough(through));
-        notifyUpdated(prId);
         return saved;
     }
 
@@ -1702,11 +1662,6 @@ public class PRService
         }
         throw conflict("V2 Task-owned PR " + action
                 + " must use its exact Local Development owner");
-    }
-
-    private void notifyUpdated(String prId)
-    {
-        events.publishEvent(new PrUpdatedEvent(prId));
     }
 
     private void appendEvent(

@@ -76,7 +76,6 @@ class TestAiReviewService
         AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
         SkillService skills = mock(SkillService.class);
         PatResolver pats = mock(PatResolver.class);
-        PullRequestDetailInvalidator invalidator = mock(PullRequestDetailInvalidator.class);
         PR pr = externalPr("unified-pr");
         PrRawDetail raw = rawDetail();
         String existingBody = "**Crash:** this path can loop forever.";
@@ -122,8 +121,7 @@ class TestAiReviewService
                 .thenReturn(expected);
 
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, gitHub, registry, globalReview, draftStore,
-                skills, invalidator, pats);
+                prs, gitHub, registry, globalReview, draftStore, skills, pats);
 
         assertThat(service.runQuickReview("unified-pr")).isSameAs(expected);
         ArgumentCaptor<ReviewRequest> request = ArgumentCaptor.forClass(ReviewRequest.class);
@@ -183,8 +181,7 @@ class TestAiReviewService
                 .thenReturn("x".repeat(ReviewPrompt.MAX_DIFF_CHARS + 1));
 
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, gitHub, registry, globalReview, draftStore,
-                skills, mock(PullRequestDetailInvalidator.class), pats);
+                prs, gitHub, registry, globalReview, draftStore, skills, pats);
 
         assertThatThrownBy(() -> service.runQuickReview("unified-pr"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
@@ -234,8 +231,7 @@ class TestAiReviewService
                 .thenReturn(reparented);
 
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, gitHub, registry, globalReview, draftStore,
-                skills, mock(PullRequestDetailInvalidator.class), pats);
+                prs, gitHub, registry, globalReview, draftStore, skills, pats);
 
         assertThat(service.runQuickReview("external-pr")).isSameAs(reparented);
         verify(prs).addComment(
@@ -265,10 +261,9 @@ class TestAiReviewService
         when(draftStore.latestForUnifiedPr("unified-pr")).thenReturn(Optional.of(legacy));
 
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, mock(PullRequestRepository.class),
+                prs, mock(PullRequestRepository.class),
                 mock(LlmReviewerRegistry.class), mock(GlobalReviewRunner.class), draftStore,
-                mock(SkillService.class), mock(PullRequestDetailInvalidator.class),
-                mock(PatResolver.class));
+                mock(SkillService.class), mock(PatResolver.class));
 
         AiReviewDraft result = service.latestQuickReview("unified-pr").orElseThrow();
 
@@ -290,10 +285,10 @@ class TestAiReviewService
                 Instant.parse("2026-05-08T00:00:00Z"));
         when(prs.findById("local-pr")).thenReturn(Optional.of(local));
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, gitHub, mock(LlmReviewerRegistry.class),
+                prs, gitHub, mock(LlmReviewerRegistry.class),
                 mock(GlobalReviewRunner.class),
                 mock(AiReviewDraftStore.class), mock(SkillService.class),
-                mock(PullRequestDetailInvalidator.class), mock(PatResolver.class));
+                mock(PatResolver.class));
 
         assertThatThrownBy(() -> service.runQuickReview("local-pr"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, error ->

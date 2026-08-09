@@ -54,14 +54,6 @@ public class AgentContextCompiler
         this.selector = requireNonNull(selector, "selector is null");
     }
 
-    /** Compatibility constructor for focused policy tests. */
-    public AgentContextCompiler(ManagedSkillPolicy skills, ToolExposurePolicy tools)
-    {
-        this.skills = requireNonNull(skills, "skills is null");
-        this.tools = requireNonNull(tools, "tools is null");
-        this.selector = null;
-    }
-
     public ResolvedAgentContext resolve(ThreadKind kind, ThreadTurn turn, StageType stageType)
     {
         return resolve(kind, turn, stageType, null);
@@ -75,13 +67,12 @@ public class AgentContextCompiler
         ByteQuayRole role = roleFor(kind, turn);
         RoleDefinition definition = RoleRegistry.definition(role);
         List<String> policySkills = skills.skillNames(kind, turn, stageType);
-        List<ManagedSkill> selectedBodies = selector == null
-                ? List.of()
-                : selector.select(policySkills, role, turn.threadId(), workingDir,
-                        turn.input(), MAX_ACTIVE_SKILLS);
-        List<String> selectedSkills = selector == null
-                ? policySkills
-                : selectedBodies.stream().map(ManagedSkill::name).toList();
+        List<ManagedSkill> selectedBodies = selector.select(
+                policySkills, role, turn.threadId(), workingDir,
+                turn.input(), MAX_ACTIVE_SKILLS);
+        List<String> selectedSkills = selectedBodies.stream()
+                .map(ManagedSkill::name)
+                .toList();
         if (selectedSkills.size() > MAX_ACTIVE_SKILLS) {
             throw new IllegalStateException("skill context exceeds " + MAX_ACTIVE_SKILLS
                     + " entries for " + role + "/" + stageType);

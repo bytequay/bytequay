@@ -17,12 +17,7 @@ import { toRow } from './model';
 import type { PullRow } from './model';
 import { isToday } from '../format';
 
-/**
- * View model for the workspace Pull-requests surface (Board|List + detail
- * pane). Filter predicates, counts, and bucketFor are copied from
- * workspace/PullRequestBoardList.tsx (scheduled for deletion) rather than
- * imported from it.
- */
+/** View model for the workspace Pull-requests surface. */
 
 export type WorkspaceFilter = 'review' | 'mine' | 'all';
 export type Bucket = 'attention' | 'progress' | 'cleared';

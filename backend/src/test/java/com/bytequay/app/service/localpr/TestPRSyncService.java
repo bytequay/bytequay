@@ -68,11 +68,10 @@ class TestPRSyncService
     private final GitRunner git = mock(GitRunner.class);
     private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
-    private final PRPublishService prPublish = mock(PRPublishService.class);
     /** Direct executor, so background syncs run inline and assertions stay
      *  deterministic. */
     private final PRSyncService service =
-            new PRSyncService(prService, taskStore, git, brainReview, pullRequests, prPublish, Runnable::run);
+            new PRSyncService(prService, taskStore, git, brainReview, pullRequests, Runnable::run);
 
     private Task task(TaskPhase phase)
     {
@@ -117,7 +116,7 @@ class TestPRSyncService
     {
         List<Runnable> queued = new ArrayList<>();
         PRSyncService deferred = new PRSyncService(
-                prService, taskStore, git, brainReview, pullRequests, prPublish, queued::add);
+                prService, taskStore, git, brainReview, pullRequests, queued::add);
         when(prService.findTaskByRepoAndNumber("acme/widget", 42)).thenReturn(Optional.empty());
         when(prService.findByRepoAndNumber("acme/widget", 42)).thenReturn(Optional.of(pushedPr()));
         when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr()));
@@ -140,7 +139,7 @@ class TestPRSyncService
     {
         List<Runnable> queued = new ArrayList<>();
         PRSyncService deferred = new PRSyncService(
-                prService, taskStore, git, brainReview, pullRequests, prPublish, queued::add);
+                prService, taskStore, git, brainReview, pullRequests, queued::add);
         when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
 
         deferred.syncInBackground("pr1");

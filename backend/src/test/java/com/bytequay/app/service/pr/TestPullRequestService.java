@@ -54,7 +54,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -133,11 +132,6 @@ class TestPullRequestService
     @SuppressWarnings("UnusedVariable")
     @Mock
     private Executor executor;
-
-    // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
-    @SuppressWarnings("UnusedVariable")
-    @Mock
-    private ApplicationEventPublisher eventPublisher;
 
     // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
     @SuppressWarnings("UnusedVariable")
@@ -251,7 +245,7 @@ class TestPullRequestService
     {
         return new PullRequestService(
                 gitHub, store, detailStore, viewStateStore, settingsStore, credentialService,
-                responseCache, detailInvalidator, repoListCache, repoMetadataCache, patResolver, eventPublisher,
+                responseCache, detailInvalidator, repoListCache, repoMetadataCache, patResolver,
                 taskStore, collaboratorPermissions, Runnable::run, Runnable::run);
     }
 
@@ -900,8 +894,6 @@ class TestPullRequestService
 
         verify(viewStateStore).markReviewed(77L, HandledAction.DISMISSED);
         verify(viewStateStore, never()).markReviewed(eq(0L), any());
-        verify(eventPublisher).publishEvent(argThat((Object event) -> event instanceof PullRequestClosedEvent closed
-                && "owner/repo".equals(closed.repoFullName()) && closed.prNumber() == 7));
     }
 
     @Test

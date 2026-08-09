@@ -22,7 +22,6 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.service.localpr.PrUpdatedEvent;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -33,11 +32,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -75,7 +72,6 @@ public final class V2LocalReviewControl
     private final LocalDevelopmentStageManager local;
     private final ObjectMapper json;
     private final ObjectReader workModelReader;
-    private final ApplicationEventPublisher events;
     private final Clock clock;
     private final int serverPort;
     private SqliteStageSteeringStore steering;
@@ -87,10 +83,9 @@ public final class V2LocalReviewControl
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             ObjectMapper json,
-            ApplicationEventPublisher events,
             @Value("${server.port:53123}") int serverPort)
     {
-        this(jdbc, commands, local, json, events, Clock.systemUTC(), serverPort);
+        this(jdbc, commands, local, json, Clock.systemUTC(), serverPort);
     }
 
     V2LocalReviewControl(
@@ -98,7 +93,6 @@ public final class V2LocalReviewControl
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             ObjectMapper json,
-            ApplicationEventPublisher events,
             Clock clock,
             int serverPort)
     {
@@ -108,7 +102,6 @@ public final class V2LocalReviewControl
         this.json = requireNonNull(json, "json is null");
         this.workModelReader = json.readerFor(WorkModel.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-        this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
         if (serverPort < 1 || serverPort > 65535) {
             throw new IllegalArgumentException("serverPort is invalid");
@@ -181,7 +174,6 @@ public final class V2LocalReviewControl
             if (changed != 1) {
                 throw conflict("Local Review PR content changed before edit");
             }
-            updated(subject.prId());
             return null;
         });
     }
@@ -302,7 +294,6 @@ public final class V2LocalReviewControl
         if (PRComment.SCOPE_PR.equals(scopeValue)) {
             insertTimelineComment(subject.prId(), comment.id(), authorValue, now);
         }
-        updated(subject.prId());
         return comment;
     }
 
@@ -335,7 +326,6 @@ public final class V2LocalReviewControl
                     UPDATE pr_comment SET resolved_at_ms = ?, resolved_by = 'user'
                     WHERE id = ?
                     """, now.toEpochMilli(), threadId);
-            updated(comment.prId());
             return requireComment(comment.id());
         });
     }
@@ -359,7 +349,6 @@ public final class V2LocalReviewControl
                         dismissed_at_ms = NULL, resolved_by = NULL
                     WHERE id = ?
                     """, threadId);
-            updated(comment.prId());
             return requireComment(comment.id());
         });
     }
@@ -383,7 +372,6 @@ public final class V2LocalReviewControl
                     UUID.randomUUID().toString(), now);
             jdbc.update("UPDATE pr_comment SET body = ? WHERE id = ?",
                     bodyValue, comment.id());
-            updated(comment.prId());
             return requireComment(comment.id());
         });
     }
@@ -400,7 +388,6 @@ public final class V2LocalReviewControl
             terminalizeRevision(latest, "deleted by user", clock.instant());
             jdbc.update("DELETE FROM pr_comment WHERE parent_comment_id = ?", comment.id());
             jdbc.update("DELETE FROM pr_comment WHERE id = ?", comment.id());
-            updated(comment.prId());
             return null;
         });
     }
@@ -460,7 +447,6 @@ public final class V2LocalReviewControl
                     """, batch.id());
             turnId = null;
         }
-        updated(subject.prId());
         return new Submission(selected.size(), turnId);
     }
 
@@ -558,7 +544,6 @@ public final class V2LocalReviewControl
                 String.class, batchId);
         jdbc.update("UPDATE pr SET local_addressed_through_ms = ? WHERE id = ?",
                 now.toEpochMilli(), prId);
-        updated(prId);
     }
 
     /** Terminalizes a failed/stale batch and reopens only the exact revisions
@@ -650,7 +635,6 @@ public final class V2LocalReviewControl
                         """, source.threadId());
             }
         }
-        updated(batch.prId());
     }
 
     /**
@@ -738,9 +722,6 @@ public final class V2LocalReviewControl
                 .filter(batch -> !batch.matches(current))
                 .toList();
         if (pendingUser.isEmpty() && staleBatches.isEmpty()) {
-            if (!staleRequests.isEmpty()) {
-                updated(current.prId());
-            }
             return;
         }
 
@@ -809,7 +790,6 @@ public final class V2LocalReviewControl
                     WHERE id = ?
                     """, source.threadId());
         }
-        updated(current.prId());
     }
 
     public record Submission(int submitted, String turnId) {}
@@ -911,7 +891,6 @@ public final class V2LocalReviewControl
                 subject.codeFingerprint(), subject.headSha(), subject.baseSha(),
                 blocking ? "BLOCKING" : "ADVISORY", blockerId,
                 now.toEpochMilli());
-        updated(subject.prId());
         return new AgentReviewRequest(
                 requestId, reviewId, reviewRoundId, subject.taskId(),
                 blocking, "REQUESTED");
@@ -953,10 +932,6 @@ public final class V2LocalReviewControl
             if (changed == 1) {
                 resolveAgentRequestBlocker(
                         request.id(), "AgentReview canceled: " + reason, now);
-                String prId = jdbc.queryForObject("""
-                        SELECT pr_id FROM local_review_agent_request WHERE id = ?
-                        """, String.class, request.id());
-                updated(prId);
             }
             return null;
         });
@@ -1051,7 +1026,6 @@ public final class V2LocalReviewControl
                     request.id(), "selected findings imported into " + batch.id(),
                     frozenAt);
             String turnId = admitBatchInCommand(batch.id());
-            updated(current.prId());
             return new Submission(revisions.size(), turnId);
         });
     }
@@ -2035,27 +2009,6 @@ public final class V2LocalReviewControl
             return work.get();
         }
         return commands.execute(taskId, work);
-    }
-
-    private void updated(String prId)
-    {
-        if (prId == null) {
-            return;
-        }
-        Runnable publish = () -> events.publishEvent(new PrUpdatedEvent(prId));
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(
-                    new TransactionSynchronization()
-                    {
-                        @Override
-                        public void afterCommit()
-                        {
-                            publish.run();
-                        }
-                    });
-            return;
-        }
-        publish.run();
     }
 
     private int nextInt(String sql, Object parameter)

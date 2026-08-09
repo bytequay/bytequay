@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.service.workspaces;
 
+import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.ThreadCheckpointStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.CheckpointSummariser;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
 import org.junit.jupiter.api.Test;
@@ -44,8 +46,16 @@ class TestWorkspaceMemoryDistiller
     private final WorkspaceMemoryProposalService proposals = mock(WorkspaceMemoryProposalService.class);
     private final ThreadCheckpointStore checkpoints = mock(ThreadCheckpointStore.class);
     private final CheckpointSummariser summariser = mock(CheckpointSummariser.class);
+    private final ThreadStore threads = mock(ThreadStore.class);
     private final WorkspaceMemoryDistiller distiller =
-            new WorkspaceMemoryDistiller(workspaces, proposals, checkpoints, summariser);
+            new WorkspaceMemoryDistiller(
+                    workspaces, proposals, checkpoints, summariser, threads);
+
+    {
+        List<Thread> workspaceThreads = List.of(
+                thread("thread-a"), thread("thread-b"), thread("thread-x"));
+        when(threads.listThreadsByWorkspace(anyString())).thenReturn(workspaceThreads);
+    }
 
     @Test
     void distilQueuesAProposalRatherThanWritingMemoryDirectly()
@@ -164,6 +174,13 @@ class TestWorkspaceMemoryDistiller
                 Instant.parse("2026-05-15T12:00:00Z"),
                 /* supersededAt */ null,
                 /* taskId — Overall always thread-scoped */ null);
+    }
+
+    private static Thread thread(String id)
+    {
+        Thread thread = mock(Thread.class);
+        when(thread.id()).thenReturn(id);
+        return thread;
     }
 
     private static Workspace newWorkspace(String id, String memory, boolean scratch)

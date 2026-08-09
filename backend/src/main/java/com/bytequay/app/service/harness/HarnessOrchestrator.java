@@ -29,7 +29,6 @@ import com.bytequay.app.service.harness.HarnessModels.Phase;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.localpr.PrUpdatedEvent;
 import com.bytequay.app.service.workspaces.SyncRunStream;
 import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -38,7 +37,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -105,7 +103,6 @@ public class HarnessOrchestrator
     private final HarnessGitSafety gitSafety;
     private final GitRunner git;
     private final PRStore prs;
-    private final ApplicationEventPublisher applicationEvents;
     private final ObjectMapper mapper;
     private final Executor executor;
     private final Set<String> workers = ConcurrentHashMap.newKeySet();
@@ -121,7 +118,6 @@ public class HarnessOrchestrator
             HarnessGitSafety gitSafety,
             GitRunner git,
             PRStore prs,
-            ApplicationEventPublisher applicationEvents,
             ObjectMapper mapper,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
@@ -135,7 +131,6 @@ public class HarnessOrchestrator
         this.gitSafety = requireNonNull(gitSafety, "gitSafety is null");
         this.git = requireNonNull(git, "git is null");
         this.prs = requireNonNull(prs, "prs is null");
-        this.applicationEvents = requireNonNull(applicationEvents, "applicationEvents is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
@@ -938,7 +933,6 @@ public class HarnessOrchestrator
                         "status", status,
                         "sha", sha == null ? "" : sha)), null);
         prs.addEvent(entry);
-        applicationEvents.publishEvent(new PrUpdatedEvent(prId));
     }
 
     private <T> T decode(String json, Class<T> type)

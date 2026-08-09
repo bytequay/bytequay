@@ -75,7 +75,6 @@ public class PullRequestController
             MyActivityService myActivityService,
             PullRequestFilters prFilters,
             PrTaskLinkService prTaskLink,
-            PublishService publishService,
             PRPublishService prPublishService,
             V2TaskControlService v2TaskControls,
             V2UserRemoteActionRuntime v2UserRemoteActions)
@@ -85,7 +84,6 @@ public class PullRequestController
         this.myActivityService = requireNonNull(myActivityService, "myActivityService is null");
         this.prFilters = requireNonNull(prFilters, "prFilters is null");
         this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
-        requireNonNull(publishService, "publishService is null");
         this.prPublishService = requireNonNull(prPublishService, "prPublishService is null");
         this.v2TaskControls = requireNonNull(v2TaskControls, "v2TaskControls is null");
         this.v2UserRemoteActions = requireNonNull(

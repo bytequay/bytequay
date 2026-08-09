@@ -24,13 +24,7 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewServiceImpl;
-import com.bytequay.app.service.stage.ReadyToMergeService;
-import com.bytequay.app.service.threads.TaskService;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -56,64 +50,14 @@ public class PRPublishService
     public PRPublishService(
             PRService prService,
             TaskStore taskStore,
-            PullRequestRepository pullRequests,
-            PatResolver patResolver,
-            BrainReviewServiceImpl brainReview,
-            PullRequestService pullRequestDetails,
-            ReadyToMergeService readyToMerge,
-            TaskService taskService,
             V2PrRemoteControlService v2Controls,
             V2UserRemoteActionRuntime v2UserRemoteActions)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        requireNonNull(pullRequests, "pullRequests is null");
-        requireNonNull(patResolver, "patResolver is null");
-        requireNonNull(brainReview, "brainReview is null");
-        requireNonNull(pullRequestDetails, "pullRequestDetails is null");
-        requireNonNull(readyToMerge, "readyToMerge is null");
-        requireNonNull(taskService, "taskService is null");
         this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
         this.v2UserRemoteActions = requireNonNull(
                 v2UserRemoteActions, "v2UserRemoteActions is null");
-    }
-
-    /**
-     * Keep the PR row in step with a push/open-PR that just happened
-     * through some other path (a push/open_pr gate, auto-approved or not; the
-     * ship/next tool flow) instead of this service's own {@link #push}. That
-     * row otherwise only advances when the user clicks the local-PR panel's
-     * own Push button. V2 owns that projection in its publish result command;
-     * this retained compatibility entry point therefore accepts V2 as a no-op
-     * and fails closed for historical LEGACY Tasks.
-     */
-    public void onPushedElsewhere(PrPushedEvent event)
-    {
-        reconcilePushedElsewhere(event);
-    }
-
-    /** Compatibility entry point for callers such as the periodic PR sync. */
-    void reconcilePushedElsewhere(PrPushedEvent event)
-    {
-        if (isV2Task(event.taskId())) {
-            return;
-        }
-        throw legacyTaskPrRetired(event.taskId());
-    }
-
-    /**
-     * Auto-merge's answer to the Local Review page's manual Push button: once
-     * the dev-end brain review clears (the PR just reached {@code
-     * local-open}), the V2 maintenance path may authorize publish. This old
-     * event callback performs no scheduling: V2 is already handled by its
-     * typed owner and historical LEGACY Tasks fail closed.
-     */
-    public void onLocalReviewCleared(LocalReviewClearedEvent event)
-    {
-        if (!event.approved() || isV2Task(event.taskId())) {
-            return;
-        }
-        throw legacyTaskPrRetired(event.taskId());
     }
 
     /** Push {@code prId}'s branch and open a Draft PR, then strip locals + flip

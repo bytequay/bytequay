@@ -24,7 +24,7 @@ import type { TaskPhase } from '../types/brainView';
 import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working } from '../ui/conv';
 import { SparkIcon } from '../ui/TaskBrainDesignIcons';
 import { BrainFeed } from '../threads/brain/BrainFeed';
-import { isPlanSelfReviewing, PlanCard, PlanningSeed, planStepComments } from '../threads/brain/TaskRootNode';
+import { isPlanSelfReviewing, PlanCard, PlanningSeed } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
@@ -491,7 +491,6 @@ export function TaskBrainRoute({
   // The seed is the prose that opened the PlanStage (the trunk handoff) — the
   // brain view carries no dedicated seed field (DISCOVERY-FINDINGS #8).
   const seed = brainFeed.find(r => r.type === 'STAGE_OPENED' && r.stageType === 'PLAN_STAGE')?.body;
-  const planConfidenceHigh = (plan?.signals.confidence ?? null) === 'high';
   const approvedAt = brainFeed.find(r => r.type === 'PLAN_APPROVED')?.ts;
 
   // The original execution plan card (steps + signals + review bar). The new
@@ -510,17 +509,13 @@ export function TaskBrainRoute({
       plan={plan}
       autoApprove={autoApprove}
       autoMerge={autoMerge}
-      autoConfidenceHigh={planConfidenceHigh}
       approvedAt={approvedAt}
       onApprove={plan.state === 'awaiting' && !approvingPlan && !task.terminal ? approvePlan : undefined}
       onRequestRevision={requestRevision}
-      onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
-      onHoldAuto={toggleAutoApprove}
       onToggleAutoApprove={task.terminal ? undefined : toggleAutoApprove}
       onToggleAutoMerge={task.terminal ? undefined : toggleAutoMerge}
       minApprovals={minApprovals}
       onSetMinApprovals={task.terminal ? undefined : setMinApprovals}
-      stepComments={planStepComments(brainFeed)}
     />
   ) : null;
   const defaultInlinePlanOpen = plan?.state !== 'locked';

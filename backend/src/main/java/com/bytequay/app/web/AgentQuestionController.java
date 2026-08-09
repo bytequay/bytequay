@@ -51,22 +51,13 @@ public class AgentQuestionController
         this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
     }
 
-    /** Compatibility constructor for focused legacy controller tests. */
-    public AgentQuestionController(AgentQuestionServiceImpl questions)
-    {
-        this.questions = requireNonNull(questions, "questions is null");
-        this.v2Waits = null;
-    }
-
     @GetMapping("/api/threads/{threadId}/questions")
     public List<AgentQuestionDto> open(@PathVariable String threadId)
     {
         List<AgentQuestionDto> open = new ArrayList<>();
-        if (v2Waits != null) {
-            v2Waits.listOpen(threadId).stream()
-                    .map(AgentQuestionDto::from)
-                    .forEach(open::add);
-        }
+        v2Waits.listOpen(threadId).stream()
+                .map(AgentQuestionDto::from)
+                .forEach(open::add);
         questions.listOpen(threadId).stream()
                 .map(AgentQuestionDto::from)
                 .forEach(open::add);
@@ -80,7 +71,7 @@ public class AgentQuestionController
         if (body == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "request body is required");
         }
-        if (v2Waits != null && v2Waits.findQuestion(id).isPresent()) {
+        if (v2Waits.findQuestion(id).isPresent()) {
             int expectedRevision = body.expectedRevision() == null
                     ? 0 : body.expectedRevision();
             var resolved = v2Waits.answerQuestion(

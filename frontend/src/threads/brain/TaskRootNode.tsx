@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { BrainFeedRow, PlanCardDto, PlanStepDto } from '../../types/brainView';
+import type { PlanCardDto, PlanStepDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import { extractSeedChips } from './seedChips';
 import { ChevronRightIcon } from '../../ui/TaskBrainDesignIcons';
@@ -63,28 +63,20 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
  * handlers. Exported under the same name + prop shape so both call sites render
  * the new design unchanged.
  *
- * The card has no per-step comment thread or plan-edit affordance, so
- * `onCommentStep` / `onEdit` / `onHoldAuto` /
- * `stepComments` are accepted for call-site compatibility but not rendered.
  */
 export function PlanCard(props: {
   plan: PlanCardDto;
   autoApprove?: boolean;
   autoMerge?: boolean;
-  autoConfidenceHigh?: boolean;
   /** ISO 8601 approval time — shown on the footer once the plan is approved. */
   approvedAt?: string;
   onApprove?: () => void;
-  onEdit?: () => void;
   /** Typed revision feedback for the brain; the plan stays paused until sent. */
   onRequestRevision?: (text: string) => void;
-  onCommentStep?: (ordinal: number) => void;
-  onHoldAuto?: () => void;
   onToggleAutoApprove?: () => void;
   onToggleAutoMerge?: () => void;
   minApprovals?: number;
   onSetMinApprovals?: (n: number) => void;
-  stepComments?: PlanStepComment[];
 }) {
   const {
     plan, autoApprove, autoMerge, approvedAt, onApprove, onRequestRevision,
@@ -115,19 +107,6 @@ export function PlanCard(props: {
       onPolicyChange={onPolicyChange}
     />
   );
-}
-
-export type PlanStepComment = { id: string; ordinal: number; body: string };
-
-/** Recover the step association already encoded by the composer prefix. Kept
- *  for call-site compatibility (the pipeline card no longer surfaces per-step
- *  comments, but callers still compute them). */
-export function planStepComments(feed: BrainFeedRow[]): PlanStepComment[] {
-  return feed.flatMap(row => {
-    if (row.type !== 'USER_MESSAGE') return [];
-    const match = /^Re:\s*step\s+(\d+)\s*[—–-]\s*([\s\S]+)$/i.exec(row.body.trim());
-    return match === null ? [] : [{ id: row.id, ordinal: Number(match[1]), body: match[2].trim() }];
-  });
 }
 
 function toPipelinePlan(dto: PlanCardDto, policy: PlanPolicy): Plan {

@@ -251,16 +251,6 @@ class TestPRService
     }
 
     @Test
-    void legalTransitionPublishesPrUpdated()
-    {
-        pr(PR.STATUS_LOCAL_DRAFTED);
-
-        service.transition("pr1", PR.STATUS_LOCAL_OPEN, "you");
-
-        verify(events).publishEvent(new PrUpdatedEvent("pr1"));
-    }
-
-    @Test
     void illegalTransitionThrowsAndWritesNothing()
     {
         pr(PR.STATUS_LOCAL_DRAFTED);
@@ -596,7 +586,6 @@ class TestPRService
         service.deleteDraftComment("cm1");
 
         verify(store).deleteComment("cm1");
-        verify(events).publishEvent(new PrUpdatedEvent("pr1"));
     }
 
     @Test

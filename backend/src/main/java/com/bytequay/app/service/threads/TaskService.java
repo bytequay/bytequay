@@ -22,8 +22,6 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.pr.PullRequestClosedEvent;
-import com.bytequay.app.service.pr.PullRequestMergedEvent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -194,16 +192,6 @@ public class TaskService
         throw new ResponseStatusException(
                 HttpStatusCode.valueOf(409),
                 "V2 Task promotion is owned by Local Development");
-    }
-
-    public void onPullRequestMerged(PullRequestMergedEvent event)
-    {
-        completeTasksForMergedPr(event.repoFullName(), event.prNumber());
-    }
-
-    public void onPullRequestClosed(PullRequestClosedEvent event)
-    {
-        closeTasksForRemotePr(event.repoFullName(), event.prNumber());
     }
 
     public void completeTasksForMergedPr(String repoFullName, int prNumber)

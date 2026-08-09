@@ -84,20 +84,6 @@ public class WorkspaceMemoryDistiller
         this.threads = requireNonNull(threads, "threads is null");
     }
 
-    /** Compatibility constructor for the isolated distiller tests. */
-    WorkspaceMemoryDistiller(
-            WorkspaceService workspaces,
-            WorkspaceMemoryProposalService proposals,
-            ThreadCheckpointStore checkpoints,
-            CheckpointSummariser summariser)
-    {
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.proposals = requireNonNull(proposals, "proposals is null");
-        this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
-        this.summariser = requireNonNull(summariser, "summariser is null");
-        this.threads = null;
-    }
-
     /**
      * Periodic distillation across every workspace. Runs every 30
      * minutes — cheap relative to per-segment summarisation since the
@@ -138,17 +124,14 @@ public class WorkspaceMemoryDistiller
         }
         List<ThreadCheckpoint> corpus =
                 checkpoints.listAllActiveOveralls(OVERALL_CORPUS_LIMIT * 4);
-        if (threads != null) {
-            Set<String> workspaceThreadIds =
-                    threads.listThreadsByWorkspace(workspaceId).stream()
-                            .map(Thread::id)
-                            .collect(Collectors.toSet());
-            corpus = corpus.stream()
-                    .filter(checkpoint -> workspaceThreadIds.contains(
-                            checkpoint.threadId()))
-                    .limit(OVERALL_CORPUS_LIMIT)
-                    .toList();
-        }
+        Set<String> workspaceThreadIds =
+                threads.listThreadsByWorkspace(workspaceId).stream()
+                        .map(Thread::id)
+                        .collect(Collectors.toSet());
+        corpus = corpus.stream()
+                .filter(checkpoint -> workspaceThreadIds.contains(checkpoint.threadId()))
+                .limit(OVERALL_CORPUS_LIMIT)
+                .toList();
         if (corpus.isEmpty()) {
             log.debug("No Thread Overalls to distil for workspace {}; leaving memory untouched",
                     workspaceId);

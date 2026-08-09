@@ -52,13 +52,6 @@ public class QuestionToolHandlers
         this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
     }
 
-    /** Compatibility constructor for focused legacy tool tests. */
-    public QuestionToolHandlers(AgentQuestionServiceImpl questions)
-    {
-        this.questions = requireNonNull(questions, "questions is null");
-        this.v2Waits = null;
-    }
-
     /** Args for {@code ask_user_question}. {@code options} is a raw JSON array
      *  so the schema stays simple; the handler validates each entry. */
     public record AskUserQuestionArgs(
@@ -98,12 +91,9 @@ public class QuestionToolHandlers
         boolean allowFreeForm = args.allowFreeForm() == null || args.allowFreeForm();
         List<AgentQuestion.Option> options = readOptions(args.options());
         try {
-            Optional<String> v2Wait = v2Waits == null
-                    ? Optional.empty()
-                    : v2Waits.askQuestion(
-                            threadId, call.runtimeAgentKey(), call.callId(),
-                            args.question(),
-                            args.context(), options, allowFreeForm);
+            Optional<String> v2Wait = v2Waits.askQuestion(
+                    threadId, call.runtimeAgentKey(), call.callId(),
+                    args.question(), args.context(), options, allowFreeForm);
             if (v2Wait.isPresent()) {
                 return new ToolOutcome.WaitForUser(
                         SHOWN_MESSAGE, "QUESTION:" + v2Wait.orElseThrow());

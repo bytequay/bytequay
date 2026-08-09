@@ -17,13 +17,10 @@ import type {
   IssueDetailDto,
   IssueDto,
   LocalBranchDto,
-  LocalCommitDetailDto,
   LocalCommitDto,
   LocalCommitFileDto,
   LocalFileDiffDto,
   LocalRepoStatusDto,
-  PullRequestCommitDto,
-  PullRequestDetailDto,
   PullRequestDto,
   StartDevelopmentResponse,
   WorkspaceCardDto,
@@ -87,15 +84,6 @@ export type WorkspaceOnboardingDto = {
   learningLessons: number;
   learningPendingLessons: number;
   dismissedAt: number | null;
-  updatedAt: number;
-};
-
-export type LearningRunDto = {
-  id: string;
-  repo: string;
-  state: string;
-  countsJson: string;
-  lastError: string | null;
   updatedAt: number;
 };
 
@@ -638,13 +626,6 @@ export type StartIssueResultDto = {
   issueNumber: number;
 };
 
-export type ReviewStartDto = {
-  reviewId: string;
-  trunkId: string;
-  roundId: string | null;
-  status: string;
-};
-
 export type WorkspaceSessionDto = {
   id: string;
   workspaceId: string;
@@ -802,19 +783,6 @@ export const workspaceApi = {
     window.bridge.workspaceApi<PullRequestDto>({
       path: `/api/workspaces/${enc(workspaceId)}/pull-requests/${number}`,
     }),
-  pullRequestDetail: (workspaceId: string, number: number) =>
-    window.bridge.workspaceApi<PullRequestDetailDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/pull-requests/${number}/detail`,
-    }),
-  pullRequestCommits: (workspaceId: string, number: number) =>
-    window.bridge.workspaceApi<PullRequestCommitDto[]>({
-      path: `/api/workspaces/${enc(workspaceId)}/pull-requests/${number}/commits`,
-    }),
-  reviewPullRequest: (workspaceId: string, number: number) =>
-    window.bridge.workspaceApi<ReviewStartDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/pull-requests/${number}/review`,
-      method: 'POST',
-    }),
   issues: (workspaceId: string, state: 'open' | 'closed') =>
     window.bridge.workspaceApi<IssueDto[]>({
       path: `/api/workspaces/${enc(workspaceId)}/issues?state=${state}`,
@@ -822,16 +790,6 @@ export const workspaceApi = {
   issue: (workspaceId: string, number: number) =>
     window.bridge.workspaceApi<IssueDetailDto>({
       path: `/api/workspaces/${enc(workspaceId)}/issues/${number}`,
-    }),
-  setIssueState: (
-    workspaceId: string,
-    number: number,
-    state: 'open' | 'closed',
-  ) =>
-    window.bridge.workspaceApi<IssueDetailDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/issues/${number}`,
-      method: 'PATCH',
-      body: { state },
     }),
   commentOnIssue: (workspaceId: string, number: number, body: string) =>
     window.bridge.workspaceApi<IssueCommentDto>({
@@ -852,10 +810,6 @@ export const workspaceApi = {
   trunks: (workspaceId: string) =>
     window.bridge.workspaceApi<WorkspaceTrunkDto[]>({
       path: `/api/workspaces/${enc(workspaceId)}/trunks`,
-    }),
-  trunkActivity: (trunkId: string) =>
-    window.bridge.workspaceApi<TrunkActivityDto>({
-      path: `/api/trunks/${enc(trunkId)}/activity`,
     }),
   addIssueToBacklog: (workspaceId: string, number: number, trunkId?: string) =>
     window.bridge.workspaceApi<BacklogItemDto>({
@@ -944,16 +898,6 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/commits/cherry-pick/${
         enc(operationId)}/abort`,
       method: 'POST',
-    }),
-  commits: (workspaceId: string, revision?: string, limit = 100) =>
-    window.bridge.workspaceApi<LocalCommitDto[]>({
-      path: `/api/workspaces/${enc(workspaceId)}/commits?${
-        revision === undefined ? '' : `revision=${enc(revision)}&`
-      }limit=${limit}`,
-    }),
-  commit: (workspaceId: string, sha: string) =>
-    window.bridge.workspaceApi<LocalCommitDetailDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/commits/${enc(sha)}`,
     }),
   commitFiles: (workspaceId: string, sha: string) =>
     window.bridge.workspaceApi<LocalCommitFileDto[]>({
@@ -1155,10 +1099,6 @@ export const workspaceApi = {
     window.bridge.workspaceApi<WorkspaceOnboardingDto>({
       path: `/api/workspaces/${enc(workspaceId)}/onboarding`,
     }),
-  learning: (workspaceId: string) =>
-    window.bridge.workspaceApi<LearningRunDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/learning`,
-    }),
   directoryScopeSuggestions: (workspaceId: string) =>
     window.bridge.workspaceApi<DirectoryScopeOverviewDto>({
       path: `/api/workspaces/${enc(workspaceId)}/directory-scopes/suggestions`,
@@ -1191,11 +1131,6 @@ export const workspaceApi = {
   detach: (workspaceId: string) =>
     window.bridge.workspaceApi<void>({
       path: `/api/workspaces/${enc(workspaceId)}/detach`,
-      method: 'POST',
-    }),
-  reconnect: (workspaceId: string) =>
-    window.bridge.workspaceApi<void>({
-      path: `/api/workspaces/${enc(workspaceId)}/reconnect`,
       method: 'POST',
     }),
   notifications: (workspaceId: string) =>

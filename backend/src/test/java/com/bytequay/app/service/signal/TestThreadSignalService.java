@@ -14,7 +14,9 @@
 package com.bytequay.app.service.signal;
 
 import com.bytequay.app.domain.ThreadSignal;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.ThreadSignalStore;
+import com.bytequay.app.service.threads.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -43,7 +45,8 @@ class TestThreadSignalService
     void setUp()
     {
         store = mock(ThreadSignalStore.class);
-        service = new ThreadSignalServiceImpl(store);
+        service = new ThreadSignalServiceImpl(
+                store, mock(NotificationService.class), mock(ThreadStore.class));
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 

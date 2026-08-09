@@ -23,7 +23,6 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
-import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -97,7 +96,6 @@ public class PRSyncService
     private final GitRunner git;
     private final BrainReviewServiceImpl brainReview;
     private final PullRequestService pullRequests;
-    private final PRPublishService prPublish;
     private final Executor executor;
 
     /** PRs with a {@link #syncInBackground} pass still running. Deduped so a
@@ -107,7 +105,7 @@ public class PRSyncService
 
     public PRSyncService(
             PRService prService, TaskStore taskStore, GitRunner git, BrainReviewServiceImpl brainReview,
-            PullRequestService pullRequests, PRPublishService prPublish,
+            PullRequestService pullRequests,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.prService = requireNonNull(prService, "prService is null");
@@ -115,7 +113,6 @@ public class PRSyncService
         this.git = requireNonNull(git, "git is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.prPublish = requireNonNull(prPublish, "prPublish is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -599,27 +596,6 @@ public class PRSyncService
             Thread.currentThread().interrupt();
             return Optional.empty();
         }
-    }
-
-    /** Self-heals a row stuck at {@code local-drafted}/{@code local-open}
-     *  when the task's PR is already open remotely — the same recovery
-     *  {@link PRPublishService#reconcilePushedElsewhere} performs for a push
-     *  resolved via a gate, applied here too since a task pushed before that
-     *  sync existed (or through a path that missed it) would otherwise never
-     *  catch up. Runs on every PR-bundle fetch, so it's a one-time fix per
-     *  task — once flipped, the reconciliation status guard
-     *  makes every later call a no-op. */
-    private PR healIfAlreadyPushedRemotely(PR pr, Task task)
-    {
-        if (!PR.STATUS_LOCAL_DRAFTED.equals(pr.status()) && !PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
-            return pr;
-        }
-        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
-        if (ref.isEmpty()) {
-            return pr;
-        }
-        prPublish.reconcilePushedElsewhere(PrPushedEvent.of(task.id(), ref.get()));
-        return prService.findById(pr.id()).orElse(pr);
     }
 
     /** Mirror the remote PR's comments and reviews onto the unified timeline

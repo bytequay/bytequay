@@ -31,7 +31,6 @@ import com.bytequay.app.service.threads.PublishService.PublishResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -83,8 +82,7 @@ class TestPublishService
                 mock(StageStore.class),
                 mock(PRService.class),
                 mock(PullRequestService.class),
-                mock(ReadyToMergeService.class),
-                mock(ApplicationEventPublisher.class));
+                mock(ReadyToMergeService.class));
         service.setQualityIssuePublishes(qualityPublishes);
     }
 

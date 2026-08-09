@@ -56,9 +56,10 @@ class TestCascadingPermissionResolver
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final PermissionGrantStore grantStore = mock(PermissionGrantStore.class);
+    private final ActiveAgentContextRegistry activeContexts = new ActiveAgentContextRegistry();
 
     private final PermissionResolver resolver =
-            new PermissionResolver(threadStore, turnStore, grantStore);
+            new PermissionResolver(threadStore, turnStore, grantStore, activeContexts);
 
     @Test
     void trunkTurnResolvesToTrunkBaseWhenNoGrants()

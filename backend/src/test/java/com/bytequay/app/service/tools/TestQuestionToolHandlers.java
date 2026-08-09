@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.AgentQuestion;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.question.AgentQuestionServiceImpl;
@@ -35,7 +36,8 @@ import static org.mockito.Mockito.verify;
 class TestQuestionToolHandlers
 {
     private final AgentQuestionServiceImpl service = mock(AgentQuestionServiceImpl.class);
-    private final QuestionToolHandlers handlers = new QuestionToolHandlers(service);
+    private final QuestionToolHandlers handlers = new QuestionToolHandlers(
+            service, mock(V2UserWaitService.class));
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test

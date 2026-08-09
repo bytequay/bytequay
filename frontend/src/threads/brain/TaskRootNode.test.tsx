@@ -13,8 +13,8 @@
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { BrainFeedRow, PlanCardDto } from '../../types/brainView';
-import { PlanCard, planStepComments } from './TaskRootNode';
+import type { PlanCardDto } from '../../types/brainView';
+import { PlanCard } from './TaskRootNode';
 
 afterEach(cleanup);
 
@@ -141,13 +141,4 @@ describe('PlanCard (pipeline adapter)', () => {
     expect(onRequestRevision).toHaveBeenCalledWith('Address the review concerns');
   });
 
-  it('does not surface per-step comment affordances (dropped in the pipeline design)', () => {
-    const feed: BrainFeedRow[] = [{
-      id: 'comment-1', messageSeq: 4, type: 'USER_MESSAGE', stageId: null, stageType: null,
-      ts: '2026-01-01T00:00:00Z', body: 'Re: step 2 — Why leave it?', referencedStageId: null,
-      images: [], managedSkills: [],
-    }];
-    render(<PlanCard plan={plan()} onApprove={noop} stepComments={planStepComments(feed)} onCommentStep={noop} />);
-    expect(screen.queryByText('Comment on this step')).toBeNull();
-  });
 });

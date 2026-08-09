@@ -48,7 +48,6 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.dao.DataAccessException;
@@ -739,8 +738,7 @@ class TestV2LocalReviewControl
         return new Fixture(
                 jdbc, transactionManager, commands, local, context,
                 new V2LocalReviewControl(
-                        jdbc, commands, local, new ObjectMapper(),
-                        mock(ApplicationEventPublisher.class), 53123));
+                        jdbc, commands, local, new ObjectMapper(), 53123));
     }
 
     private static PR localPr()
@@ -1105,8 +1103,7 @@ class TestV2LocalReviewControl
         private V2LocalReviewControl restartedControl()
         {
             return new V2LocalReviewControl(
-                    jdbc, commands, local, new ObjectMapper(),
-                    mock(ApplicationEventPublisher.class), 53123);
+                    jdbc, commands, local, new ObjectMapper(), 53123);
         }
     }
 

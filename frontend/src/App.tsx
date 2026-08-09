@@ -50,10 +50,6 @@ import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
 import { useSurfaceVisitCapture } from './footprints/useSurfaceVisitCapture';
 import { resumeStop } from './footprints/resume';
-import {
-  back as navBack, canGoBack, canGoForward, createHistory, current as navCurrent,
-  forward as navForward, push as navPush, type NavHistory,
-} from './navHistory';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
 export type Nav =
@@ -383,29 +379,46 @@ function lastTaskNav(threadId: string, taskId: string): Nav {
 }
 
 function App() {
-  const initialNavigation = useRef(
-    publicNavigation(parseWorkspaceRoute(typeof window === 'undefined' ? '' : window.location.hash)),
-  ).current;
+  const initialNavigation = useRef((() => {
+    const parsed = publicNavigation(parseWorkspaceRoute(
+      typeof window === 'undefined' ? '' : window.location.hash,
+    ));
+    const stored = typeof window === 'undefined'
+      ? undefined
+      : (window.history.state as { bytequayNav?: Nav } | null)?.bytequayNav;
+    return stored === undefined ? parsed : { ...parsed, nav: stored };
+  })()).current;
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNavRaw] = useState<Nav>(initialNavigation.nav);
-  // Browser-style back/forward over the Nav state. Every setNav pushes
-  // onto the stack (truncating any forward branch, like Chrome); the
-  // sidebar arrows + ⌘[ / ⌘] walk it. The ref mutates only alongside a
-  // setNavRaw call, so render-time reads of can-go flags stay fresh.
-  const navHistoryRef = useRef<NavHistory<Nav>>(createHistory<Nav>(initialNavigation.nav));
+  const navRef = useRef(nav);
+  navRef.current = nav;
+  const initialHistoryPosition = useRef(
+    typeof window === 'undefined'
+      ? 0
+      : (window.history.state as { bytequayPosition?: number } | null)?.bytequayPosition ?? 0,
+  ).current;
+  const historyPositionRef = useRef(initialHistoryPosition);
+  const historyMaxRef = useRef(initialHistoryPosition);
+  const [historyPosition, setHistoryPosition] = useState(initialHistoryPosition);
   const setNav = useCallback((next: Nav | ((prev: Nav) => Nav)) => {
-    const h = navHistoryRef.current;
-    const resolved = typeof next === 'function' ? next(navCurrent(h)) : next;
-    navHistoryRef.current = navPush(h, resolved);
+    const resolved = typeof next === 'function' ? next(navRef.current) : next;
+    if (JSON.stringify(resolved) === JSON.stringify(navRef.current)) return;
+    const position = historyPositionRef.current + 1;
+    historyPositionRef.current = position;
+    historyMaxRef.current = position;
+    window.history.pushState(
+      { bytequayNav: resolved, bytequayPosition: position },
+      '',
+    );
+    navRef.current = resolved;
+    setHistoryPosition(position);
     setNavRaw(resolved);
   }, []);
   const goBack = useCallback(() => {
-    navHistoryRef.current = navBack(navHistoryRef.current);
-    setNavRaw(navCurrent(navHistoryRef.current));
+    if (historyPositionRef.current > 0) window.history.back();
   }, []);
   const goForward = useCallback(() => {
-    navHistoryRef.current = navForward(navHistoryRef.current);
-    setNavRaw(navCurrent(navHistoryRef.current));
+    if (historyPositionRef.current < historyMaxRef.current) window.history.forward();
   }, []);
   // Left rail fold — the chrome-row panel toggle collapses it to a strip.
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -422,11 +435,6 @@ function App() {
   // Records a footprint whenever nav lands on a tracked surface (PR
   // kanban, a PR, a task, a thread). Single capture point; fire-and-forget.
   useSurfaceVisitCapture(nav);
-
-  // Current nav kept in a ref so the document-level click delegate below
-  // can read it for the `back` breadcrumb without re-subscribing each render.
-  const navRef = useRef(nav);
-  navRef.current = nav;
 
   // Internal PR links: markdown.ts rewrites bare github.com PR URLs in
   // comment / description bodies into chips carrying data-pr-owner/repo/
@@ -584,31 +592,66 @@ function App() {
     return () => { cancelled = true; };
   }, [nav, setNav]);
 
-  // Keep the public hash in step with the internal Nav while compatibility
-  // routes still exist. pushState gives Electron real browser history; the
-  // existing rail arrows continue to walk the in-memory stack.
+  // Keep the current native history entry's public hash and internal route
+  // together. Internal routes live in history.state when no public hash can
+  // represent them exactly.
   useEffect(() => {
     const route = publicRoute(nav, activeWorkspaceId);
-    if (route === null) return;
+    const state = {
+      bytequayNav: nav,
+      bytequayPosition: historyPositionRef.current,
+    };
+    if (route === null) {
+      window.history.replaceState(state, '');
+      return;
+    }
     const hash = workspaceRouteHash(route);
-    if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+    window.history.replaceState(state, '', hash);
   }, [activeWorkspaceId, nav]);
 
   useEffect(() => {
-    const applyHash = () => {
-      const target = publicNavigation(parseWorkspaceRoute(window.location.hash));
+    let poppedUrl: string | null = null;
+    const applyTarget = (target: PublicNavigation, position: number) => {
       if (target.workspaceId !== null) {
         setActiveWorkspaceId(target.workspaceId);
         writeActiveWorkspaceId(target.workspaceId);
       }
-      navHistoryRef.current = navPush(navHistoryRef.current, target.nav);
+      historyPositionRef.current = position;
+      historyMaxRef.current = Math.max(historyMaxRef.current, position);
+      navRef.current = target.nav;
+      setHistoryPosition(position);
       setNavRaw(target.nav);
     };
-    window.addEventListener('popstate', applyHash);
-    window.addEventListener('hashchange', applyHash);
+    const onPopState = (event: PopStateEvent) => {
+      poppedUrl = window.location.href;
+      const state = event.state as {
+        bytequayNav?: Nav;
+        bytequayPosition?: number;
+      } | null;
+      const parsed = publicNavigation(parseWorkspaceRoute(window.location.hash));
+      applyTarget(
+        { nav: state?.bytequayNav ?? parsed.nav, workspaceId: parsed.workspaceId },
+        state?.bytequayPosition ?? 0,
+      );
+    };
+    const onHashChange = () => {
+      if (poppedUrl === window.location.href) {
+        poppedUrl = null;
+        return;
+      }
+      const position = historyPositionRef.current + 1;
+      const target = publicNavigation(parseWorkspaceRoute(window.location.hash));
+      window.history.replaceState(
+        { bytequayNav: target.nav, bytequayPosition: position },
+        '',
+      );
+      applyTarget(target, position);
+    };
+    window.addEventListener('popstate', onPopState);
+    window.addEventListener('hashchange', onHashChange);
     return () => {
-      window.removeEventListener('popstate', applyHash);
-      window.removeEventListener('hashchange', applyHash);
+      window.removeEventListener('popstate', onPopState);
+      window.removeEventListener('hashchange', onHashChange);
     };
   }, []);
   /** The CURRENTLY-VIEWED thread's own workspace, once resolved by whatever
@@ -997,8 +1040,8 @@ function App() {
           onToggleCollapse={() => setRailCollapsed(c => !c)}
           onBack={goBack}
           onForward={goForward}
-          backEnabled={canGoBack(navHistoryRef.current)}
-          forwardEnabled={canGoForward(navHistoryRef.current)}
+          backEnabled={historyPosition > 0}
+          forwardEnabled={historyPosition < historyMaxRef.current}
           onResumeVisit={stop => resumeStop(stop, {
             openPrKanban: () => setNav({ view: 'pulls' }),
             openPr: (owner, repo, prNumber) =>
@@ -1141,8 +1184,8 @@ function App() {
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onHistoryBack={goBack}
             onForward={goForward}
-            backEnabled={canGoBack(navHistoryRef.current)}
-            forwardEnabled={canGoForward(navHistoryRef.current)}
+            backEnabled={historyPosition > 0}
+            forwardEnabled={historyPosition < historyMaxRef.current}
             trunkLabel={selectedTrunkLabel}
             workspaceName={sidebarWorkspace?.name}
             workspaceRepository={taskWorkspaceRepository}
@@ -1165,8 +1208,8 @@ function App() {
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onHistoryBack={goBack}
             onForward={goForward}
-            backEnabled={canGoBack(navHistoryRef.current)}
-            forwardEnabled={canGoForward(navHistoryRef.current)}
+            backEnabled={historyPosition > 0}
+            forwardEnabled={historyPosition < historyMaxRef.current}
             onOpenBrain={() => setNav({
               view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
             })}

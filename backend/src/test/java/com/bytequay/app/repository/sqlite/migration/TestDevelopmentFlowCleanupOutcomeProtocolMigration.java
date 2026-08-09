@@ -44,7 +44,6 @@ import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntim
 import com.bytequay.app.developmentflow.trunk.SqliteTaskOutcomeSummaryStore;
 import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryRuntime;
-import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -978,17 +977,15 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                         SELECT created_at_ms FROM trunk_outcome_inbox
                         WHERE task_id = 'task-1'
                         """) + 100);
-        ThreadTurnHandoff turns = new ThreadTurnHandoff(
-                trunks, json, Clock.fixed(
-                        summaryRequestedAt, ZoneOffset.UTC), 53123);
         SqliteTaskOutcomeSummaryStore outcomeStore =
                 new SqliteTaskOutcomeSummaryStore(jdbc);
         TaskOutcomeSummaryRuntime runtime = new TaskOutcomeSummaryRuntime(
-                trunks, trunkStore, outcomeStore, turns,
+                trunks, outcomeStore,
                 outcome -> new TaskOutcomeSummaryRuntime.LaunchSpec(
                         AgentTurnProviderSession.Transport.CLI, "codex", null,
                         "gpt-5.6", null, Path.of("/tmp"), "brain role",
-                        "Summarize Task 1", "Summarize the frozen outcome."));
+                        "Summarize Task 1", "Summarize the frozen outcome."),
+                json, 53123);
 
         runtime.maintain(summaryRequestedAt);
         runtime.maintain(summaryRequestedAt.plusMillis(1));

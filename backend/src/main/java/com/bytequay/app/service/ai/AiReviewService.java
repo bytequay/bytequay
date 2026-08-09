@@ -23,10 +23,8 @@ import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.AiReviewDraftStore;
 import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
 import com.bytequay.app.service.skills.SkillService;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatusCode;
@@ -83,24 +81,20 @@ public class AiReviewService
     private final PatResolver patResolver;
 
     public AiReviewService(
-            PullRequestStore pullRequestStore,
             PRService prs,
             PullRequestRepository gitHub,
             LlmReviewerRegistry registry,
             GlobalReviewRunner globalReview,
             AiReviewDraftStore draftStore,
             SkillService skillService,
-            PullRequestDetailInvalidator detailInvalidator,
             PatResolver patResolver)
     {
-        requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.prs = requireNonNull(prs, "prs is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.globalReview = requireNonNull(globalReview, "globalReview is null");
         this.draftStore = requireNonNull(draftStore, "draftStore is null");
         this.skillService = requireNonNull(skillService, "skillService is null");
-        requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 

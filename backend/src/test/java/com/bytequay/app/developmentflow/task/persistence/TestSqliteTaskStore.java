@@ -1351,7 +1351,8 @@ class TestSqliteTaskStore
         TaskManager tasks = new TaskManager(commands, store);
         V2TaskControlService controls = new V2TaskControlService(
                 tasks, store, mock(DispatchTicketControl.class),
-                mock(RemoteCiRepairRuntimeCoordinator.class), jdbc);
+                mock(RemoteCiRepairRuntimeCoordinator.class), jdbc,
+                new V2UserWaitStore(jdbc), ignored -> {});
         return new ControlFixture(jdbc, transactions, commands, store, tasks, controls);
     }
 

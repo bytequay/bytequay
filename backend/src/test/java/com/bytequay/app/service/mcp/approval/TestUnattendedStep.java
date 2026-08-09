@@ -23,6 +23,7 @@ import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.tools.SecurityType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -50,7 +51,7 @@ class TestUnattendedStep
     void anAttendedTurnIsLeftToTheNormalPromptFlow()
     {
         stubRunningTurn(/* attended */ true, "task-1");
-        assertThat(step.apply(ctx("Bash", Set.of())))
+        assertThat(step.apply(ctx("Bash", ImmutableSet.of())))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
 
@@ -59,7 +60,7 @@ class TestUnattendedStep
     {
         when(turnStore.listTurnsByTaskIdAndStatus("thread-1", ThreadTurnStatus.RUNNING, 1))
                 .thenReturn(List.of());
-        assertThat(step.apply(ctx("Bash", Set.of())))
+        assertThat(step.apply(ctx("Bash", ImmutableSet.of())))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
     }
 
@@ -68,7 +69,7 @@ class TestUnattendedStep
     {
         stubRunningTurn(/* attended */ false, "task-1");
         // Read maps to CODE_READ, which the turn was granted.
-        assertThat(step.apply(ctx("Read", Set.of(SecurityType.CODE_READ))))
+        assertThat(step.apply(ctx("Read", ImmutableSet.of(SecurityType.CODE_READ))))
                 .isInstanceOf(ApprovalStepResult.Resolve.class);
         verify(notifications, never()).notifyNeedsAttention(anyString(), anyString(), anyString());
     }
@@ -78,7 +79,7 @@ class TestUnattendedStep
     {
         stubRunningTurn(/* attended */ false, "task-1");
         // Bash maps to CODE_EXEC, which was NOT granted — deny + escalate.
-        ApprovalStepResult result = step.apply(ctx("Bash", Set.of(SecurityType.CODE_READ)));
+        ApprovalStepResult result = step.apply(ctx("Bash", ImmutableSet.of(SecurityType.CODE_READ)));
 
         assertThat(result).isInstanceOf(ApprovalStepResult.Resolve.class);
         assertThat(((ApprovalStepResult.Resolve) result).response().toString()).contains("deny");
@@ -92,7 +93,7 @@ class TestUnattendedStep
                 "thread-1", "task-1", "typed-agent-1",
                 JsonNodeFactory.instance.numberNode(1),
                 "Bash", "call-1", mapper.createObjectNode(),
-                Set.of(SecurityType.CODE_EXEC), true);
+                ImmutableSet.of(SecurityType.CODE_EXEC), true);
 
         assertThat(step.apply(typed))
                 .isInstanceOf(ApprovalStepResult.Continue.class);

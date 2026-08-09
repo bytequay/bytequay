@@ -15,6 +15,7 @@ package com.bytequay.app.service.harness;
 
 import com.bytequay.app.service.harness.HarnessLogParser.ParsedFailure;
 import com.bytequay.app.service.harness.HarnessModels.BootstrapProfile;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -23,7 +24,6 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.zip.GZIPInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -175,7 +175,7 @@ class TestHarnessLogParserOnCapturedLogs
     private List<ParsedFailure> parse(String name)
     {
         BootstrapProfile profile = new BootstrapProfile(
-                "github-actions", Set.of("java"), List.of(), Map.of(), Set.of(), Set.of(),
+                "github-actions", ImmutableSet.of("java"), List.of(), Map.of(), ImmutableSet.of(), ImmutableSet.of(),
                 Map.of(), Map.of(), Map.of(), List.of());
         return parser.parse("run", 7, "job", read(name), profile);
     }

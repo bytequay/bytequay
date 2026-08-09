@@ -31,6 +31,7 @@ import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,7 +40,6 @@ import org.springframework.web.context.request.async.DeferredResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,8 +69,8 @@ class TestMcpMetaTools
         String threadId = newTrunkThread();
         activeContexts.put(threadId, "trunk", new ResolvedAgentContext(
                 ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
-                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), Set.of(),
-                Set.of("approval_prompt", "recall_thread")));
+                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), ImmutableSet.of(),
+                ImmutableSet.of("approval_prompt", "recall_thread")));
 
         JsonNode response = await(controller.handle(threadId, "trunk",
                 jsonRpc("tools/list", mapper.createObjectNode())));
@@ -108,7 +108,7 @@ class TestMcpMetaTools
         ResolvedAgentContext context = new ResolvedAgentContext(
                 ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
                 RoleCapabilities.forRole(AgentRole.TRUNK), List.of("codegraph-first"),
-                Set.of(), Set.of("recall_thread"));
+                ImmutableSet.of(), ImmutableSet.of("recall_thread"));
         activeContexts.put(threadId, "trunk", context);
         try {
             JsonNode listed = await(controller.handle(threadId, "trunk",

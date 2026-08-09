@@ -29,6 +29,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -40,7 +41,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.AsyncFamily.AGENT_TURN;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.CANCELED;
@@ -237,7 +237,7 @@ public final class ThreadTurnOperationHandler
             case CLI -> CapacityManager.CapacityLane.CLI;
             case API -> CapacityManager.CapacityLane.API;
         };
-        if (!envelope.capacityRequest().lanes().equals(Set.of(requiredLane))) {
+        if (!envelope.capacityRequest().lanes().equals(ImmutableSet.of(requiredLane))) {
             return input.transport() + " ThreadTurn requires exactly the "
                     + requiredLane + " capacity lane";
         }

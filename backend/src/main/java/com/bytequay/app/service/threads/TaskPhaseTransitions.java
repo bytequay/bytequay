@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.TaskPhase;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -95,7 +96,7 @@ final class TaskPhaseTransitions
                 || to == TaskPhase.PLANNING) {
             return true;
         }
-        return FORWARD.getOrDefault(from, Set.of()).contains(to);
+        return FORWARD.getOrDefault(from, ImmutableSet.of()).contains(to);
     }
 
     /**
@@ -110,7 +111,7 @@ final class TaskPhaseTransitions
         if (from == TaskPhase.COMPLETED) {
             return List.of();
         }
-        LinkedHashSet<TaskPhase> next = new LinkedHashSet<>(FORWARD.getOrDefault(from, Set.of()));
+        LinkedHashSet<TaskPhase> next = new LinkedHashSet<>(FORWARD.getOrDefault(from, ImmutableSet.of()));
         next.add(TaskPhase.COMPLETED);
         return List.copyOf(next);
     }

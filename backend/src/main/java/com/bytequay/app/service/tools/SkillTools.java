@@ -19,6 +19,7 @@ import com.bytequay.app.service.skills.SkillManifestService;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -212,7 +213,7 @@ public class SkillTools
         String filter = query == null ? "" : query;
         Set<String> scopes = scope.isEmpty()
                 ? defaultScopes(context)
-                : Set.of(scope);
+                : ImmutableSet.of(scope);
         SkillManifestQuery manifestQuery = new SkillManifestQuery(
                 scopes,
                 context.touchedRepos(),
@@ -250,15 +251,15 @@ public class SkillTools
         boolean hasRepo = context.touchedRepos() != null && !context.touchedRepos().isEmpty();
         boolean hasThread = context.threadId().isPresent();
         if (hasRepo && hasThread) {
-            return Set.of("global", "repo", "thread");
+            return ImmutableSet.of("global", "repo", "thread");
         }
         if (hasRepo) {
-            return Set.of("global", "repo");
+            return ImmutableSet.of("global", "repo");
         }
         if (hasThread) {
-            return Set.of("global", "thread");
+            return ImmutableSet.of("global", "thread");
         }
-        return Set.of("global");
+        return ImmutableSet.of("global");
     }
 
     /** Wire shape for one {@code list_skills} entry. Field order is

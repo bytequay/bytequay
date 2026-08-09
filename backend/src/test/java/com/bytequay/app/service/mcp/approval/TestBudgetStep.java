@@ -17,10 +17,10 @@ import com.bytequay.app.service.mcp.McpResponses;
 import com.bytequay.app.service.threads.ThreadService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.OptionalInt;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -78,7 +78,7 @@ class TestBudgetStep
     {
         return new ApprovalContext(
                 "thread-1", "task-1", "stage-1", JsonNodeFactory.instance.numberNode(1),
-                toolName, "call-1", mapper.createObjectNode(), Set.of());
+                toolName, "call-1", mapper.createObjectNode(), ImmutableSet.of());
     }
 
     private ApprovalContext typedCtx(String toolName)
@@ -86,6 +86,6 @@ class TestBudgetStep
         return new ApprovalContext(
                 "thread-1", "task-1", "v2-stage-turn:turn-1:operation-1",
                 JsonNodeFactory.instance.numberNode(1), toolName, "call-1",
-                mapper.createObjectNode(), Set.of(), true);
+                mapper.createObjectNode(), ImmutableSet.of(), true);
     }
 }

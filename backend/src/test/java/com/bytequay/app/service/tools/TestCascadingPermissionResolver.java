@@ -31,12 +31,12 @@ import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.skills.RoleDefinition;
 import com.bytequay.app.service.skills.RoleRegistry;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -234,7 +234,7 @@ class TestCascadingPermissionResolver
                 new ResolvedAgentContext(
                         role.role(), role.version(), role.permissionRole(), null,
                         role.capabilities(), List.of(), List.of(),
-                        role.resources(), Set.of("approval_prompt")),
+                        role.resources(), ImmutableSet.of("approval_prompt")),
                 new PermissionResolver.RunningScope(
                         ThreadScope.STAGE, "task-v2", "stage-v2", "turn-1"));
         PermissionResolver typed = new PermissionResolver(

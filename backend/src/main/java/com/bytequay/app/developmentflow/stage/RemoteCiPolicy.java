@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -38,7 +40,7 @@ public final class RemoteCiPolicy
             CheckState.SKIPPED, PolicyOutcome.ACCEPTED,
             CheckState.CANCELED, PolicyOutcome.FAILED));
 
-    private static final Set<String> CHECK_KINDS = Set.of(
+    private static final Set<String> CHECK_KINDS = ImmutableSet.of(
             "CHECK_RUN", "STATUS_CONTEXT", "CHECK_SUITE", "REQUIRED_MISSING");
     private static final List<CheckState> STATE_PRIORITY = List.of(
             CheckState.FAILED,
@@ -147,7 +149,7 @@ public final class RemoteCiPolicy
             EnumMap<CheckState, PolicyOutcome> copy =
                     new EnumMap<>(CheckState.class);
             copy.putAll(configurableOutcomes);
-            Set<CheckState> required = Set.of(
+            Set<CheckState> required = ImmutableSet.of(
                     CheckState.NONE, CheckState.MISSING, CheckState.QUEUED,
                     CheckState.PENDING, CheckState.NEUTRAL,
                     CheckState.SKIPPED, CheckState.CANCELED);

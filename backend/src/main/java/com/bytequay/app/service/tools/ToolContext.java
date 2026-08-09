@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Optional;
 import java.util.Set;
 
@@ -35,13 +37,13 @@ public record ToolContext(
 {
     public static ToolContext empty()
     {
-        return new ToolContext(Set.of(), Optional.empty(), Optional.empty());
+        return new ToolContext(ImmutableSet.of(), Optional.empty(), Optional.empty());
     }
 
     public static ToolContext forRepo(String repo, String role)
     {
         return new ToolContext(
-                repo == null || repo.isBlank() ? Set.of() : Set.of(repo),
+                repo == null || repo.isBlank() ? ImmutableSet.of() : ImmutableSet.of(repo),
                 Optional.empty(),
                 role == null || role.isBlank() ? Optional.empty() : Optional.of(role));
     }

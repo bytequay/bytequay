@@ -18,6 +18,7 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -41,7 +42,7 @@ import static java.util.Objects.requireNonNull;
 public class ParkGuardStep
         implements ApprovalStep
 {
-    private static final Set<TaskPhase> LOCAL_AGENT_PHASES = Set.of(
+    private static final Set<TaskPhase> LOCAL_AGENT_PHASES = ImmutableSet.of(
             TaskPhase.INTERNAL_REVIEW, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
 
     private static final String PARK_DENY_MESSAGE = ""

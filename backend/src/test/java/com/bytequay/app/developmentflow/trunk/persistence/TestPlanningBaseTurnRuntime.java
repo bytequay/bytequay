@@ -39,6 +39,7 @@ import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -54,7 +55,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -892,13 +892,13 @@ class TestPlanningBaseTurnRuntime
 
         assertThat(new CapacityManager.CapacityRequest(
                 receipt.operationId(), CapacityManager.WorkflowSource.V2,
-                Set.of(CapacityManager.CapacityLane.LOCAL_GIT),
+                ImmutableSet.of(CapacityManager.CapacityLane.LOCAL_GIT),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", null, null),
                 true, false, false).trunkControl()).isTrue();
         assertThatThrownBy(() -> new CapacityManager.CapacityRequest(
                 "ordinary", CapacityManager.WorkflowSource.V2,
-                Set.of(CapacityManager.CapacityLane.LOCAL_GIT),
+                ImmutableSet.of(CapacityManager.CapacityLane.LOCAL_GIT),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", null, null),
                 false, false, false))

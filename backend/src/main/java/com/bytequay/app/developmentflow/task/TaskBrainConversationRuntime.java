@@ -40,6 +40,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -76,7 +77,7 @@ public final class TaskBrainConversationRuntime
 
     private static final String ACTOR = "v2-task-brain-conversation";
     private static final Set<String> TERMINAL =
-            Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED");
+            ImmutableSet.of("COMPLETED", "CANCELED", "REMOTE_CLOSED");
 
     private final TaskCommandExecutor commands;
     private final TaskManager tasks;
@@ -688,7 +689,7 @@ public final class TaskBrainConversationRuntime
                 || workModel.kind() == WorkModelKind.CLI
                     && workModel.account() != null
                 || workModel.kind() == WorkModelKind.CLI
-                    && !Set.of("codex", "claude-code").contains(provider)) {
+                    && !ImmutableSet.of("codex", "claude-code").contains(provider)) {
             throw new IllegalStateException(
                     "Frozen Task Brain and work model do not identify one engine");
         }

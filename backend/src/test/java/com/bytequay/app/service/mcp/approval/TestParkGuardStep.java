@@ -20,10 +20,10 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -149,7 +149,7 @@ class TestParkGuardStep
         ApprovalContext typed = new ApprovalContext(
                 "thread-1", "task-1", "typed-agent-1",
                 JsonNodeFactory.instance.numberNode(1),
-                "Edit", "call-1", mapper.createObjectNode(), Set.of(), true);
+                "Edit", "call-1", mapper.createObjectNode(), ImmutableSet.of(), true);
 
         assertThat(step.apply(typed))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
@@ -173,13 +173,13 @@ class TestParkGuardStep
     {
         return new ApprovalContext(
                 "thread-1", JsonNodeFactory.instance.numberNode(1),
-                toolName, "call-1", mapper.createObjectNode(), Set.of());
+                toolName, "call-1", mapper.createObjectNode(), ImmutableSet.of());
     }
 
     private ApprovalContext ctx(String taskId, String toolName)
     {
         return new ApprovalContext(
                 "thread-1", taskId, JsonNodeFactory.instance.numberNode(1),
-                toolName, "call-1", mapper.createObjectNode(), Set.of());
+                toolName, "call-1", mapper.createObjectNode(), ImmutableSet.of());
     }
 }

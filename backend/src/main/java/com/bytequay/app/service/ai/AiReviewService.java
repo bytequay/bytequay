@@ -28,6 +28,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
 import com.bytequay.app.service.skills.SkillService;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -336,7 +337,7 @@ public class AiReviewService
                 anchors.add(new QuickReviewAnchor(path, newLine++));
             }
         }
-        return Set.copyOf(anchors);
+        return ImmutableSet.copyOf(anchors);
     }
 
     private Optional<PR> quickReviewTarget(String sourcePrId, String repo, int number)

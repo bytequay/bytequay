@@ -138,7 +138,7 @@ public record PR(
     /** True iff {@code target} is a legal next status from the current one. */
     public boolean canTransitionTo(String target)
     {
-        return ALLOWED_TRANSITIONS.getOrDefault(status, Set.of()).contains(target);
+        return ALLOWED_TRANSITIONS.getOrDefault(status, ImmutableSet.of()).contains(target);
     }
 
     /** Whether this PR has reached a terminal state (merged / closed). */

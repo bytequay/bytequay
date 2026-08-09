@@ -18,9 +18,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
-
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -75,6 +74,6 @@ class TestAutoApproveStep
                 JsonNodeFactory.instance.numberNode(1),
                 "Bash", "call-1",
                 mapper.createObjectNode().put("command", "touch output"),
-                Set.of(), typed);
+                ImmutableSet.of(), typed);
     }
 }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.task;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -26,31 +27,31 @@ class TestTaskLifecycle
     void exposesOnlyTheLockedEdges()
     {
         Map<TaskLifecycle, Set<TaskLifecycle>> expected = Map.ofEntries(
-                Map.entry(TaskLifecycle.PROVISIONING, Set.of(TaskLifecycle.ACTIVE)),
-                Map.entry(TaskLifecycle.ACTIVE, Set.of(
+                Map.entry(TaskLifecycle.PROVISIONING, ImmutableSet.of(TaskLifecycle.ACTIVE)),
+                Map.entry(TaskLifecycle.ACTIVE, ImmutableSet.of(
                         TaskLifecycle.PAUSING,
                         TaskLifecycle.ARCHIVING,
                         TaskLifecycle.CANCELING,
                         TaskLifecycle.CLEANING)),
-                Map.entry(TaskLifecycle.PAUSING, Set.of(TaskLifecycle.PAUSED)),
-                Map.entry(TaskLifecycle.PAUSED, Set.of(
+                Map.entry(TaskLifecycle.PAUSING, ImmutableSet.of(TaskLifecycle.PAUSED)),
+                Map.entry(TaskLifecycle.PAUSED, ImmutableSet.of(
                         TaskLifecycle.RESUMING,
                         TaskLifecycle.CANCELING,
                         TaskLifecycle.CLEANING)),
-                Map.entry(TaskLifecycle.RESUMING, Set.of(TaskLifecycle.ACTIVE)),
-                Map.entry(TaskLifecycle.CANCELING, Set.of(TaskLifecycle.CLEANING)),
-                Map.entry(TaskLifecycle.CLEANING, Set.of(
+                Map.entry(TaskLifecycle.RESUMING, ImmutableSet.of(TaskLifecycle.ACTIVE)),
+                Map.entry(TaskLifecycle.CANCELING, ImmutableSet.of(TaskLifecycle.CLEANING)),
+                Map.entry(TaskLifecycle.CLEANING, ImmutableSet.of(
                         TaskLifecycle.CANCELED,
                         TaskLifecycle.COMPLETED,
                         TaskLifecycle.REMOTE_CLOSED)),
-                Map.entry(TaskLifecycle.CANCELED, Set.of()),
-                Map.entry(TaskLifecycle.ARCHIVING, Set.of(TaskLifecycle.ARCHIVED)),
-                Map.entry(TaskLifecycle.ARCHIVED, Set.of(
+                Map.entry(TaskLifecycle.CANCELED, ImmutableSet.of()),
+                Map.entry(TaskLifecycle.ARCHIVING, ImmutableSet.of(TaskLifecycle.ARCHIVED)),
+                Map.entry(TaskLifecycle.ARCHIVED, ImmutableSet.of(
                         TaskLifecycle.RESUMING,
                         TaskLifecycle.CANCELING,
                         TaskLifecycle.CLEANING)),
-                Map.entry(TaskLifecycle.COMPLETED, Set.of()),
-                Map.entry(TaskLifecycle.REMOTE_CLOSED, Set.of()));
+                Map.entry(TaskLifecycle.COMPLETED, ImmutableSet.of()),
+                Map.entry(TaskLifecycle.REMOTE_CLOSED, ImmutableSet.of()));
 
         for (TaskLifecycle source : TaskLifecycle.values()) {
             for (TaskLifecycle target : TaskLifecycle.values()) {
@@ -64,7 +65,7 @@ class TestTaskLifecycle
     @Test
     void onlyOutcomeStatesAreTerminal()
     {
-        assertThat(Set.of(TaskLifecycle.values()).stream()
+        assertThat(ImmutableSet.copyOf(TaskLifecycle.values()).stream()
                 .filter(TaskLifecycle::isTerminal))
                 .containsExactlyInAnyOrder(
                         TaskLifecycle.CANCELED,

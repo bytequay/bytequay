@@ -30,12 +30,12 @@ import com.bytequay.app.service.tools.PermissionResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -98,7 +98,7 @@ class TestWorktreeEditStep
         JsonNode input = mapper.createObjectNode().put("command", "git push");
         ApprovalContext ctx = new ApprovalContext(
                 "thread-1", JsonNodeFactory.instance.numberNode(1),
-                "Bash", "call-1", input, Set.of());
+                "Bash", "call-1", input, ImmutableSet.of());
         assertThat(step.apply(ctx)).isInstanceOf(ApprovalStepResult.Continue.class);
     }
 
@@ -165,7 +165,7 @@ class TestWorktreeEditStep
         // not a thread-level "active task" guess.
         return new ApprovalContext(
                 "thread-1", "task-1", JsonNodeFactory.instance.numberNode(1),
-                "Edit", "call-1", input, Set.of());
+                "Edit", "call-1", input, ImmutableSet.of());
     }
 
     private ApprovalContext typedEditCtx(String filePath, String agentKey)
@@ -174,7 +174,7 @@ class TestWorktreeEditStep
         return new ApprovalContext(
                 "thread-1", "task-1", agentKey,
                 JsonNodeFactory.instance.numberNode(1),
-                "Edit", "call-1", input, Set.of(), true);
+                "Edit", "call-1", input, ImmutableSet.of(), true);
     }
 
     private String armTyped(
@@ -186,7 +186,7 @@ class TestWorktreeEditStep
                 agentKey,
                 new ResolvedAgentContext(
                         ByteQuayRole.TASK, "1", AgentRole.TASK, stageType,
-                        Set.of(), List.of(), Set.of(), Set.of("approval_prompt")),
+                        ImmutableSet.of(), List.of(), ImmutableSet.of(), ImmutableSet.of("approval_prompt")),
                 PermissionResolver.RunningScope.NONE,
                 new ActiveAgentContextRegistry.TypedOwner(
                         kind, "turn-1", "operation-1"),

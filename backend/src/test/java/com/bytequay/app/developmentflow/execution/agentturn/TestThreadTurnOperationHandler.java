@@ -22,6 +22,7 @@ import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +31,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.THREAD_TURN;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -171,7 +171,7 @@ class TestThreadTurnOperationHandler
                 new CapacityManager.CapacityRequest(
                         "operation-1",
                         CapacityManager.WorkflowSource.V2,
-                        Set.of(CapacityManager.CapacityLane.CLI),
+                        ImmutableSet.of(CapacityManager.CapacityLane.CLI),
                         new CapacityManager.CapacityScope(
                                 "workspace-1", "trunk-1", null, null),
                         reserved, false, false);

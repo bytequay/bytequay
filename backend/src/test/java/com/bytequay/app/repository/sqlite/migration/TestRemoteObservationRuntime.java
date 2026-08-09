@@ -38,6 +38,7 @@ import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.MigratedSqliteDatabase;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -327,7 +327,7 @@ class TestRemoteObservationRuntime
                                 ".github/workflows/ci.yml", "CI success"),
                         11L, 11L, 101L, 1, "head-1", "head-1",
                         "pull_request", RemoteCiPolicy.CheckState.FAILED,
-                        true, Set.of(), null, aggregate);
+                        true, ImmutableSet.of(), null, aggregate);
         RemoteCiProvenance provenance = new RemoteCiProvenance(
                 4, "acme/widget", 41, "head-1", "base-1", null,
                 true, List.of(), List.of(

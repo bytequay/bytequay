@@ -39,13 +39,13 @@ import com.bytequay.app.service.tools.ToolCall;
 import com.bytequay.app.service.tools.ToolSpec;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -89,7 +89,7 @@ class TestTypedApprovalPrompt
         when(registry.invoke(eq("approval_prompt"), any(ToolCall.class)))
                 .thenReturn(Optional.empty());
         when(permissions.roleFor(TRUNK, AGENT)).thenReturn(AgentRole.TASK);
-        when(permissions.grants(TRUNK, AGENT)).thenReturn(Set.of(
+        when(permissions.grants(TRUNK, AGENT)).thenReturn(ImmutableSet.of(
                 SecurityType.MCP, SecurityType.CODE_EXEC,
                 SecurityType.CODE_WRITE));
         when(permissions.runningScope(TRUNK, AGENT)).thenReturn(
@@ -104,9 +104,9 @@ class TestTypedApprovalPrompt
                 new ResolvedAgentContext(
                         ByteQuayRole.TASK, "1", AgentRole.TASK,
                         StageType.DEVELOPMENT_STAGE,
-                        Set.of(SecurityType.MCP, SecurityType.CODE_EXEC,
+                        ImmutableSet.of(SecurityType.MCP, SecurityType.CODE_EXEC,
                                 SecurityType.CODE_WRITE),
-                        List.of(), Set.of(), Set.of("approval_prompt")),
+                        List.of(), ImmutableSet.of(), ImmutableSet.of("approval_prompt")),
                 new PermissionResolver.RunningScope(
                         ThreadScope.STAGE, TASK, "stage-1", TURN),
                 new ActiveAgentContextRegistry.TypedOwner(

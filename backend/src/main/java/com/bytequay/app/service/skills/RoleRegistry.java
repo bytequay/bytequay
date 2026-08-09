@@ -18,6 +18,7 @@ import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.SecurityType;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -39,7 +40,7 @@ public class RoleRegistry
     public static final List<String> TASK_PREAMBLE_CONCEPTS = List.of(
             "task", "thread", "trunk", "pr", "ship", "next", "awaiting_review");
 
-    private static final Set<SecurityType> TRUNK_CAPABILITIES = Set.of(
+    private static final Set<SecurityType> TRUNK_CAPABILITIES = ImmutableSet.of(
             SecurityType.TASK_READ,
             SecurityType.TASK_MANAGE,
             SecurityType.CODE_READ,
@@ -48,7 +49,7 @@ public class RoleRegistry
             SecurityType.CONCEPT_USE,
             SecurityType.MCP);
 
-    private static final Set<SecurityType> TASK_CAPABILITIES = Set.of(
+    private static final Set<SecurityType> TASK_CAPABILITIES = ImmutableSet.of(
             SecurityType.CODE_READ,
             SecurityType.CODE_WRITE,
             SecurityType.CODE_EXEC,
@@ -63,7 +64,7 @@ public class RoleRegistry
             SecurityType.CONCEPT_USE,
             SecurityType.MCP);
 
-    private static final Set<SecurityType> REVIEWER_CAPABILITIES = Set.of(
+    private static final Set<SecurityType> REVIEWER_CAPABILITIES = ImmutableSet.of(
             SecurityType.CODE_READ,
             SecurityType.VCS_READ,
             SecurityType.VCS_PUBLISH,
@@ -87,7 +88,7 @@ public class RoleRegistry
                     """,
                     AgentRole.TRUNK,
                     TRUNK_CAPABILITIES,
-                    Set.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
+                    ImmutableSet.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
                             AgentResource.THREAD, AgentResource.REPOSITORY,
                             AgentResource.CODEGRAPH, AgentResource.PULL_REQUEST)),
             ByteQuayRole.TASK, new RoleDefinition(
@@ -105,7 +106,7 @@ public class RoleRegistry
                     """,
                     AgentRole.TASK,
                     TASK_CAPABILITIES,
-                    Set.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
+                    ImmutableSet.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
                             AgentResource.THREAD, AgentResource.TASK, AgentResource.STAGE,
                             AgentResource.REPOSITORY, AgentResource.WORKTREE,
                             AgentResource.CODEGRAPH, AgentResource.PULL_REQUEST, AgentResource.CI)),
@@ -121,7 +122,7 @@ public class RoleRegistry
                     """,
                     AgentRole.TRUNK,
                     TRUNK_CAPABILITIES,
-                    Set.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
+                    ImmutableSet.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
                             AgentResource.TASK, AgentResource.STAGE, AgentResource.REPOSITORY,
                             AgentResource.CODEGRAPH, AgentResource.PULL_REQUEST, AgentResource.CI)),
             ByteQuayRole.REVIEWER, new RoleDefinition(
@@ -134,7 +135,7 @@ public class RoleRegistry
                     """,
                     AgentRole.REVIEWER,
                     REVIEWER_CAPABILITIES,
-                    Set.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
+                    ImmutableSet.of(AgentResource.WORKSPACE_DOCUMENT, AgentResource.WORKSPACE_MEMORY,
                             AgentResource.REPOSITORY, AgentResource.CODEGRAPH,
                             AgentResource.PULL_REQUEST)));
 

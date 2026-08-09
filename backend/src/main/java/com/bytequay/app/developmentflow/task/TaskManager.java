@@ -30,13 +30,13 @@ import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.COMMAND_ID_CONFLICT;
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
@@ -1913,7 +1913,7 @@ public final class TaskManager
             requireText(rawOutcome, "rawOutcome");
             requireText(rawDigest, "rawDigest");
             requireText(errorMessage, "errorMessage");
-            if (!Set.of("FAILED", "CANCELED", "INDETERMINATE")
+            if (!ImmutableSet.of("FAILED", "CANCELED", "INDETERMINATE")
                     .contains(rawOutcome)
                     || taskEpoch < 1 || attempt < 1 || recordedAtMillis < 0) {
                 throw new IllegalArgumentException(

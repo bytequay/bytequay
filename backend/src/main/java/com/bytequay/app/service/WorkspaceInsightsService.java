@@ -26,6 +26,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.github.GitHubRateLimitMonitor;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
 import com.bytequay.app.service.runs.AgentRunServiceImpl;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -67,7 +68,7 @@ public class WorkspaceInsightsService
     /** Statuses that count as "in-flight" for the headline counters.
      *  Lines up with {@code ThreadDto.activeTask} on the frontend so
      *  the Home page and Insights page report the same numbers. */
-    private static final Set<ThreadStatus> ACTIVE = Set.of(
+    private static final Set<ThreadStatus> ACTIVE = ImmutableSet.of(
             ThreadStatus.PENDING,
             ThreadStatus.RUNNING,
             ThreadStatus.IDLE);

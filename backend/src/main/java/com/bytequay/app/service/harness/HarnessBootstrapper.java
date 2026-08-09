@@ -14,6 +14,7 @@
 package com.bytequay.app.service.harness;
 
 import com.bytequay.app.service.harness.HarnessModels.BootstrapProfile;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
@@ -120,8 +121,8 @@ public class HarnessBootstrapper
         }
 
         BootstrapProfile profile = new BootstrapProfile(
-                "github-actions", Set.copyOf(ecosystems), List.copyOf(workflowFiles),
-                immutableLists(verifySteps), Set.copyOf(aggregators), Set.copyOf(infra),
+                "github-actions", ImmutableSet.copyOf(ecosystems), List.copyOf(workflowFiles),
+                immutableLists(verifySteps), ImmutableSet.copyOf(aggregators), ImmutableSet.copyOf(infra),
                 Map.copyOf(modules), Map.copyOf(runtimeMetadata),
                 Map.copyOf(verificationEnvironment), List.copyOf(warnings));
         return new BootstrapResult(root, profile);

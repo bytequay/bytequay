@@ -32,6 +32,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewServiceImpl;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -41,7 +42,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -523,7 +523,7 @@ class TestPRSyncService
         verify(prService).recordSyncedCheck(
                 eq("pr-ext"), eq("555"), eq("build"), eq(PRCheck.STATUS_PASSED), any(), any());
         verify(prService, times(1)).recordSyncedCheck(any(), any(), any(), any(), any(), any());
-        verify(prService).retainSyncedChecks("pr-ext", Set.of("555"));
+        verify(prService).retainSyncedChecks("pr-ext", ImmutableSet.of("555"));
     }
 
     @Test

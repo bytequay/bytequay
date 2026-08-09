@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.skills;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Optional;
 import java.util.Set;
 
@@ -37,14 +39,14 @@ public record SkillManifestQuery(
 {
     public static SkillManifestQuery global()
     {
-        return new SkillManifestQuery(Set.of("global"), Set.of(), Optional.empty(), Optional.empty());
+        return new SkillManifestQuery(ImmutableSet.of("global"), ImmutableSet.of(), Optional.empty(), Optional.empty());
     }
 
     public static SkillManifestQuery forRepoContext(String repo, String role)
     {
         return new SkillManifestQuery(
-                Set.of("global", "repo"),
-                repo == null || repo.isBlank() ? Set.of() : Set.of(repo),
+                ImmutableSet.of("global", "repo"),
+                repo == null || repo.isBlank() ? ImmutableSet.of() : ImmutableSet.of(repo),
                 Optional.empty(),
                 role == null || role.isBlank() ? Optional.empty() : Optional.of(role));
     }

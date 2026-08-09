@@ -38,6 +38,7 @@ import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -54,7 +55,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -389,9 +389,9 @@ class TestPRService
     {
         pr(PR.STATUS_REMOTE_OPEN);
 
-        service.retainSyncedChecks("pr1", Set.of("current"));
+        service.retainSyncedChecks("pr1", ImmutableSet.of("current"));
 
-        verify(store).retainChecks("pr1", PRCheck.KIND_REMOTE, Set.of("current"));
+        verify(store).retainChecks("pr1", PRCheck.KIND_REMOTE, ImmutableSet.of("current"));
     }
 
     @Test

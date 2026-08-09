@@ -16,6 +16,7 @@ package com.bytequay.app.service.harness;
 import com.bytequay.app.service.harness.HarnessModels.GitSafetyProof;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ShellRunner;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -104,7 +105,7 @@ public class HarnessGitSafety
     private void assertOnlyIntendedPaths(Path root, List<String> files)
             throws IOException, InterruptedException
     {
-        Set<String> intended = Set.copyOf(files);
+        Set<String> intended = ImmutableSet.copyOf(files);
         Set<String> dirty = new HashSet<>();
         for (GitRunner.WorkingTreeFile file : git.workingTreeFiles(root)) {
             dirty.add(file.path());

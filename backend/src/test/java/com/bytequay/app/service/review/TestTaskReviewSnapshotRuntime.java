@@ -26,6 +26,7 @@ import com.bytequay.app.service.review.TaskReviewSnapshotRuntime.ExecutionSubjec
 import com.bytequay.app.service.review.TaskReviewSnapshotRuntime.Status;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.TransactionDefinition;
@@ -38,7 +39,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -332,7 +332,7 @@ class TestTaskReviewSnapshotRuntime
                         2L, null, null, "operation-1", 1,
                         "fingerprint-1", "head-1", "base-1"),
                 new CapacityManager.CapacityRequest(
-                        "operation-1", V2, Set.of(LOCAL_GIT),
+                        "operation-1", V2, ImmutableSet.of(LOCAL_GIT),
                         new CapacityManager.CapacityScope(
                                 "workspace-1", "trunk-1", "task-1", 2L),
                         false, true, true));
@@ -363,7 +363,7 @@ class TestTaskReviewSnapshotRuntime
                         null, "head-1", "base-1"),
                 new CapacityManager.CapacityRequest(
                         "operation-1", V2,
-                        Set.of(LOCAL_GIT,
+                        ImmutableSet.of(LOCAL_GIT,
                                 CapacityManager.CapacityLane.GITHUB),
                         new CapacityManager.CapacityScope(
                                 "workspace-1", null, null, null),

@@ -44,6 +44,7 @@ import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
@@ -103,9 +104,9 @@ public class PRService
     /** Check statuses that count as finished — a {@code ci} timeline event is
      *  written only when a check lands in one of these. */
     private static final Set<String> TERMINAL_CHECK_STATUSES =
-            Set.of(PRCheck.STATUS_PASSED, PRCheck.STATUS_FAILED, PRCheck.STATUS_NEUTRAL);
+            ImmutableSet.of(PRCheck.STATUS_PASSED, PRCheck.STATUS_FAILED, PRCheck.STATUS_NEUTRAL);
     private static final Set<String> PR_PROGRESS_PHASES =
-            Set.of(PRTimelineEntry.PHASE_STARTING, PRTimelineEntry.PHASE_CREATING_DRAFT);
+            ImmutableSet.of(PRTimelineEntry.PHASE_STARTING, PRTimelineEntry.PHASE_CREATING_DRAFT);
     private static final int PUSH_FAILURE_REASON_LIMIT = 2_000;
     private static final String SOURCE_BRAIN_REVIEW_FIX = "brain-review-fix";
     private static final int TURN_SCAN_LIMIT = 100;
@@ -882,7 +883,7 @@ public class PRService
     public void retainSyncedChecks(String prId, Set<String> runIds)
     {
         PR pr = require(prId);
-        store.retainChecks(pr.id(), PRCheck.KIND_REMOTE, Set.copyOf(runIds));
+        store.retainChecks(pr.id(), PRCheck.KIND_REMOTE, ImmutableSet.copyOf(runIds));
         notifyUpdated(pr.id());
     }
 

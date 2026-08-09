@@ -47,6 +47,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.charset.StandardCharsets;
@@ -59,7 +60,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.ACCEPTED;
@@ -808,7 +808,7 @@ public final class PlanRuntimeCoordinator
     {
         required(taskId, "taskId");
         String normalizedVerdict = required(verdict, "verdict");
-        if (!Set.of("APPROVED", "CHANGES_REQUESTED", "BLOCKED")
+        if (!ImmutableSet.of("APPROVED", "CHANGES_REQUESTED", "BLOCKED")
                 .contains(normalizedVerdict)) {
             throw new IllegalArgumentException("self-review verdict is invalid");
         }
@@ -1376,7 +1376,7 @@ public final class PlanRuntimeCoordinator
                     && !context.model().equals(model.model())
                 || model.kind() == WorkModelKind.CLI && model.account() != null
                 || model.kind() == WorkModelKind.CLI
-                    && !Set.of("codex", "claude-code").contains(context.provider())) {
+                    && !ImmutableSet.of("codex", "claude-code").contains(context.provider())) {
             throw new IllegalStateException(
                     "Frozen Task Brain and work model do not identify one engine");
         }

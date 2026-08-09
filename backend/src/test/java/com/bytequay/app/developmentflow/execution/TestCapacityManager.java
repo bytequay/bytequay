@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -162,7 +163,7 @@ class TestCapacityManager
     {
         CapacityManager.CapacityRequest repositoryGit =
                 new CapacityManager.CapacityRequest(
-                        "repository-git", V2, Set.of(LOCAL_GIT, GITHUB),
+                        "repository-git", V2, ImmutableSet.of(LOCAL_GIT, GITHUB),
                         new CapacityManager.CapacityScope(
                                 "w1", null, null, null),
                         false, false, false);
@@ -182,7 +183,7 @@ class TestCapacityManager
         assertAdmitted(repositoryFirst.tryAcquire(
                 new CapacityManager.CapacityRequest(
                         "other-repository-git", V2,
-                        Set.of(LOCAL_GIT, GITHUB),
+                        ImmutableSet.of(LOCAL_GIT, GITHUB),
                         new CapacityManager.CapacityScope(
                                 "w2", null, null, null),
                         false, false, false),
@@ -200,7 +201,7 @@ class TestCapacityManager
         CapacityManager.CapacityRequest nextEpoch = new CapacityManager.CapacityRequest(
                 "epoch-2",
                 V2,
-                Set.of(VALIDATION),
+                ImmutableSet.of(VALIDATION),
                 new CapacityManager.CapacityScope("w1", "trunk-a", "task-a", 2L),
                 false,
                 true,
@@ -208,7 +209,7 @@ class TestCapacityManager
         CapacityManager.CapacityRequest otherRoute = new CapacityManager.CapacityRequest(
                 "other-route",
                 V2,
-                Set.of(VALIDATION),
+                ImmutableSet.of(VALIDATION),
                 new CapacityManager.CapacityScope("w1", "trunk-b", "task-a", 1L),
                 false,
                 true,
@@ -437,23 +438,23 @@ class TestCapacityManager
                 new CapacityManager.CapacityScope("w1", "t1", "task-1", 1L);
 
         assertThatThrownBy(() -> new CapacityManager.CapacityRequest(
-                "git-without-writer", V2, Set.of(LOCAL_GIT), scope,
+                "git-without-writer", V2, ImmutableSet.of(LOCAL_GIT), scope,
                 false, false, false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("LOCAL_GIT");
         assertThatThrownBy(() -> new CapacityManager.CapacityRequest(
-                "validation-without-mutex", V2, Set.of(VALIDATION), scope,
+                "validation-without-mutex", V2, ImmutableSet.of(VALIDATION), scope,
                 false, false, false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("VALIDATION");
         assertThatThrownBy(() -> new CapacityManager.CapacityRequest(
-                "mutating-review", V2, Set.of(REVIEW), scope,
+                "mutating-review", V2, ImmutableSet.of(REVIEW), scope,
                 false, true, false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("read-only");
         assertThatThrownBy(() -> new CapacityManager.CapacityRequest(
                 "repository-git-with-trunk", V2,
-                Set.of(LOCAL_GIT, GITHUB),
+                ImmutableSet.of(LOCAL_GIT, GITHUB),
                 new CapacityManager.CapacityScope("w1", "t1", null, null),
                 false, false, false))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -466,7 +467,7 @@ class TestCapacityManager
         assertThat(CapacityManager.CapacityLane.values())
                 .extracting(CapacityManager.CapacityLane::maskBit)
                 .containsExactly(1, 2, 4, 8, 16, 32, 64, 128, 256);
-        Set<CapacityManager.CapacityLane> lanes = Set.of(CLI, LOCAL_GIT, GITHUB);
+        Set<CapacityManager.CapacityLane> lanes = ImmutableSet.of(CLI, LOCAL_GIT, GITHUB);
 
         int mask = CapacityManager.CapacityLane.toMask(lanes);
 
@@ -522,7 +523,7 @@ class TestCapacityManager
         return new CapacityManager.CapacityRequest(
                 operationId,
                 source,
-                Set.of(lane),
+                ImmutableSet.of(lane),
                 new CapacityManager.CapacityScope(
                         workspaceId, trunkId, taskId, taskId == null ? null : 1L),
                 trunkControl,

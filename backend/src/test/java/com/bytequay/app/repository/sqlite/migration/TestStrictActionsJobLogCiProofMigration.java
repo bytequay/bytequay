@@ -23,6 +23,7 @@ import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.CheckProfile;
 import com.bytequay.app.developmentflow.stage.RemoteCiProvenance.PullRequestAssociation;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,7 +38,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Set;
 
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.acceptSnapshot;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.connect;
@@ -200,7 +200,7 @@ class TestStrictActionsJobLogCiProofMigration
                         ".github/workflows/ci.yml", "build"),
                 11L, 11L, 101L, 1, "head-1", "head-1", "pull_request",
                 RemoteCiPolicy.CheckState.FAILED, true,
-                Set.of(RemoteCiProvenance.canonicalFingerprint(diagnostic)),
+                ImmutableSet.of(RemoteCiProvenance.canonicalFingerprint(diagnostic)),
                 new PullRequestAssociation(41, "head-1", "base-1"),
                 null, logEvidence);
         RemoteCiProvenance provenance = new RemoteCiProvenance(

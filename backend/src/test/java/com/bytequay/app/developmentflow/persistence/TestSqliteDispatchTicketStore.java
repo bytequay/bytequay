@@ -19,6 +19,7 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,7 +32,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
@@ -327,7 +327,7 @@ class TestSqliteDispatchTicketStore
         CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
                 operationId,
                 CapacityManager.WorkflowSource.V2,
-                Set.of(LOCAL_GIT),
+                ImmutableSet.of(LOCAL_GIT),
                 new CapacityManager.CapacityScope("workspace", "trunk", "task", 1L),
                 false,
                 true,

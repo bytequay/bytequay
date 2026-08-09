@@ -50,6 +50,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -250,7 +251,7 @@ public class LogicLoopThreadAgent
      *  after confirming the trunk can complete its planning loop without
      *  it. */
     // Package-private so the characterization test can pin the contract.
-    static final Set<String> TRUNK_TOOL_ALLOWLIST = Set.of(
+    static final Set<String> TRUNK_TOOL_ALLOWLIST = ImmutableSet.of(
             "recall_memory",
             "lookup_memory",
             "read_workspace_memory",
@@ -275,7 +276,7 @@ public class LogicLoopThreadAgent
      *  tool list is filtered to these names, so the brain agent never even
      *  sees a write tool. The handlers register in {@code LogicLoopToolRegistry}
      *  via {@code @AgentTool}; until they land the list renders empty. */
-    public static final Set<String> BRAIN_TOOL_ALLOWLIST = Set.of(
+    public static final Set<String> BRAIN_TOOL_ALLOWLIST = ImmutableSet.of(
             "codegraph_explore",
             "count_operations",
             "read_commit_summary",
@@ -1256,7 +1257,7 @@ public class LogicLoopThreadAgent
     @Override
     public void setActiveToolNames(Set<String> names)
     {
-        this.activeToolNames = names == null ? null : Set.copyOf(names);
+        this.activeToolNames = names == null ? null : ImmutableSet.copyOf(names);
     }
 
     private List<String> activeManagedSkillNames()

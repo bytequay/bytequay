@@ -16,12 +16,12 @@ package com.bytequay.app.service.workspaces;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.workspaces.UpstreamCherryPickService.PlannedCommit;
 import com.bytequay.app.service.workspaces.UpstreamCherryPickService.SkipFilters;
+import com.google.common.collect.ImmutableSet;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -73,7 +73,7 @@ class TestUpstreamCherryPickPlan
 
         List<PlannedCommit> planned = UpstreamCherryPickService.plan(
                 ordered,
-                Set.of("add null checks"),
+                ImmutableSet.of("add null checks"),
                 SkipFilters.normalize(List.of("bump"), List.of()));
 
         assertThat(planned).extracting(PlannedCommit::sha, PlannedCommit::pick, PlannedCommit::skipReason)
@@ -89,7 +89,7 @@ class TestUpstreamCherryPickPlan
     {
         List<PlannedCommit> planned = UpstreamCherryPickService.plan(
                 List.of(commit("aaa", "Bump guava to 33")),
-                Set.of("bump guava to 33"),
+                ImmutableSet.of("bump guava to 33"),
                 SkipFilters.normalize(List.of("bump"), List.of()));
 
         assertThat(planned).singleElement()
@@ -101,7 +101,7 @@ class TestUpstreamCherryPickPlan
     {
         List<PlannedCommit> planned = UpstreamCherryPickService.plan(
                 List.of(commit("aaa", "oldest"), commit("bbb", "middle"), commit("ccc", "newest")),
-                Set.of(),
+                ImmutableSet.of(),
                 SkipFilters.none());
 
         assertThat(planned).extracting(PlannedCommit::subject)

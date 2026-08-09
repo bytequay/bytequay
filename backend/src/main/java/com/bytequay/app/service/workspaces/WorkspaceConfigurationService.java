@@ -18,6 +18,7 @@ import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -37,7 +38,7 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class WorkspaceConfigurationService
 {
-    private static final Set<String> AUDIENCES = Set.of(
+    private static final Set<String> AUDIENCES = ImmutableSet.of(
             "plan", "dev", "review", "ci-fix");
 
     private final JdbcTemplate jdbc;

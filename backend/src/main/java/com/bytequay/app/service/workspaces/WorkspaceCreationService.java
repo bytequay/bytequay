@@ -22,6 +22,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.learning.ProjectLearningService;
 import com.bytequay.app.service.local.LocalRepoService;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -53,7 +54,7 @@ public class WorkspaceCreationService
     private static final Logger log = LoggerFactory.getLogger(WorkspaceCreationService.class);
     private static final int FIRST_SYNC_STEPS = 3;
     private static final int RECLONE_STEPS = 2;
-    private static final Set<String> LIVE_STATES = Set.of(
+    private static final Set<String> LIVE_STATES = ImmutableSet.of(
             "queued", "forking", "cloning", "syncing");
 
     private final JdbcTemplate jdbc;

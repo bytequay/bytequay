@@ -31,6 +31,7 @@ import com.bytequay.app.service.tools.PermissionResolver;
 import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,7 +39,6 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -100,8 +100,8 @@ class TestMcpAutonomyEnvelope
                 .findFirst().map(Task::id).orElseThrow();
         activeContexts.put(threadId, taskId, new ResolvedAgentContext(
                 ByteQuayRole.TASK, "1", AgentRole.TASK, null,
-                RoleCapabilities.forRole(AgentRole.TASK), List.of(), Set.of(),
-                Set.of("approval_prompt")),
+                RoleCapabilities.forRole(AgentRole.TASK), List.of(), ImmutableSet.of(),
+                ImmutableSet.of("approval_prompt")),
                 new PermissionResolver.RunningScope(
                         ThreadScope.TASK, taskId, null, null));
         return controller.handle(threadId, taskId, mapper.readTree(rpc));

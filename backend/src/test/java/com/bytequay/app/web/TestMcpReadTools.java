@@ -31,6 +31,7 @@ import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,7 +39,6 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -143,8 +143,8 @@ class TestMcpReadTools
     {
         activeContexts.put(threadId, "trunk", new ResolvedAgentContext(
                 ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
-                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), Set.of(),
-                Set.of("read_task", "read_workspace_memory")));
+                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), ImmutableSet.of(),
+                ImmutableSet.of("read_task", "read_workspace_memory")));
     }
 
     /** The message an errored tool call hands back to the model. Plain text,

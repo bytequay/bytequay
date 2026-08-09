@@ -29,6 +29,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
@@ -54,7 +55,7 @@ public final class V2DevelopmentFlowProjection
 {
     private static final int STAGE_EVENT_LIMIT = 50;
     private static final Set<String> TERMINAL_LIFECYCLES =
-            Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED");
+            ImmutableSet.of("COMPLETED", "CANCELED", "REMOTE_CLOSED");
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final JdbcTemplate jdbc;
@@ -1503,7 +1504,7 @@ public final class V2DevelopmentFlowProjection
     {
         TaskPhase current = phase(row);
         if (row.remotePrNumber() == null
-                || !Set.of(TaskPhase.PUSHED_AWAITING_CI, TaskPhase.AWAITING_READY,
+                || !ImmutableSet.of(TaskPhase.PUSHED_AWAITING_CI, TaskPhase.AWAITING_READY,
                         TaskPhase.AWAITING_REMOTE_REVIEW).contains(current)) {
             return null;
         }

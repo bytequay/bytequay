@@ -15,10 +15,10 @@ package com.bytequay.app.service.agents;
 
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.tools.AgentRole;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +32,7 @@ class TestActiveAgentContextRegistry
     {
         ResolvedAgentContext context = new ResolvedAgentContext(
                 ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
-                Set.of(), List.of("codegraph-first"), Set.of(), Set.of("codegraph_explore"));
+                ImmutableSet.of(), List.of("codegraph-first"), ImmutableSet.of(), ImmutableSet.of("codegraph_explore"));
 
         registry.put("thread-1", "trunk", context);
 
@@ -49,7 +49,7 @@ class TestActiveAgentContextRegistry
     {
         ResolvedAgentContext context = new ResolvedAgentContext(
                 ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
-                Set.of(), List.of(), Set.of(), Set.of());
+                ImmutableSet.of(), List.of(), ImmutableSet.of(), ImmutableSet.of());
         registry.put("thread-1", "agent-1", context);
         AtomicInteger stops = new AtomicInteger();
 
@@ -73,7 +73,7 @@ class TestActiveAgentContextRegistry
     {
         ResolvedAgentContext context = new ResolvedAgentContext(
                 ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
-                Set.of(), List.of(), Set.of(), Set.of());
+                ImmutableSet.of(), List.of(), ImmutableSet.of(), ImmutableSet.of());
         registry.put("thread-1", "agent-1", context);
         AtomicInteger stops = new AtomicInteger();
 

@@ -15,11 +15,11 @@ package com.bytequay.app.service.harness;
 
 import com.bytequay.app.service.harness.HarnessLogParser.ParsedFailure;
 import com.bytequay.app.service.harness.HarnessModels.BootstrapProfile;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -211,8 +211,8 @@ class TestHarnessLogParser
 
     private static BootstrapProfile profile()
     {
-        return new BootstrapProfile("github-actions", Set.of("maven"), List.of(), Map.of(),
-                Set.of(), Set.of(), Map.of("module-a/", "module-a"),
+        return new BootstrapProfile("github-actions", ImmutableSet.of("maven"), List.of(), Map.of(),
+                ImmutableSet.of(), ImmutableSet.of(), Map.of("module-a/", "module-a"),
                 Map.of(), Map.of(), List.of());
     }
 }

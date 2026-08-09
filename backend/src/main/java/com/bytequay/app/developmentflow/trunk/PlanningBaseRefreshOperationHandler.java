@@ -20,12 +20,12 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.service.threads.WorktreeService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -114,7 +114,7 @@ public final class PlanningBaseRefreshOperationHandler
                 || fence.expectedHeadSha() != null
                 || !Objects.equals(
                 operation.previousBaseSha(), fence.expectedBaseSha())
-                || !capacity.lanes().equals(Set.of(
+                || !capacity.lanes().equals(ImmutableSet.of(
                 CapacityManager.CapacityLane.LOCAL_GIT))
                 || !capacity.trunkControl()
                 || capacity.exclusiveTask() || capacity.writerRequired()

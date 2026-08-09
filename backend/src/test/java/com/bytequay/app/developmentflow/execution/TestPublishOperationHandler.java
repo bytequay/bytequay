@@ -28,6 +28,7 @@ import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandle
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.StepStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,7 +40,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.GITHUB;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
@@ -344,7 +344,7 @@ class TestPublishOperationHandler
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
                 OPERATION_ID,
                 V2,
-                Set.of(LOCAL_GIT, GITHUB),
+                ImmutableSet.of(LOCAL_GIT, GITHUB),
                 new CapacityManager.CapacityScope(
                         "workspace-1", "trunk-1", TASK_ID, 1L),
                 false,

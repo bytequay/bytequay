@@ -23,6 +23,7 @@ import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestRepository.Paged;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -150,7 +151,7 @@ public class PrEvidenceFetcher
             return resolved;
         }
         catch (RuntimeException e) {
-            return Set.of();
+            return ImmutableSet.of();
         }
     }
 

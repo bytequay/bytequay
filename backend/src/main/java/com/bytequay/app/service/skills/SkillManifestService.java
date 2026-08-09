@@ -15,6 +15,7 @@ package com.bytequay.app.service.skills;
 
 import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.SkillStore;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -53,9 +54,9 @@ public class SkillManifestService
     {
         requireNonNull(query, "query is null");
         Set<String> scopes = query.scopes() == null || query.scopes().isEmpty()
-                ? Set.of("global")
+                ? ImmutableSet.of("global")
                 : query.scopes();
-        Set<String> touchedRepos = query.touchedRepos() == null ? Set.of() : query.touchedRepos();
+        Set<String> touchedRepos = query.touchedRepos() == null ? ImmutableSet.of() : query.touchedRepos();
         Optional<String> threadId = query.threadId() == null ? Optional.empty() : query.threadId();
         return store.list().stream()
                 .filter(Skill::enabled)

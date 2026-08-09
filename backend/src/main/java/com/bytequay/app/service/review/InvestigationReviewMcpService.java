@@ -27,6 +27,7 @@ import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -50,7 +51,7 @@ import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.guidan
 public class InvestigationReviewMcpService
 {
     private static final String PROTOCOL_VERSION = "2024-11-05";
-    private static final Set<String> USER_WAIT_TOOLS = Set.of(
+    private static final Set<String> USER_WAIT_TOOLS = ImmutableSet.of(
             "ask_user_question", "approval_prompt");
 
     private final InvestigationReviewTools tools;
@@ -159,7 +160,7 @@ public class InvestigationReviewMcpService
                 && "record_evidence".equals(params.name())
                 && (arguments == null
                 || !"REFUTES".equals(arguments.path("relation").asText())
-                || !Set.of(subjectKey.split("\\|")).contains(
+                || !ImmutableSet.copyOf(subjectKey.split("\\|")).contains(
                         arguments.path("finding_id").asText()))) {
             return responses.toolResponse(id, responses.deny(
                     "self-refutation evidence is outside the frozen finding set"));
@@ -177,32 +178,32 @@ public class InvestigationReviewMcpService
             String purpose, String subjectKey, boolean quickReview)
     {
         if (quickReview && INVESTIGATE.equals(purpose)) {
-            return Set.of(
+            return ImmutableSet.of(
                     "record_assignment", "record_hypothesis", "record_step",
                     "read_diff", "search_diff", "record_finding", "record_evidence");
         }
         return switch (purpose) {
-            case INVESTIGATE -> Set.of(
+            case INVESTIGATE -> ImmutableSet.of(
                     "record_assignment", "record_hypothesis", "record_step",
                     "read_diff", "read_file", "search_diff",
                     "record_finding", "record_evidence");
-            case ROUND_GUIDANCE -> Set.of("planner", "independent-verifier")
+            case ROUND_GUIDANCE -> ImmutableSet.of("planner", "independent-verifier")
                     .contains(guidanceTarget(subjectKey))
-                    ? Set.of()
-                    : Set.of(
+                    ? ImmutableSet.of()
+                    : ImmutableSet.of(
                             "record_assignment", "record_hypothesis", "record_step",
                             "read_diff", "read_file", "search_diff",
                             "record_finding", "record_evidence");
-            case SELF_REFUTATION -> Set.of(
+            case SELF_REFUTATION -> ImmutableSet.of(
                     "record_step", "read_diff", "read_file", "search_diff",
                     "record_evidence");
-            case INDEPENDENT_VERIFICATION -> Set.of("record_verification");
-            case BLIND_RECONSTRUCTION -> Set.of();
-            case "legacy" -> Set.of(
+            case INDEPENDENT_VERIFICATION -> ImmutableSet.of("record_verification");
+            case BLIND_RECONSTRUCTION -> ImmutableSet.of();
+            case "legacy" -> ImmutableSet.of(
                     "record_assignment", "record_hypothesis", "record_step",
                     "read_diff", "read_file", "search_diff", "record_finding",
                     "record_evidence", "record_verification");
-            default -> Set.of();
+            default -> ImmutableSet.of();
         };
     }
 

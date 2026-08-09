@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.learning;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.List;
 import java.util.Set;
 
@@ -54,17 +56,17 @@ public record ExtractedLesson(
         String route,
         String memoryKind)
 {
-    public static final Set<String> KINDS = Set.of(
+    public static final Set<String> KINDS = ImmutableSet.of(
             "architecture-principle", "domain-invariant", "investigation-recipe",
             "recurring-concern", "design-rationale", "performance-assumption",
             "compatibility-contract", "glossary", "build-test-rule");
 
     /** Kinds that must not activate from a single diff-shaped inference:
      *  they need explicit source language or independent confirmation. */
-    public static final Set<String> RESTRICTED_KINDS = Set.of(
+    public static final Set<String> RESTRICTED_KINDS = ImmutableSet.of(
             "architecture-principle", "domain-invariant",
             "compatibility-contract", "design-rationale");
 
-    public static final Set<String> CONFIDENCES = Set.of("high", "medium", "low");
-    public static final Set<String> ROUTES = Set.of("knowledge", "workspace-memory");
+    public static final Set<String> CONFIDENCES = ImmutableSet.of("high", "medium", "low");
+    public static final Set<String> ROUTES = ImmutableSet.of("knowledge", "workspace-memory");
 }

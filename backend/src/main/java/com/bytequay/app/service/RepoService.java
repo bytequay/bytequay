@@ -43,6 +43,7 @@ import com.bytequay.app.repository.sqlite.RepoMetaStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WatchedRepoPurger;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -96,7 +97,7 @@ public class RepoService
      *  strings. Duplicated here rather than imported because the two
      *  services live in different packages and the constant is
      *  trivially small. */
-    private static final Set<String> ALLOWED_REACTION_CONTENT = Set.of(
+    private static final Set<String> ALLOWED_REACTION_CONTENT = ImmutableSet.of(
             "+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes");
 
     private final WatchedRepoStore watchedRepoStore;

@@ -20,12 +20,12 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.GITHUB;
@@ -431,7 +431,7 @@ public final class PublishOperationHandler
                 && request.expectedHeadSha().equals(fence.expectedHeadSha())
                 && request.expectedBaseSha().equals(fence.expectedBaseSha())
                 && capacity.source() == V2
-                && capacity.lanes().equals(Set.of(LOCAL_GIT, GITHUB))
+                && capacity.lanes().equals(ImmutableSet.of(LOCAL_GIT, GITHUB))
                 && !capacity.trunkControl()
                 && capacity.exclusiveTask()
                 && capacity.writerRequired()

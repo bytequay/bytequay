@@ -42,6 +42,7 @@ import com.bytequay.app.repository.PullRequestRepository.ReviewThreadMeta;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.CollaboratorPermissionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -52,7 +53,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -921,7 +921,7 @@ class TestGitHubRemoteObserver
                 new CheckRunAnnotation(
                         "", "Process completed with exit code 1.",
                         ".github", 20))))
-                .isEqualTo(Set.of());
+                .isEqualTo(ImmutableSet.of());
     }
 
     @Test

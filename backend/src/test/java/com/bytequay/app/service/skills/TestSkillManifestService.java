@@ -15,12 +15,12 @@ package com.bytequay.app.service.skills;
 
 import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.SkillStore;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -80,8 +80,8 @@ class TestSkillManifestService
 
         List<SkillManifestEntry> resolved = service.query(
                 new SkillManifestQuery(
-                        Set.of("global"),
-                        Set.of(),
+                        ImmutableSet.of("global"),
+                        ImmutableSet.of(),
                         Optional.empty(),
                         Optional.of("reviewer")));
 

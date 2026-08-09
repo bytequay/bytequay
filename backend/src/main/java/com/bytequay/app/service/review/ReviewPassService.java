@@ -46,6 +46,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -666,7 +667,7 @@ public class ReviewPassService
         ReviewPass pass = reload(passId);
         List<AgendaPhase> agenda = AgendaJsonCodec.parse(pass.agendaJson());
         Set<String> ids = agenda.stream().map(AgendaPhase::id).collect(Collectors.toSet());
-        if (ids.containsAll(Set.of(AGENDA_INDEPENDENT, AGENDA_CROSS_REVIEW,
+        if (ids.containsAll(ImmutableSet.of(AGENDA_INDEPENDENT, AGENDA_CROSS_REVIEW,
                 AGENDA_CONSENSUS, AGENDA_DEBATE))) {
             return;
         }

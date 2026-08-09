@@ -17,9 +17,8 @@ import com.bytequay.app.service.mcp.approval.ApprovalContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
-
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -99,6 +98,6 @@ class TestCodeGraphFirstSearchClassifier
         JsonNode parsed = mapper.readTree(input);
         return new ApprovalContext(
                 "thread-1", "task-1", "task-1",
-                JsonNodeFactory.instance.numberNode(1), toolName, "call-1", parsed, Set.of());
+                JsonNodeFactory.instance.numberNode(1), toolName, "call-1", parsed, ImmutableSet.of());
     }
 }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.trunk;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -27,11 +28,11 @@ class TestTrunkLifecycle
     {
         Map<TrunkLifecycle, Set<TrunkLifecycle>> expected = Map.of(
                 TrunkLifecycle.ACTIVE,
-                Set.of(TrunkLifecycle.IDLE, TrunkLifecycle.ARCHIVED),
+                ImmutableSet.of(TrunkLifecycle.IDLE, TrunkLifecycle.ARCHIVED),
                 TrunkLifecycle.IDLE,
-                Set.of(TrunkLifecycle.ACTIVE, TrunkLifecycle.ARCHIVED),
+                ImmutableSet.of(TrunkLifecycle.ACTIVE, TrunkLifecycle.ARCHIVED),
                 TrunkLifecycle.ARCHIVED,
-                Set.of());
+                ImmutableSet.of());
 
         for (TrunkLifecycle source : TrunkLifecycle.values()) {
             for (TrunkLifecycle target : TrunkLifecycle.values()) {

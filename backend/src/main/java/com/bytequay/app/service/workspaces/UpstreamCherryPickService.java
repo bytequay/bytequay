@@ -26,6 +26,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -77,7 +78,7 @@ public class UpstreamCherryPickService
 {
     private static final int MAX_COMMITS = 500;
     private static final int HISTORY_LIMIT = 5_000;
-    private static final Set<String> LIVE_STATUSES = Set.of("QUEUED", "RUNNING");
+    private static final Set<String> LIVE_STATUSES = ImmutableSet.of("QUEUED", "RUNNING");
     private static final Logger log = LoggerFactory.getLogger(UpstreamCherryPickService.class);
 
     private final JdbcTemplate jdbc;
@@ -737,9 +738,9 @@ public class UpstreamCherryPickService
     /** Queue rows, oldest pick first — the order the run applies them in. */
     private static List<UpstreamCherryPickCommitDto> commitQueue(JobRow row)
     {
-        Set<String> applied = Set.copyOf(row.appliedShas());
-        Set<String> skipped = Set.copyOf(row.skippedShas());
-        Set<String> conflicted = Set.copyOf(row.conflictedShas());
+        Set<String> applied = ImmutableSet.copyOf(row.appliedShas());
+        Set<String> skipped = ImmutableSet.copyOf(row.skippedShas());
+        Set<String> conflicted = ImmutableSet.copyOf(row.conflictedShas());
         boolean stopped = "COMPLETED".equals(row.status()) || "FAILED".equals(row.status());
         List<UpstreamCherryPickCommitDto> rows = new ArrayList<>();
         for (int index = 0; index < row.specs().size(); index++) {

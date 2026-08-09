@@ -46,6 +46,7 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -54,7 +55,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -455,7 +455,7 @@ class TestRemoteDevelopmentObservationConsumer
                 "row-1", "operation-1", "task-1", 1, "stage-1", 1,
                 "binding-1", "ci-policy-1", "acme/widget", 17,
                 "head-1", "base-1", "head-1", "base-1", 0, 1, current,
-                mock(RemoteCiPolicy.Policy.class), Set.of());
+                mock(RemoteCiPolicy.Policy.class), ImmutableSet.of());
         RemoteObservationOperationHandler.FeedbackFact feedback =
                 new RemoteObservationOperationHandler.FeedbackFact(
                         RemoteObservationOperationHandler.FeedbackKind.TOP_LEVEL_COMMENT,

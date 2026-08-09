@@ -16,6 +16,7 @@ package com.bytequay.app.service.local;
 import com.bytequay.app.domain.RepoRef;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -438,7 +439,7 @@ public class GitRunner
 
     private static void requireOnly(List<String> active, String... allowed)
     {
-        if (!Set.of(allowed).containsAll(active)) {
+        if (!ImmutableSet.copyOf(allowed).containsAll(active)) {
             throw new IllegalStateException(
                     "Git has ambiguous in-progress operation state: " + active);
         }

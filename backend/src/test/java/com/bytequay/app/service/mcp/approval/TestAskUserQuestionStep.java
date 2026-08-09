@@ -16,9 +16,8 @@ package com.bytequay.app.service.mcp.approval;
 import com.bytequay.app.service.mcp.McpResponses;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
-
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -51,6 +50,6 @@ class TestAskUserQuestionStep
     {
         return new ApprovalContext(
                 "thread-1", JsonNodeFactory.instance.numberNode(1),
-                toolName, "call-1", mapper.createObjectNode(), Set.of());
+                toolName, "call-1", mapper.createObjectNode(), ImmutableSet.of());
     }
 }

@@ -23,6 +23,7 @@ import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.GitRunner.ReflogEntry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,7 +36,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -505,7 +505,7 @@ class TestRemoteRepairCommitAdoptionOperationHandler
         String dispatcher = "dispatcher-1";
         CapacityManager.CapacityRequest request =
                 new CapacityManager.CapacityRequest(
-                        operation.operationId(), V2, Set.of(LOCAL_GIT),
+                        operation.operationId(), V2, ImmutableSet.of(LOCAL_GIT),
                         new CapacityManager.CapacityScope(
                                 operation.workspaceId(), operation.trunkId(),
                                 operation.taskId(), operation.taskEpoch()),

@@ -23,6 +23,7 @@ import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -253,7 +254,7 @@ class TestStageManagers
     @Test
     void terminalAndRemoteObservationTransitionsHaveNoStandaloneBypass()
     {
-        Set<String> unsafe = Set.of(
+        Set<String> unsafe = ImmutableSet.of(
                 "approve", "approveInCommand",
                 "acceptPublished", "acceptPublishedInCommand",
                 "acceptCleanupComplete", "acceptCleanupCompleteInCommand",

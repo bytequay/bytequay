@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.service.skills.SkillManifestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -256,5 +257,5 @@ class TestSkillTools
     // Silences IDE warning on the unused Set import while keeping the
     // import list aligned with the other tool tests.
     @SuppressWarnings("unused")
-    private static final Set<String> UNUSED = Set.of();
+    private static final Set<String> UNUSED = ImmutableSet.of();
 }

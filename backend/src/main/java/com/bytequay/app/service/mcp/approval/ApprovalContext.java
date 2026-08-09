@@ -15,6 +15,7 @@ package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.service.tools.SecurityType;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
 
@@ -84,7 +85,7 @@ public record ApprovalContext(
     private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
 
     /** The CLI shell built-ins the gate special-cases. */
-    private static final Set<String> SHELL_TOOLS = Set.of("run_shell", "Bash");
+    private static final Set<String> SHELL_TOOLS = ImmutableSet.of("run_shell", "Bash");
 
     /** The tool name with the {@code mcp__<server>__} prefix stripped —
      *  the form the {@code AgentToolRegistry} and gating steps look up. */

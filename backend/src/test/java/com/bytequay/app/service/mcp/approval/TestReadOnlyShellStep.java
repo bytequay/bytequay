@@ -18,9 +18,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
-
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -66,6 +65,6 @@ class TestReadOnlyShellStep
     {
         return new ApprovalContext(
                 "thread-1", JsonNodeFactory.instance.numberNode(1),
-                toolName, "call-1", input, Set.of());
+                toolName, "call-1", input, ImmutableSet.of());
     }
 }

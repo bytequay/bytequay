@@ -16,6 +16,7 @@ package com.bytequay.app.service.workmodel;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
 
@@ -34,7 +35,7 @@ public final class SessionAudience
 
     /** The four names, for validating create-dialog overrides and the
      *  complete per-trunk snapshot written from them. */
-    public static final Set<String> ALL = Set.of(PLAN, DEV, REVIEW, CI_FIX);
+    public static final Set<String> ALL = ImmutableSet.of(PLAN, DEV, REVIEW, CI_FIX);
 
     private SessionAudience() {}
 

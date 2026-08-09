@@ -30,6 +30,7 @@ import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.testing.SqliteTestPools;
 import com.bytequay.app.testing.V2TaskSeed;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,7 +43,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
-import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -630,7 +630,7 @@ class TestSqliteWorktreeQuarantineRepairStore
     {
         CapacityManager.CapacityRequest capacity =
                 new CapacityManager.CapacityRequest(
-                        operationId, V2, Set.of(LOCAL_GIT),
+                        operationId, V2, ImmutableSet.of(LOCAL_GIT),
                         new CapacityManager.CapacityScope(
                                 "workspace", "trunk", "task", 1L),
                         false, true, true);

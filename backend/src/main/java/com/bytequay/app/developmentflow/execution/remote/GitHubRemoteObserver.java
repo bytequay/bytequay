@@ -51,6 +51,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.CollaboratorPermissionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -113,10 +114,10 @@ public final class GitHubRemoteObserver
                     + "\\s*\\|\\|\\s*(?:exit\\s+1|\\{\\s*(?:echo\\s+"
                     + "(?:'[^'\\r\\n$`]*'|\"[^\"\\r\\n$`]*\")"
                     + "\\s+>&2;\\s*)?exit\\s+1;?\\s*})\\s*;?$");
-    private static final Set<String> AGGREGATE_JOB_KEYS = Set.of(
+    private static final Set<String> AGGREGATE_JOB_KEYS = ImmutableSet.of(
             "name", "if", "needs", "runs-on", "timeout-minutes", "steps",
             "permissions");
-    private static final Set<String> AGGREGATE_STEP_KEYS = Set.of("name", "run");
+    private static final Set<String> AGGREGATE_STEP_KEYS = ImmutableSet.of("name", "run");
     private static final Pattern ANSI = Pattern.compile(
             "\\u001B\\[[0-?]*[ -/]*[@-~]");
     private static final Pattern ISO_TIMESTAMP = Pattern.compile(
@@ -491,7 +492,7 @@ public final class GitHubRemoteObserver
                 && subjectExact
                 && exactJobBound;
 
-        Set<String> fingerprints = Set.of();
+        Set<String> fingerprints = ImmutableSet.of();
         boolean failureEvidenceComplete = infrastructureFailure;
         boolean annotationsComplete = false;
         if (state == FAILED && !infrastructureFailure
@@ -651,7 +652,7 @@ public final class GitHubRemoteObserver
                 .collect(Collectors.toUnmodifiableSet());
         if (diagnostics.isEmpty()
                 || fingerprints.size() != diagnostics.size()
-                || !fingerprints.equals(Set.copyOf(parsed.fingerprints()))) {
+                || !fingerprints.equals(ImmutableSet.copyOf(parsed.fingerprints()))) {
             return evidence;
         }
         ActionsJobLogEvidence proof = new ActionsJobLogEvidence(
@@ -914,7 +915,7 @@ public final class GitHubRemoteObserver
             if (matrix) {
                 Set<String> strategyKeys = stringKeys(strategy);
                 if (strategyKeys == null
-                        || !Set.of("matrix", "fail-fast", "max-parallel")
+                        || !ImmutableSet.of("matrix", "fail-fast", "max-parallel")
                                 .containsAll(strategyKeys)
                         || strategy.get("matrix") == null) {
                     return null;
@@ -961,9 +962,9 @@ public final class GitHubRemoteObserver
             return true;
         }
         if (!(value instanceof Map<?, ?> defaults)
-                || !Set.of("run").equals(stringKeys(defaults))
+                || !ImmutableSet.of("run").equals(stringKeys(defaults))
                 || !(defaults.get("run") instanceof Map<?, ?> run)
-                || !Set.of("shell").equals(stringKeys(run))) {
+                || !ImmutableSet.of("shell").equals(stringKeys(run))) {
             return false;
         }
         return "bash --noprofile --norc -euo pipefail {0}".equals(
@@ -1054,7 +1055,7 @@ public final class GitHubRemoteObserver
             return false;
         }
         String conclusion = normalize(left.conclusion());
-        return Set.of(
+        return ImmutableSet.of(
                 "SUCCESS", "FAILURE", "CANCELLED", "CANCELED",
                 "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "STALE",
                 "NEUTRAL", "SKIPPED").contains(conclusion)
@@ -1170,7 +1171,7 @@ public final class GitHubRemoteObserver
                     title, message);
             fingerprints.add(digest(evidence));
         }
-        return Set.copyOf(fingerprints);
+        return ImmutableSet.copyOf(fingerprints);
     }
 
     private static String normalizeFailureText(String value)
@@ -1559,7 +1560,7 @@ public final class GitHubRemoteObserver
     private static boolean infrastructureFailure(
             RemoteCiPolicy.CheckState state, String conclusion)
     {
-        return state == CANCELED || Set.of(
+        return state == CANCELED || ImmutableSet.of(
                 "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "STALE")
                 .contains(normalize(conclusion));
     }
@@ -1588,7 +1589,7 @@ public final class GitHubRemoteObserver
             return RemoteObservationOperationHandler.Mergeability.CONFLICTING;
         }
         if (Boolean.TRUE.equals(detail.mergeable())
-                && Set.of("CLEAN", "UNSTABLE", "HAS_HOOKS").contains(state)) {
+                && ImmutableSet.of("CLEAN", "UNSTABLE", "HAS_HOOKS").contains(state)) {
             return RemoteObservationOperationHandler.Mergeability.MERGEABLE;
         }
         return RemoteObservationOperationHandler.Mergeability.BLOCKED;
@@ -1607,7 +1608,7 @@ public final class GitHubRemoteObserver
         if ("MERGED".equals(state)) {
             return RemoteObservationOperationHandler.MergeQueueState.MERGED;
         }
-        if (Set.of("DEQUEUED", "REMOVED", "CANCELLED", "CANCELED")
+        if (ImmutableSet.of("DEQUEUED", "REMOVED", "CANCELLED", "CANCELED")
                 .contains(state)) {
             return RemoteObservationOperationHandler.MergeQueueState.DEQUEUED;
         }

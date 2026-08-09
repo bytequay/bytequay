@@ -17,6 +17,7 @@ import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.review.BrainReviewServiceImpl;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -33,7 +34,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class BrainReviewToolHandlers
 {
-    private static final Set<String> SCOPES = Set.of("plan", "dev", "round");
+    private static final Set<String> SCOPES = ImmutableSet.of("plan", "dev", "round");
 
     private final BrainReviewServiceImpl brainReview;
 

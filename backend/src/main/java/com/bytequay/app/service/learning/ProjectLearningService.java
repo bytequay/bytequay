@@ -25,6 +25,7 @@ import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -719,16 +720,16 @@ public class ProjectLearningService
     {
         String headRef = metaText(source, "headRef");
         if (headRef == null || headRef.isBlank()) {
-            return Set.of();
+            return ImmutableSet.of();
         }
         // "feature/scheduler/fix" -> "scheduler"; "fix-parser" -> "fix".
         String[] parts = headRef.split("[/_-]");
         for (String part : parts) {
             if (!part.isBlank()) {
-                return Set.of(part.toLowerCase(Locale.ROOT));
+                return ImmutableSet.of(part.toLowerCase(Locale.ROOT));
             }
         }
-        return Set.of();
+        return ImmutableSet.of();
     }
 
     private String metaText(RepoPrSource source, String field)

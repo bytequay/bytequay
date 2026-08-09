@@ -19,6 +19,7 @@ import com.bytequay.app.domain.ThreadSignal;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.ThreadSignalStore;
 import com.bytequay.app.service.threads.NotificationService;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -37,8 +38,8 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class ThreadSignalServiceImpl
 {
-    private static final Set<String> SOURCE_KINDS = Set.of("agent", "system", "github");
-    private static final Set<String> ICON_KINDS = Set.of("info", "success", "warn", "alert");
+    private static final Set<String> SOURCE_KINDS = ImmutableSet.of("agent", "system", "github");
+    private static final Set<String> ICON_KINDS = ImmutableSet.of("info", "success", "warn", "alert");
 
     private final ThreadSignalStore store;
     private final NotificationService notifications;

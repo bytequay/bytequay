@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.google.common.collect.ImmutableSet;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,7 +28,7 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class NotificationMuteService
 {
-    private static final Set<String> PROTECTED_TYPES = Set.of(
+    private static final Set<String> PROTECTED_TYPES = ImmutableSet.of(
             "approval-gate", "agent-question", "budget");
 
     private final JdbcTemplate jdbc;

@@ -74,6 +74,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,14 +134,14 @@ public class InvestigationReviewService
             5 merge-blocking defects with an exact changed-line anchor and supporting diff
             evidence. Prefer no finding over a speculative or optional suggestion.
             """;
-    private static final Set<String> CRITERION_KINDS = Set.of(
+    private static final Set<String> CRITERION_KINDS = ImmutableSet.of(
             "hard-invariant", "engineering-principle", "repo-convention");
-    private static final Set<String> HARD_LEARNED_KINDS = Set.of(
+    private static final Set<String> HARD_LEARNED_KINDS = ImmutableSet.of(
             "domain-invariant", "invariant", "compatibility-contract", "build-test-rule");
-    private static final Set<String> PRINCIPLE_LEARNED_KINDS = Set.of(
+    private static final Set<String> PRINCIPLE_LEARNED_KINDS = ImmutableSet.of(
             "architecture-principle", "principle", "recurring-concern", "concern",
             "investigation-recipe", "recipe", "performance-assumption");
-    private static final Set<String> CONVENTION_LEARNED_KINDS = Set.of(
+    private static final Set<String> CONVENTION_LEARNED_KINDS = ImmutableSet.of(
             "doc-note", "convention");
     private static final Pattern HUNK_HEADER = Pattern.compile(
             "^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@.*$");
@@ -498,7 +499,7 @@ public class InvestigationReviewService
     {
         ReviewRoundMessageRow message = store.roundMessages(work.review().id()).stream()
                 .filter(row -> work.round().id().equals(row.roundId()))
-                .filter(row -> Set.of("pending", "processing").contains(row.status()))
+                .filter(row -> ImmutableSet.of("pending", "processing").contains(row.status()))
                 .sorted(Comparator.comparingLong(ReviewRoundMessageRow::createdAt)
                         .thenComparing(ReviewRoundMessageRow::id))
                 .findFirst().orElse(null);
@@ -613,7 +614,7 @@ public class InvestigationReviewService
                 .orElseThrow(() -> new IllegalStateException(
                         "guidance reviewer definition disappeared"));
         AssignmentWork primary = work.assignments().get(0);
-        if (Set.of("panel", "planner").contains(message.target())) {
+        if (ImmutableSet.of("panel", "planner").contains(message.target())) {
             return new PanelSeat(primary.provider(), definition);
         }
         Optional<AssignmentWork> original = work.assignments().stream()
@@ -1033,7 +1034,7 @@ public class InvestigationReviewService
     private void reconcileInterruptedRound(ReviewRoundRow round)
     {
         AgentReviewRow review = store.findReview(round.reviewId()).orElse(null);
-        boolean wasLive = Set.of("QUEUED", "RUNNING").contains(round.status());
+        boolean wasLive = ImmutableSet.of("QUEUED", "RUNNING").contains(round.status());
         boolean cancelled = wasLive || "CANCELLED".equals(round.status());
         if (wasLive && !store.cancelLiveRound(round.id(), round.costCents())) {
             return;
@@ -1080,7 +1081,7 @@ public class InvestigationReviewService
 
     private boolean hasTerminalReviewEvent(String prId, String roundId)
     {
-        Set<String> terminal = Set.of(
+        Set<String> terminal = ImmutableSet.of(
                 "round-complete", "round-error", "round-budget-halted", "round-cancelled");
         return prs.timeline(prId).stream()
                 .filter(event -> PRTimelineEntry.TYPE_REVIEW.equals(event.eventType()))
@@ -1153,7 +1154,7 @@ public class InvestigationReviewService
             }
             if (typedLocal && "ACTIVE".equals(owned.status())) {
                 store.rounds(owned.id()).stream()
-                        .filter(round -> Set.of("QUEUED", "RUNNING")
+                        .filter(round -> ImmutableSet.of("QUEUED", "RUNNING")
                                 .contains(round.status()))
                         .reduce((left, right) -> right)
                         .ifPresent(round -> {
@@ -1202,7 +1203,7 @@ public class InvestigationReviewService
     {
         List<ReviewRoundRow> rounds = store.rounds(review.id());
         List<ReviewRoundRow> live = rounds.stream()
-                .filter(round -> Set.of("QUEUED", "RUNNING").contains(round.status()))
+                .filter(round -> ImmutableSet.of("QUEUED", "RUNNING").contains(round.status()))
                 .toList();
         if (live.stream().anyMatch(InvestigationReviewService::isQuickReview)) {
             return detail(review);
@@ -1566,7 +1567,7 @@ public class InvestigationReviewService
     {
         for (AgentReviewRow review : store.reviewsByOwnerThread(threadId)) {
             store.rounds(review.id()).stream()
-                    .filter(round -> Set.of("QUEUED", "RUNNING").contains(round.status()))
+                    .filter(round -> ImmutableSet.of("QUEUED", "RUNNING").contains(round.status()))
                     .forEach(this::interruptRoundForPurge);
             store.deleteReview(review.id());
             log.info("deleted agent review {} with owner thread {}", review.id(), threadId);
@@ -1580,7 +1581,7 @@ public class InvestigationReviewService
     {
         for (AgentReviewRow review : store.reviewsByWorkspace(workspaceId)) {
             store.rounds(review.id()).stream()
-                    .filter(round -> Set.of("QUEUED", "RUNNING").contains(round.status()))
+                    .filter(round -> ImmutableSet.of("QUEUED", "RUNNING").contains(round.status()))
                     .forEach(this::interruptRoundForPurge);
             store.deleteReview(review.id());
             log.info("deleted agent review {} with owner workspace {}", review.id(), workspaceId);
@@ -1718,7 +1719,7 @@ public class InvestigationReviewService
     public List<QueueItem> queue(String scope)
     {
         String selected = scope == null ? "all" : scope.toLowerCase(Locale.ROOT);
-        if (!Set.of("all", "remote", "local").contains(selected)) {
+        if (!ImmutableSet.of("all", "remote", "local").contains(selected)) {
             throw new IllegalArgumentException("scope must be all, remote, or local");
         }
         return store.standaloneReviews().stream()
@@ -1808,7 +1809,7 @@ public class InvestigationReviewService
     private Set<String> allowedMessageTargets(String reviewId, ReviewRoundRow round)
     {
         if (!"RUNNING".equals(round.status()) || !round.messageGateOpen()) {
-            return Set.of();
+            return ImmutableSet.of();
         }
         Set<String> guidanceAssignments = store.roundMessages(reviewId).stream()
                 .map(ReviewRoundMessageRow::assignmentId)
@@ -1826,7 +1827,7 @@ public class InvestigationReviewService
                         reviewClass(round.budgetJson())))
                 .ifPresent(definition -> targets.add("planner"));
         originalAssignments.stream().map(ReviewAssignmentRow::reviewerDefId)
-                .filter(reviewerId -> !Set.of(
+                .filter(reviewerId -> !ImmutableSet.of(
                         "review-planner", "independent-verifier").contains(reviewerId))
                 .forEach(targets::add);
         Optional<ReviewerDefRow> verifierDefinition = store.findReviewerDef("independent-verifier")
@@ -1990,11 +1991,11 @@ public class InvestigationReviewService
         String disposition = requiredText(input.userDisposition(), "user_disposition");
         String authorResponse = requiredText(input.authorResponse(), "author_response");
         String resolution = requiredText(input.epistemicResolution(), "epistemic_resolution");
-        if (!Set.of("fixed", "acknowledged", "disagreed", "ignored").contains(authorResponse)) {
+        if (!ImmutableSet.of("fixed", "acknowledged", "disagreed", "ignored").contains(authorResponse)) {
             throw new IllegalArgumentException(
                     "author_response must be fixed, acknowledged, disagreed, or ignored");
         }
-        if (!Set.of("confirmed", "refuted", "unresolved").contains(resolution)) {
+        if (!ImmutableSet.of("confirmed", "refuted", "unresolved").contains(resolution)) {
             throw new IllegalArgumentException(
                     "epistemic_resolution must be confirmed, refuted, or unresolved");
         }
@@ -2027,7 +2028,7 @@ public class InvestigationReviewService
         }
         AgentReviewRow review = ensureOwnership(found.orElseThrow(), requirePr(prId), null);
         Set<String> publishedFindings = findingIds == null
-                ? Set.of() : new LinkedHashSet<>(findingIds);
+                ? ImmutableSet.of() : new LinkedHashSet<>(findingIds);
         for (String findingId : publishedFindings) {
             store.findFinding(findingId).ifPresent(finding -> {
                 store.updateFinding(finding.id(), "published", finding.verificationStatus(),
@@ -2151,13 +2152,13 @@ public class InvestigationReviewService
             throw new IllegalArgumentException("reviewer id must use letters, numbers, '.', '_' or '-'");
         }
         String runnerKind = requiredText(input.runner(), "runner").toLowerCase(Locale.ROOT);
-        if (!Set.of("api", "cli").contains(runnerKind)) {
+        if (!ImmutableSet.of("api", "cli").contains(runnerKind)) {
             throw new IllegalArgumentException("runner must be api or cli");
         }
         List<String> eligible = input.eligibleKinds() == null ? List.of() : input.eligibleKinds().stream()
                 .map(value -> value == null ? "" : value.strip().toLowerCase(Locale.ROOT))
                 .filter(value -> !value.isBlank()).distinct().toList();
-        if (eligible.isEmpty() || !Set.of("trivial", "standard", "high-risk").containsAll(eligible)) {
+        if (eligible.isEmpty() || !ImmutableSet.of("trivial", "standard", "high-risk").containsAll(eligible)) {
             throw new IllegalArgumentException("eligible_kinds must contain review classes");
         }
         ReviewerDefRow row = new ReviewerDefRow(
@@ -2571,7 +2572,7 @@ public class InvestigationReviewService
             return;
         }
         boolean anotherRoundIsLive = store.rounds(review.id()).stream()
-                .anyMatch(round -> Set.of("QUEUED", "RUNNING").contains(round.status()));
+                .anyMatch(round -> ImmutableSet.of("QUEUED", "RUNNING").contains(round.status()));
         syncStandaloneOwner(
                 review, anotherRoundIsLive ? ThreadStatus.RUNNING : terminalStatus,
                 anotherRoundIsLive ? null : errorMessage);
@@ -3510,7 +3511,7 @@ public class InvestigationReviewService
                     CriterionRow criterion = criteria.get(objective.criterionId());
                     return criterion != null && "failure-class".equals(criterion.sourceType());
                 })
-                .filter(objective -> !Set.of("pending", "not-covered-budget")
+                .filter(objective -> !ImmutableSet.of("pending", "not-covered-budget")
                         .contains(objective.resolutionStatus()))
                 .count();
         long tests = observations.stream()
@@ -3650,7 +3651,7 @@ public class InvestigationReviewService
     {
         List<String> changedPaths = InvestigationReviewRunner.changedFilenames(snapshot);
         List<String> areas = knowledge.applicability().stream()
-                .filter(tag -> Set.of("module", "path").contains(tag.kind()))
+                .filter(tag -> ImmutableSet.of("module", "path").contains(tag.kind()))
                 .map(Applicability::value)
                 .filter(area -> changedPaths.stream().anyMatch(path -> pathsIntersect(area, path)))
                 .distinct()
@@ -3931,7 +3932,7 @@ public class InvestigationReviewService
         };
         List<ReviewerDefRow> eligible = store.reviewerDefs().stream()
                 .filter(ReviewerDefRow::enabled)
-                .filter(row -> !Set.of("independent-verifier", "review-planner").contains(row.id()))
+                .filter(row -> !ImmutableSet.of("independent-verifier", "review-planner").contains(row.id()))
                 .filter(row -> row.eligibleKinds().contains(reviewClass))
                 .toList();
         if (eligible.isEmpty()) {
@@ -3993,7 +3994,7 @@ public class InvestigationReviewService
             ReviewerDefRow definition, ProviderChoice investigator)
     {
         String configured = definition.runnerJson().path("provider").asText("auto-cross-family");
-        ProviderChoice choice = Set.of("", "auto", "auto-cross-family").contains(
+        ProviderChoice choice = ImmutableSet.of("", "auto", "auto-cross-family").contains(
                 configured.toLowerCase(Locale.ROOT))
                 ? runner.chooseVerifier(investigator, definition.runner())
                 : runner.choose(definition.runner(), configured);
@@ -4153,7 +4154,7 @@ public class InvestigationReviewService
         String marker = "diff --git a/" + path + " b/" + path;
         int start = diff.indexOf(marker);
         if (start < 0) {
-            return Set.of();
+            return ImmutableSet.of();
         }
         int end = diff.indexOf("\ndiff --git ", start + marker.length());
         String section = diff.substring(start, end < 0 ? diff.length() : end);
@@ -4175,7 +4176,7 @@ public class InvestigationReviewService
                 lines.add(newLine++);
             }
         }
-        return Set.copyOf(lines);
+        return ImmutableSet.copyOf(lines);
     }
 
     public record StartOptions(

@@ -15,6 +15,7 @@ package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrReviewThreadMessage;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -42,7 +43,7 @@ public class OutcomeChainReconstructor
 {
     public List<OutcomeChain> reconstruct(PrEvidenceBundle bundle)
     {
-        return reconstruct(bundle, Set.of());
+        return reconstruct(bundle, ImmutableSet.of());
     }
 
     /**

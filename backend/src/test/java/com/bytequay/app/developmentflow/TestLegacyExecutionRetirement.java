@@ -31,7 +31,6 @@ class TestLegacyExecutionRetirement
     private static final List<String> DIRECT_ONLY_LEGACY_CALLBACKS = List.of(
             "review/BrainReviewServiceImpl.java",
             "threads/TaskPhaseMachine.java",
-            "threads/TaskTerminalSealer.java",
             "stage/IterationService.java",
             "stage/StageBudgetService.java",
             "review/BranchGuardServiceImpl.java",
@@ -59,24 +58,6 @@ class TestLegacyExecutionRetirement
                 "\"queue_task\"",
                 "\"reorder_queue\"",
                 "\"drop_queued_task\"");
-    }
-
-    @Test
-    void retiredSchedulerIsFailClosed()
-            throws IOException
-    {
-        Path scheduler = MAIN.resolve(
-                "java/com/bytequay/app/service/threads/RetiredThreadTurnScheduler.java");
-        String contents = Files.readString(scheduler);
-        assertThat(contents)
-                .contains("implements ThreadTurnScheduler")
-                .contains("LEGACY turn execution is retired")
-                .doesNotContain(
-                        "Executors.",
-                        "ExecutorService",
-                        "Thread.ofVirtual",
-                        "startVirtualThread",
-                        "@Scheduled");
     }
 
     @Test
@@ -146,8 +127,7 @@ class TestLegacyExecutionRetirement
         assertThat(agentRuns)
                 .contains(
                         "createReviewCompatibilityHeader(",
-                        "KIND_REVIEW_COMPATIBILITY_HEADER",
-                        "throw retired()")
+                        "KIND_REVIEW_COMPATIBILITY_HEADER")
                 .doesNotContain(
                         "StageStateMachine",
                         "TaskCommandExecutor",

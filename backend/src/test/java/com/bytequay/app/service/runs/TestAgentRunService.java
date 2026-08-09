@@ -14,10 +14,7 @@
 package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.domain.StageType;
-import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.AgentRunStore;
-import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -27,11 +24,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestAgentRunService
@@ -41,29 +35,6 @@ class TestAgentRunService
     private final AgentRunStore store = mock(AgentRunStore.class);
     private final AgentRunServiceImpl service = new AgentRunServiceImpl(
             store, Clock.fixed(NOW, ZoneOffset.UTC));
-
-    @Test
-    void legacyCreationAndMutationPortsFailClosedWithoutStorageWrites()
-    {
-        List<ThrowingCallable> retiredCalls = List.of(
-                () -> service.openInCommand("task", "dev", null, null,
-                        StageType.DEVELOPMENT_STAGE, null),
-                () -> service.openInStageInCommand("task", "dev", null, "stage", null),
-                () -> service.openSchedulerSessionInCommand(
-                        mock(Thread.class), "task", "stage", "dev", "prompt"),
-                () -> service.pauseInCommand("task", "run", "reason"),
-                () -> service.restartInCommand("task", "run"),
-                () -> service.transitionInCommand(
-                        "task", "run", AgentRun.STATUS_SUCCEEDED, "done"));
-
-        for (ThrowingCallable call : retiredCalls) {
-            assertThatThrownBy(call)
-                    .isInstanceOf(UnsupportedOperationException.class)
-                    .hasMessageContaining("AgentRun execution is retired");
-        }
-        verify(store, never()).insert(any());
-        verify(store, never()).save(any());
-    }
 
     @Test
     void createsOneAlreadyTerminalDetachedReviewCompatibilityHeader()

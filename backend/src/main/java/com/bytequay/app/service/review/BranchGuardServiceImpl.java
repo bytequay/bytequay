@@ -14,10 +14,8 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.BranchGuard;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.BranchGuardStore;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
-import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,35 +53,5 @@ public class BranchGuardServiceImpl
             }
             return store.save(guard);
         });
-    }
-    @Transactional
-    public void enableOnFirstPush(String taskId)
-    {
-        if (store.findByTask(taskId).isPresent()) {
-            return;
-        }
-        store.save(BranchGuard.disabled(taskId).withEnabled(true));
-    }
-
-    /** First push onto the remote spine arms the guard (R18 default: on for
-     *  pushed PRs). Fires on every PUSHED_AWAITING_CI observation, but
-     *  {@link #enableOnFirstPush} only acts the first time — subsequent
-     *  pushes are no-ops here regardless of whether the user later
-     *  disabled it. */
-    public void onPhaseTransitioned(TaskPhaseTransitionedEvent event)
-    {
-        if (event.to() == TaskPhase.PUSHED_AWAITING_CI) {
-            enableOnFirstPush(event.taskId());
-        }
-        if (event.from() == TaskPhase.NEEDS_ATTENTION
-                && "user_resumed_task".equals(event.reason())) {
-            TaskPhaseMachine.withTaskLock(event.taskId(), () -> {
-                store.findByTask(event.taskId())
-                        .filter(guard -> BranchGuard.STATE_NEEDS_ATTENTION.equals(guard.state()))
-                        .map(guard -> guard.withState(BranchGuard.STATE_HEALTHY))
-                        .ifPresent(store::save);
-                return null;
-            });
-        }
     }
 }

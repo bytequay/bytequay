@@ -117,19 +117,6 @@ export function relative(iso: string): string {
   return relativeTime(iso, { suffix: false });
 }
 
-export function prInitials(name: string): string {
-  const known: Record<string, string> = {
-    chenjian2664: 'CJ',
-    ebyhr: 'EB',
-    skyglass: 'SG',
-  };
-  const knownValue = known[name.toLowerCase()];
-  if (knownValue !== undefined) return knownValue;
-  const parts = name.split(/[-_\s]+/).filter(Boolean);
-  if (parts.length > 1) return parts.slice(0, 2).map(part => part[0]).join('').toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
-
 export function SearchIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>;

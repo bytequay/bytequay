@@ -47,7 +47,6 @@ import org.mockito.Mockito;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -67,34 +66,6 @@ import static org.mockito.Mockito.when;
 
 class TestAiReviewService
 {
-    @Test
-    void testLegacyDraftPublishFailsClosedBeforeAnyRemoteEffect()
-    {
-        List<String> events = new ArrayList<>();
-        RecordingGitHub gitHub = new RecordingGitHub(events);
-        RecordingDraftStore draftStore = new RecordingDraftStore(events, draft("DRAFT"), draft("PUBLISHED"));
-        RecordingInvalidator detailInvalidator = new RecordingInvalidator(events);
-        AiReviewService service = new AiReviewService(
-                new UnsupportedPullRequestStore(),
-                mock(PRService.class),
-                gitHub,
-                new LlmReviewerRegistry(List.of(), new EmptyAppSettingsStore()),
-                mock(GlobalReviewRunner.class),
-                draftStore,
-                new SkillService(new EmptySkillStore()),
-                detailInvalidator,
-                new FixedPatResolver("pat"));
-
-        assertThatThrownBy(() -> service.publish(5L, "APPROVE", "looks good"))
-                .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
-                    assertThat(error.getStatusCode().value()).isEqualTo(409);
-                    assertThat(error.getReason())
-                            .contains("legacy AI draft publication is retired")
-                            .contains("durable PR review publication route");
-                });
-        assertThat(events).isEmpty();
-    }
-
     @Test
     void testQuickReviewUsesUnifiedExternalPrAndExplicitNoToolsScope()
     {

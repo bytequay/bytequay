@@ -34,7 +34,7 @@ import static java.util.Objects.requireNonNull;
  * shareable part is not the cell but the rules: the legal-edge graph, the
  * terminal set, and the transition check. Each per-entity machine
  * ({@code TaskStateMachine}, {@code StageStateMachine},
- * {@code ReviewRoundStateMachine}) supplies what Trino gets from the object
+ * {@code StageStateMachine}) supplies what Trino gets from the object
  * instance:
  *
  * <ul>

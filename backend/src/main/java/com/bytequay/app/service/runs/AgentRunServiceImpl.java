@@ -14,8 +14,6 @@
 package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.domain.StageType;
-import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.AgentRunStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,9 +38,6 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class AgentRunServiceImpl
 {
-    private static final String RETIRED =
-            "AgentRun execution is retired; use typed V2 Turns and Operations";
-
     private final AgentRunStore store;
     private final Clock clock;
 
@@ -124,46 +119,11 @@ public class AgentRunServiceImpl
                 "completed");
         return store.insert(header);
     }
-    public AgentRun openInCommand(
-            String taskId, String kind, String source, String parentStageId,
-            StageType backingStageType, Integer budget)
-    {
-        throw retired();
-    }
-    public AgentRun openInStageInCommand(
-            String taskId, String kind, String source, String stageId, Integer budget)
-    {
-        throw retired();
-    }
-    public AgentRun openSchedulerSessionInCommand(
-            Thread thread, String taskId, String stageId, String kind, String launchInput)
-    {
-        throw retired();
-    }
-    public AgentRun pauseInCommand(String taskId, String runId, String reason)
-    {
-        throw retired();
-    }
-    public AgentRun restartInCommand(String taskId, String runId)
-    {
-        throw retired();
-    }
-    public AgentRun transitionInCommand(
-            String taskId, String runId, String status, String reason)
-    {
-        throw retired();
-    }
-
     private static List<AgentRun> visible(List<AgentRun> runs)
     {
         return runs.stream()
                 .filter(run -> !run.isReviewCompatibilityHeader())
                 .toList();
-    }
-
-    private static UnsupportedOperationException retired()
-    {
-        return new UnsupportedOperationException(RETIRED);
     }
 
     private static void requireText(String value, String field)

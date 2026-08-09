@@ -591,44 +591,4 @@ public class AiReviewService
         return draftStore.deleteComment(draftId, commentId);
     }
 
-    /**
-     * Publishes a stored draft to GitHub as a single review. {@code event}
-     * controls the GitHub action — {@code "COMMENT"}, {@code "APPROVE"}, or
-     * {@code "REQUEST_CHANGES"}. Inline comments are attached as line-anchored
-     * review comments on the PR's most recent commit; severities flow into
-     * the comment body since GitHub has no native severity field.
-     *
-     * <p>On success the local draft flips to {@code PUBLISHED} so the UI can
-     * stop offering the publish action a second time.
-     */
-    /**
-     * Verdict-only / mixed publish keyed by PR id rather than draft id.
-     * Finds-or-creates the active review draft for the PR (so the user
-     * can ship a body-only Approve / Comment without first staging a
-     * comment) and forwards to {@link #publish}. Returns the published
-     * draft so the frontend can clear its tray.
-     */
-    public AiReviewDraft publishForPr(
-            long prId,
-            String repo,
-            int number,
-            String headSha,
-            String event,
-            String bodyOverride)
-    {
-        throw retiredDirectPublish();
-    }
-
-    public AiReviewDraft publish(long draftId, String event, String bodyOverride)
-    {
-        throw retiredDirectPublish();
-    }
-
-    private static ResponseStatusException retiredDirectPublish()
-    {
-        return new ResponseStatusException(
-                HttpStatusCode.valueOf(409),
-                "legacy AI draft publication is retired; use AgentReview and the durable PR review publication route");
-    }
-
 }

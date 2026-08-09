@@ -15,13 +15,11 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.session.SessionDto;
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.service.runs.SessionControlService;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import com.bytequay.app.service.runs.SessionProjectionService.SessionProjection;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -38,14 +36,10 @@ public class SessionController
     private static final long STREAM_TIMEOUT_MS = 30 * 60 * 1_000L;
 
     private final SessionProjectionService sessions;
-    private final SessionControlService controls;
 
-    public SessionController(
-            SessionProjectionService sessions,
-            SessionControlService controls)
+    public SessionController(SessionProjectionService sessions)
     {
         this.sessions = requireNonNull(sessions, "sessions is null");
-        this.controls = requireNonNull(controls, "controls is null");
     }
 
     @GetMapping("/api/workspaces/{workspaceId}/sessions")
@@ -61,34 +55,6 @@ public class SessionController
     public SessionDto get(@PathVariable String sessionId)
     {
         return dto(sessions.require(sessionId), Instant.now());
-    }
-
-    @PostMapping("/api/sessions/{sessionId}/pause")
-    public SessionDto pause(@PathVariable String sessionId)
-    {
-        SessionProjection session = requireControllableSession(sessionId);
-        return SessionDto.from(session.id(), controls.pause(session.run().id()), Instant.now());
-    }
-
-    @PostMapping("/api/sessions/{sessionId}/resume")
-    public SessionDto resume(@PathVariable String sessionId)
-    {
-        SessionProjection session = requireControllableSession(sessionId);
-        return SessionDto.from(session.id(), controls.resume(session.run().id()), Instant.now());
-    }
-
-    @PostMapping("/api/sessions/{sessionId}/stop")
-    public SessionDto stop(@PathVariable String sessionId)
-    {
-        SessionProjection session = requireControllableSession(sessionId);
-        return SessionDto.from(session.id(), controls.stop(session.run().id()), Instant.now());
-    }
-
-    @PostMapping("/api/sessions/{sessionId}/restart")
-    public SessionDto restart(@PathVariable String sessionId)
-    {
-        SessionProjection session = requireControllableSession(sessionId);
-        return SessionDto.from(controls.restart(session.run().id()), Instant.now());
     }
 
     @GetMapping(
@@ -131,20 +97,6 @@ public class SessionController
         catch (IOException | RuntimeException e) {
             emitter.completeWithError(e);
         }
-    }
-
-    private SessionProjection requireControllableSession(String id)
-    {
-        SessionProjection session = sessions.require(id);
-        if (session.typedV2()) {
-            throw new IllegalStateException(
-                    "V2 sessions are controlled from their owning task or stage");
-        }
-        if (session.durableReview()) {
-            throw new IllegalStateException(
-                    "review sessions are controlled from the pull request review panel");
-        }
-        return session;
     }
 
     private static SessionDto dto(SessionProjection session, Instant now)

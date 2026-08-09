@@ -49,15 +49,12 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
-import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workmodel.WorkModelService;
 import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.JsonNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
@@ -90,15 +87,12 @@ import java.util.stream.Stream;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Top-level facade controllers call into. Hides the registry / store
- * split: every endpoint either persists a row, mutates a session, or
- * subscribes to events — ThreadService offers exactly those verbs.
+ * Top-level facade controllers call into for persisted thread data and
+ * typed V2 controls.
  */
 @Service
 public class ThreadService
 {
-    private static final Logger log = LoggerFactory.getLogger(ThreadService.class);
-
     /** Cap on any single diff payload — 256 KB lets a couple-thousand-
      *  line file through, and stops a misclick on a generated artifact
      *  from blowing up the IPC channel. Matches the spirit of caps used
@@ -124,8 +118,6 @@ public class ThreadService
     private final ThreadGroupStore groupStore;
     private final ThreadTurnStore turnStore;
     private final ThreadTurnEventStore turnEventStore;
-    private final ThreadRegistry registry;
-    private final ThreadTurnScheduler scheduler;
     private final GitRunner git;
     private final WorktreeService worktreeService;
     private final IdGenerator idGenerator;
@@ -155,17 +147,11 @@ public class ThreadService
             ThreadGroupStore groupStore,
             ThreadTurnStore turnStore,
             ThreadTurnEventStore turnEventStore,
-            ThreadRegistry registry,
-            McpPermissionGate gate,
-            ThreadTurnScheduler scheduler,
-            WorktreeLeaseService leases,
             GitRunner git,
             WorktreeService worktreeService,
-            RoleRegistry roleRegistry,
             IdGenerator idGenerator,
             @Lazy PullRequestService pullRequests,
-            WorkspaceDataPurger dataPurger,
-            CheckpointSummariser titleSummariser)
+            WorkspaceDataPurger dataPurger)
     {
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -173,16 +159,10 @@ public class ThreadService
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
-        this.registry = requireNonNull(registry, "registry is null");
-        requireNonNull(gate, "gate is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
-        requireNonNull(leases, "leases is null");
         this.git = requireNonNull(git, "git is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
-        requireNonNull(roleRegistry, "roleRegistry is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
-        requireNonNull(titleSummariser, "titleSummariser is null");
     }
 
     @Autowired
@@ -1024,25 +1004,15 @@ public class ThreadService
     }
 
     /**
-     * Shared teardown for {@link #delete} / {@link #purge}: stop + evict
-     * every agent session (so no subprocess outlives the row), drain queued
-     * turns, reap each task's worktree, then delete the thread row.
+     * Shared teardown for {@link #delete} / {@link #purge}: reap each task's
+     * worktree, then delete the thread row. Typed runtime deletion is fenced
+     * by the permit passed in by the caller.
      */
     private void teardownAndDelete(
             String threadId,
             List<Task> allTasks,
             V2ThreadControlService.DeletionPermit permit)
     {
-        // Stop the live agents + drop any queued turns so we don't leave a
-        // subprocess running against a deleted row. A thread may have
-        // several Task agents plus its trunk/planning agent.
-        for (Agent agent : registry.findAll(threadId)) {
-            stopQuietly(threadId, agent);
-        }
-        registry.findTrunk(threadId).ifPresent(agent -> stopQuietly(threadId, agent));
-        scheduler.cancelQueuedTurns(threadId);
-        registry.evict(threadId);
-        registry.evictTrunk(threadId);
         // Best-effort worktree cleanup. Errors are logged inside the
         // service; we don't fail the delete if a worktree is already gone
         // or git can't remove it cleanly — the thread row going away is the
@@ -1137,16 +1107,6 @@ public class ThreadService
                     "V2 Trunk runtime is not configured");
         }
         return v2ThreadControls;
-    }
-
-    private void stopQuietly(String threadId, Agent agent)
-    {
-        try {
-            agent.stop();
-        }
-        catch (RuntimeException e) {
-            log.warn("agent stop on delete threw for {}: {}", threadId, e.getMessage());
-        }
     }
 
     /** Whether the thread is eligible for deletion right now — the
@@ -1607,7 +1567,7 @@ public class ThreadService
 
     /** Applies a decision and, when requested, grants a per-tool budget to
      *  the same Task agent that raised the prompt. The agent key must be
-     *  captured before {@link Agent#decide} clears the gate entry. */
+     *  captured before the active typed turn clears the gate entry. */
     public boolean decide(
             String threadId,
             String callId,

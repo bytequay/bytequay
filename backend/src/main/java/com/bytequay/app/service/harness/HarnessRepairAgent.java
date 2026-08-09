@@ -48,7 +48,7 @@ import static java.util.Objects.requireNonNull;
  * because of how I resolved commit 37" is a thought it can actually have. The
  * program never re-reads the round for it, never scores its confidence and never
  * bounds its attempts; see "The upstream sync run" in
- * {@code docs/intermediate/ci-autofix-design.md}.
+ * {@code docs/flows/upstream-sync.md}.
  */
 @Component
 public class HarnessRepairAgent

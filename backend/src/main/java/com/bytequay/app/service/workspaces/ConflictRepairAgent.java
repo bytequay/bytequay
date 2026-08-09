@@ -40,7 +40,7 @@ import static java.util.Objects.requireNonNull;
  * compile, ask for find/replace edits, validate the anchors, apply them and
  * retry a fixed number of times. Every one of those was the program deciding
  * something the agent is better placed to decide. See "The upstream sync run"
- * in {@code docs/intermediate/ci-autofix-design.md}.
+ * in {@code docs/flows/upstream-sync.md}.
  *
  * <p>The engine is whatever this workspace resolves for CI-fix work, through
  * the one chain every other agent uses. It runs through {@link CliReviewRunner} in

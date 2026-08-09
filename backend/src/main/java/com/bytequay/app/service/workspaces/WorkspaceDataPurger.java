@@ -14,9 +14,9 @@
 package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.MemoryItemScopeKind;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.sqlite.DistillationSignalStore;
 import com.bytequay.app.repository.sqlite.PermissionGrantStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.bytequay.app.repository.sqlite.SurfaceVisitStore;
 import org.springframework.stereotype.Component;
 
@@ -35,13 +35,13 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class WorkspaceDataPurger
 {
-    private final MemoryItemStore memoryItems;
+    private final SqliteMemoryItemStore memoryItems;
     private final PermissionGrantStore permissionGrants;
     private final DistillationSignalStore distillationSignals;
     private final SurfaceVisitStore surfaceVisits;
 
     public WorkspaceDataPurger(
-            MemoryItemStore memoryItems,
+            SqliteMemoryItemStore memoryItems,
             PermissionGrantStore permissionGrants,
             DistillationSignalStore distillationSignals,
             SurfaceVisitStore surfaceVisits)

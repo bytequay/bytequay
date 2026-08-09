@@ -21,7 +21,7 @@ import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptScope;
@@ -100,7 +100,7 @@ public class WorkspaceService
 
     private static final Logger log = LoggerFactory.getLogger(WorkspaceService.class);
 
-    private final WorkspaceStore store;
+    private final SqliteWorkspaceStore store;
     private final WorkspaceGlossaryParser glossaryParser;
     private final ConceptRegistry concepts;
     private final ThreadStore threadStore;
@@ -112,7 +112,7 @@ public class WorkspaceService
     private final WorkspaceDataPurger dataPurger;
 
     public WorkspaceService(
-            WorkspaceStore store,
+            SqliteWorkspaceStore store,
             WorkspaceGlossaryParser glossaryParser,
             ConceptRegistry concepts,
             ThreadStore threadStore,
@@ -169,8 +169,8 @@ public class WorkspaceService
         // Scratch workspaces never accrue durable memory or tasks, so
         // skip the aggregate queries and hand back a zeroed card.
         // Cheaper, and matches the design's "no durable memory" copy.
-        WorkspaceStore.WorkspaceStats stats = workspace.isScratch()
-                ? new WorkspaceStore.WorkspaceStats(0, 0, 0, 0L, null)
+        SqliteWorkspaceStore.WorkspaceStats stats = workspace.isScratch()
+                ? new SqliteWorkspaceStore.WorkspaceStats(0, 0, 0, 0L, null)
                 : store.fetchStats(workspace.id(), sinceMs);
         List<String> repos = store.listRepos(workspace.id()).stream()
                 .map(this::shortRepoName)
@@ -863,19 +863,6 @@ public class WorkspaceService
                 existing.addedAt());
         store.addRepo(next);
         return next;
-    }
-
-    /**
-     * Resolve the per-repo merge-target branch for ship-and-continue.
-     * Used as the "from main" base when cutting the next task. Returns
-     * empty when no override is configured; the caller then falls back
-     * to {@code git defaultBranch}.
-     */
-    public Optional<String> findDefaultBaseBranch(String workspaceId, String repoFullName)
-    {
-        return store.findRepo(workspaceId, repoFullName)
-                .map(WorkspaceRepo::defaultBaseBranch)
-                .filter(s -> s != null && !s.isBlank());
     }
 
     private static String trimToNull(String s)

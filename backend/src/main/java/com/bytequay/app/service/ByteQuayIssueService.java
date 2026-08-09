@@ -69,9 +69,4 @@ public class ByteQuayIssueService
                 REF,
                 gitHub.fetchIssueDetail(pats.resolve(FULL_NAME), REF, number));
     }
-
-    public boolean viewerCanMaintain()
-    {
-        return gitHub.fetchViewerCanWrite(pats.resolve(FULL_NAME), REF);
-    }
 }

@@ -20,8 +20,8 @@ import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.AgentQuestion;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Thread;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.backlog.BacklogServiceImpl;
 import com.bytequay.app.service.question.AgentQuestionServiceImpl;
@@ -49,7 +49,7 @@ class TestTrunkActivityService
         AgentRunServiceImpl runs = mock(AgentRunServiceImpl.class);
         TaskStore tasks = mock(TaskStore.class);
         BacklogServiceImpl backlog = mock(BacklogServiceImpl.class);
-        ReviewRoundStore reviews = mock(ReviewRoundStore.class);
+        SqliteReviewRoundStore reviews = mock(SqliteReviewRoundStore.class);
         WorkspaceKnowledgeService knowledge = mock(WorkspaceKnowledgeService.class);
         V2AgentRunProjection v2Runs = mock(V2AgentRunProjection.class);
         V2UserWaitService v2Waits = mock(V2UserWaitService.class);

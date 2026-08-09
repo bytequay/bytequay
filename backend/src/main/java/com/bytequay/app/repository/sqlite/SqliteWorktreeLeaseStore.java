@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WorktreeLease;
-import com.bytequay.app.repository.WorktreeLeaseStore;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,8 +26,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteWorktreeLeaseStore
-        implements WorktreeLeaseStore
+public class SqliteWorktreeLeaseStore
 {
     private static final String LEGACY = "LEGACY";
 
@@ -39,7 +37,6 @@ class SqliteWorktreeLeaseStore
         this.leases = requireNonNull(leases, "leases is null");
     }
 
-    @Override
     @Transactional
     public void save(WorktreeLease lease)
     {
@@ -59,13 +56,11 @@ class SqliteWorktreeLeaseStore
         leases.save(entity);
     }
 
-    @Override
     public Optional<WorktreeLease> findByWorktreePath(String worktreePath)
     {
         return leases.findById(worktreePath).map(SqliteWorktreeLeaseStore::toDomain);
     }
 
-    @Override
     public List<WorktreeLease> listForTask(String taskId)
     {
         return leases.findByTaskIdAndWorkflowVersion(taskId, LEGACY).stream()
@@ -73,7 +68,6 @@ class SqliteWorktreeLeaseStore
                 .toList();
     }
 
-    @Override
     public List<WorktreeLease> listAll()
     {
         return leases.findByWorkflowVersion(LEGACY).stream()
@@ -81,7 +75,6 @@ class SqliteWorktreeLeaseStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void releaseByWorktreePath(String worktreePath)
     {

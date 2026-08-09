@@ -21,9 +21,9 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.AgentRunStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteAgentRunStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.statemachine.StateMachine;
 import org.springframework.http.HttpStatusCode;
@@ -52,16 +52,16 @@ public class StageStateMachine
                     .edge(StageState.CLOSED, StageState.OPEN)
                     .build();
 
-    private final StageStore stages;
+    private final SqliteStageStore stages;
     private final TaskStore tasks;
-    private final AgentRunStore runs;
+    private final SqliteAgentRunStore runs;
     private final StageBudgetService budgets;
     private final TaskCommandExecutor commands;
 
     public StageStateMachine(
-            StageStore stages,
+            SqliteStageStore stages,
             TaskStore tasks,
-            AgentRunStore runs,
+            SqliteAgentRunStore runs,
             StageBudgetService budgets,
             TaskCommandExecutor commands)
     {

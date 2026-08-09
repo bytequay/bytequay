@@ -17,7 +17,6 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -31,9 +30,15 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteWorkspaceStore
-        implements WorkspaceStore
+public class SqliteWorkspaceStore
 {
+    public record WorkspaceStats(
+            int activeThreadCount,
+            int tasksInFlight,
+            int needsAttentionCount,
+            long spendMilliUsd,
+            Long lastActivityMs) {}
+
     /** Thread statuses we treat as "alive" for the landing card's
      *  activeThreadCount. Terminal rows are excluded; the parked
      *  AWAITING_REVIEW / NEEDS_ATTENTION states stay in because they
@@ -78,7 +83,6 @@ class SqliteWorkspaceStore
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
     }
 
-    @Override
     @Transactional
     public void saveWorkspace(Workspace workspace)
     {
@@ -93,13 +97,11 @@ class SqliteWorkspaceStore
         workspaces.save(entity);
     }
 
-    @Override
     public Optional<Workspace> findWorkspaceById(String id)
     {
         return workspaces.findById(id).map(this::toWorkspace);
     }
 
-    @Override
     public List<Workspace> listWorkspaces()
     {
         return workspaces.findAllByOrderByUpdatedAtMsDesc().stream()
@@ -107,14 +109,12 @@ class SqliteWorkspaceStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void deleteWorkspace(String id)
     {
         workspaces.deleteById(id);
     }
 
-    @Override
     @Transactional
     public void addRepo(WorkspaceRepo repo)
     {
@@ -128,7 +128,6 @@ class SqliteWorkspaceStore
         repos.save(entity);
     }
 
-    @Override
     public List<WorkspaceRepo> listRepos(String workspaceId)
     {
         return repos.findByIdWorkspaceIdOrderByAddedAtMsAsc(workspaceId).stream()
@@ -136,7 +135,6 @@ class SqliteWorkspaceStore
                 .toList();
     }
 
-    @Override
     public Optional<WorkspaceRepo> findRepo(String workspaceId, String repoFullName)
     {
         WorkspaceRepoEntity.WorkspaceRepoKey key =
@@ -144,7 +142,6 @@ class SqliteWorkspaceStore
         return repos.findById(key).map(SqliteWorkspaceStore::toRepo);
     }
 
-    @Override
     public WorkspaceStats fetchStats(String workspaceId, long sinceMs)
     {
         requireNonNull(workspaceId, "workspaceId is null");

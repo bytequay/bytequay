@@ -22,7 +22,6 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.StageMessageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,14 +60,14 @@ class SqliteThreadStore
 {
     private final ThreadJpaRepository threads;
     private final ThreadMessageJpaRepository messages;
-    private final StageMessageStore stageMessages;
+    private final SqliteStageMessageStore stageMessages;
     private final TaskStore taskStore;
     private final ObjectMapper objectMapper;
 
     SqliteThreadStore(
             ThreadJpaRepository threads,
             ThreadMessageJpaRepository messages,
-            StageMessageStore stageMessages,
+            SqliteStageMessageStore stageMessages,
             TaskStore taskStore,
             ObjectMapper objectMapper)
     {

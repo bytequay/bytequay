@@ -29,8 +29,6 @@ public final class HarnessModels
 {
     private static final Pattern BUCKET_LABEL = Pattern.compile(
             "(?:style|build|test|resource|infra|flake|unknown)(?::[a-z0-9_.-]+)?");
-    private static final Pattern VERIFY_HINT = Pattern.compile(
-            "(?:style|build|test|regen)(?::[A-Za-z0-9_.$#-]+)?");
 
     private HarnessModels() {}
 
@@ -426,14 +424,5 @@ public final class HarnessModels
         String normalized = normalizeBucketLabel(label);
         int separator = normalized.indexOf(':');
         return Bucket.from(separator < 0 ? normalized : normalized.substring(0, separator));
-    }
-
-    public static String verifyVerb(String hint)
-    {
-        if (hint == null || !VERIFY_HINT.matcher(hint).matches()) {
-            throw new IllegalArgumentException("invalid generic verification hint: " + hint);
-        }
-        int separator = hint.indexOf(':');
-        return separator < 0 ? hint : hint.substring(0, separator);
     }
 }

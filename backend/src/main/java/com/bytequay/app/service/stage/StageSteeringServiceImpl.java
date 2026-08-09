@@ -16,8 +16,8 @@ package com.bytequay.app.service.stage;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -46,13 +46,13 @@ public class StageSteeringServiceImpl
 
     public record SteerResult(String turnId) {}
 
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final TaskStore taskStore;
     private V2ControlRouteStore v2Routes;
     private V2StageSteeringControl v2Steering;
 
     public StageSteeringServiceImpl(
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             TaskStore taskStore)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");

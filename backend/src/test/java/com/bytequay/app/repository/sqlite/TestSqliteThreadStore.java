@@ -26,7 +26,6 @@ import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -59,7 +58,7 @@ class TestSqliteThreadStore
     @Autowired
     private TaskStore taskStore;
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
 
     @Test
     void stageScopedMessagesRouteToTheStageStoreNotTheThreadLog()

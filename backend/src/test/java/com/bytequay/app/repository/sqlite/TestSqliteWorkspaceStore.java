@@ -16,7 +16,6 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.repository.WorkspaceStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteWorkspaceStore
 {
     @Autowired
-    private WorkspaceStore store;
+    private SqliteWorkspaceStore store;
 
     @Test
     void roundtripsACliWorkModel()

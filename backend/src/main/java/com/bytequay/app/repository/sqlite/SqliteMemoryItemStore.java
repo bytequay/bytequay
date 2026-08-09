@@ -19,7 +19,6 @@ import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemOrigin;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -40,8 +39,17 @@ import static java.util.Objects.requireNonNull;
  */
 @Repository
 public class SqliteMemoryItemStore
-        implements MemoryItemStore
 {
+    public record NewItem(
+            MemoryItemScopeKind scopeKind,
+            String scopeId,
+            MemoryItemKind kind,
+            String text,
+            List<MemoryItemSource> sources,
+            MemoryItemConfidence confidence,
+            List<String> tags,
+            MemoryItemOrigin source) {}
+
     private static final TypeReference<List<MemoryItemSource>> SOURCES_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<String>> STRINGS_TYPE = new TypeReference<>() {};
 
@@ -65,7 +73,6 @@ public class SqliteMemoryItemStore
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    @Override
     public MemoryItem insert(NewItem newItem)
     {
         requireNonNull(newItem, "newItem is null");
@@ -88,7 +95,6 @@ public class SqliteMemoryItemStore
         return row;
     }
 
-    @Override
     public Optional<MemoryItem> findById(long id)
     {
         List<MemoryItem> hits = jdbc.query(
@@ -97,7 +103,6 @@ public class SqliteMemoryItemStore
         return hits.stream().findFirst();
     }
 
-    @Override
     public List<MemoryItem> findByScope(MemoryItemScopeKind scopeKind, String scopeId)
     {
         return jdbc.query(
@@ -107,7 +112,6 @@ public class SqliteMemoryItemStore
                 rowMapper(), scopeKind.name(), scopeId);
     }
 
-    @Override
     public List<MemoryItem> findPending(MemoryItemScopeKind scopeKind, String scopeId)
     {
         return jdbc.query(
@@ -117,7 +121,6 @@ public class SqliteMemoryItemStore
                 rowMapper(), scopeKind.name(), scopeId);
     }
 
-    @Override
     public List<MemoryItem> findLive(MemoryItemScopeKind scopeKind, String scopeId)
     {
         return jdbc.query(
@@ -128,7 +131,6 @@ public class SqliteMemoryItemStore
                 rowMapper(), scopeKind.name(), scopeId);
     }
 
-    @Override
     public Optional<MemoryItem> markApplied(long id, long nowMs)
     {
         // applied_at_ms is set only when null — applying an already-
@@ -143,13 +145,11 @@ public class SqliteMemoryItemStore
         return findById(id);
     }
 
-    @Override
     public boolean delete(long id)
     {
         return jdbc.update("DELETE FROM memory_item WHERE id = ?", id) > 0;
     }
 
-    @Override
     public boolean markSuperseded(long id, long supersededByItemId)
     {
         return jdbc.update(
@@ -157,7 +157,6 @@ public class SqliteMemoryItemStore
                 supersededByItemId, id) > 0;
     }
 
-    @Override
     public boolean markResolved(long id, long nowMs)
     {
         return jdbc.update(
@@ -165,7 +164,6 @@ public class SqliteMemoryItemStore
                 nowMs, id) > 0;
     }
 
-    @Override
     public int deleteByScope(MemoryItemScopeKind scopeKind, String scopeId)
     {
         return jdbc.update("DELETE FROM memory_item WHERE scope_kind = ? AND scope_id = ?",

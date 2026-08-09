@@ -273,27 +273,6 @@ public class SqliteCleanupOperationStore
         });
     }
 
-    public void requestRetry(
-            String stepId, String requestedBy, String reason, Instant requestedAt)
-    {
-        CleanupOperationHandler.requireText(requestedBy, "requestedBy");
-        CleanupOperationHandler.requireText(reason, "reason");
-        requireNonNull(requestedAt, "requestedAt is null");
-        inTransaction(() -> {
-            Step step = requireStep(stepId);
-            jdbc.update("""
-                    INSERT INTO cleanup_step_retry_request(
-                        id, cleanup_step_id, cleanup_operation_id, task_id,
-                        failed_attempt, requested_by, reason, status,
-                        requested_at_ms)
-                    SELECT ?, id, cleanup_operation_id, task_id, attempt_count,
-                           ?, ?, 'PENDING', ?
-                      FROM cleanup_step WHERE id = ?
-                    """, evidenceId("RETRY", step.id(), step.attemptCount()),
-                    requestedBy, reason, requestedAt.toEpochMilli(), stepId);
-        });
-    }
-
     /**
      * Records one exact user retry command for the current parked Cleanup
      * operation. The command id is the durable idempotency key.
@@ -333,34 +312,6 @@ public class SqliteCleanupOperationStore
             return new RecoveryAuthorization(
                     taskId, stepId, commandId, target.cleanupOperationId(),
                     target.dispatchTicketId(), requestedBy, reason, true);
-        });
-    }
-
-    public String waiveOptional(
-            String stepId, String actor, String reason, Instant waivedAt)
-    {
-        CleanupOperationHandler.requireText(actor, "actor");
-        CleanupOperationHandler.requireText(reason, "reason");
-        requireNonNull(waivedAt, "waivedAt is null");
-        return inTransaction(() -> {
-            Step step = requireStep(stepId);
-            String waiverId = evidenceId("WAIVER", step.id(), step.attemptCount());
-            jdbc.update("""
-                    INSERT INTO cleanup_step_waiver(
-                        id, cleanup_step_id, actor_id, reason, evidence,
-                        waived_at_ms)
-                    VALUES (?, ?, ?, ?, 'explicit optional cleanup waiver', ?)
-                    """, waiverId, stepId, actor, reason, waivedAt.toEpochMilli());
-            int changed = jdbc.update("""
-                    UPDATE cleanup_step
-                       SET status = 'WAIVED', failure_kind = NULL,
-                           last_error = NULL
-                     WHERE id = ? AND status = 'FAILED'
-                       AND requirement = 'OPTIONAL'
-                    """, stepId);
-            requireChanged(changed, "Cleanup waiver lost its exact failure");
-            resolveBlockers(step, "WAIVED", "optional cleanup explicitly waived", waivedAt);
-            return waiverId;
         });
     }
 

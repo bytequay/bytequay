@@ -25,7 +25,6 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -55,7 +54,7 @@ class TestTaskPushStore
     @Autowired
     private ThreadStore threads;
     @Autowired
-    private PRStore prs;
+    private SqlitePRStore prs;
 
     @Test
     void authorizationCannotBeRevokedAfterAnEffectWasClaimed()

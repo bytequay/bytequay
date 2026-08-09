@@ -17,7 +17,7 @@ package com.bytequay.app.domain;
  * Read-only projection for the dashboard list: a watched {@link PR} plus its
  * {@link PR.PRSyncSnapshot} and {@link PRTriageState}, flattened into one DTO
  * at the wire boundary. {@code pr.githubSync()} is never null here — {@link
- * com.bytequay.app.repository.PRStore#findDashboardEntries} only returns rows
+ * com.bytequay.app.repository.sqlite.SqlitePRStore#findDashboardEntries} only returns rows
  * with a non-null {@code watch_reason}. {@code triage} defaults to {@link
  * PRTriageState#empty} for a PR never touched from the dashboard.
  */

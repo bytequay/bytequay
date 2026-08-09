@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.concepts;
 
-import com.bytequay.app.repository.UserConceptStore;
+import com.bytequay.app.repository.sqlite.SqliteUserConceptStore;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Wraps the {@link UserConceptStore} and keeps the
+ * Wraps the {@link SqliteUserConceptStore} and keeps the
  * {@link ConceptRegistry} in sync with USER-scoped specs. The
  * Saved Views REST surface and the future predicate-DSL evaluator
  * both go through this service so the registry never has to be
@@ -48,10 +48,10 @@ public class SavedViewsService
      *  so they have to be safe wire identifiers. */
     private static final Pattern NAME_PATTERN = Pattern.compile("[a-z0-9][a-z0-9_-]{1,47}");
 
-    private final UserConceptStore store;
+    private final SqliteUserConceptStore store;
     private final ConceptRegistry registry;
 
-    public SavedViewsService(UserConceptStore store, ConceptRegistry registry)
+    public SavedViewsService(SqliteUserConceptStore store, ConceptRegistry registry)
     {
         this.store = requireNonNull(store, "store is null");
         this.registry = requireNonNull(registry, "registry is null");
@@ -62,7 +62,7 @@ public class SavedViewsService
     {
         try {
             registry.clearScope(ConceptScope.USER);
-            for (UserConceptStore.UserConceptRow row : store.findAll()) {
+            for (SqliteUserConceptStore.UserConceptRow row : store.findAll()) {
                 registry.registerRuntime(rowToSpec(row));
             }
             log.info("Loaded {} user-defined concept(s) into the registry",
@@ -73,7 +73,7 @@ public class SavedViewsService
         }
     }
 
-    public List<UserConceptStore.UserConceptRow> list()
+    public List<SqliteUserConceptStore.UserConceptRow> list()
     {
         return store.findAll();
     }
@@ -84,7 +84,7 @@ public class SavedViewsService
      * can pin the canonical fields. Validates the name to a small
      * wire-safe grammar and the definition to a non-blank string.
      */
-    public UserConceptStore.UserConceptRow save(
+    public SqliteUserConceptStore.UserConceptRow save(
             String name,
             ConceptKind kind,
             String definition,
@@ -101,7 +101,7 @@ public class SavedViewsService
                     HttpStatusCode.valueOf(400),
                     "definition is required");
         }
-        UserConceptStore.UserConceptRow row = store.save(
+        SqliteUserConceptStore.UserConceptRow row = store.save(
                 name, kind, definition, aka, criteriaJson);
         registry.registerRuntime(rowToSpec(row));
         return row;
@@ -124,12 +124,12 @@ public class SavedViewsService
         // clearScope(USER) + reload — the row is identified by name,
         // and no other USER row carries the same name (PK).
         registry.clearScope(ConceptScope.USER);
-        for (UserConceptStore.UserConceptRow remaining : store.findAll()) {
+        for (SqliteUserConceptStore.UserConceptRow remaining : store.findAll()) {
             registry.registerRuntime(rowToSpec(remaining));
         }
     }
 
-    private static ConceptSpec rowToSpec(UserConceptStore.UserConceptRow row)
+    private static ConceptSpec rowToSpec(SqliteUserConceptStore.UserConceptRow row)
     {
         return new ConceptSpec(
                 row.name(),

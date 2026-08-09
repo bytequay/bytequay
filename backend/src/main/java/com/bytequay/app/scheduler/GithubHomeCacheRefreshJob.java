@@ -15,8 +15,8 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.GithubHomeCacheStore;
-import com.bytequay.app.repository.GithubHomeCacheStore.EventFeed;
+import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
+import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.StatsService;
@@ -67,7 +67,7 @@ public class GithubHomeCacheRefreshJob
 
     private final CredentialService credentialService;
     private final AppSettingsStore settingsStore;
-    private final GithubHomeCacheStore homeCache;
+    private final SqliteGithubHomeCacheStore homeCache;
     private final RepoService repoService;
     private final StatsService statsService;
     private final QuietHoursPolicy quietHours;
@@ -77,7 +77,7 @@ public class GithubHomeCacheRefreshJob
     public GithubHomeCacheRefreshJob(
             CredentialService credentialService,
             AppSettingsStore settingsStore,
-            GithubHomeCacheStore homeCache,
+            SqliteGithubHomeCacheStore homeCache,
             RepoService repoService,
             StatsService statsService,
             QuietHoursPolicy quietHours)
@@ -142,7 +142,7 @@ public class GithubHomeCacheRefreshJob
         Optional<String> existingLogin = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN);
         Optional<Instant> fetchedAt = existingLogin
                 .flatMap(homeCache::findProfile)
-                .map(GithubHomeCacheStore.TimedValue::fetchedAt);
+                .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt);
         if (fetchedAt.isPresent() && Duration.between(fetchedAt.get(), now).compareTo(PROFILE_TTL) < 0) {
             return Optional.empty();
         }
@@ -158,7 +158,7 @@ public class GithubHomeCacheRefreshJob
     private void refreshEventsIfStale(String login, EventFeed feed, Instant now)
     {
         Instant fetchedAt = homeCache.findEvents(login, feed)
-                .map(GithubHomeCacheStore.TimedValue::fetchedAt)
+                .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt)
                 .orElse(Instant.EPOCH);
         if (Duration.between(fetchedAt, now).compareTo(EVENTS_TTL) < 0) {
             return;
@@ -177,7 +177,7 @@ public class GithubHomeCacheRefreshJob
     private void refreshStatsIfStale(String login, Instant now)
     {
         Instant fetchedAt = homeCache.findStats(login)
-                .map(GithubHomeCacheStore.TimedValue::fetchedAt)
+                .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt)
                 .orElse(Instant.EPOCH);
         if (Duration.between(fetchedAt, now).compareTo(STATS_TTL) < 0) {
             return;
@@ -193,7 +193,7 @@ public class GithubHomeCacheRefreshJob
     private void refreshOrgsIfStale(String login, Instant now)
     {
         Instant fetchedAt = homeCache.findOrgs(login)
-                .map(GithubHomeCacheStore.TimedValue::fetchedAt)
+                .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt)
                 .orElse(Instant.EPOCH);
         if (Duration.between(fetchedAt, now).compareTo(ORGS_TTL) < 0) {
             return;

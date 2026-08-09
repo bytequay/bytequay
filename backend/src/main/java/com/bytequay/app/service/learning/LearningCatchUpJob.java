@@ -17,8 +17,8 @@ import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.scheduler.QuietHoursPolicy;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import org.slf4j.Logger;
@@ -52,7 +52,7 @@ public class LearningCatchUpJob
     private final ProjectLearningService learning;
     private final ProjectLearningStore runs;
     private final KnowledgeItemStore knowledge;
-    private final WorkspaceStore workspaces;
+    private final SqliteWorkspaceStore workspaces;
     private final WorkspaceRepositoryResolver repositories;
     private final WatchedRepoStore watchedRepos;
     private final QuietHoursPolicy quietHours;
@@ -61,7 +61,7 @@ public class LearningCatchUpJob
             ProjectLearningService learning,
             ProjectLearningStore runs,
             KnowledgeItemStore knowledge,
-            WorkspaceStore workspaces,
+            SqliteWorkspaceStore workspaces,
             WorkspaceRepositoryResolver repositories,
             WatchedRepoStore watchedRepos,
             QuietHoursPolicy quietHours)

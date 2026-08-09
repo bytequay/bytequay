@@ -23,8 +23,8 @@ import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
-import com.bytequay.app.repository.WorkspaceStore.WorkspaceStats;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore.WorkspaceStats;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
 import com.bytequay.app.service.local.GitRunner;
@@ -56,7 +56,7 @@ import static org.mockito.Mockito.when;
 
 class TestWorkspaceService
 {
-    private final WorkspaceStore store = mock(WorkspaceStore.class);
+    private final SqliteWorkspaceStore store = mock(SqliteWorkspaceStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
     private final GitRunner git = mock(GitRunner.class);

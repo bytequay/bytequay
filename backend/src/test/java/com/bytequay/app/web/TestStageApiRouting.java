@@ -21,9 +21,9 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringServiceImpl;
@@ -53,7 +53,7 @@ class TestStageApiRouting
     private final StageServiceImpl stages = mock(StageServiceImpl.class);
     private final V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
     private final V2StageApiService v2 = mock(V2StageApiService.class);
-    private final StageStore stageStore = mock(StageStore.class);
+    private final SqliteStageStore stageStore = mock(SqliteStageStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final ReasoningEffortService reasoningEfforts =
             mock(ReasoningEffortService.class);

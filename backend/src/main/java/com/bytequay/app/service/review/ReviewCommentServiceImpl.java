@@ -18,8 +18,8 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.localpr.PRService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
@@ -39,13 +39,13 @@ public class ReviewCommentServiceImpl
 {
     public record SubmitResult(int submitted, String turnId) {}
 
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final PRService prService;
     private final TaskStore taskStore;
     private V2LocalReviewControl v2LocalReview;
 
     public ReviewCommentServiceImpl(
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             PRService prService,
             TaskStore taskStore)
     {

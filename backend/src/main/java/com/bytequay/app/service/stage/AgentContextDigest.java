@@ -14,8 +14,8 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.TaskStageIteration;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.sqlite.IterationStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -44,9 +44,9 @@ public class AgentContextDigest
     private static final int MAX_SUMMARIES = 50;
 
     private final IterationStore iterationStore;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
 
-    public AgentContextDigest(IterationStore iterationStore, StageStore stageStore)
+    public AgentContextDigest(IterationStore iterationStore, SqliteStageStore stageStore)
     {
         this.iterationStore = requireNonNull(iterationStore, "iterationStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");

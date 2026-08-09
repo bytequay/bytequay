@@ -896,13 +896,6 @@ public final class V2LocalReviewControl
                 blocking, "REQUESTED");
     }
 
-    public void cancelAgentReview(String reviewId, String reason)
-    {
-        String reviewIdValue = required(reviewId, "reviewId");
-        AgentReviewRequest request = findAgentRequest(reviewIdValue).orElse(null);
-        cancelAgentReviewRequest(request, reason);
-    }
-
     public void cancelAgentReviewRound(
             String reviewId, String reviewRoundId, String reason)
     {

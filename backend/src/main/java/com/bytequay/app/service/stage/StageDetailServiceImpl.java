@@ -49,11 +49,11 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadTurnStatus;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.sqlite.IterationStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BranchGuardServiceImpl;
 import com.bytequay.app.service.review.ReviewRoundServiceImpl;
@@ -95,7 +95,7 @@ public class StageDetailServiceImpl
     private static final Logger log = LoggerFactory.getLogger(StageDetailServiceImpl.class);
 
     private final TaskStore taskStore;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final IterationStore iterationStore;
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
@@ -108,7 +108,7 @@ public class StageDetailServiceImpl
 
     public StageDetailServiceImpl(
             TaskStore taskStore,
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             IterationStore iterationStore,
             ThreadStore threadStore,
             ThreadTurnStore turnStore,

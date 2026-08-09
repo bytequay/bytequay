@@ -21,9 +21,9 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.AgentRunStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteAgentRunStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -52,9 +52,9 @@ class TestStageStateMachine
     private static final String TASK_ID = "task-1";
     private static final UUID STAGE_ID = UUID.fromString("00000000-0000-0000-0000-000000000101");
 
-    private final StageStore stages = mock(StageStore.class);
+    private final SqliteStageStore stages = mock(SqliteStageStore.class);
     private final TaskStore tasks = mock(TaskStore.class);
-    private final AgentRunStore runs = mock(AgentRunStore.class);
+    private final SqliteAgentRunStore runs = mock(SqliteAgentRunStore.class);
     private final StageBudgetService budgets = mock(StageBudgetService.class);
     private final PlatformTransactionManager transactionManager = new TestTransactionManager();
     private final TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);

@@ -141,7 +141,7 @@ class TestLegacyExecutionRetirement
                 .doesNotContain(
                         "TaskStore",
                         "ThreadTurnStore",
-                        "ValidationPassStore",
+                        "SqliteValidationPassStore",
                         "ApplicationEventPublisher");
     }
 

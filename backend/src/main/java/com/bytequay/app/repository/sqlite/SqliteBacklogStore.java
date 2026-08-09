@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.BacklogItem;
-import com.bytequay.app.repository.BacklogStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,8 +28,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Component
-class SqliteBacklogStore
-        implements BacklogStore
+public class SqliteBacklogStore
 {
     private static final String COLUMNS = """
             id, thread_id, workspace_id, title, body, tags_json, priority,
@@ -49,7 +47,6 @@ class SqliteBacklogStore
         this.mapper = mapper;
     }
 
-    @Override
     @Transactional
     public BacklogItem save(BacklogItem item)
     {
@@ -110,7 +107,6 @@ class SqliteBacklogStore
                 "backlog item vanished after save: " + item.id()));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<BacklogItem> findByThread(String threadId)
     {
@@ -121,7 +117,6 @@ class SqliteBacklogStore
                 threadId);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<BacklogItem> findByWorkspace(String workspaceId)
     {
@@ -132,7 +127,6 @@ class SqliteBacklogStore
                 workspaceId);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<BacklogItem> findById(String id)
     {
@@ -142,7 +136,6 @@ class SqliteBacklogStore
                 id).stream().findFirst();
     }
 
-    @Override
     @Transactional
     public boolean resolveIfInProgressAndUnlinked(
             String id, String taskId, Instant resolvedAt)
@@ -168,7 +161,6 @@ class SqliteBacklogStore
                 BacklogItem.STATUS_IN_PROGRESS) == 1;
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<BacklogItem> findByWorkspaceAndItemKey(String workspaceId, String itemKey)
     {
@@ -180,7 +172,6 @@ class SqliteBacklogStore
                 itemKey).stream().findFirst();
     }
 
-    @Override
     @Transactional
     public String nextItemKey(String workspaceId)
     {
@@ -202,7 +193,6 @@ class SqliteBacklogStore
         return "BQ-" + value;
     }
 
-    @Override
     @Transactional
     public void delete(String id)
     {

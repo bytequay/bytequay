@@ -28,11 +28,11 @@ import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
-import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.repository.sqlite.SqlitePRStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -89,7 +89,7 @@ class TestInvestigationReviewGuidance
     @Autowired
     private InvestigationReviewStore reviews;
     @Autowired
-    private PRStore prs;
+    private SqlitePRStore prs;
     @Autowired
     private PRService localPrs;
     @Autowired

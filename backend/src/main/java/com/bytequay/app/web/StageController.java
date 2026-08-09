@@ -25,9 +25,9 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WorkModel;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringServiceImpl;
@@ -65,7 +65,7 @@ public class StageController
     private final StageServiceImpl service;
     private final StageDetailServiceImpl detailService;
     private final StageSteeringServiceImpl steeringService;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
     private final WorkModelResolver workModelResolver;
@@ -78,7 +78,7 @@ public class StageController
             StageServiceImpl service,
             StageDetailServiceImpl detailService,
             StageSteeringServiceImpl steeringService,
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             TaskStore taskStore,
             ThreadStore threadStore,
             WorkModelResolver workModelResolver)

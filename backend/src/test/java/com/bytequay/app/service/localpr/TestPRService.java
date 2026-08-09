@@ -28,11 +28,11 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPushAuthorization;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.LocalReviewSubmissionStore;
-import com.bytequay.app.repository.PRStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.sqlite.SqliteLocalReviewSubmissionStore;
+import com.bytequay.app.repository.sqlite.SqlitePRStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.repository.sqlite.TaskPushStore;
 import com.bytequay.app.service.review.DevReportServiceImpl;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -78,13 +78,13 @@ class TestPRService
 {
     private static final Instant NOW = Instant.parse("2026-07-01T00:00:00Z");
 
-    private final PRStore store = mock(PRStore.class);
+    private final SqlitePRStore store = mock(SqlitePRStore.class);
     private final DevReportServiceImpl devReports = mock(DevReportServiceImpl.class);
-    private final StageStore stageStore = mock(StageStore.class);
+    private final SqliteStageStore stageStore = mock(SqliteStageStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
-    private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
+    private final SqliteLocalReviewSubmissionStore submissions = mock(SqliteLocalReviewSubmissionStore.class);
     private final TaskPushStore pushes = mock(TaskPushStore.class);
     private final PlatformTransactionManager transactions = new TestTransactionManager();
     private final TaskCommandExecutor commands = new TaskCommandExecutor(transactions);

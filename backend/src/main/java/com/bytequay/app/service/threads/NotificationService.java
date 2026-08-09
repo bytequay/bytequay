@@ -16,13 +16,11 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
-import com.bytequay.app.repository.NotificationStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteNotificationStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -51,12 +49,12 @@ public class NotificationService
      *  enough to cover a busy hour without paginating. */
     private static final int DEFAULT_LIMIT = 50;
 
-    private final NotificationStore store;
+    private final SqliteNotificationStore store;
     private final ThreadStore threads;
 
     @Autowired
     public NotificationService(
-            NotificationStore store,
+            SqliteNotificationStore store,
             ThreadStore threads)
     {
         this.store = requireNonNull(store, "store is null");
@@ -64,7 +62,7 @@ public class NotificationService
     }
 
     /** Test/compatibility constructor. */
-    public NotificationService(NotificationStore store)
+    public NotificationService(SqliteNotificationStore store)
     {
         this.store = requireNonNull(store, "store is null");
         this.threads = null;
@@ -114,28 +112,11 @@ public class NotificationService
         return create(NotificationKind.NEEDS_ATTENTION, threadId, taskId, payloadJson);
     }
 
-    /** Used by after-commit listeners so a failed notification write cannot
-     *  poison the transaction that parked or concluded the task. */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public Notification notifyNeedsAttentionInNewTransaction(
-            String threadId, String taskId, String payloadJson)
-    {
-        return notifyNeedsAttention(threadId, taskId, payloadJson);
-    }
-
     /** Informational: auto-fix / ship-and-continue completed without
      *  needing the human's attention. */
     public Notification notifyAutoFixDone(String threadId, String taskId, String payloadJson)
     {
         return create(NotificationKind.AUTO_FIX_DONE, threadId, taskId, payloadJson);
-    }
-
-    /** A shipped PR is ready to merge (CI green, no unresolved comments,
-     *  reviewers approved). De-dup is the caller's job via the task's
-     *  merge-notification sentinel; this just writes the row. */
-    public Notification notifyReadyToMerge(String threadId, String taskId, String payloadJson)
-    {
-        return create(NotificationKind.READY_TO_MERGE, threadId, taskId, payloadJson);
     }
 
     public Notification create(NotificationKind kind, String threadId, String taskId, String payloadJson)

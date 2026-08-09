@@ -38,9 +38,9 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.RepoMetadataCacheStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
+import com.bytequay.app.repository.sqlite.SqliteRepoMetadataCacheStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
@@ -124,7 +124,7 @@ class TestPullRequestService
     private RepoListCache repoListCache;
 
     @Mock
-    private RepoMetadataCacheStore repoMetadataCache;
+    private SqliteRepoMetadataCacheStore repoMetadataCache;
 
     @Mock
     private PatResolver patResolver;
@@ -1671,7 +1671,7 @@ class TestPullRequestService
     void testMetadataChoicesUseFreshRepoCache()
     {
         PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
-        RepoMetadataCacheStore.Snapshot cached = new RepoMetadataCacheStore.Snapshot(
+        SqliteRepoMetadataCacheStore.Snapshot cached = new SqliteRepoMetadataCacheStore.Snapshot(
                 ImmutableList.of(new GitHubUserMatch("cached-user", null, null)),
                 ImmutableList.of(new IssueDetail.Label("cached-label", "123456")),
                 Instant.now());
@@ -1692,7 +1692,7 @@ class TestPullRequestService
     void testMetadataChoicesRefreshStaleRepoCache()
     {
         PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
-        RepoMetadataCacheStore.Snapshot stale = new RepoMetadataCacheStore.Snapshot(
+        SqliteRepoMetadataCacheStore.Snapshot stale = new SqliteRepoMetadataCacheStore.Snapshot(
                 ImmutableList.of(new GitHubUserMatch("stale-user", null, null)),
                 ImmutableList.of(new IssueDetail.Label("stale-label", "123456")),
                 Instant.now().minus(Duration.ofDays(8)));

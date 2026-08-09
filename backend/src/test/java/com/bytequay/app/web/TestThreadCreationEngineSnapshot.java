@@ -19,7 +19,7 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
@@ -57,7 +57,7 @@ class TestThreadCreationEngineSnapshot
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
-    private WorkspaceStore workspaces;
+    private SqliteWorkspaceStore workspaces;
     @Autowired
     private WorkspaceConfigurationService workspaceSettings;
     @Autowired

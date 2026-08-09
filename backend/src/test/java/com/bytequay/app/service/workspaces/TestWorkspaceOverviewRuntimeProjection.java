@@ -24,10 +24,10 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkspaceCardDto;
-import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.sqlite.SqliteBacklogStore;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import com.bytequay.app.service.threads.NotificationService;
 import org.junit.jupiter.api.Test;
@@ -82,7 +82,7 @@ class TestWorkspaceOverviewRuntimeProjection
         WorkspaceOverviewService service = new WorkspaceOverviewService(
                 workspaces, creations, configuration, threads, runtime,
                 tasks, taskRuntime,
-                mock(SessionProjectionService.class), mock(BacklogStore.class),
+                mock(SessionProjectionService.class), mock(SqliteBacklogStore.class),
                 mock(NotificationService.class), mock(WatchedRepoStore.class),
                 mock(JdbcTemplate.class));
 

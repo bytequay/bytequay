@@ -14,7 +14,7 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.PR;
-import com.bytequay.app.repository.PRStore;
+import com.bytequay.app.repository.sqlite.SqlitePRStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -31,7 +31,7 @@ class TestPrDuplicateReconciler
 {
     private static final Instant NOW = Instant.parse("2026-07-01T00:00:00Z");
 
-    private final PRStore store = mock(PRStore.class);
+    private final SqlitePRStore store = mock(SqlitePRStore.class);
     private final PRService prService = mock(PRService.class);
     private final PrDuplicateReconciler reconciler = new PrDuplicateReconciler(store, prService);
 

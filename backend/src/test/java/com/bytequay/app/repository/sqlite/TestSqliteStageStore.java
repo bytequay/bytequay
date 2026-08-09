@@ -28,7 +28,6 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -56,7 +55,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteStageStore
 {
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Autowired
     private TaskStore taskStore;
     @Autowired

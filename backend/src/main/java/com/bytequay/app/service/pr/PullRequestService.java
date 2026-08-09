@@ -46,10 +46,10 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.RepoMetadataCacheStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
+import com.bytequay.app.repository.sqlite.SqliteRepoMetadataCacheStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
@@ -137,7 +137,7 @@ public class PullRequestService
     private final GitHubResponseCache responseCache;
     private final PullRequestDetailInvalidator detailInvalidator;
     private final RepoListCache repoListCache;
-    private final RepoMetadataCacheStore repoMetadataCache;
+    private final SqliteRepoMetadataCacheStore repoMetadataCache;
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final PatResolver patResolver;
@@ -181,7 +181,7 @@ public class PullRequestService
             GitHubResponseCache responseCache,
             PullRequestDetailInvalidator detailInvalidator,
             RepoListCache repoListCache,
-            RepoMetadataCacheStore repoMetadataCache,
+            SqliteRepoMetadataCacheStore repoMetadataCache,
             PatResolver patResolver,
             TaskStore taskStore,
             CollaboratorPermissionService collaboratorPermissions,
@@ -338,12 +338,6 @@ public class PullRequestService
     public String resolveCurrentDashboardLogin()
     {
         return resolveCurrentLogin(patResolver.resolve());
-    }
-
-    /** Authenticated login for a repo-scoped credential, if GitHub can resolve it. */
-    public String resolveCurrentRepoLogin(String repoFullName)
-    {
-        return resolveCurrentLogin(patResolver.resolve(repoFullName));
     }
 
     /** True when an under-enriched PR is due for a forced backfill sync:
@@ -1254,8 +1248,8 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         IssueDetail issue = gitHub.fetchIssueDetail(pat, ref.repoRef(), number);
-        Optional<RepoMetadataCacheStore.Snapshot> cached = repoMetadataCache.find(ref.repoFullName());
-        RepoMetadataCacheStore.Snapshot choices = cached
+        Optional<SqliteRepoMetadataCacheStore.Snapshot> cached = repoMetadataCache.find(ref.repoFullName());
+        SqliteRepoMetadataCacheStore.Snapshot choices = cached
                 .filter(snapshot -> !snapshot.fetchedAt().isBefore(Instant.now().minus(REPO_METADATA_TTL)))
                 .orElseGet(() -> refreshMetadataChoices(pat, ref, cached));
         return new MetadataChoices(
@@ -1265,10 +1259,10 @@ public class PullRequestService
                 issue.labels().stream().map(IssueDetail.Label::name).toList());
     }
 
-    private RepoMetadataCacheStore.Snapshot refreshMetadataChoices(
+    private SqliteRepoMetadataCacheStore.Snapshot refreshMetadataChoices(
             String pat,
             PullRequestRef ref,
-            Optional<RepoMetadataCacheStore.Snapshot> stale)
+            Optional<SqliteRepoMetadataCacheStore.Snapshot> stale)
     {
         List<GitHubUserMatch> users = gitHub.fetchAssignableUsers(pat, ref.repoRef());
         List<IssueDetail.Label> labels = gitHub.fetchRepoLabels(pat, ref.repoRef());
@@ -1283,7 +1277,7 @@ public class PullRequestService
         }
         Instant fetchedAt = Instant.now();
         repoMetadataCache.save(ref.repoFullName(), users, labels, fetchedAt);
-        return new RepoMetadataCacheStore.Snapshot(users, labels, fetchedAt);
+        return new SqliteRepoMetadataCacheStore.Snapshot(users, labels, fetchedAt);
     }
 
     public void setPullRequestAssignee(String repo, int number, String login, boolean selected)

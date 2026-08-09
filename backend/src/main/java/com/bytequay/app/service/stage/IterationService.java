@@ -18,10 +18,10 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.ThreadTurnEvent;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.sqlite.IterationStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,13 +42,13 @@ public class IterationService
     public static final int SUMMARY_MAX_CHARS = 280;
 
     private final IterationStore iterationStore;
-    private final StageStore stageStore;
+    private final SqliteStageStore stageStore;
     private final TaskStore taskStore;
     private final ThreadTurnEventStore turnEventStore;
 
     public IterationService(
             IterationStore iterationStore,
-            StageStore stageStore,
+            SqliteStageStore stageStore,
             TaskStore taskStore,
             ThreadTurnEventStore turnEventStore)
     {

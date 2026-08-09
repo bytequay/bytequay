@@ -32,8 +32,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
 /** Per-checkout serialization and coalescing for CodeGraph updates. */
@@ -68,27 +66,17 @@ public class CodeGraphUpdateCoordinator
 
     public CodeGraphResult ensureFreshSync(Path checkout, String reason)
     {
-        return request(checkout, reason, false, true, 0);
-    }
-
-    /**
-     * Freshness with a wall-clock cap. If the index has not finished within
-     * {@code waitMillis}, the sync keeps running in the background and the
-     * caller proceeds rather than blocking (used on the agent turn's hot path).
-     */
-    public CodeGraphResult ensureFreshWithin(Path checkout, String reason, long waitMillis)
-    {
-        return request(checkout, reason, false, true, waitMillis);
+        return request(checkout, reason, false, true);
     }
 
     public CodeGraphResult rebuildSync(Path checkout, String reason)
     {
-        return request(checkout, reason, true, true, 0);
+        return request(checkout, reason, true, true);
     }
 
     public void requestRefreshAsync(Path checkout, String reason)
     {
-        request(checkout, reason, false, false, 0);
+        request(checkout, reason, false, false);
     }
 
     /**
@@ -166,7 +154,7 @@ public class CodeGraphUpdateCoordinator
         }
     }
 
-    private CodeGraphResult request(Path checkout, String reason, boolean force, boolean wait, long waitMillis)
+    private CodeGraphResult request(Path checkout, String reason, boolean force, boolean wait)
     {
         if (codeGraph == null || executor == null) {
             return CodeGraphResult.skipped("CodeGraph integration disabled.");
@@ -190,10 +178,7 @@ public class CodeGraphUpdateCoordinator
             return CodeGraphResult.ok("CodeGraph refresh queued for " + key);
         }
         try {
-            return waitMillis > 0 ? future.get(waitMillis, TimeUnit.MILLISECONDS) : future.get();
-        }
-        catch (TimeoutException e) {
-            return CodeGraphResult.ok("CodeGraph refresh still running for " + key);
+            return future.get();
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();

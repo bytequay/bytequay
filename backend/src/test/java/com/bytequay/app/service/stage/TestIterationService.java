@@ -18,10 +18,10 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStageIteration;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.sqlite.IterationStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -38,7 +38,7 @@ import static org.mockito.Mockito.when;
 class TestIterationService
 {
     private final IterationStore iterations = mock(IterationStore.class);
-    private final StageStore stages = mock(StageStore.class);
+    private final SqliteStageStore stages = mock(SqliteStageStore.class);
     private final TaskStore tasks = mock(TaskStore.class);
     private final ThreadTurnEventStore events = mock(ThreadTurnEventStore.class);
     private final IterationService service = new IterationService(

@@ -14,7 +14,7 @@
 package com.bytequay.app.service.harness;
 
 import com.bytequay.app.domain.PRTimelineEntry;
-import com.bytequay.app.repository.PRStore;
+import com.bytequay.app.repository.sqlite.SqlitePRStore;
 import com.bytequay.app.service.harness.GitHubActionsProbe.FailedJob;
 import com.bytequay.app.service.harness.GitHubActionsProbe.ProbeResult;
 import com.bytequay.app.service.harness.HarnessLogParser.ParsedFailure;
@@ -102,7 +102,7 @@ public class HarnessOrchestrator
     private final SyncRunStream stream;
     private final HarnessGitSafety gitSafety;
     private final GitRunner git;
-    private final PRStore prs;
+    private final SqlitePRStore prs;
     private final ObjectMapper mapper;
     private final Executor executor;
     private final Set<String> workers = ConcurrentHashMap.newKeySet();
@@ -117,7 +117,7 @@ public class HarnessOrchestrator
             SyncRunStream stream,
             HarnessGitSafety gitSafety,
             GitRunner git,
-            PRStore prs,
+            SqlitePRStore prs,
             ObjectMapper mapper,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {

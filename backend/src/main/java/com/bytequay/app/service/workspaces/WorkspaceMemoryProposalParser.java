@@ -18,7 +18,7 @@ import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemOrigin;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
-import com.bytequay.app.repository.MemoryItemStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
 
 /**
  * Parses the existing distiller's {@code proposedMd} blob into a
- * sequence of typed {@link MemoryItemStore.NewItem} rows so Phase A's
+ * sequence of typed {@link SqliteMemoryItemStore.NewItem} rows so Phase A's
  * memory_item table is populated whenever a blob proposal lands.
  * v1 lives next to the blob path; once the UI and tools have
  * migrated, the blob output becomes the human-readable digest and
@@ -86,12 +86,12 @@ public class WorkspaceMemoryProposalParser
      * sections are dropped silently so a new heading the summariser
      * starts emitting doesn't crash the pipeline.
      */
-    public List<MemoryItemStore.NewItem> parse(String workspaceId, String proposedMd)
+    public List<SqliteMemoryItemStore.NewItem> parse(String workspaceId, String proposedMd)
     {
         if (proposedMd == null || proposedMd.isBlank() || workspaceId == null) {
             return List.of();
         }
-        List<MemoryItemStore.NewItem> out = new ArrayList<>();
+        List<SqliteMemoryItemStore.NewItem> out = new ArrayList<>();
         MemoryItemKind currentKind = null;
         for (String raw : proposedMd.split("\\R", -1)) {
             String line = raw.stripTrailing();
@@ -127,7 +127,7 @@ public class WorkspaceMemoryProposalParser
             MemoryItemConfidence confidence = currentKind == MemoryItemKind.FOCUS_SHIFT
                     ? MemoryItemConfidence.HIGH
                     : MemoryItemConfidence.MEDIUM;
-            out.add(new MemoryItemStore.NewItem(
+            out.add(new SqliteMemoryItemStore.NewItem(
                     MemoryItemScopeKind.WORKSPACE,
                     workspaceId,
                     currentKind,

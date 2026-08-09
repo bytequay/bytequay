@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.repository.AgentRunStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,8 +23,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 @Component
-class SqliteAgentRunStore
-        implements AgentRunStore
+public class SqliteAgentRunStore
 {
     private final AgentRunJpaRepository runs;
 
@@ -34,7 +32,11 @@ class SqliteAgentRunStore
         this.runs = runs;
     }
 
-    @Override
+    public AgentRun insert(AgentRun run)
+    {
+        return save(run);
+    }
+
     @Transactional
     public AgentRun save(AgentRun run)
     {
@@ -67,14 +69,12 @@ class SqliteAgentRunStore
         return toDomain(runs.save(e));
     }
 
-    @Override
     @Transactional
     public boolean updateStatusIf(String runId, String expected, String to, Instant finishedAt)
     {
         return runs.casStatus(runId, expected, to, epochOrNull(finishedAt)) == 1;
     }
 
-    @Override
     @Transactional
     public boolean transitionIf(
             String runId,
@@ -88,28 +88,24 @@ class SqliteAgentRunStore
                 runId, expected, to, epochOrNull(finishedAt), pauseReason, outcome) == 1;
     }
 
-    @Override
     @Transactional
     public void updateProgress(String runId, int iterations, long costUsdMilli, long tokensIn, long tokensOut)
     {
         runs.updateProgress(runId, iterations, costUsdMilli, tokensIn, tokensOut);
     }
 
-    @Override
     @Transactional
     public void updateBudget(String runId, Integer budget)
     {
         runs.updateBudget(runId, budget);
     }
 
-    @Override
     @Transactional
     public void updateHeadline(String runId, String headline, String outcome)
     {
         runs.updateHeadline(runId, headline, outcome);
     }
 
-    @Override
     @Transactional
     public void updateOwnership(
             String runId,
@@ -122,14 +118,12 @@ class SqliteAgentRunStore
         runs.updateOwnership(runId, workspaceId, threadId, provider, model, launchInput);
     }
 
-    @Override
     @Transactional
     public void updateMetrics(String runId, String metricsJson)
     {
         runs.updateMetrics(runId, metricsJson);
     }
 
-    @Override
     @Transactional
     public void updateAccounting(
             String runId,
@@ -141,14 +135,12 @@ class SqliteAgentRunStore
         runs.updateAccounting(runId, costUsdMilli, tokensIn, tokensOut, stepCursor);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<AgentRun> findById(String id)
     {
         return runs.findById(id).map(SqliteAgentRunStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<AgentRun> findByWorkspace(String workspaceId)
     {
@@ -157,7 +149,6 @@ class SqliteAgentRunStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<AgentRun> findByThread(String threadId)
     {
@@ -166,7 +157,6 @@ class SqliteAgentRunStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<AgentRun> findByReviewRound(String reviewRoundId)
     {
@@ -175,7 +165,6 @@ class SqliteAgentRunStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<AgentRun> findByTask(String taskId, String kind, String parentStageId)
     {
@@ -186,7 +175,6 @@ class SqliteAgentRunStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<AgentRun> findLiveByTask(String taskId)
     {
@@ -196,7 +184,6 @@ class SqliteAgentRunStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<AgentRun> findLiveByTaskAndKind(String taskId, String kind)
     {

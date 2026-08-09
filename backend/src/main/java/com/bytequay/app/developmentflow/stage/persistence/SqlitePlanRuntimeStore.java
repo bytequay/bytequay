@@ -656,17 +656,6 @@ public class SqlitePlanRuntimeStore
         return rows.getFirst();
     }
 
-    public PlanUserWaitContext requireUserWaitContext(
-            String turnId,
-            String operationId,
-            String waitKind,
-            String waitId)
-    {
-        return findUserWaitContext(turnId, operationId, waitKind, waitId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Plan user-wait owner is stale or unavailable"));
-    }
-
     public Optional<PlanUserWaitContext> findUserWaitContext(
             String turnId,
             String operationId,

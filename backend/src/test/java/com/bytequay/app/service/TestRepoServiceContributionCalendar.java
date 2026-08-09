@@ -15,11 +15,11 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.GithubHomeCacheStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.RepoMetaStore;
+import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WatchedRepoPurger;
 import org.junit.jupiter.api.Test;
@@ -82,7 +82,7 @@ class TestRepoServiceContributionCalendar
                 mock(PrViewStateStore.class),
                 mock(RepoListCache.class),
                 mock(RepoMetaStore.class),
-                mock(GithubHomeCacheStore.class),
+                mock(SqliteGithubHomeCacheStore.class),
                 mock(AppSettingsStore.class),
                 patResolver,
                 mock(IssueOriginService.class),

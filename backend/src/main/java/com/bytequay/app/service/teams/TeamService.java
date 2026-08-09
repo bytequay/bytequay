@@ -451,13 +451,6 @@ public class TeamService
         return grouped;
     }
 
-    /** Drop the cached entry for one team. Called by mutations (member
-     *  edit, mark-handled) so the next read is fresh. */
-    public void invalidateTeamPullsCache(long teamId)
-    {
-        teamPullsCache.remove(teamId);
-    }
-
     private record CachedTeamPulls(Map<MyPrColumn, List<PullRequest>> grouped, Instant expiresAt)
     {
         boolean isValid()

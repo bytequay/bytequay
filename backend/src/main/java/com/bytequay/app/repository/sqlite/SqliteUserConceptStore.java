@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.sqlite;
 
-import com.bytequay.app.repository.UserConceptStore;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,15 +27,23 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * SQLite-backed implementation of {@link UserConceptStore}. The
+ * SQLite-backed store for user-defined concepts. The
  * {@code aka} list is JSON-encoded into a single TEXT column —
  * cheap to query and read, and v1 never needs to query <em>inside</em>
  * the array.
  */
 @Repository
 public class SqliteUserConceptStore
-        implements UserConceptStore
 {
+    public record UserConceptRow(
+            String name,
+            ConceptKind kind,
+            String definition,
+            List<String> aka,
+            String criteriaJson,
+            long createdAtMs,
+            long updatedAtMs) {}
+
     private static final String UPSERT_SQL = ""
             + "INSERT INTO concept_user "
             + "    (name, kind, definition, aka_json, criteria_json, created_at_ms, updated_at_ms) "
@@ -60,7 +67,6 @@ public class SqliteUserConceptStore
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    @Override
     public List<UserConceptRow> findAll()
     {
         return jdbc.query(
@@ -69,7 +75,6 @@ public class SqliteUserConceptStore
                 rowMapper());
     }
 
-    @Override
     public Optional<UserConceptRow> findByName(String name)
     {
         requireNonNull(name, "name is null");
@@ -81,7 +86,6 @@ public class SqliteUserConceptStore
         return hits.stream().findFirst();
     }
 
-    @Override
     public UserConceptRow save(
             String name,
             ConceptKind kind,
@@ -110,7 +114,6 @@ public class SqliteUserConceptStore
         return row;
     }
 
-    @Override
     public boolean delete(String name)
     {
         requireNonNull(name, "name is null");

@@ -38,7 +38,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -434,49 +433,6 @@ public class AiReviewService
                 diff,
                 skill.map(Skill::body).orElse(null));
         ReviewOutput output = reviewer.review(request);
-        return draftStore.save(prId, repo, number, raw.headSha(), output);
-    }
-
-    /**
-     * Streaming variant of {@link #runReview}. Forwards token deltas to
-     * {@code onDelta} as they arrive from the model and persists the parsed
-     * draft once streaming finishes. The returned draft is identical in shape
-     * to the non-streaming path — callers that already render
-     * {@link AiReviewDraft} need no special-casing.
-     */
-    public AiReviewDraft streamReview(
-            long prId,
-            String repo,
-            int number,
-            Consumer<String> onDelta)
-    {
-        requireNonNull(onDelta, "onDelta is null");
-        Optional<Skill> skill = skillService.forRepo(repo);
-        LlmReviewer reviewer = registry.active();
-        if (!reviewer.isConfigured()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(412),
-                    "The active LLM provider (" + reviewer.displayName() + ") has no API key configured. "
-                            + "Add it in Settings → AI review.");
-        }
-
-        String pat = patResolver.resolve(repo);
-        PullRequestRef ref = parseRef(repo, number);
-        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
-        if (raw == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response from GitHub PR detail");
-        }
-        String diff = gitHub.fetchPrDiff(pat, ref);
-
-        ReviewRequest request = new ReviewRequest(
-                repo,
-                number,
-                null,
-                raw.body(),
-                raw.headSha(),
-                diff,
-                skill.map(Skill::body).orElse(null));
-        ReviewOutput output = reviewer.reviewStream(request, onDelta);
         return draftStore.save(prId, repo, number, raw.headSha(), output);
     }
 

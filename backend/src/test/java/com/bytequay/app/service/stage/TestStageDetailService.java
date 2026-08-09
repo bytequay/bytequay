@@ -30,11 +30,11 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.sqlite.IterationStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -65,7 +65,7 @@ class TestStageDetailService
     @Autowired
     private StageDetailServiceImpl detailService;
     @Autowired
-    private StageStore stageStore;
+    private SqliteStageStore stageStore;
     @Autowired
     private IterationStore iterationStore;
     @Autowired
@@ -73,7 +73,7 @@ class TestStageDetailService
     @Autowired
     private ThreadStore threadStore;
     @Autowired
-    private ReviewRoundStore reviewRoundStore;
+    private SqliteReviewRoundStore reviewRoundStore;
 
     @Test
     void composesIterationBandsToolCallsSummariesAndMetrics()

@@ -34,12 +34,12 @@ import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.GithubHomeCacheStore;
-import com.bytequay.app.repository.GithubHomeCacheStore.EventFeed;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
 import com.bytequay.app.repository.sqlite.RepoMetaStore;
+import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
+import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WatchedRepoPurger;
 import com.google.common.collect.ImmutableList;
@@ -105,7 +105,7 @@ public class RepoService
     private final PrViewStateStore viewStateStore;
     private final RepoListCache repoListCache;
     private final RepoMetaStore repoMetaStore;
-    private final GithubHomeCacheStore homeCache;
+    private final SqliteGithubHomeCacheStore homeCache;
     private final AppSettingsStore settingsStore;
     private final PatResolver patResolver;
     private final IssueOriginService issueOrigins;
@@ -119,7 +119,7 @@ public class RepoService
             PrViewStateStore viewStateStore,
             RepoListCache repoListCache,
             RepoMetaStore repoMetaStore,
-            GithubHomeCacheStore homeCache,
+            SqliteGithubHomeCacheStore homeCache,
             AppSettingsStore settingsStore,
             PatResolver patResolver,
             IssueOriginService issueOrigins,
@@ -142,11 +142,6 @@ public class RepoService
     public List<WatchedRepo> listWatchedRepos()
     {
         return watchedRepoStore.findAll();
-    }
-
-    public WatchedRepo addWatchedRepo(String owner, String repo)
-    {
-        return watchedRepoStore.add(owner, repo);
     }
 
     /**
@@ -222,7 +217,7 @@ public class RepoService
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not yet cached");
         }
         return homeCache.findProfile(login.get())
-                .map(GithubHomeCacheStore.TimedValue::value)
+                .map(SqliteGithubHomeCacheStore.TimedValue::value)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not yet cached"));
     }
 
@@ -604,7 +599,7 @@ public class RepoService
             return ImmutableList.of();
         }
         return homeCache.findOrgs(login.get())
-                .map(GithubHomeCacheStore.TimedValue::value)
+                .map(SqliteGithubHomeCacheStore.TimedValue::value)
                 .orElse(ImmutableList.of());
     }
 
@@ -682,14 +677,14 @@ public class RepoService
     public List<RecentEvent> getRecentEvents(String login)
     {
         return homeCache.findEvents(login, EventFeed.RECENT)
-                .map(GithubHomeCacheStore.TimedValue::value)
+                .map(SqliteGithubHomeCacheStore.TimedValue::value)
                 .orElse(ImmutableList.of());
     }
 
     public List<RecentEvent> getFollowingEvents(String login)
     {
         return homeCache.findEvents(login, EventFeed.FOLLOWING)
-                .map(GithubHomeCacheStore.TimedValue::value)
+                .map(SqliteGithubHomeCacheStore.TimedValue::value)
                 .orElse(ImmutableList.of());
     }
 

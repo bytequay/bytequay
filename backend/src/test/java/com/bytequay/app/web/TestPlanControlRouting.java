@@ -15,9 +15,9 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
 import com.bytequay.app.developmentflow.stage.V2PlanControlService;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringServiceImpl;
@@ -100,7 +100,7 @@ class TestPlanControlRouting
                 mock(StageServiceImpl.class),
                 mock(StageDetailServiceImpl.class),
                 mock(StageSteeringServiceImpl.class),
-                mock(StageStore.class),
+                mock(SqliteStageStore.class),
                 tasks,
                 mock(ThreadStore.class),
                 mock(WorkModelResolver.class));

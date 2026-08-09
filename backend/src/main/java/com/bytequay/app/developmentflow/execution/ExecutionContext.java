@@ -175,11 +175,6 @@ public final class ExecutionContext
         evidence.recordUsage(executionId, inputTokens, outputTokens, costUsdMilli);
     }
 
-    public void heartbeatEvidence()
-    {
-        evidence.heartbeat(executionId, clock.instant());
-    }
-
     private static String requireNonBlank(String value, String name)
     {
         requireNonNull(value, name + " is null");

@@ -175,14 +175,6 @@ public final class RemoteDevelopmentStageManager
                 StageCheckpoint.WAITING_CI);
     }
 
-    /** Completes one fully applied feedback batch from its immutable effect proof. */
-    public CommandResult<State> completeRemoteFeedback(
-            FeedbackCompletionCommand command)
-    {
-        requireNonNull(command, "command is null");
-        return execute(command.stage(), () -> completeRemoteFeedbackInCommand(command));
-    }
-
     public CommandResult<State> completeRemoteFeedbackInCommand(
             FeedbackCompletionCommand command)
     {
@@ -220,13 +212,6 @@ public final class RemoteDevelopmentStageManager
                 StageCheckpoint.READY_TO_MERGE);
     }
 
-    /** Accepts an observed non-Draft snapshot after a durable mark-ready effect. */
-    public CommandResult<State> completeMarkReady(RemoteGateCommand command)
-    {
-        requireNonNull(command, "command is null");
-        return execute(command.stage(), () -> completeMarkReadyInCommand(command));
-    }
-
     public CommandResult<State> completeMarkReadyInCommand(RemoteGateCommand command)
     {
         requireNonNull(command, "command is null");
@@ -242,13 +227,6 @@ public final class RemoteDevelopmentStageManager
                 command.stage(), command.proofId(), "COMPLETE_REMOTE_MARK_READY",
                 StageCheckpoint.AWAITING_READY,
                 StageCheckpoint.WAITING_REMOTE_REVIEW);
-    }
-
-    /** Promotes only fresh, ready exact-head evidence owned by this Stage. */
-    public CommandResult<State> acceptReadinessEvidence(RemoteGateCommand command)
-    {
-        requireNonNull(command, "command is null");
-        return execute(command.stage(), () -> acceptReadinessEvidenceInCommand(command));
     }
 
     public CommandResult<State> acceptReadinessEvidenceInCommand(

@@ -23,8 +23,8 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.scheduler.QuietHoursPolicy;
 import com.bytequay.app.service.localpr.PRSyncService;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,7 +50,7 @@ class TestScheduledReviewService
     private PRSyncService sync;
     private InvestigationReviewService reviews;
     private InvestigationReviewStore reviewStore;
-    private WorkspaceStore workspaces;
+    private SqliteWorkspaceStore workspaces;
     private QuietHoursPolicy quietHours;
     private ScheduledReviewService service;
 
@@ -62,7 +62,7 @@ class TestScheduledReviewService
         sync = mock(PRSyncService.class);
         reviews = mock(InvestigationReviewService.class);
         reviewStore = mock(InvestigationReviewStore.class);
-        workspaces = mock(WorkspaceStore.class);
+        workspaces = mock(SqliteWorkspaceStore.class);
         quietHours = mock(QuietHoursPolicy.class);
         when(quietHours.isQuietNow()).thenReturn(false);
         when(workspaces.listWorkspaces()).thenReturn(List.of());

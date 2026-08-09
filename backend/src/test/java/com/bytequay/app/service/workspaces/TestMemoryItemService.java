@@ -19,7 +19,7 @@ import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.MemoryItemOrigin;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
-import com.bytequay.app.repository.MemoryItemStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -48,9 +48,9 @@ class TestMemoryItemService
         return "ws-test-" + UUID.randomUUID();
     }
 
-    private static MemoryItemStore.NewItem decisionItem(String scopeId, String text)
+    private static SqliteMemoryItemStore.NewItem decisionItem(String scopeId, String text)
     {
-        return new MemoryItemStore.NewItem(
+        return new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 scopeId,
                 MemoryItemKind.DECISION,
@@ -118,7 +118,7 @@ class TestMemoryItemService
     void proposeRejectsEmptySources()
     {
         String scope = uniqueScope();
-        MemoryItemStore.NewItem noSources = new MemoryItemStore.NewItem(
+        SqliteMemoryItemStore.NewItem noSources = new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE, scope, MemoryItemKind.DECISION,
                 "Should be rejected.", List.of(), MemoryItemConfidence.HIGH,
                 List.of(), MemoryItemOrigin.DISTILL);
@@ -133,7 +133,7 @@ class TestMemoryItemService
     {
         String scope = uniqueScope();
         MemoryItem decision = service.propose(decisionItem(scope, "Pin Spring Boot 3.5."));
-        MemoryItem convention = service.propose(new MemoryItemStore.NewItem(
+        MemoryItem convention = service.propose(new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE, scope, MemoryItemKind.CONVENTION,
                 "Tests use @SpringBootTest only for integration cases.",
                 List.of(MemoryItemSource.thread("thread-2")),

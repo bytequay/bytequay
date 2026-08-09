@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.StageMessageStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,8 +25,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteStageMessageStore
-        implements StageMessageStore
+public class SqliteStageMessageStore
 {
     private final StageMessageJpaRepository messages;
 
@@ -36,7 +34,6 @@ class SqliteStageMessageStore
         this.messages = requireNonNull(messages, "messages is null");
     }
 
-    @Override
     @Transactional
     public void appendMessage(ThreadMessage message)
     {
@@ -59,7 +56,6 @@ class SqliteStageMessageStore
         messages.save(entity);
     }
 
-    @Override
     public List<ThreadMessage> listMessages(String stageId)
     {
         return messages.findByStageIdOrderBySeqAsc(stageId).stream()
@@ -67,7 +63,6 @@ class SqliteStageMessageStore
                 .toList();
     }
 
-    @Override
     public List<ThreadMessage> listMessagesByTask(String taskId)
     {
         return messages.findByTaskIdOrderBySeqAsc(taskId).stream()
@@ -75,19 +70,16 @@ class SqliteStageMessageStore
                 .toList();
     }
 
-    @Override
     public Optional<Long> maxMessageSeq(String stageId)
     {
         return Optional.ofNullable(messages.maxSeq(stageId));
     }
 
-    @Override
     public long sumTokensBetween(String stageId, long firstSeq, long lastSeq)
     {
         return messages.sumTokensBetween(stageId, firstSeq, lastSeq);
     }
 
-    @Override
     public List<ThreadMessage> listMessagesBetween(String stageId, long firstSeq, long lastSeq)
     {
         return messages.findByStageIdAndSeqBetween(stageId, firstSeq, lastSeq).stream()
@@ -95,7 +87,6 @@ class SqliteStageMessageStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void deleteByStage(String stageId)
     {

@@ -17,7 +17,7 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -109,7 +109,7 @@ class TestWatchedRepoPurger
     private static final class Fixture
     {
         final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
-        final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
+        final SqliteWorkspaceStore workspaceStore = mock(SqliteWorkspaceStore.class);
         final WorkspaceService workspaces = mock(WorkspaceService.class);
         final JdbcTemplate jdbc = mock(JdbcTemplate.class);
         final WatchedRepoPurger purger;

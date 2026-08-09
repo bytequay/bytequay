@@ -14,8 +14,8 @@
 package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.KnowledgeItem;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.workspaces.MemoryItemService;
@@ -223,8 +223,8 @@ class TestKnowledgeIngestor
                 "ws-1", bundle(verifiedChain()), List.of(decision), clone);
 
         assertThat(result.memoryProposals()).isEqualTo(1);
-        ArgumentCaptor<MemoryItemStore.NewItem> proposed =
-                ArgumentCaptor.forClass(MemoryItemStore.NewItem.class);
+        ArgumentCaptor<SqliteMemoryItemStore.NewItem> proposed =
+                ArgumentCaptor.forClass(SqliteMemoryItemStore.NewItem.class);
         verify(memoryItems).propose(proposed.capture());
         assertThat(proposed.getValue().sources())
                 .singleElement()

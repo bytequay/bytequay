@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.IssueDetail;
-import com.bytequay.app.repository.RepoMetadataCacheStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,9 +29,13 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteRepoMetadataCacheStore
-        implements RepoMetadataCacheStore
+public class SqliteRepoMetadataCacheStore
 {
+    public record Snapshot(
+            List<GitHubUserMatch> users,
+            List<IssueDetail.Label> labels,
+            Instant fetchedAt) {}
+
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
     private static final TypeReference<List<GitHubUserMatch>> USERS = new TypeReference<>() {};
     private static final TypeReference<List<IssueDetail.Label>> LABELS = new TypeReference<>() {};
@@ -44,7 +47,6 @@ class SqliteRepoMetadataCacheStore
         this.repo = requireNonNull(repo, "repo is null");
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<Snapshot> find(String repoFullName)
     {
@@ -55,7 +57,6 @@ class SqliteRepoMetadataCacheStore
                         entity.getFetchedAt()));
     }
 
-    @Override
     @Transactional
     public void save(String repoFullName, List<GitHubUserMatch> users, List<IssueDetail.Label> labels, Instant fetchedAt)
     {

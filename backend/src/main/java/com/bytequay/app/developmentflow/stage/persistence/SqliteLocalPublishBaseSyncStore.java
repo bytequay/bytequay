@@ -130,26 +130,6 @@ public class SqliteLocalPublishBaseSyncStore
                 """, (rs, row) -> episode(rs), episodeId).stream().findFirst();
     }
 
-    public Optional<Episode> findLiveEpisode(String stageId)
-    {
-        requireText(stageId, "stageId");
-        return jdbc.query("""
-                SELECT id, source_publish_operation_id,
-                       local_development_stage_id, task_id, task_epoch,
-                       stage_generation, source_code_fingerprint,
-                       source_head_sha, source_base_sha, target_base_sha,
-                       authority_kind, standing_policy_revision_id, blocker_id,
-                       actor, branch_sync_policy_revision_id, command_id,
-                       retry_of_episode_id, attempt_no, attempt_limit, status,
-                       resume_cursor, opened_at_ms, completed_at_ms,
-                       error_message
-                FROM local_publish_base_sync_episode
-                WHERE local_development_stage_id = ?
-                  AND status NOT IN (
-                      'HANDED_OFF', 'FAILED', 'CANCELED', 'SUPERSEDED')
-                """, (rs, row) -> episode(rs), stageId).stream().findFirst();
-    }
-
     /** Applies the retry policy only after one exact determinate failure. */
     public FailureResolution settleFailure(String episodeId, Instant at)
     {

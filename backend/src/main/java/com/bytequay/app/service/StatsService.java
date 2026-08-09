@@ -17,9 +17,9 @@ import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.UserStats;
 import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.GithubHomeCacheStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.sqlite.PrViewStateStore;
+import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -52,14 +52,14 @@ public class StatsService
     private final PullRequestRepository gitHub;
     private final PrViewStateStore viewStateStore;
     private final AppSettingsStore settingsStore;
-    private final GithubHomeCacheStore homeCache;
+    private final SqliteGithubHomeCacheStore homeCache;
     private final PatResolver patResolver;
 
     public StatsService(
             PullRequestRepository gitHub,
             PrViewStateStore viewStateStore,
             AppSettingsStore settingsStore,
-            GithubHomeCacheStore homeCache,
+            SqliteGithubHomeCacheStore homeCache,
             PatResolver patResolver)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
@@ -107,7 +107,7 @@ public class StatsService
             return UserStats.empty();
         }
         return homeCache.findStats(login)
-                .map(GithubHomeCacheStore.TimedValue::value)
+                .map(SqliteGithubHomeCacheStore.TimedValue::value)
                 .orElseGet(UserStats::empty);
     }
 
@@ -120,7 +120,7 @@ public class StatsService
             return;
         }
         Instant fetchedAt = homeCache.findStats(login.get())
-                .map(GithubHomeCacheStore.TimedValue::fetchedAt)
+                .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt)
                 .orElse(Instant.EPOCH);
         if (Duration.between(fetchedAt, Instant.now()).compareTo(CACHE_TTL) < 0) {
             return;

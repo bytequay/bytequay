@@ -16,7 +16,6 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ReviewRound.ReviewRoundStats;
 import com.bytequay.app.domain.ReviewRoundState;
-import com.bytequay.app.repository.ReviewRoundStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,9 +31,15 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 @Component
-class SqliteReviewRoundStore
-        implements ReviewRoundStore
+public class SqliteReviewRoundStore
 {
+    public record AttemptFence(
+            int iteration,
+            int gateRevision,
+            int kickAttempt,
+            String turnId,
+            String kickKey) {}
+
     private static final Logger log = LoggerFactory.getLogger(SqliteReviewRoundStore.class);
     private final ReviewRoundJpaRepository rounds;
     private final ObjectMapper mapper;
@@ -45,7 +50,6 @@ class SqliteReviewRoundStore
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    @Override
     @Transactional
     public ReviewRound insert(ReviewRound round)
     {
@@ -77,28 +81,24 @@ class SqliteReviewRoundStore
         return toDomain(rounds.saveAndFlush(e));
     }
 
-    @Override
     @Transactional
     public boolean parkIf(String id, ReviewRoundState expected)
     {
         return rounds.park(id, expected.dbValue()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean resumeIf(String id, ReviewRoundState pausedFrom)
     {
         return rounds.resume(id, pausedFrom.dbValue()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean sealIf(String id, ReviewRoundState expected, Instant closedAt)
     {
         return rounds.seal(id, expected.dbValue(), closedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean concludeIf(
             String id,
@@ -117,7 +117,6 @@ class SqliteReviewRoundStore
                 epochOrNull(gatedAt), epochOrNull(closedAt)) == 1;
     }
 
-    @Override
     @Transactional
     public boolean finishAddressingIf(
             String id,
@@ -130,7 +129,6 @@ class SqliteReviewRoundStore
                 attempt.turnId(), attempt.kickKey(), validationClaimKey, codeFingerprint) == 1;
     }
 
-    @Override
     @Transactional
     public boolean authorizeGateIf(
             String id,
@@ -142,7 +140,6 @@ class SqliteReviewRoundStore
                 id, expectedGateRevision, codeFingerprint, activeGateToken) == 1;
     }
 
-    @Override
     @Transactional
     public boolean postIf(String id, String activeGateToken, Instant postedAt)
     {
@@ -150,7 +147,6 @@ class SqliteReviewRoundStore
                 id, activeGateToken, postedAt.toEpochMilli()) == 1;
     }
 
-    @Override
     @Transactional
     public boolean requestGateChangesIf(String id, int additionalBudget)
     {
@@ -158,7 +154,6 @@ class SqliteReviewRoundStore
                 id, additionalBudget, toJson(ReviewRoundStats.empty())) == 1;
     }
 
-    @Override
     @Transactional
     public boolean invalidateGateFingerprintIf(
             String id, String activeToken)
@@ -167,7 +162,6 @@ class SqliteReviewRoundStore
                 id, activeToken, toJson(ReviewRoundStats.empty())) == 1;
     }
 
-    @Override
     @Transactional
     public boolean acceptGateValidationIf(
             String id, int expectedKickAttempt, String codeFingerprint)
@@ -176,7 +170,6 @@ class SqliteReviewRoundStore
                 id, expectedKickAttempt, codeFingerprint) == 1;
     }
 
-    @Override
     @Transactional
     public boolean updateBrainVerdictIf(
             String id, ReviewRoundState expected, String verdict)
@@ -185,7 +178,6 @@ class SqliteReviewRoundStore
                 id, expected.dbValue(), verdict) == 1;
     }
 
-    @Override
     @Transactional
     public boolean recordDeliveryFailureIf(
             String id, ReviewRoundState expected, int expectedKickAttempt)
@@ -194,7 +186,6 @@ class SqliteReviewRoundStore
                 id, expected.dbValue(), expectedKickAttempt) == 1;
     }
 
-    @Override
     @Transactional
     public boolean clearEnqueueFailuresIf(
             String id, ReviewRoundState expected, int expectedKickAttempt)
@@ -203,35 +194,30 @@ class SqliteReviewRoundStore
                 id, expected.dbValue(), expectedKickAttempt) == 1;
     }
 
-    @Override
     @Transactional
     public void updateStats(String id, ReviewRound.ReviewRoundStats stats)
     {
         rounds.updateStatsJson(id, toJson(stats));
     }
 
-    @Override
     @Transactional
     public void updateRunId(String id, String runId)
     {
         rounds.updateRunId(id, runId);
     }
 
-    @Override
     @Transactional
     public void updateGateTimes(String id, Instant gatedAt, Instant postedAt)
     {
         rounds.updateGateTimes(id, epochOrNull(gatedAt), epochOrNull(postedAt));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<ReviewRound> findById(String id)
     {
         return rounds.findById(id).map(this::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<ReviewRound> findByTask(String taskId)
     {
@@ -240,7 +226,6 @@ class SqliteReviewRoundStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<ReviewRound> findLiveByTask(String taskId)
     {
@@ -250,7 +235,6 @@ class SqliteReviewRoundStore
                 .findFirst();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<ReviewRound> findAllLive()
     {
@@ -260,7 +244,6 @@ class SqliteReviewRoundStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public int nextIndex(String taskId)
     {

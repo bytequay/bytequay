@@ -20,7 +20,6 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -46,7 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteBacklogStoreConcurrency
 {
     @Autowired
-    private BacklogStore backlogStore;
+    private SqliteBacklogStore backlogStore;
     @Autowired
     private TaskStore taskStore;
     @Autowired

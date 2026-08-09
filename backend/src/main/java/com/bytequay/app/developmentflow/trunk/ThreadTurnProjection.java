@@ -400,7 +400,7 @@ public class ThreadTurnProjection
     {
         requireText(trunkId, "trunkId");
         if (planningRuntimeExists()) {
-            return activeTicketIds(trunkId, false);
+            return activeTicketIds(trunkId);
         }
         return jdbc.query("""
                 SELECT ticket.id
@@ -516,33 +516,10 @@ public class ThreadTurnProjection
                 .stream().findFirst();
     }
 
-    /** Tickets with an execution that a user interrupt can stop immediately. */
-    public List<String> interruptibleTicketIds(String trunkId)
+    private List<String> activeTicketIds(String trunkId)
     {
-        requireText(trunkId, "trunkId");
-        if (planningRuntimeExists()) {
-            return activeTicketIds(trunkId, true);
-        }
-        return jdbc.query("""
-                SELECT ticket.id
-                FROM dispatch_ticket ticket
-                JOIN thread_turn turn ON turn.id = ticket.owner_id
-                JOIN trunk_thread_turn_request_receipt request
-                  ON request.turn_id = turn.id
-                WHERE turn.trunk_id = ?
-                  AND ticket.owner_kind = 'THREAD_TURN'
-                  AND ticket.operation_id = turn.operation_id
-                  AND ticket.status IN ('CLAIMED', 'RUNNING')
-                ORDER BY request.returned_trunk_version
-                """, (rs, row) -> rs.getString("id"), trunkId);
-    }
-
-    private List<String> activeTicketIds(String trunkId, boolean runningOnly)
-    {
-        String statuses = runningOnly
-                ? "'CLAIMED', 'RUNNING'"
-                : "'REQUESTED', 'RETRY_WAIT', 'RECONCILE_WAIT', "
-                        + "'CLAIMED', 'RUNNING'";
+        String statuses = "'REQUESTED', 'RETRY_WAIT', 'RECONCILE_WAIT', "
+                + "'CLAIMED', 'RUNNING'";
         return jdbc.query("""
                 WITH projected AS (
                     SELECT ticket.id,

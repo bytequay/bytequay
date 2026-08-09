@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.concepts;
 
-import com.bytequay.app.repository.UserConceptStore;
+import com.bytequay.app.repository.sqlite.SqliteUserConceptStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -64,7 +64,7 @@ class TestSavedViewsService
     {
         String name = "snoozeable-" + Math.abs(UUID.randomUUID().hashCode());
         savedViews.save(name, ConceptKind.FILTER, "First take.", List.of(), null);
-        UserConceptStore.UserConceptRow updated = savedViews.save(
+        SqliteUserConceptStore.UserConceptRow updated = savedViews.save(
                 name, ConceptKind.FILTER, "Revised definition.", List.of("snooze-candidate"), null);
         try {
             assertThat(updated.definition()).isEqualTo("Revised definition.");

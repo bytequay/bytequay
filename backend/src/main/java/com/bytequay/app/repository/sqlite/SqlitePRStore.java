@@ -26,7 +26,6 @@ import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PRTriageState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.repository.PRStore;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,8 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 
 @Component
-class SqlitePRStore
-        implements PRStore
+public class SqlitePRStore
 {
     private final PrJpaRepository prs;
     private final PrCommitJpaRepository commits;
@@ -66,7 +64,6 @@ class SqlitePRStore
         this.jdbc = jdbc;
     }
 
-    @Override
     @Transactional
     public PR save(PR pr)
     {
@@ -99,7 +96,6 @@ class SqlitePRStore
         return toDomain(prs.save(e));
     }
 
-    @Override
     @Transactional
     public long incrementLocalReviewEpoch(String prId)
     {
@@ -107,7 +103,6 @@ class SqlitePRStore
         return prs.findById(prId).map(PrEntity::getLocalReviewEpoch).orElse(0L);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public long localReviewEpoch(String prId)
     {
@@ -138,28 +133,24 @@ class SqlitePRStore
         e.setMergeQueueState(snap.mergeQueueState());
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<PR> findById(String id)
     {
         return prs.findById(id).map(SqlitePRStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<PR> findByTaskId(String taskId)
     {
         return prs.findByTaskId(taskId).map(SqlitePRStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<PR> findByRepoAndRemotePrNumber(String repo, int remotePrNumber)
     {
         return prs.findByRepoAndRemotePrNumber(repo, remotePrNumber).map(SqlitePRStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<PR> findTaskByRepoAndRemotePrNumber(String repo, int remotePrNumber)
     {
@@ -167,7 +158,6 @@ class SqlitePRStore
                 .map(SqlitePRStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public boolean hasRunningAgentReview(String prId)
     {
@@ -185,7 +175,6 @@ class SqlitePRStore
         return count != null && count > 0;
     }
 
-    @Override
     @Transactional
     public void reparentChildren(String fromPrId, String toPrId)
     {
@@ -290,35 +279,30 @@ class SqlitePRStore
 
     private record TaskReviewOwner(String taskId, String threadId, String workspaceId) {}
 
-    @Override
     @Transactional
     public void deletePr(String prId)
     {
         jdbc.update("DELETE FROM pr WHERE id = ?", prId);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PR> findPushedTaskPrsMissingRepo()
     {
         return prs.findPushedTaskPrsMissingRepo().stream().map(SqlitePRStore::toDomain).toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<String> findTaskPrIdsWithExternalTwin()
     {
         return prs.findTaskPrIdsWithExternalTwin();
     }
 
-    @Override
     @Transactional
     public void setRepo(String prId, String repo)
     {
         jdbc.update("UPDATE pr SET repo = ? WHERE id = ?", repo, prId);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PRDashboardEntry> findDashboardEntries()
     {
@@ -330,14 +314,12 @@ class SqlitePRStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<PRTriageState> findTriage(String prId)
     {
         return triage.findById(prId).map(SqlitePRStore::toDomain);
     }
 
-    @Override
     @Transactional
     public PRTriageState saveTriage(PRTriageState state)
     {
@@ -352,7 +334,6 @@ class SqlitePRStore
         return toDomain(triage.save(e));
     }
 
-    @Override
     @Transactional
     public PRCommit addCommit(PRCommit commit)
     {
@@ -368,7 +349,6 @@ class SqlitePRStore
         return toDomain(commits.save(e));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PRCommit> commitsFor(String prId)
     {
@@ -377,14 +357,12 @@ class SqlitePRStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public PRTimelineEntry addEvent(PRTimelineEntry event)
     {
         return toDomain(events.save(toEntity(event)));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PRTimelineEntry> timelineFor(String prId)
     {
@@ -393,7 +371,6 @@ class SqlitePRStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PRTimelineEntry> unstrippedLocalOnlyEvents(String prId)
     {
@@ -402,14 +379,12 @@ class SqlitePRStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public boolean timelineEventExistsByRemoteId(String prId, long remoteEventId)
     {
         return events.existsByPrIdAndRemoteEventId(prId, remoteEventId);
     }
 
-    @Override
     @Transactional
     public PRCheck addCheck(PRCheck check)
     {
@@ -426,7 +401,6 @@ class SqlitePRStore
         return toDomain(checks.save(e));
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PRCheck> checksFor(String prId)
     {
@@ -435,7 +409,6 @@ class SqlitePRStore
                 .toList();
     }
 
-    @Override
     @Transactional
     public void retainChecks(String prId, String kind, Set<String> runIds)
     {
@@ -445,7 +418,6 @@ class SqlitePRStore
                 .toList());
     }
 
-    @Override
     @Transactional
     public PRComment saveComment(PRComment comment)
     {
@@ -472,7 +444,6 @@ class SqlitePRStore
         return toDomain(comments.save(e));
     }
 
-    @Override
     @Transactional
     public void deleteComment(String id)
     {
@@ -480,14 +451,12 @@ class SqlitePRStore
         comments.deleteById(id);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Optional<PRComment> findCommentById(String id)
     {
         return comments.findById(id).map(SqlitePRStore::toDomain);
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PRComment> commentsFor(String prId)
     {
@@ -496,7 +465,6 @@ class SqlitePRStore
                 .toList();
     }
 
-    @Override
     @Transactional(readOnly = true)
     public List<PRComment> unstrippedLocalComments(String prId)
     {

@@ -17,8 +17,8 @@ import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.repository.sqlite.SqliteWorkspaceStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.localpr.PrMergedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
@@ -98,7 +98,7 @@ public class ProjectLearningService
     private final ProjectLearningStore store;
     private final WorkspaceRepositoryResolver repositories;
     private final WatchedRepoStore watchedRepos;
-    private final WorkspaceStore workspaceStore;
+    private final SqliteWorkspaceStore workspaceStore;
     private final DocumentIndexer indexer;
     private final MergedPrCatalog catalog;
     private final PrPriorityScorer scorer;
@@ -116,7 +116,7 @@ public class ProjectLearningService
             ProjectLearningStore store,
             WorkspaceRepositoryResolver repositories,
             WatchedRepoStore watchedRepos,
-            WorkspaceStore workspaceStore,
+            SqliteWorkspaceStore workspaceStore,
             DocumentIndexer indexer,
             MergedPrCatalog catalog,
             PrPriorityScorer scorer,

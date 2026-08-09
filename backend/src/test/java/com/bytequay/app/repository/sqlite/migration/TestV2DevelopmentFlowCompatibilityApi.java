@@ -21,11 +21,11 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BranchGuardServiceImpl;
 import com.bytequay.app.service.review.ReviewRoundServiceImpl;
@@ -82,7 +82,7 @@ class TestV2DevelopmentFlowCompatibilityApi
 
     private final ObjectMapper mapper = new ObjectMapper();
     private TaskStore tasks;
-    private StageStore legacyStages;
+    private SqliteStageStore legacyStages;
     private PullRequestService github;
     private AgentRunServiceImpl legacyRuns;
     private ReviewRoundServiceImpl legacyRounds;
@@ -166,7 +166,7 @@ class TestV2DevelopmentFlowCompatibilityApi
                 1, "legacy-task", null, TaskPhase.IMPLEMENTING,
                 Instant.ofEpochMilli(53), "legacy_started", Actor.HUMAN)));
 
-        legacyStages = mock(StageStore.class);
+        legacyStages = mock(SqliteStageStore.class);
         when(legacyStages.findStagesByTask("legacy-task")).thenReturn(List.of());
         legacyRuns = mock(AgentRunServiceImpl.class);
         legacyRounds = mock(ReviewRoundServiceImpl.class);

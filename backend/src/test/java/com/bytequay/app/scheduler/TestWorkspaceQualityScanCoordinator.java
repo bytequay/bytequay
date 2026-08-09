@@ -71,7 +71,7 @@ class TestWorkspaceQualityScanCoordinator
         assertThat(WorkspaceQualityScanCoordinator.class.getConstructors()[0]
                 .getParameterTypes())
                 .extracting(Class::getSimpleName)
-                .doesNotContain("StageStore", "TaskService");
+                .doesNotContain("SqliteStageStore", "TaskService");
     }
 
     @Test

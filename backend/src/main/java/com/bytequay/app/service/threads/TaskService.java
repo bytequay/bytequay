@@ -199,11 +199,6 @@ public class TaskService
         rejectMatchingLegacyTask(repoFullName, prNumber);
     }
 
-    public void closeTasksForRemotePr(String repoFullName, int prNumber)
-    {
-        rejectMatchingLegacyTask(repoFullName, prNumber);
-    }
-
     public void authorizeMergeForPr(String repoFullName, int prNumber)
     {
         rejectMatchingLegacyTask(repoFullName, prNumber);

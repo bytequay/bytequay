@@ -24,8 +24,8 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
-import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.sqlite.SqliteMemoryItemStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -53,7 +53,7 @@ class TestMemoryToolHandlers
     private MemoryToolHandlers handlers;
 
     @Autowired
-    private MemoryItemStore store;
+    private SqliteMemoryItemStore store;
 
     @Autowired
     private ThreadStore threadStore;
@@ -81,7 +81,7 @@ class TestMemoryToolHandlers
     private MemoryItem seedDecision(String text)
     {
         // Applied: recall_memory is live-by-default, so seeds must be live.
-        MemoryItem pending = store.insert(new MemoryItemStore.NewItem(
+        MemoryItem pending = store.insert(new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 WORKSPACE_ID,
                 MemoryItemKind.DECISION,
@@ -96,7 +96,7 @@ class TestMemoryToolHandlers
 
     private MemoryItem seedBlocker(String text)
     {
-        MemoryItem pending = store.insert(new MemoryItemStore.NewItem(
+        MemoryItem pending = store.insert(new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 WORKSPACE_ID,
                 MemoryItemKind.BLOCKER,
@@ -111,7 +111,7 @@ class TestMemoryToolHandlers
 
     private MemoryItem seedPendingDecision(String text)
     {
-        return store.insert(new MemoryItemStore.NewItem(
+        return store.insert(new SqliteMemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 WORKSPACE_ID,
                 MemoryItemKind.DECISION,

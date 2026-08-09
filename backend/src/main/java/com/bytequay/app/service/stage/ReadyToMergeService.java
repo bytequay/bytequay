@@ -20,9 +20,9 @@ import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
@@ -57,8 +57,8 @@ public class ReadyToMergeService
     private static final int MAX_MERGE_QUEUE_RETRIES = 2;
 
     private final TaskStore taskStore;
-    private final StageStore stageStore;
-    private final ReviewRoundStore reviewRounds;
+    private final SqliteStageStore stageStore;
+    private final SqliteReviewRoundStore reviewRounds;
     private final NotificationService notifications;
     private final PullRequestService pullRequests;
     private final TaskPhaseMachine phaseMachine;
@@ -66,8 +66,8 @@ public class ReadyToMergeService
 
     public ReadyToMergeService(
             TaskStore taskStore,
-            StageStore stageStore,
-            ReviewRoundStore reviewRounds,
+            SqliteStageStore stageStore,
+            SqliteReviewRoundStore reviewRounds,
             NotificationService notifications,
             PullRequestService pullRequests,
             TaskPhaseMachine phaseMachine,

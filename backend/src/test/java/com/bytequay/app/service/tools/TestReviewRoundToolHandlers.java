@@ -17,8 +17,8 @@ import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ThreadScope;
-import com.bytequay.app.repository.ReviewRoundStore;
-import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
+import com.bytequay.app.repository.sqlite.SqliteStageStore;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -35,8 +35,8 @@ import static org.mockito.Mockito.when;
 
 class TestReviewRoundToolHandlers
 {
-    private final StageStore stageStore = mock(StageStore.class);
-    private final ReviewRoundStore roundStore = mock(ReviewRoundStore.class);
+    private final SqliteStageStore stageStore = mock(SqliteStageStore.class);
+    private final SqliteReviewRoundStore roundStore = mock(SqliteReviewRoundStore.class);
     private final ReviewRoundToolHandlers handlers =
             new ReviewRoundToolHandlers(stageStore, roundStore);
 

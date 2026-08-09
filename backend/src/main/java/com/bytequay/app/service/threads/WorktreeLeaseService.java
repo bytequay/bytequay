@@ -15,7 +15,7 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WorktreeLease;
-import com.bytequay.app.repository.WorktreeLeaseStore;
+import com.bytequay.app.repository.sqlite.SqliteWorktreeLeaseStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -44,9 +44,9 @@ public class WorktreeLeaseService
 {
     private static final Logger log = LoggerFactory.getLogger(WorktreeLeaseService.class);
 
-    private final WorktreeLeaseStore store;
+    private final SqliteWorktreeLeaseStore store;
 
-    public WorktreeLeaseService(WorktreeLeaseStore store)
+    public WorktreeLeaseService(SqliteWorktreeLeaseStore store)
     {
         this.store = requireNonNull(store, "store is null");
     }
@@ -98,59 +98,6 @@ public class WorktreeLeaseService
         return tryAcquire(worktreePath, taskId, agentKind, holderPid, /* expiresAt */ null);
     }
 
-    /**
-     * Atomically acquire a lease, reclaiming any prior row whose
-     * holder pid no longer maps to a live process. Used by the
-     * registry-owned session attachment path so a crashed-backend
-     * restart picks up its old worktrees immediately rather than
-     * waiting up to a minute for the reaper sweep.
-     *
-     * <p>Reclamation fires when either (a) the existing row's holder pid is
-     * gone (a crashed backend), or (b) the existing lease belongs to the
-     * <em>same task</em> being requested — a task's stages share one worktree
-     * and run sequentially, so a new stage (e.g. Development after Planning, or
-     * the next CI-fix round) hands the lease off from its now-idle sibling
-     * session rather than 409ing on it. A live-pid lease held by a
-     * <em>different</em> task is a genuine conflict and returns empty so the
-     * caller can surface a 409 (two tasks must never write one worktree).
-     */
-    public Optional<WorktreeLease> tryAcquireOrReclaim(
-            String worktreePath, String taskId, ThreadKind agentKind, Integer holderPid)
-    {
-        requireNonNull(worktreePath, "worktreePath is null");
-        Optional<WorktreeLease> existing = store.findByWorktreePath(worktreePath);
-        if (existing.isPresent() && shouldReclaim(existing.get(), taskId)) {
-            log.info("Reclaiming lease on {} (prior taskId {}, pid {}; requested by {})",
-                    worktreePath, existing.get().taskId(), existing.get().holderPid(), taskId);
-            store.releaseByWorktreePath(worktreePath);
-        }
-        return tryAcquire(worktreePath, taskId, agentKind, holderPid, /* expiresAt */ null);
-    }
-
-    /** Reclaim a prior lease when its holder process is gone, or when it
-     *  belongs to the same task that's now asking (a sibling stage handing off
-     *  the shared worktree). A different live task is left alone — a real
-     *  conflict the caller turns into a 409. */
-    private static boolean shouldReclaim(WorktreeLease existing, String requestingTaskId)
-    {
-        return isHolderDead(existing)
-                || (requestingTaskId != null && requestingTaskId.equals(existing.taskId()));
-    }
-
-    /** True when the lease names a holder pid that no longer maps to
-     *  a live OS process. Pid-less leases (LOGIC_LOOP) are NOT
-     *  considered dead — those are alive-by-default and the age rule
-     *  is the only way to reap them. */
-    static boolean isHolderDead(WorktreeLease lease)
-    {
-        Integer pid = lease.holderPid();
-        if (pid == null) {
-            return false;
-        }
-        Optional<ProcessHandle> handle = ProcessHandle.of(pid);
-        return handle.isEmpty() || !handle.get().isAlive();
-    }
-
     /** Release the lease — typically in a finally block on agent exit.
      *  No-op when the worktree wasn't held, so the call site doesn't
      *  need to know whether acquire actually succeeded. */
@@ -171,16 +118,6 @@ public class WorktreeLeaseService
     public boolean isHeld(String worktreePath)
     {
         return find(worktreePath).isPresent();
-    }
-
-    /** True when the worktree is leased by a different task. Same-task
-     *  remote wakeups are reentrant: the Task session may already hold
-     *  the lease between CI/comment/guard turns. */
-    public boolean isHeldByAnotherTask(String worktreePath, String taskId)
-    {
-        return find(worktreePath)
-                .filter(lease -> taskId == null || !taskId.equals(lease.taskId()))
-                .isPresent();
     }
 
     /** All currently-recorded leases. The automation coordinator's

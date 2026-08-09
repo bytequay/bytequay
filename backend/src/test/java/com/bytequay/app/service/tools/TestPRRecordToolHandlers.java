@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.tools;
 
-import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.Task;
@@ -22,29 +21,21 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.SqliteReviewRoundStore;
-import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.bytequay.app.service.runs.AgentRunServiceImpl;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
-import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordLocalReviewArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrCheckArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrDescriptionArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrProgressArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.ResolvePrCommentArgs;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,14 +53,11 @@ class TestPRRecordToolHandlers
 
     private final PRService prService = mock(PRService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final BrainReviewServiceImpl brainReview = mock(BrainReviewServiceImpl.class);
     private final SqliteReviewRoundStore roundStore = mock(SqliteReviewRoundStore.class);
     private final AgentRunServiceImpl agentRuns = mock(AgentRunServiceImpl.class);
-    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
-    private final GitRunner git = mock(GitRunner.class);
     private final PRRecordToolHandlers handlers =
             new PRRecordToolHandlers(
-                    prService, taskStore, brainReview, roundStore, agentRuns, phaseMachine, git);
+                    prService, taskStore, roundStore, agentRuns);
 
     private final ToolCall taskCall = new ToolCall(ThreadScope.TASK,
             "thread-1", null, AgentRole.TASK, "task1", null);
@@ -136,101 +124,6 @@ class TestPRRecordToolHandlers
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         verify(prService).recordCheck("pr1", "local", "mvn verify", "passed", 1200L);
-    }
-
-    @Test
-    void recordLocalReviewCannotStartBrainBeforeValidation()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
-        when(git.commitCountUniqueTo(Path.of("/tmp/wt/feature-x"), "feature/x", "main"))
-                .thenReturn(1);
-
-        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
-
-        assertThat(((ToolOutcome.Completed) outcome).text()).contains("validation will start Brain review");
-        verify(phaseMachine).transition(
-                "task1", TaskPhase.VALIDATING, "development_handoff", Actor.AGENT);
-        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
-    }
-
-    @Test
-    void recordLocalReviewRejectsV2BeforeLegacyPrOrGitMutation()
-            throws Exception
-    {
-        when(taskStore.isV2Task("task1")).thenReturn(true);
-
-        ToolOutcome outcome = handlers.recordLocalReview(
-                new RecordLocalReviewArgs(true), taskCall);
-
-        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
-        assertThat(((ToolOutcome.Completed) outcome).text())
-                .contains("exact StageTurn result");
-        verify(prService, never()).createForTask(any(), any(), any(), any(), any());
-        verify(phaseMachine, never()).transition(any(), any(), any(), any());
-        verify(git, never()).hasUncommittedChanges(any());
-    }
-
-    @Test
-    void recordLocalReviewCheckpointsADirtyWorktreeOutsideTheAgentSandbox()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
-        when(git.hasUncommittedChanges(Path.of("/tmp/wt/feature-x"))).thenReturn(true);
-        when(git.commit(Path.of("/tmp/wt/feature-x"), "T")).thenReturn(Optional.of("abc123"));
-        when(git.commitCountUniqueTo(Path.of("/tmp/wt/feature-x"), "feature/x", "main"))
-                .thenReturn(1);
-
-        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
-
-        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
-        verify(git).stageAll(
-                Path.of("/tmp/wt/feature-x"), List.of(".bytequay-hooks"));
-        verify(git).commit(Path.of("/tmp/wt/feature-x"), "T");
-        verify(phaseMachine).transition(
-                "task1", TaskPhase.VALIDATING, "development_handoff", Actor.AGENT);
-    }
-
-    @Test
-    void recordLocalReviewParksWithTheGitErrorWhenCheckpointingFails()
-            throws Exception
-    {
-        Task task = task();
-        Path worktree = Path.of("/tmp/wt/feature-x");
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task));
-        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
-        when(git.hasUncommittedChanges(worktree)).thenReturn(true);
-        doThrow(new IOException("index denied"))
-                .when(git).stageAll(worktree, List.of(".bytequay-hooks"));
-
-        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
-
-        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
-        assertThat(((ToolOutcome.Completed) outcome).text())
-                .contains("could not checkpoint Git changes", "index denied");
-        verify(taskStore).saveTask(argThat(saved -> saved.errorMessage() != null
-                && saved.errorMessage().contains("index denied")));
-        verify(phaseMachine).transition(
-                "task1", TaskPhase.NEEDS_ATTENTION,
-                "development_handoff_checkpoint_failed", Actor.AGENT);
-    }
-
-    @Test
-    void recordLocalReviewRejectsABranchWithNoCommitAhead()
-            throws Exception
-    {
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
-        when(git.commitCountUniqueTo(Path.of("/tmp/wt/feature-x"), "feature/x", "main"))
-                .thenReturn(0);
-
-        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
-
-        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
-        assertThat(((ToolOutcome.Completed) outcome).text()).contains("at least one commit");
-        verify(phaseMachine, never()).transition(any(), any(), any(), any());
     }
 
     @Test

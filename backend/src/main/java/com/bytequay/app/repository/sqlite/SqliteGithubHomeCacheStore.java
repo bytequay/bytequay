@@ -16,7 +16,6 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
-import com.bytequay.app.domain.UserStats;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,18 +46,15 @@ public class SqliteGithubHomeCacheStore
 
     private final GithubUserProfileCacheJpaRepository profileRepo;
     private final GithubUserEventCacheJpaRepository eventRepo;
-    private final GithubUserStatsCacheJpaRepository statsRepo;
     private final GithubUserOrgsCacheJpaRepository orgsRepo;
 
     public SqliteGithubHomeCacheStore(
             GithubUserProfileCacheJpaRepository profileRepo,
             GithubUserEventCacheJpaRepository eventRepo,
-            GithubUserStatsCacheJpaRepository statsRepo,
             GithubUserOrgsCacheJpaRepository orgsRepo)
     {
         this.profileRepo = requireNonNull(profileRepo, "profileRepo is null");
         this.eventRepo = requireNonNull(eventRepo, "eventRepo is null");
-        this.statsRepo = requireNonNull(statsRepo, "statsRepo is null");
         this.orgsRepo = requireNonNull(orgsRepo, "orgsRepo is null");
     }
 
@@ -98,23 +94,6 @@ public class SqliteGithubHomeCacheStore
         entity.setPayload(write(ImmutableList.copyOf(events)));
         entity.setFetchedAt(fetchedAt);
         eventRepo.save(entity);
-    }
-
-    public Optional<TimedValue<UserStats>> findStats(String login)
-    {
-        return statsRepo.findById(login)
-                .map(e -> new TimedValue<>(read(e.getPayload(), UserStats.class), e.getFetchedAt()));
-    }
-
-    @Transactional
-    public void putStats(String login, UserStats stats, Instant fetchedAt)
-    {
-        GithubUserStatsCacheEntity entity = statsRepo.findById(login)
-                .orElseGet(GithubUserStatsCacheEntity::new);
-        entity.setLogin(login);
-        entity.setPayload(write(stats));
-        entity.setFetchedAt(fetchedAt);
-        statsRepo.save(entity);
     }
 
     public Optional<TimedValue<List<UserOrg>>> findOrgs(String login)

@@ -76,11 +76,10 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
     if (item.source.kind === 'notification') {
       const notification = item.source.notification;
       if (notification.workspaceId != null && notification.threadId !== null) {
-        window.location.hash = workspaceRouteHash({
-          kind: 'trunks',
-          workspaceId: notification.workspaceId,
-          trunkId: notification.threadId,
-        });
+        window.location.hash = workspaceRouteHash(
+          { view: 'thread-detail', threadId: notification.threadId },
+          notification.workspaceId,
+        );
         return;
       }
       if (notification.itemPath?.startsWith('#/') === true) {

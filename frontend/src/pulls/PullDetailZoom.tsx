@@ -149,8 +149,9 @@ export default function WorkspacePullDetailZoom({ workspaceId, pullRequest, onCl
 
   const openAgent = () => {
     window.location.hash = workspaceRouteHash({
-      kind: 'pull-request', workspaceId, number: pullRequest.number, agentColumn: true,
-    });
+      view: 'workspace', section: 'pull-requests',
+      prNumber: pullRequest.number, agentColumn: true,
+    }, workspaceId);
   };
 
   return (

@@ -100,8 +100,7 @@ public class McpServiceImpl
             "read_plan_summary",
             "read_dev_report",
             "read_dev_conversation",
-            "record_pr_comment",
-            "record_review_verdict");
+            "record_pr_comment");
 
     private final AgentToolRegistry registry;
     private final PermissionResolver permissions;

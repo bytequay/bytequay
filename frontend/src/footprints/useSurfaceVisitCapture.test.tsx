@@ -13,7 +13,7 @@
  */
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Nav } from '../App';
+import type { Nav } from '../workspace/workspaceRoutes';
 import { useSurfaceVisitCapture } from './useSurfaceVisitCapture';
 
 let recordSurfaceVisit: ReturnType<typeof vi.fn>;

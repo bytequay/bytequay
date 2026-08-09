@@ -12,77 +12,114 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseWorkspaceRoute, workspaceRouteHash, type WorkspaceRoute } from './workspaceRoutes';
+import {
+  parseWorkspaceRoute,
+  workspaceRouteHash,
+  type WorkspaceNavigation,
+} from './workspaceRoutes';
 
 describe('workspaceRoutes', () => {
-  const routes: WorkspaceRoute[] = [
-    { kind: 'home' },
-    { kind: 'reviews' },
-    { kind: 'workspaces' },
-    { kind: 'workspace', workspaceId: 'w 1' },
-    { kind: 'trunks', workspaceId: 'w1' },
-    { kind: 'trunks', workspaceId: 'w1', trunkId: 'trunk/one' },
-    { kind: 'pull-request', workspaceId: 'w1' },
-    { kind: 'pull-request', workspaceId: 'w1', number: 148 },
-    { kind: 'pull-request', workspaceId: 'w1', number: 148, prId: 'pr/148', agentColumn: true },
-    { kind: 'pull-request', workspaceId: 'w1', prId: 'local pr', agentColumn: true },
-    { kind: 'issue', workspaceId: 'w1' },
-    { kind: 'issue', workspaceId: 'w1', number: 482 },
-    { kind: 'session', workspaceId: 'w1' },
-    { kind: 'session', workspaceId: 'w1', sessionId: 'run 3' },
-    { kind: 'backlog', workspaceId: 'w1' },
-    { kind: 'backlog', workspaceId: 'w1', key: 'BQ-23' },
-    { kind: 'branches', workspaceId: 'w1' },
-    { kind: 'branches', workspaceId: 'w1', name: 'dev/clamp-fix' },
-    { kind: 'commits', workspaceId: 'w1' },
-    { kind: 'sync', workspaceId: 'w1' },
-    { kind: 'sync', workspaceId: 'w1', jobId: 'job/2 31' },
-    { kind: 'memory', workspaceId: 'w1' },
-    { kind: 'insights', workspaceId: 'w1' },
-    { kind: 'notifications', workspaceId: 'w1' },
-    { kind: 'settings', workspaceId: 'w1' },
-    { kind: 'settings', workspaceId: 'w1', section: 'danger zone' },
+  const routes: WorkspaceNavigation[] = [
+    { nav: { view: 'home' }, workspaceId: null },
+    { nav: { view: 'pulls' }, workspaceId: null },
+    { nav: { view: 'workspaces-landing' }, workspaceId: null },
+    { nav: { view: 'workspace', section: 'today' }, workspaceId: 'w 1' },
+    { nav: { view: 'workspace', section: 'trunks' }, workspaceId: 'w1' },
+    { nav: { view: 'thread-detail', threadId: 'trunk/one' }, workspaceId: 'w1' },
+    { nav: { view: 'workspace', section: 'pull-requests' }, workspaceId: 'w1' },
+    {
+      nav: { view: 'workspace', section: 'pull-requests', prNumber: 148 },
+      workspaceId: 'w1',
+    },
+    {
+      nav: {
+        view: 'workspace', section: 'pull-requests', prNumber: 148,
+        prId: 'pr/148', agentColumn: true,
+      },
+      workspaceId: 'w1',
+    },
+    {
+      nav: {
+        view: 'workspace', section: 'pull-requests',
+        prId: 'local pr', agentColumn: true,
+      },
+      workspaceId: 'w1',
+    },
+    { nav: { view: 'workspace', section: 'issues' }, workspaceId: 'w1' },
+    { nav: { view: 'workspace', section: 'issues', issueNumber: 482 }, workspaceId: 'w1' },
+    { nav: { view: 'workspace', section: 'sessions' }, workspaceId: 'w1' },
+    {
+      nav: { view: 'workspace', section: 'sessions', sessionId: 'run 3' },
+      workspaceId: 'w1',
+    },
+    { nav: { view: 'workspace', section: 'backlog' }, workspaceId: 'w1' },
+    {
+      nav: { view: 'workspace', section: 'backlog', backlogKey: 'BQ-23' },
+      workspaceId: 'w1',
+    },
+    { nav: { view: 'workspace', section: 'branches' }, workspaceId: 'w1' },
+    {
+      nav: { view: 'workspace', section: 'branches', branchName: 'dev/clamp-fix' },
+      workspaceId: 'w1',
+    },
+    { nav: { view: 'workspace', section: 'commits' }, workspaceId: 'w1' },
+    { nav: { view: 'ci-harness' }, workspaceId: 'w1' },
+    { nav: { view: 'ci-harness', jobId: 'job/2 31' }, workspaceId: 'w1' },
+    { nav: { view: 'workspace', section: 'memory' }, workspaceId: 'w1' },
+    { nav: { view: 'workspace', section: 'insights' }, workspaceId: 'w1' },
+    { nav: { view: 'workspace', section: 'notifications' }, workspaceId: 'w1' },
+    {
+      nav: { view: 'workspace', section: 'settings', settingsSection: 'agents' },
+      workspaceId: 'w1',
+    },
+    {
+      nav: { view: 'workspace', section: 'settings', settingsSection: 'danger zone' },
+      workspaceId: 'w1',
+    },
   ];
 
-  it.each(routes)('round-trips $kind', route => {
-    expect(parseWorkspaceRoute(workspaceRouteHash(route))).toEqual(route);
+  it.each(routes)('round-trips $nav.view', route => {
+    const hash = workspaceRouteHash(route.nav, route.workspaceId);
+    expect(hash).not.toBeNull();
+    if (hash === null) throw new Error('route has no public hash');
+    expect(parseWorkspaceRoute(hash)).toEqual(route);
   });
 
-  it('redirects malformed entity paths to the workspace hub', () => {
-    expect(parseWorkspaceRoute('#/workspace/w1/prs/nope'))
-      .toEqual({ kind: 'pull-request', workspaceId: 'w1' });
-    expect(parseWorkspaceRoute('#/workspace/w1/sessions'))
-      .toEqual({ kind: 'session', workspaceId: 'w1' });
+  it('redirects malformed entity paths to their workspace section', () => {
+    expect(parseWorkspaceRoute('#/workspace/w1/prs/nope')).toEqual({
+      nav: { view: 'workspace', section: 'pull-requests' }, workspaceId: 'w1',
+    });
+    expect(parseWorkspaceRoute('#/workspace/w1/sessions')).toEqual({
+      nav: { view: 'workspace', section: 'sessions', sessionId: undefined }, workspaceId: 'w1',
+    });
   });
 
-  it('keeps legacy numbered PR hashes unchanged', () => {
-    expect(workspaceRouteHash({ kind: 'pull-request', workspaceId: 'w1', number: 148 }))
+  it('keeps numbered PR hashes unchanged', () => {
+    expect(workspaceRouteHash(
+      { view: 'workspace', section: 'pull-requests', prNumber: 148 }, 'w1'))
       .toBe('#/workspace/w1/prs/148');
   });
 
-  it('recognizes legacy repo routes for workspace resolution', () => {
+  it('recognizes legacy repository routes', () => {
     expect(parseWorkspaceRoute('#/repository/acme/widget/issues')).toEqual({
-      kind: 'legacy-repo',
-      owner: 'acme',
-      repo: 'widget',
-      page: 'issues',
+      nav: { view: 'repo', owner: 'acme', repo: 'widget', initialTab: 'issues' },
+      workspaceId: null,
     });
     expect(parseWorkspaceRoute('#/repo/acme/widget/pulls')).toEqual({
-      kind: 'legacy-repo',
-      owner: 'acme',
-      repo: 'widget',
-      page: 'pulls',
+      nav: { view: 'repo', owner: 'acme', repo: 'widget', initialTab: 'pulls' },
+      workspaceId: null,
     });
     expect(parseWorkspaceRoute('#/local-repo/acme/widget/branches')).toEqual({
-      kind: 'legacy-repo',
-      owner: 'acme',
-      repo: 'widget',
-      page: 'branches',
+      nav: { view: 'local-repo', owner: 'acme', repo: 'widget' }, workspaceId: null,
     });
-    expect(parseWorkspaceRoute('#/repos')).toEqual({ kind: 'legacy-repo' });
+    expect(parseWorkspaceRoute('#/repos')).toEqual({
+      nav: { view: 'workspaces-landing' }, workspaceId: null,
+    });
   });
 
   it('falls unknown paths back to Home', () => {
-    expect(parseWorkspaceRoute('#/something-else')).toEqual({ kind: 'home' });
+    expect(parseWorkspaceRoute('#/something-else')).toEqual({
+      nav: { view: 'home' }, workspaceId: null,
+    });
   });
 });

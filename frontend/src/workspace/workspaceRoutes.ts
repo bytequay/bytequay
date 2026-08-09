@@ -11,36 +11,67 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { SettingsSection } from '../settings/types';
+import type {
+  ProviderFilter as ThreadsProviderFilter,
+  RepoFilter as ThreadsRepoFilter,
+  StatusFilter as ThreadsStatusFilter,
+} from '../threads/ThreadsLeftRail';
+import type { WorkspaceSection } from './WorkspaceShell';
 
-/**
- * The public renderer routes introduced by workspace unification. They are
- * intentionally independent from App's older in-memory Nav union so the
- * migration can keep compatibility routes until their last caller is gone.
- */
-export type WorkspaceRoute =
-  | { kind: 'home' }
-  | { kind: 'reviews' }
-  | { kind: 'workspaces' }
-  | { kind: 'workspace'; workspaceId: string }
-  | { kind: 'trunks'; workspaceId: string; trunkId?: string }
+export type Nav =
+  | { view: 'home' }
   | {
-      kind: 'pull-request';
-      workspaceId: string;
-      number?: number;
+      view: 'pulls';
+      initialPr?: { repo: string; number: number };
+      initialReviewAction?: 'quick' | 'watch';
+    }
+  | {
+      view: 'repo';
+      owner: string;
+      repo: string;
+      prNumber?: number;
+      initialTab?: 'pulls' | 'issues';
+      diffCommitSha?: string;
+      openDiff?: boolean;
+      back?: Nav;
+    }
+  | { view: 'email' }
+  | { view: 'thread-create'; initialGroupId?: string }
+  | { view: 'thread-detail'; threadId: string; taskId?: string }
+  | { view: 'task-brain'; threadId: string; taskId: string; initialPrSubTab?: 'changes' }
+  | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
+  | { view: 'ci-harness'; jobId?: string }
+  | { view: 'review-thread'; threadId: string; back?: Nav }
+  | { view: 'notifications' }
+  | { view: 'repos' }
+  | { view: 'repository'; owner: string; repo: string }
+  | { view: 'local-repo'; owner: string; repo: string; initialBranch?: string }
+  | { view: 'settings'; section?: SettingsSection }
+  | {
+      view: 'workspace';
+      section?: WorkspaceSection;
+      prNumber?: number;
       prId?: string;
       agentColumn?: boolean;
+      issueNumber?: number;
+      sessionId?: string;
+      backlogKey?: string;
+      branchName?: string;
+      settingsSection?: string;
+      threadsFilter?: ThreadsStatusFilter;
+      threadsProvider?: ThreadsProviderFilter;
+      threadsGroupId?: string;
+      threadsRepo?: ThreadsRepoFilter;
     }
-  | { kind: 'issue'; workspaceId: string; number?: number }
-  | { kind: 'session'; workspaceId: string; sessionId?: string }
-  | { kind: 'backlog'; workspaceId: string; key?: string }
-  | { kind: 'branches'; workspaceId: string; name?: string }
-  | { kind: 'commits'; workspaceId: string }
-  | { kind: 'sync'; workspaceId: string; jobId?: string }
-  | { kind: 'memory'; workspaceId: string }
-  | { kind: 'insights'; workspaceId: string }
-  | { kind: 'notifications'; workspaceId: string }
-  | { kind: 'settings'; workspaceId: string; section?: string }
-  | { kind: 'legacy-repo'; owner?: string; repo?: string; page?: 'pulls' | 'issues' | 'branches' };
+  | { view: 'workspaces-landing' };
+
+export type WorkspaceNavigation = { nav: Nav; workspaceId: string | null };
+
+const navigation = (nav: Nav, workspaceId: string | null = null): WorkspaceNavigation => ({
+  nav,
+  workspaceId,
+});
 
 const decode = (value: string): string | null => {
   try {
@@ -58,136 +89,161 @@ const positiveNumber = (value: string): number | null => {
 };
 
 /** Parse both "#/…" and plain logical paths. Invalid paths fall home. */
-export function parseWorkspaceRoute(value: string): WorkspaceRoute {
+export function parseWorkspaceRoute(value: string): WorkspaceNavigation {
   const raw = value.trim().replace(/^#/, '');
   const queryAt = raw.indexOf('?');
   const logical = (queryAt < 0 ? raw : raw.slice(0, queryAt)).replace(/^\/+|\/+$/g, '');
   const query = new URLSearchParams(queryAt < 0 ? '' : raw.slice(queryAt + 1));
-  if (logical === '' || logical === 'home') return { kind: 'home' };
-  if (logical === 'reviews') return { kind: 'reviews' };
-  if (logical === 'workspaces') return { kind: 'workspaces' };
+  if (logical === '' || logical === 'home') return navigation({ view: 'home' });
+  if (logical === 'reviews') return navigation({ view: 'pulls' });
+  if (logical === 'workspaces') return navigation({ view: 'workspaces-landing' });
 
   const parts = logical.split('/');
-  if (parts[0] === 'repos') return { kind: 'legacy-repo' };
+  if (parts[0] === 'repos') return navigation({ view: 'workspaces-landing' });
   if ((parts[0] === 'repo' || parts[0] === 'repository' || parts[0] === 'local-repo')
       && parts.length >= 3) {
     const owner = decode(parts[1]);
     const repo = decode(parts[2]);
     if (owner !== null && repo !== null) {
       const page = parts[3] === 'issues' || parts[3] === 'branches' ? parts[3] : 'pulls';
-      return { kind: 'legacy-repo', owner, repo, page };
+      return navigation(page === 'branches'
+        ? { view: 'local-repo', owner, repo }
+        : { view: 'repo', owner, repo, initialTab: page });
     }
   }
 
-  if (parts[0] !== 'workspace' || parts.length < 2) return { kind: 'home' };
+  if (parts[0] !== 'workspace' || parts.length < 2) return navigation({ view: 'home' });
   const workspaceId = decode(parts[1]);
-  if (workspaceId === null) return { kind: 'home' };
-  if (parts.length === 2) return { kind: 'workspace', workspaceId };
+  if (workspaceId === null) return navigation({ view: 'home' });
+  if (parts.length === 2) {
+    return navigation({ view: 'workspace', section: 'today' }, workspaceId);
+  }
 
   switch (parts[2]) {
     case 'trunks': {
       const trunkId = parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined;
-      return { kind: 'trunks', workspaceId, trunkId };
+      return navigation(trunkId === undefined
+        ? { view: 'workspace', section: 'trunks' }
+        : { view: 'thread-detail', threadId: trunkId }, workspaceId);
     }
     case 'prs': {
       const number = parts[3] === undefined ? null : positiveNumber(parts[3]);
       const prId = query.get('prId') || undefined;
       const agentColumn = query.get('agent') === '1' ? true : undefined;
-      return {
-        kind: 'pull-request',
-        workspaceId,
-        ...(number === null ? {} : { number }),
+      return navigation({
+        view: 'workspace',
+        section: 'pull-requests',
+        ...(number === null ? {} : { prNumber: number }),
         ...(prId === undefined ? {} : { prId }),
         ...(agentColumn === undefined ? {} : { agentColumn }),
-      };
+      }, workspaceId);
     }
     case 'issues': {
-      if (parts[3] === undefined) return { kind: 'issue', workspaceId };
-      const number = positiveNumber(parts[3]);
-      return number === null ? { kind: 'issue', workspaceId }
-        : { kind: 'issue', workspaceId, number };
+      const number = parts[3] === undefined ? null : positiveNumber(parts[3]);
+      return navigation({
+        view: 'workspace',
+        section: 'issues',
+        ...(number === null ? {} : { issueNumber: number }),
+      }, workspaceId);
     }
-    case 'sessions': {
-      const sessionId = parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined;
-      return { kind: 'session', workspaceId, sessionId };
-    }
+    case 'sessions':
+      return navigation({
+        view: 'workspace',
+        section: 'sessions',
+        sessionId: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
+      }, workspaceId);
     case 'backlog':
-      return {
-        kind: 'backlog',
-        workspaceId,
-        key: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
-      };
+      return navigation({
+        view: 'workspace',
+        section: 'backlog',
+        backlogKey: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
+      }, workspaceId);
     case 'branches':
-      return {
-        kind: 'branches',
-        workspaceId,
-        name: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
-      };
-    case 'commits': return { kind: 'commits', workspaceId };
-    // Both spellings land on the same surface: the harness is the sync run.
+      return navigation({
+        view: 'workspace',
+        section: 'branches',
+        branchName: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
+      }, workspaceId);
+    case 'commits': return navigation({ view: 'workspace', section: 'commits' }, workspaceId);
     case 'ci-harness':
     case 'syncs':
-      return {
-        kind: 'sync',
-        workspaceId,
+      return navigation({
+        view: 'ci-harness',
         jobId: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
-      };
-    case 'memory': return { kind: 'memory', workspaceId };
-    case 'insights': return { kind: 'insights', workspaceId };
-    case 'notifications': return { kind: 'notifications', workspaceId };
+      }, workspaceId);
+    case 'memory': return navigation({ view: 'workspace', section: 'memory' }, workspaceId);
+    case 'insights': return navigation({ view: 'workspace', section: 'insights' }, workspaceId);
+    case 'notifications':
+      return navigation({ view: 'workspace', section: 'notifications' }, workspaceId);
     case 'settings':
-      return {
-        kind: 'settings',
-        workspaceId,
-        section: parts[3] === undefined ? undefined : decode(parts[3]) ?? undefined,
-      };
-    default: return { kind: 'workspace', workspaceId };
+      return navigation({
+        view: 'workspace',
+        section: 'settings',
+        settingsSection: parts[3] === undefined ? 'agents' : decode(parts[3]) ?? 'agents',
+      }, workspaceId);
+    default: return navigation({ view: 'workspace', section: 'today' }, workspaceId);
   }
 }
 
 const encoded = (value: string): string => encodeURIComponent(value);
 
-export function workspaceRouteHash(route: WorkspaceRoute): string {
-  switch (route.kind) {
-    case 'home': return '#/home';
-    case 'reviews': return '#/reviews';
-    case 'workspaces': return '#/workspaces';
-    case 'workspace': return `#/workspace/${encoded(route.workspaceId)}`;
-    case 'trunks':
-      return `#/workspace/${encoded(route.workspaceId)}/trunks${
-        route.trunkId === undefined ? '' : `/${encoded(route.trunkId)}`}`;
-    case 'pull-request': {
+function workspaceSectionHash(nav: Extract<Nav, { view: 'workspace' }>, workspaceId: string): string {
+  const base = `#/workspace/${encoded(workspaceId)}`;
+  const section = nav.section === 'home' ? 'today'
+    : nav.section === 'threads' ? 'trunks'
+      : nav.section ?? 'today';
+  switch (section) {
+    case 'today': return base;
+    case 'trunks': return `${base}/trunks`;
+    case 'pull-requests': {
       const query = [];
-      if (route.prId !== undefined) query.push(`prId=${encoded(route.prId)}`);
-      if (route.agentColumn === true) query.push('agent=1');
-      return `#/workspace/${encoded(route.workspaceId)}/prs${
-        route.number === undefined ? '' : `/${route.number}`}${
+      if (nav.prId !== undefined) query.push(`prId=${encoded(nav.prId)}`);
+      if (nav.agentColumn === true) query.push('agent=1');
+      return `${base}/prs${nav.prNumber === undefined ? '' : `/${nav.prNumber}`}${
         query.length === 0 ? '' : `?${query.join('&')}`}`;
     }
-    case 'issue':
-      return `#/workspace/${encoded(route.workspaceId)}/issues${
-        route.number === undefined ? '' : `/${route.number}`}`;
-    case 'session':
-      return `#/workspace/${encoded(route.workspaceId)}/sessions${
-        route.sessionId === undefined ? '' : `/${encoded(route.sessionId)}`}`;
-    case 'backlog':
-      return `#/workspace/${encoded(route.workspaceId)}/backlog${
-        route.key === undefined ? '' : `/${encoded(route.key)}`}`;
-    case 'branches':
-      return `#/workspace/${encoded(route.workspaceId)}/branches${
-        route.name === undefined ? '' : `/${encoded(route.name)}`}`;
-    case 'commits': return `#/workspace/${encoded(route.workspaceId)}/commits`;
-    case 'sync':
-      return `#/workspace/${encoded(route.workspaceId)}/syncs${
-        route.jobId === undefined ? '' : `/${encoded(route.jobId)}`}`;
-    case 'memory': return `#/workspace/${encoded(route.workspaceId)}/memory`;
-    case 'insights': return `#/workspace/${encoded(route.workspaceId)}/insights`;
-    case 'notifications': return `#/workspace/${encoded(route.workspaceId)}/notifications`;
-    case 'settings':
-      return `#/workspace/${encoded(route.workspaceId)}/settings${
-        route.section === undefined ? '' : `/${encoded(route.section)}`}`;
-    case 'legacy-repo':
-      if (route.owner === undefined || route.repo === undefined) return '#/repos';
-      return `#/repository/${encoded(route.owner)}/${encoded(route.repo)}/${route.page ?? 'pulls'}`;
+    case 'issues': return `${base}/issues${
+      nav.issueNumber === undefined ? '' : `/${nav.issueNumber}`}`;
+    case 'sessions': return `${base}/sessions${
+      nav.sessionId === undefined ? '' : `/${encoded(nav.sessionId)}`}`;
+    case 'backlog': return `${base}/backlog${
+      nav.backlogKey === undefined ? '' : `/${encoded(nav.backlogKey)}`}`;
+    case 'branches': return `${base}/branches${
+      nav.branchName === undefined ? '' : `/${encoded(nav.branchName)}`}`;
+    case 'commits': return `${base}/commits`;
+    case 'memory': return `${base}/memory`;
+    case 'insights': return `${base}/insights`;
+    case 'notifications': return `${base}/notifications`;
+    case 'settings': return `${base}/settings${
+      nav.settingsSection === undefined ? '' : `/${encoded(nav.settingsSection)}`}`;
+  }
+}
+
+export function workspaceRouteHash(nav: Nav, workspaceId: string): string;
+export function workspaceRouteHash(nav: Nav, workspaceId: string | null): string | null;
+export function workspaceRouteHash(nav: Nav, workspaceId: string | null): string | null {
+  switch (nav.view) {
+    case 'home': return '#/home';
+    case 'pulls': return '#/reviews';
+    case 'workspaces-landing': return '#/workspaces';
+    case 'workspace':
+      return workspaceId === null ? '#/workspaces' : workspaceSectionHash(nav, workspaceId);
+    case 'thread-detail':
+    case 'task-brain':
+    case 'stage-detail':
+      return workspaceId === null ? null
+        : `#/workspace/${encoded(workspaceId)}/trunks/${encoded(nav.threadId)}`;
+    case 'ci-harness':
+      return workspaceId === null ? null
+        : `#/workspace/${encoded(workspaceId)}/syncs${
+          nav.jobId === undefined ? '' : `/${encoded(nav.jobId)}`}`;
+    case 'repos': return '#/repos';
+    case 'repo':
+      return `#/repository/${encoded(nav.owner)}/${encoded(nav.repo)}/${nav.initialTab ?? 'pulls'}`;
+    case 'repository':
+      return `#/repository/${encoded(nav.owner)}/${encoded(nav.repo)}/pulls`;
+    case 'local-repo':
+      return `#/repository/${encoded(nav.owner)}/${encoded(nav.repo)}/branches`;
+    default: return null;
   }
 }

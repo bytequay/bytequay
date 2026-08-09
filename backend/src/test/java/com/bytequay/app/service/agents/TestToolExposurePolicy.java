@@ -36,11 +36,11 @@ class TestToolExposurePolicy
     }
 
     @Test
-    void developmentHandsOffOnlyThroughTheLocalPrWorkflow()
+    void retiredDevelopmentHandoffToolIsNotExposed()
     {
         assertThat(policy.activeTools(ByteQuayRole.TASK, StageType.DEVELOPMENT_STAGE))
-                .contains("record_local_review")
-                .doesNotContain("request_review", "ship_task", "push", "validate");
+                .doesNotContain(
+                        "record_local_review", "request_review", "ship_task", "push", "validate");
     }
 
     @Test
@@ -52,20 +52,20 @@ class TestToolExposurePolicy
     }
 
     @Test
-    void remoteDevelopmentCannotRecreateTheRemovedMarkReadyGate()
+    void remoteDevelopmentCannotExposeRetiredReplyOrMarkReadyTools()
     {
         assertThat(policy.activeTools(ByteQuayRole.TASK, StageType.REMOTE_DEVELOPMENT_STAGE))
-                .contains("record_round_reply", "resolve_review_comment", "record_pr_commit", "record_pr_check")
+                .contains("resolve_review_comment", "record_pr_commit", "record_pr_check")
                 .doesNotContain(
-                        "mark_ready", "ship_task", "push", "request_review", "request_reviewer");
+                        "record_round_reply", "mark_ready", "ship_task", "push",
+                        "request_review", "request_reviewer");
     }
 
     @Test
-    void agentsCannotSplitReviewRoundRepliesOutsideTheAtomicGate()
+    void agentsCannotUseRetiredReviewRoundReplyTools()
     {
         assertThat(policy.activeTools(ByteQuayRole.TASK, StageType.REMOTE_DEVELOPMENT_STAGE))
-                .contains("record_round_reply")
-                .doesNotContain("reply_review_thread", "resolve_review_thread");
+                .doesNotContain("record_round_reply", "reply_review_thread", "resolve_review_thread");
         assertThat(policy.activeTools(ByteQuayRole.TASK, StageType.DEVELOPMENT_STAGE))
                 .doesNotContain("reply_review_thread", "resolve_review_thread");
         assertThat(policy.activeTools(ByteQuayRole.TASK, StageType.REMOTE_DEVELOPMENT_STAGE))

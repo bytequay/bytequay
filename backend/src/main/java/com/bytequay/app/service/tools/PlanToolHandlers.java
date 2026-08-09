@@ -145,10 +145,6 @@ public class PlanToolHandlers
                 plan.id(), args.taskId(), StageEventType.PLAN_RECORDED, payload);
         log.debug("recorded plan ({}) on PlanStage {} for task {}", source, plan.id(), args.taskId());
 
-        // Auto-approve is evaluated by BrainReviewServiceImpl instead of here
-        // (plan-rail-runs.md R20) — the brain's mandatory self-review runs
-        // between this call and the review bar, so the confidence gate must
-        // see the POST-self-review plan, not this one.
         return serialise(event.payloadJson());
     }
 

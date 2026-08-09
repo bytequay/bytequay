@@ -26,6 +26,7 @@ import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -49,7 +50,7 @@ class TestThreadServiceJumpIn
     @Autowired
     private NotificationService notifications;
     @Autowired
-    private WorktreeLeaseService leases;
+    private JdbcTemplate jdbc;
     @Test
     void jumpInRejectsALegacyTrunkWithoutSideEffects()
     {
@@ -57,7 +58,13 @@ class TestThreadServiceJumpIn
         Task task = newTask(threadId);
         taskStore.saveTask(task);
         // Pretend a headless agent claimed the lease earlier this tick.
-        leases.tryAcquire(task.worktreePath(), task.id(), ThreadKind.CLI_AGENT, /* pid */ null);
+        jdbc.update("""
+                INSERT INTO worktree_leases(
+                    worktree_path, task_id, agent_kind, acquired_at_ms,
+                    expires_at_ms, workflow_version)
+                VALUES (?, ?, ?, ?, ?, 'LEGACY')
+                """, task.worktreePath(), task.id(), ThreadKind.CLI_AGENT.name(),
+                Instant.now().toEpochMilli(), Instant.now().plusSeconds(60).toEpochMilli());
         Notification parked = notifications.notifyNeedsAttention(threadId, task.id(),
                 "{\"reason\":\"CI failing\"}");
         Notification other = notifications.notifyAwaitingReview(threadId, task.id(),
@@ -67,9 +74,11 @@ class TestThreadServiceJumpIn
                 .hasMessageContaining("Historical LEGACY Trunk")
                 .hasMessageContaining("read-only");
 
-        assertThat(leases.isHeld(task.worktreePath()))
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM worktree_leases WHERE worktree_path = ?",
+                Integer.class, task.worktreePath()))
                 .as("fail-closed compatibility must not release the historical lease")
-                .isTrue();
+                .isEqualTo(1);
         assertThat(reload(parked).status()).isEqualTo(NotificationStatus.UNREAD);
         assertThat(reload(other).status()).isEqualTo(NotificationStatus.UNREAD);
     }

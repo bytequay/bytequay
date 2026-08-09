@@ -20,7 +20,6 @@ import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
-import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.CheckpointTrigger;
 import com.bytequay.app.service.threads.ConvIndexService;
@@ -51,7 +50,6 @@ class TestThreadControllerV2PermissionRouting
                 mock(ConvIndexService.class),
                 mock(ThreadCheckpointStore.class),
                 mock(CheckpointTrigger.class),
-                mock(ContextAssembler.class),
                 mock(WorkModelResolver.class),
                 mock(PrTaskLinkService.class),
                 mock(TaskStore.class),

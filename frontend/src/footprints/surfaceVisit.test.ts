@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { Nav } from '../App';
+import type { Nav } from '../workspace/workspaceRoutes';
 import { navToSurfaceVisit, visitKey } from './surfaceVisit';
 
 describe('navToSurfaceVisit', () => {

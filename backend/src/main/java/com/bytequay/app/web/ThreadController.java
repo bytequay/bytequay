@@ -33,8 +33,6 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
-import com.bytequay.app.service.inspector.AssembledContext;
-import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.CheckpointTrigger;
@@ -110,7 +108,6 @@ public class ThreadController
     private final ConvIndexService convIndex;
     private final ThreadCheckpointStore checkpoints;
     private final CheckpointTrigger checkpointTrigger;
-    private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
     private final PrTaskLinkService prTaskLink;
     private final TaskStore taskStore;
@@ -124,7 +121,6 @@ public class ThreadController
             ConvIndexService convIndex,
             ThreadCheckpointStore checkpoints,
             CheckpointTrigger checkpointTrigger,
-            ContextAssembler contextAssembler,
             WorkModelResolver workModelResolver,
             PrTaskLinkService prTaskLink,
             TaskStore taskStore,
@@ -135,7 +131,6 @@ public class ThreadController
         this.convIndex = requireNonNull(convIndex, "convIndex is null");
         this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
-        this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
         this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -306,33 +301,6 @@ public class ThreadController
         return threads.find(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    /**
-     * GET /api/threads/{id}/context?dryRun=true — read-only view of
-     * what would be in the trunk turn's prompt right now.
-     *
-     * <p>{@code dryRun=true} is mandatory. The endpoint exists only
-     * for the inspector; there is no "send" mode, and a request
-     * without the flag set to true is rejected with 400 to make
-     * that contract impossible to ignore.
-     *
-     * <p>v1 doesn't yet have an agent-session principal model the
-     * server can introspect; the spec's "agent sessions denied"
-     * rule lands when the principal-tagging infrastructure does.
-     * For now this is a local UI surface only — no auth header, no
-     * agent-callable path.
-     */
-    @GetMapping("/{id}/context")
-    public AssembledContext context(
-            @PathVariable String id,
-            @RequestParam(value = "dryRun", required = false) Boolean dryRun)
-    {
-        if (!Boolean.TRUE.equals(dryRun)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "dryRun=true is required — this endpoint never dispatches");
-        }
-        return contextAssembler.forThread(id);
     }
 
     /**

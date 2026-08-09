@@ -86,7 +86,7 @@ public class DevReportToolHandlers
     @AgentTool(
             name = "record_dev_report",
             description = "Record the DevReport — your typed handoff to whatever addresses review "
-                    + "comments next. Call this as your last act before record_local_review flips the "
+                    + "comments next. Call this as your last act before the stage result hands off the "
                     + "PR to local-open, while you still have full context. Idempotent: calling again "
                     + "updates the same report.",
             security = SecurityType.TASK_MANAGE,

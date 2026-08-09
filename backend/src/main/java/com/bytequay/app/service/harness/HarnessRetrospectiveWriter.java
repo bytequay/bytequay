@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.harness;
 
-import com.bytequay.app.service.workspaces.SyncRetrospectiveWriter;
 import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +30,6 @@ import static java.util.Objects.requireNonNull;
  */
 @Component
 public class HarnessRetrospectiveWriter
-        implements SyncRetrospectiveWriter
 {
     private static final Logger log = LoggerFactory.getLogger(HarnessRetrospectiveWriter.class);
 
@@ -45,7 +43,6 @@ public class HarnessRetrospectiveWriter
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
     }
 
-    @Override
     public void write(
             Path worktree,
             String workspaceId,

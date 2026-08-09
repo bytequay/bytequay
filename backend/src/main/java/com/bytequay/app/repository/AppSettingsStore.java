@@ -87,19 +87,6 @@ public interface AppSettingsStore
         public static final String DS4_AUTO_START_ON_BOOT = "ds4.auto_start_on_boot";
         public static final String DS4_ATTACH_IF_RUNNING = "ds4.attach_if_running";
         public static final String DS4_ENABLED = "ds4.enabled";
-
-        // Account-level engine defaults per kind of agent work. Workspace
-        // session kinds inherit their matching values until overridden;
-        // global roles use theirs directly because no workspace exists.
-        // Stored strings are the same choice ids the workspace settings use
-        // ("cli:codex", "api:deepseek", "local", …).
-        public static final String AI_DEFAULT_PLAN = "ai.default.plan";
-        public static final String AI_DEFAULT_DEV = "ai.default.dev";
-        public static final String AI_DEFAULT_REVIEW = "ai.default.review";
-        public static final String AI_DEFAULT_GLOBAL_REVIEW = "ai.default.global_review";
-        public static final String AI_DEFAULT_CI_FIX = "ai.default.ci_fix";
-        public static final String AI_DEFAULT_TRIAGE = "ai.default.triage";
-        public static final String AI_DEFAULT_PERF = "ai.default.perf";
     }
 
     /**

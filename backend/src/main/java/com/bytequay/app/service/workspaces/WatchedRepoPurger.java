@@ -107,7 +107,6 @@ public class WatchedRepoPurger
         jdbc.update("DELETE FROM repo_meta WHERE owner = ? AND repo = ?", owner, repo);
         jdbc.update("DELETE FROM repo_metadata_cache WHERE repo_full_name = ?", fullName);
         jdbc.update("DELETE FROM repo_write_collaborator WHERE repo_full_name = ?", fullName);
-        jdbc.update("DELETE FROM repo_review_conf WHERE repo_id = ?", fullName);
         jdbc.update("DELETE FROM criterion WHERE repo_id = ?", fullName);
         jdbc.update("DELETE FROM skill WHERE repo = ?", fullName);
         watchedRepos.remove(owner, repo);

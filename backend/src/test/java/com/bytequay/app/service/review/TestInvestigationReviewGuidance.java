@@ -36,8 +36,8 @@ import com.bytequay.app.repository.sqlite.SqlitePRStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.InvestigationReviewModel.ReviewTurnPrompt;
 import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
+import com.bytequay.app.service.review.InvestigationReviewRunner.ReviewTurnPrompt;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FlowPhase;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FollowUpSeat;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RoundFlow;
@@ -128,7 +128,7 @@ class TestInvestigationReviewGuidance
         reviews.insertReview(new AgentReviewRow(
                 reviewId, "acme/typed-guidance", prId, "old-head", "old-head", "ACTIVE",
                 null, null, null), Instant.now());
-        InvestigationReviewModel model = promptModel();
+        InvestigationReviewRunner model = promptModel();
         TypedRuntimeHarness typed = new TypedRuntimeHarness(mapper);
         ReviewSessionSnapshotRuntime snapshots = mock(ReviewSessionSnapshotRuntime.class);
         InvestigationReviewService service = service(model, typed.runtime(), snapshots);
@@ -192,7 +192,7 @@ class TestInvestigationReviewGuidance
                 null, null, null, null, null, "you",
                 "The rejection is intentional for legacy callers.", root.id());
 
-        InvestigationReviewModel model = promptModel();
+        InvestigationReviewRunner model = promptModel();
         TypedRuntimeHarness typed = new TypedRuntimeHarness(mapper);
         ReviewSessionSnapshotRuntime snapshots = mock(ReviewSessionSnapshotRuntime.class);
         InvestigationReviewService service = service(model, typed.runtime(), snapshots);
@@ -236,7 +236,7 @@ class TestInvestigationReviewGuidance
     }
 
     private InvestigationReviewService service(
-            InvestigationReviewModel model, ReviewAssignmentTurnRuntime typed,
+            InvestigationReviewRunner model, ReviewAssignmentTurnRuntime typed,
             ReviewSessionSnapshotRuntime snapshots)
     {
         InvestigationReviewService service = new InvestigationReviewService(
@@ -248,9 +248,9 @@ class TestInvestigationReviewGuidance
         return service;
     }
 
-    private static InvestigationReviewModel promptModel()
+    private static InvestigationReviewRunner promptModel()
     {
-        InvestigationReviewModel model = mock(InvestigationReviewModel.class);
+        InvestigationReviewRunner model = mock(InvestigationReviewRunner.class);
         when(model.reviewKnowledge(any())).thenReturn(List.of());
         when(model.choose(anyString(), nullable(String.class))).thenReturn(API);
         when(model.chooseVerifier(any(), anyString())).thenReturn(API);

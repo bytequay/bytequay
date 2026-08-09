@@ -78,7 +78,7 @@ class TestHarnessOrchestrator
     private final ObjectMapper mapper = new ObjectMapper();
     private final HarnessOrchestrator orchestrator = new HarnessOrchestrator(
             store, service, probe, parser, agent, knowledge, new SyncRunStream(),
-            gitSafety, git, prs, mapper, Runnable::run);
+            gitSafety, git, prs, Runnable::run);
 
     private Cycle cycle;
 
@@ -582,7 +582,7 @@ class TestHarnessOrchestrator
 
         HarnessOrchestrator real = new HarnessOrchestrator(
                 store, service, probe, parser, agent, knowledge, new SyncRunStream(),
-                gitSafety, new GitRunner(), prs, mapper, Runnable::run);
+                gitSafety, new GitRunner(), prs, Runnable::run);
         real.writeJobLogs(worktree, new ProbeResult(
                 "head", "base", "feature", false, false,
                 List.of(
@@ -623,7 +623,7 @@ class TestHarnessOrchestrator
 
         HarnessOrchestrator real = new HarnessOrchestrator(
                 store, service, probe, parser, agent, knowledge, new SyncRunStream(),
-                gitSafety, new GitRunner(), prs, mapper, Runnable::run);
+                gitSafety, new GitRunner(), prs, Runnable::run);
 
         assertThat(real.fixupsBySupersededSha(watchAt(repo)))
                 .containsExactly(entry(pick, fixup));
@@ -636,7 +636,7 @@ class TestHarnessOrchestrator
         // real — has to be what a missing checkout falls back to.
         HarnessOrchestrator real = new HarnessOrchestrator(
                 store, service, probe, parser, agent, knowledge, new SyncRunStream(),
-                gitSafety, new GitRunner(), prs, mapper, Runnable::run);
+                gitSafety, new GitRunner(), prs, Runnable::run);
 
         assertThat(real.fixupsBySupersededSha(watchAt(root.resolve("nowhere")))).isEmpty();
     }

@@ -121,24 +121,6 @@ public class HarnessDiagnosisService
                 result.costMilliUsd());
     }
 
-    private void validateBase(Path root, String baseSha)
-    {
-        if (baseSha == null || baseSha.isBlank()) {
-            throw new IllegalArgumentException("PR base SHA is required for target safety");
-        }
-        try {
-            if (!git.refExists(root, baseSha)) {
-                throw new IllegalArgumentException("PR base SHA is not available in the local checkout");
-            }
-        }
-        catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            throw new IllegalStateException("unable to validate PR base SHA", e);
-        }
-    }
-
     /** Returns the local commit diff and, when durable provenance points into
      * the configured read-only relation, the bounded original upstream diff. */
     String ossDiff(Path root, String workspaceId, String commit)
@@ -403,7 +385,7 @@ public class HarnessDiagnosisService
             }
             List<String> lines = Files.readAllLines(realPath, StandardCharsets.UTF_8);
             int start = Math.max(1, input.path("start").asInt(1));
-            int end = Math.min(lines.size(), Math.max(start, input.path("end").asInt(start + 199)));
+            int end = Math.clamp(input.path("end").asInt(start + 199), start, lines.size());
             end = Math.min(end, start + 199);
             if (start > lines.size()) {
                 return "";
@@ -455,19 +437,6 @@ public class HarnessDiagnosisService
                 ? value : value.substring(0, MAX_TOOL_OUTPUT) + "\n…[tool output truncated]";
     }
 
-    private static String stripFence(String raw)
-    {
-        String value = raw == null ? "" : raw.strip();
-        if (value.startsWith("```")) {
-            int firstNewline = value.indexOf('\n');
-            int closing = value.lastIndexOf("```");
-            if (firstNewline >= 0 && closing > firstNewline) {
-                return value.substring(firstNewline + 1, closing).strip();
-            }
-        }
-        return value;
-    }
-
     private static String required(JsonNode node, String field)
     {
         String value = nullable(node, field);
@@ -492,24 +461,6 @@ public class HarnessDiagnosisService
         return value.asText();
     }
 
-    private static boolean requiredBoolean(JsonNode node, String field)
-    {
-        JsonNode value = node.get(field);
-        if (value == null || !value.isBoolean()) {
-            throw new IllegalArgumentException("diagnosis boolean field is required: " + field);
-        }
-        return value.asBoolean();
-    }
-
-    private static double requiredDouble(JsonNode node, String field)
-    {
-        JsonNode value = node.get(field);
-        if (value == null || !value.isNumber()) {
-            throw new IllegalArgumentException("diagnosis numeric field is required: " + field);
-        }
-        return value.asDouble();
-    }
-
     private static List<String> strings(JsonNode node)
     {
         if (!node.isArray()) {
@@ -523,17 +474,6 @@ public class HarnessDiagnosisService
             result.add(value.asText());
         });
         return List.copyOf(result);
-    }
-
-    private static int occurrences(String value, String needle)
-    {
-        int count = 0;
-        int from = 0;
-        while ((from = value.indexOf(needle, from)) >= 0) {
-            count++;
-            from += needle.length();
-        }
-        return count;
     }
 
     public record DiagnosisOutcome(

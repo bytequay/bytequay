@@ -74,7 +74,7 @@ class TestLocalDevelopmentSteeringBaseSyncGuard
                 "request-1", "command-1", "task-1", 1,
                 "stage-1", StageKind.LOCAL_DEVELOPMENT, 1, 7,
                 StageCheckpoint.LOCAL_REVIEW,
-                V2StageSteeringControl.Mode.APPEND, "Change the review",
+                V2StageSteeringRuntime.Mode.APPEND, "Change the review",
                 "a".repeat(64), null, "PENDING", null, null, null,
                 "user", NOW);
     }

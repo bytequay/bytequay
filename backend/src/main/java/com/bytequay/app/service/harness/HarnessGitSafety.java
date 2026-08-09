@@ -16,7 +16,6 @@ package com.bytequay.app.service.harness;
 import com.bytequay.app.service.harness.HarnessModels.GitSafetyProof;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ShellRunner;
-import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -25,7 +24,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -102,37 +100,6 @@ public class HarnessGitSafety
         }
     }
 
-    private void assertOnlyIntendedPaths(Path root, List<String> files)
-            throws IOException, InterruptedException
-    {
-        Set<String> intended = ImmutableSet.copyOf(files);
-        Set<String> dirty = new HashSet<>();
-        for (GitRunner.WorkingTreeFile file : git.workingTreeFiles(root)) {
-            dirty.add(file.path());
-        }
-        if (!dirty.equals(intended)) {
-            throw new SafetyException(
-                    "worktree changes do not exactly match the proposed fix; intended="
-                            + intended + ", actual=" + dirty);
-        }
-    }
-
-    private String exactTarget(Path root, String baseSha, String subject)
-            throws IOException, InterruptedException
-    {
-        if (subject == null || subject.isBlank()) {
-            throw new IllegalArgumentException("target subject is required");
-        }
-        List<GitRunner.CommitEntry> matches = git.listCommits(root, baseSha + "..HEAD", 1_000).stream()
-                .filter(commit -> subject.equals(commit.subject()))
-                .toList();
-        if (matches.size() != 1) {
-            throw new SafetyException(
-                    "target subject must resolve exactly once; found " + matches.size());
-        }
-        return matches.getFirst().sha();
-    }
-
     private String tree(Path root, String ref)
     {
         return run(root, List.of("git", "rev-parse", ref + "^{tree}"), 30).strip();
@@ -167,41 +134,6 @@ public class HarnessGitSafety
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new SafetyException("git command interrupted", e);
-        }
-    }
-
-    private static String validatePath(String value)
-    {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("changed path is blank");
-        }
-        Path path = Path.of(value).normalize();
-        if (path.isAbsolute() || path.startsWith("..")) {
-            throw new IllegalArgumentException("changed path escapes repository: " + value);
-        }
-        return path.toString().replace('\\', '/');
-    }
-
-    private static void validateRef(String value, String name)
-    {
-        if (value == null || !value.matches("[A-Za-z0-9._/-]+")
-                || value.startsWith("-") || value.contains("..") || value.endsWith("/")) {
-            throw new IllegalArgumentException("invalid git " + name);
-        }
-    }
-
-    private static String bound(String value, int max)
-    {
-        if (value == null) {
-            return "";
-        }
-        return value.length() <= max ? value : value.substring(0, max) + "\n…[truncated]";
-    }
-
-    private static void assertActive(BooleanSupplier active)
-    {
-        if (!active.getAsBoolean()) {
-            throw new SafetyException("harness cycle was cancelled");
         }
     }
 

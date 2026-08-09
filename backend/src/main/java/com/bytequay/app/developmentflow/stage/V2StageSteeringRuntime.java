@@ -58,8 +58,14 @@ import static java.util.Objects.requireNonNull;
 /** Persist-first Stage steering and restart-safe owner admission. */
 @Component
 public final class V2StageSteeringRuntime
-        implements V2StageSteeringControl, ExecutionPorts.MaintenanceWork
+        implements ExecutionPorts.MaintenanceWork
 {
+    public enum Mode
+    {
+        APPEND,
+        CANCEL_AND_REPLACE
+    }
+
     private static final Logger log =
             LoggerFactory.getLogger(V2StageSteeringRuntime.class);
     /** Sent with an automatic replacement so the agent knows its edits survive. */
@@ -113,7 +119,7 @@ public final class V2StageSteeringRuntime
                 tickets, remoteRepairs, remoteFeedback, Clock.systemUTC());
     }
 
-    V2StageSteeringRuntime(
+    public V2StageSteeringRuntime(
             TaskCommandExecutor commands,
             StageManager.Store stages,
             SqliteStageSteeringStore store,
@@ -140,7 +146,13 @@ public final class V2StageSteeringRuntime
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    @Override
+    public String steer(
+            String taskId, String stageId, String text,
+            List<String> images, Mode mode)
+    {
+        return steer(taskId, stageId, text, images, mode, null);
+    }
+
     public String steer(
             String taskId, String stageId, String text,
             List<String> images, Mode mode,

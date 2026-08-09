@@ -150,10 +150,10 @@ class TestV2StageUserWaitContinuation
         runtime.setSteeringStore(store);
         Request wait = steeringRequest(
                 "wait-request",
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         Request replacement = steeringRequest(
                 "replace-request",
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
 
         try (MockedStatic<TaskCommandExecutor> ignored =
                 mockStatic(TaskCommandExecutor.class)) {
@@ -191,7 +191,7 @@ class TestV2StageUserWaitContinuation
         ObjectMapper json = new ObjectMapper();
         SqliteStageSteeringStore store = mock(SqliteStageSteeringStore.class);
         Request request = steeringRequest(
-                "wait-request", V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                "wait-request", V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         String sourceDigest = "a".repeat(64);
         String previousLaunch = """
                 {"prompt":"original instruction","images":[
@@ -243,7 +243,7 @@ class TestV2StageUserWaitContinuation
                 anyString(), anyString(), anyString(), anyString(),
                 anyString(), anyString())).thenReturn(Optional.of(source));
         Request userWait = steeringRequest(
-                "wait-request", V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+                "wait-request", V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE);
         when(store.isUserWaitContinuation(userWait.id())).thenReturn(true);
         when(store.cliContinuation(
                 any(Request.class), anyString(), anyLong(), anyString(),
@@ -444,7 +444,7 @@ class TestV2StageUserWaitContinuation
     }
 
     private static Request steeringRequest(
-            String requestId, V2StageSteeringControl.Mode mode)
+            String requestId, V2StageSteeringRuntime.Mode mode)
     {
         return new Request(
                 requestId, "command-" + requestId, "task-1", 3,

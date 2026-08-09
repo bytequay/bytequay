@@ -16,7 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.stage.PlanMcpService;
-import com.bytequay.app.service.mcp.McpService;
+import com.bytequay.app.service.mcp.McpServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,14 +40,14 @@ public final class PlanMcpController
 {
     private static final String SESSION_HEADER = "Mcp-Session-Id";
     private final PlanMcpService plans;
-    private final McpService tools;
+    private final McpServiceImpl tools;
     private final AgentTurnOperationHandler.Store turns;
     private final Clock clock;
 
     @Autowired
     public PlanMcpController(
             PlanMcpService plans,
-            McpService tools,
+            McpServiceImpl tools,
             AgentTurnOperationHandler.Store turns)
     {
         this(plans, tools, turns, Clock.systemUTC());
@@ -55,7 +55,7 @@ public final class PlanMcpController
 
     PlanMcpController(
             PlanMcpService plans,
-            McpService tools,
+            McpServiceImpl tools,
             AgentTurnOperationHandler.Store turns,
             Clock clock)
     {

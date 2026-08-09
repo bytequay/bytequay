@@ -73,10 +73,10 @@ final class StageCliContinuity
             return;
         }
         boolean userWait = request.mode()
-                == V2StageSteeringControl.Mode.CANCEL_AND_REPLACE
+                == V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE
                 && store.isUserWaitContinuation(request.id());
         if (!userWait && (request.mode()
-                == V2StageSteeringControl.Mode.CANCEL_AND_REPLACE
+                == V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE
                 || modelKind != WorkModelKind.CLI)) {
             return;
         }

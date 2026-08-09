@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.service.mcp.McpService;
+import com.bytequay.app.service.mcp.McpServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatusCode;
@@ -31,7 +31,7 @@ import static java.util.Objects.requireNonNull;
  * ({@code @RequestMapping}) and the HTTP-verb binding
  * ({@code @PostMapping} / {@code @PathVariable} / {@code @RequestBody})
  * because those are transport concerns; the
- * {@link com.bytequay.app.service.mcp.McpService} interface stays
+ * {@link com.bytequay.app.service.mcp.McpServiceImpl} interface stays
  * HTTP-agnostic so the same business contract can be exercised by an
  * in-JVM lane, a CLI dispatcher, or anything else that wants to call
  * {@code handle(...)} without dragging Spring web along.
@@ -42,9 +42,9 @@ import static java.util.Objects.requireNonNull;
 @RestController
 public class McpController
 {
-    private final McpService service;
+    private final McpServiceImpl service;
 
-    public McpController(McpService service)
+    public McpController(McpServiceImpl service)
     {
         this.service = requireNonNull(service, "service is null");
     }

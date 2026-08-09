@@ -790,7 +790,7 @@ class TestV2LocalReviewControl
             throws ReflectiveOperationException
     {
         Class<?> type = Class.forName(
-                "com.bytequay.app.service.review.InvestigationReviewModel$ReviewTurnPrompt");
+                "com.bytequay.app.service.review.InvestigationReviewRunner$ReviewTurnPrompt");
         var constructor = type.getDeclaredConstructor(String.class, String.class);
         constructor.setAccessible(true);
         return constructor.newInstance("review system", "review exact head");

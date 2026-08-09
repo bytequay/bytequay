@@ -31,8 +31,6 @@ import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.workspaces.SyncRunStream;
 import com.bytequay.app.service.workspaces.WorkspaceKnowledgeService;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -103,7 +101,6 @@ public class HarnessOrchestrator
     private final HarnessGitSafety gitSafety;
     private final GitRunner git;
     private final SqlitePRStore prs;
-    private final ObjectMapper mapper;
     private final Executor executor;
     private final Set<String> workers = ConcurrentHashMap.newKeySet();
 
@@ -118,7 +115,6 @@ public class HarnessOrchestrator
             HarnessGitSafety gitSafety,
             GitRunner git,
             SqlitePRStore prs,
-            ObjectMapper mapper,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
@@ -131,7 +127,6 @@ public class HarnessOrchestrator
         this.gitSafety = requireNonNull(gitSafety, "gitSafety is null");
         this.git = requireNonNull(git, "git is null");
         this.prs = requireNonNull(prs, "prs is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -777,18 +772,6 @@ public class HarnessOrchestrator
                 watch.headSha());
     }
 
-    private void recordEscalation(Watch watch, Cycle cycle, Failure failure, String reason)
-    {
-        Failure latest = store.listFailuresForCycle(failure.cycleId()).stream()
-                .filter(value -> value.id().equals(failure.id()))
-                .findFirst()
-                .orElse(failure);
-        store.updateFailure(latest.id(), latest.bucketLabel(), latest.ruleId(),
-                FailureStatus.ESCALATED, latest.targetSubject(), latest.diagnosisJson(),
-                latest.fixJson(), latest.verificationJson(), now());
-        timeline(watch, current(cycle).phase(), "escalated", reason, watch.headSha());
-    }
-
     /**
      * The round's turn, as the log can read it back. Without this a round is a
      * black box between "handing over N failures" and a one-line verdict — the
@@ -933,16 +916,6 @@ public class HarnessOrchestrator
                         "status", status,
                         "sha", sha == null ? "" : sha)), null);
         prs.addEvent(entry);
-    }
-
-    private <T> T decode(String json, Class<T> type)
-    {
-        try {
-            return mapper.readValue(json, type);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("invalid persisted harness JSON", e);
-        }
     }
 
     private String json(Object value)

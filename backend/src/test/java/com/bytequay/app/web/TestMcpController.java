@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.service.mcp.McpService;
+import com.bytequay.app.service.mcp.McpServiceImpl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -35,7 +35,7 @@ import static org.mockito.Mockito.when;
 class TestMcpController
 {
     private final ObjectMapper mapper = new ObjectMapper();
-    private final McpService service = mock(McpService.class);
+    private final McpServiceImpl service = mock(McpServiceImpl.class);
     private final McpController controller = new McpController(service);
 
     @Test

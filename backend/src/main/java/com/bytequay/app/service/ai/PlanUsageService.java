@@ -741,7 +741,7 @@ public class PlanUsageService
 
     private static double percent(double value)
     {
-        return Math.max(0, Math.min(100, value));
+        return Math.clamp(value, 0, 100);
     }
 
     private static long secondsToMillis(long seconds)

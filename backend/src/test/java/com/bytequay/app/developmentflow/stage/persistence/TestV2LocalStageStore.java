@@ -31,7 +31,6 @@ import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.StageManager;
-import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
 import com.bytequay.app.developmentflow.stage.V2StageSteeringRuntime;
 import com.bytequay.app.developmentflow.task.SqliteTaskBrainConversationStore;
 import com.bytequay.app.developmentflow.task.SqliteTaskBrainConversationStore.NewTurn;
@@ -1545,7 +1544,7 @@ class TestV2LocalStageStore
         String instruction = "Retry this stage from its durable context";
         String requestId = steering.steer(
                 "task-1", "local-stage", instruction, List.of(),
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE,
                 predecessorTurnId);
 
         var admission = jdbc.queryForMap("""
@@ -1628,7 +1627,7 @@ class TestV2LocalStageStore
         clearInvocations(tickets);
         String replay = steering.steer(
                 "task-1", "local-stage", instruction, List.of(),
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE,
                 predecessorTurnId);
 
         assertThat(replay).isEqualTo(requestId);

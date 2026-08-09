@@ -2235,7 +2235,7 @@ function ToolCallList({ calls }: { calls: ToolCall[] }) {
             <div key={j} style={toolCallParamStyle}>
               <span style={toolCallParamNameStyle}>{p.name}</span>
               <div style={toolCallParamValStyle}>
-                <MarkdownProse text={p.value} variant="card" />
+                <MarkdownProse text={p.value} />
               </div>
             </div>
           ))}

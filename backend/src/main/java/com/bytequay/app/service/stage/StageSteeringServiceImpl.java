@@ -14,7 +14,7 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
-import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
+import com.bytequay.app.developmentflow.stage.V2StageSteeringRuntime;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.sqlite.SqliteStageStore;
@@ -49,7 +49,7 @@ public class StageSteeringServiceImpl
     private final SqliteStageStore stageStore;
     private final TaskStore taskStore;
     private V2ControlRouteStore v2Routes;
-    private V2StageSteeringControl v2Steering;
+    private V2StageSteeringRuntime v2Steering;
 
     public StageSteeringServiceImpl(
             SqliteStageStore stageStore,
@@ -66,7 +66,7 @@ public class StageSteeringServiceImpl
     }
 
     @Autowired(required = false)
-    void setV2Steering(V2StageSteeringControl v2Steering)
+    void setV2Steering(V2StageSteeringRuntime v2Steering)
     {
         this.v2Steering = requireNonNull(v2Steering, "v2Steering is null");
     }
@@ -98,7 +98,7 @@ public class StageSteeringServiceImpl
             }
             String turnId = v2Steering.steer(
                     v2TaskId, stageId.toString(), trimmed, images,
-                    V2StageSteeringControl.Mode.valueOf(mode.name()),
+                    V2StageSteeringRuntime.Mode.valueOf(mode.name()),
                     expectedPredecessorStageTurnId);
             return new SteerResult(turnId);
         }

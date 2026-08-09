@@ -23,15 +23,10 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.ActivityItem;
-import com.bytequay.app.domain.RepoRef;
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.github.GitHubOrgAccess;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.review.BrainReviewServiceImpl;
-import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -72,7 +67,6 @@ import static java.util.Objects.requireNonNull;
 public class PRSyncService
 {
     private static final Logger log = LoggerFactory.getLogger(PRSyncService.class);
-    private static final int COMMIT_LIMIT = 200;
     private static final String DEFAULT_BASE = "main";
 
     /** Passive-sync calls (e.g. a PR-bundle fetch on pane load) probe GitHub
@@ -87,14 +81,9 @@ public class PRSyncService
      *  #DEFAULT_MAX_AGE_SECONDS}, exactly as it did when the fetch ran inline. */
     private static final int MIN_BACKGROUND_SYNC_SECONDS = 5;
 
-    /** Phases at which dev is finished and the PR is awaiting the user's review. */
-    private static final Set<TaskPhase> READY_FOR_REVIEW = ImmutableSet.of(
-            TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
-
     private final PRService prService;
     private final TaskStore taskStore;
     private final GitRunner git;
-    private final BrainReviewServiceImpl brainReview;
     private final PullRequestService pullRequests;
     private final Executor executor;
 
@@ -104,14 +93,13 @@ public class PRSyncService
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     public PRSyncService(
-            PRService prService, TaskStore taskStore, GitRunner git, BrainReviewServiceImpl brainReview,
+            PRService prService, TaskStore taskStore, GitRunner git,
             PullRequestService pullRequests,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.git = requireNonNull(git, "git is null");
-        this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
@@ -583,21 +571,6 @@ public class PRSyncService
         }
     }
 
-    private Optional<RepoRef> resolveGitRemoteSlug(Task task)
-    {
-        try {
-            return git.remoteSlug(Path.of(task.workingDir()), "origin");
-        }
-        catch (IOException e) {
-            log.info("resolving origin remote for task {} failed: {}", task.id(), e.getMessage());
-            return Optional.empty();
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return Optional.empty();
-        }
-    }
-
     /** Mirror the remote PR's comments and reviews onto the unified timeline
      *  — the caller has already confirmed a {@code remotePrNumber} exists.
      *  Best-effort: a GitHub hiccup here must never break the PR view, so
@@ -876,50 +849,6 @@ public class PRSyncService
         prService.updateSyncSnapshot(pr.id(), next);
     }
 
-    private void syncCommits(PR pr, Task task, String base)
-    {
-        String cwd = task.worktreePath() != null && !task.worktreePath().isBlank()
-                ? task.worktreePath() : task.workingDir();
-        if (cwd == null || cwd.isBlank()) {
-            return;
-        }
-        Set<String> known = new HashSet<>();
-        for (PRCommit c : prService.commits(pr.id())) {
-            known.add(c.sha());
-        }
-        try {
-            Path dir = Path.of(cwd);
-            // Resolve the real fork point rather than trusting the configured
-            // base name verbatim — a stale local base ref (never fast-forwarded
-            // while origin/<base> moved on, e.g. because another parallel
-            // worktree merged work upstream) would otherwise sweep in commits
-            // that already landed upstream as if they belonged to this branch
-            // (see GitRunner.resolveCommitBase).
-            String resolvedBase = git.resolveCommitBase(dir, base);
-            List<GitRunner.CommitEntry> ahead = resolvedBase == null
-                    ? List.of() : git.listCommitsAhead(dir, resolvedBase, COMMIT_LIMIT);
-            // git log is newest-first; record oldest-first so the timeline reads
-            // in the order the commits were authored.
-            for (int i = ahead.size() - 1; i >= 0; i--) {
-                GitRunner.CommitEntry c = ahead.get(i);
-                if (known.stream().anyMatch(sha -> sameSha(sha, c.sha()) || sameSha(sha, c.shortSha()))) {
-                    continue;
-                }
-                int[] delta = commitDelta(dir, c.sha());
-                prService.recordCommit(
-                        pr.id(), c.shortSha(), c.subject(), delta[0], delta[1], PRTimelineEntry.ACTOR_AGENT);
-                known.add(c.shortSha());
-            }
-        }
-        catch (IOException e) {
-            log.info("syncing commits for local PR {} failed: {}", pr.id(), e.getMessage());
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.info("syncing commits for local PR {} interrupted", pr.id());
-        }
-    }
-
     private static boolean sameSha(String left, String right)
     {
         return left != null && right != null
@@ -945,17 +874,6 @@ public class PRSyncService
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new int[] {0, 0};
-        }
-    }
-
-    private void maybeFlipToOpen(String prId, Task task)
-    {
-        if (task.phase() == null || !READY_FOR_REVIEW.contains(task.phase())) {
-            return;
-        }
-        PR pr = prService.findById(prId).orElse(null);
-        if (pr != null && pr.canTransitionTo(PR.STATUS_LOCAL_OPEN)) {
-            brainReview.reviewBeforeLocalOpen(prId, PRTimelineEntry.ACTOR_AGENT);
         }
     }
 }

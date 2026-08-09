@@ -50,8 +50,23 @@ import static java.util.Objects.requireNonNull;
  */
 @Component
 public class ConflictRepairAgent
-        implements ConflictRepairAdvisor
 {
+    public record Outcome(
+            boolean resolved,
+            boolean validated,
+            String detail,
+            String transcript,
+            long costMilliUsd,
+            String sessionId)
+    {
+        public Outcome(
+                boolean resolved, boolean validated, String detail,
+                long costMilliUsd, String sessionId)
+        {
+            this(resolved, validated, detail, null, costMilliUsd, sessionId);
+        }
+    }
+
     /** What the agent may write as its verdict status. */
     private static final String RESOLVED = "resolved";
     private static final String UNVALIDATED = "resolved_unvalidated";
@@ -107,7 +122,6 @@ public class ConflictRepairAgent
         };
     }
 
-    @Override
     public Outcome repair(
             Path worktree,
             String workspaceId,

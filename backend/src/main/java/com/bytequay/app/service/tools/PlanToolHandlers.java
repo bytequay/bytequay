@@ -223,7 +223,7 @@ public class PlanToolHandlers
                 .sorted(Comparator.comparingLong(ThreadMessage::seq))
                 .toList();
         int limit = args.limit() == null ? CONVO_DEFAULT_LIMIT
-                : Math.min(Math.max(1, args.limit()), CONVO_MAX_LIMIT);
+                : Math.clamp(args.limit(), 1, CONVO_MAX_LIMIT);
         int start = 0;
         if (args.sinceMessageId() != null) {
             for (int i = 0; i < window.size(); i++) {

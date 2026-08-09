@@ -64,11 +64,11 @@ class TestV2StageSteeringRuntime
 
         String accepted = harness.runtime().steer(
                 "task-1", "stage-1", "Retry the stage", List.of(),
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE,
                 PREDECESSOR.ownerId());
         String replay = harness.runtime().steer(
                 "task-1", "stage-1", "Retry the stage", List.of(),
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE,
                 PREDECESSOR.ownerId());
 
         assertThat(replay).isEqualTo(accepted);
@@ -92,7 +92,7 @@ class TestV2StageSteeringRuntime
 
         assertThatThrownBy(() -> harness.runtime().steer(
                 "task-1", "stage-1", "Retry the stage", List.of(),
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE,
                 "stale-turn"))
                 .isInstanceOf(CommandRejectedException.class)
                 .hasMessageContaining("stale-turn")
@@ -113,7 +113,7 @@ class TestV2StageSteeringRuntime
 
         assertThatThrownBy(() -> harness.runtime().steer(
                 "task-1", "stage-1", "Change the review", List.of(),
-                V2StageSteeringControl.Mode.APPEND, null))
+                V2StageSteeringRuntime.Mode.APPEND, null))
                 .isInstanceOf(CommandRejectedException.class)
                 .hasMessageContaining("active publish base sync");
 
@@ -131,7 +131,7 @@ class TestV2StageSteeringRuntime
 
         String requestId = harness.runtime().steer(
                 "task-1", "stage-1", "Change the review", List.of(),
-                V2StageSteeringControl.Mode.APPEND, null);
+                V2StageSteeringRuntime.Mode.APPEND, null);
 
         assertThat(requestId).isEqualTo(harness.persisted().get().id());
         assertThat(harness.persisted().get().status()).isEqualTo("PENDING");

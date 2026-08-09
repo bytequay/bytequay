@@ -282,7 +282,7 @@ public class WorkspaceRelationService
                     HttpStatus.CONFLICT,
                     "upstream commit reading is disabled for this relation");
         }
-        int limit = Math.min(Math.max(requestedLimit, 1), 500);
+        int limit = Math.clamp(requestedLimit, 1, 500);
         int offset = Math.max(requestedOffset, 0);
         String branch = revision == null || revision.isBlank()
                 ? defaultBranch(resolved.upstream(), resolved.upstreamClone())

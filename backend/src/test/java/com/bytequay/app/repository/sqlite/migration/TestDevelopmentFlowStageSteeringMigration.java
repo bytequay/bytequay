@@ -21,7 +21,7 @@ import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
-import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
+import com.bytequay.app.developmentflow.stage.V2StageSteeringRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.InboxItem;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.InboxKind;
@@ -225,7 +225,7 @@ class TestDevelopmentFlowStageSteeringMigration
                 "feedback-wait-steering", "feedback-wait-command", "task-3", 1,
                 "remote-stage-3", StageKind.REMOTE_DEVELOPMENT, 1,
                 stageVersion, StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
-                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                V2StageSteeringRuntime.Mode.CANCEL_AND_REPLACE,
                 "Continue", "b".repeat(64), predecessor, "PENDING",
                 null, null, null, "user", NOW.plusMillis(4));
         fixture.commands().executeVoid("task-3", () -> {
@@ -551,7 +551,7 @@ class TestDevelopmentFlowStageSteeringMigration
         Request request = new Request(
                 requestId, requestId + "-command", taskId, 1, stageId,
                 StageKind.REMOTE_DEVELOPMENT, 1, version, checkpoint,
-                V2StageSteeringControl.Mode.APPEND, "Please adjust this",
+                V2StageSteeringRuntime.Mode.APPEND, "Please adjust this",
                 "a".repeat(64), predecessor, "PENDING", null, null, null,
                 "test", NOW.minusMillis(1));
         fixture.commands().executeVoid(taskId, () ->

@@ -805,7 +805,7 @@ public final class RemoteRepairTurnRuntime
             Request request,
             Instant now)
     {
-        boolean acceptOutput = request.mode() == V2StageSteeringControl.Mode.APPEND
+        boolean acceptOutput = request.mode() == V2StageSteeringRuntime.Mode.APPEND
                 && raw.outcome() == SUCCEEDED && context.current();
         CodeSubject output = null;
         String summary = null;

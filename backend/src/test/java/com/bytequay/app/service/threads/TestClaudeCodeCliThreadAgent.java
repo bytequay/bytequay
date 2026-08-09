@@ -55,8 +55,8 @@ class TestClaudeCodeCliThreadAgent
         ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
                 thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
-                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED, "high");
+                mock(CheckpointTrigger.class), () -> "", null,
+                ClaudeCodeCliThreadAgent.DEFAULT_BINARY, CWD, null, null, "high");
 
         assertThat(agent.buildCommand("plan").command())
                 .containsSubsequence("--effort", "high");
@@ -74,8 +74,8 @@ class TestClaudeCodeCliThreadAgent
         ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
                 thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
-                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                mock(CheckpointTrigger.class), () -> "", null,
+                ClaudeCodeCliThreadAgent.DEFAULT_BINARY, CWD, null, null, null);
 
         assertThat(agent.buildCommand("cut a task").command())
                 .containsSubsequence("--tools", "Read,Glob,Grep,WebFetch,WebSearch")
@@ -102,8 +102,8 @@ class TestClaudeCodeCliThreadAgent
         ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
                 thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
-                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                mock(CheckpointTrigger.class), () -> "", null,
+                ClaudeCodeCliThreadAgent.DEFAULT_BINARY, CWD, null, null, null);
 
         assertThat(agent.shouldAutomaticallyRecover("claude exited with code 1:\n"
                 + "MCP tool mcp__bytequay__approval_prompt (passed via --permission-prompt-tool) "
@@ -125,8 +125,8 @@ class TestClaudeCodeCliThreadAgent
         ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
                 thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
-                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                mock(CheckpointTrigger.class), () -> "", null,
+                ClaudeCodeCliThreadAgent.DEFAULT_BINARY, CWD, null, null, null);
 
         Path trunkConfig = mcpConfig(agent.buildCommand("draft the plan"));
         assertThat(Files.readString(trunkConfig)).contains("/agents/trunk/mcp");
@@ -150,8 +150,8 @@ class TestClaudeCodeCliThreadAgent
         ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
                 thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
                 mock(McpPermissionGate.class), mock(ExecutorService.class),
-                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
-                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+                mock(CheckpointTrigger.class), () -> "", null,
+                ClaudeCodeCliThreadAgent.DEFAULT_BINARY, CWD, null, null, null);
 
         // No hook: the prompt passes through untouched.
         assertThat(agent.composeTurnInput("cut phase 3")).isEqualTo("cut phase 3");

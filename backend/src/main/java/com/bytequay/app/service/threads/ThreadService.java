@@ -1036,7 +1036,7 @@ public class ThreadService
         // Stop the live agents + drop any queued turns so we don't leave a
         // subprocess running against a deleted row. A thread may have
         // several Task agents plus its trunk/planning agent.
-        for (ThreadAgent agent : registry.findAll(threadId)) {
+        for (Agent agent : registry.findAll(threadId)) {
             stopQuietly(threadId, agent);
         }
         registry.findTrunk(threadId).ifPresent(agent -> stopQuietly(threadId, agent));
@@ -1139,7 +1139,7 @@ public class ThreadService
         return v2ThreadControls;
     }
 
-    private void stopQuietly(String threadId, ThreadAgent agent)
+    private void stopQuietly(String threadId, Agent agent)
     {
         try {
             agent.stop();
@@ -1607,7 +1607,7 @@ public class ThreadService
 
     /** Applies a decision and, when requested, grants a per-tool budget to
      *  the same Task agent that raised the prompt. The agent key must be
-     *  captured before {@link ThreadAgent#decide} clears the gate entry. */
+     *  captured before {@link Agent#decide} clears the gate entry. */
     public boolean decide(
             String threadId,
             String callId,

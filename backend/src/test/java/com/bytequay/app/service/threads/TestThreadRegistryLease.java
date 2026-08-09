@@ -70,7 +70,7 @@ class TestThreadRegistryLease
         when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(active));
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreateTaskAgent(thread("thread-1"), active);
+        registry.getOrCreate(thread("thread-1"), active);
 
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
     }
@@ -81,7 +81,7 @@ class TestThreadRegistryLease
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         Task active = task("task-1", "thread-1", WORKTREE);
         ThreadRegistry registry = newRegistry();
-        registry.getOrCreateTaskAgent(thread("thread-1"), active);
+        registry.getOrCreate(thread("thread-1"), active);
 
         registry.evict("thread-1");
 
@@ -102,7 +102,7 @@ class TestThreadRegistryLease
                 Instant.now(), /* expiresAt */ null));
         ThreadRegistry registry = newRegistry();
 
-        assertThatThrownBy(() -> registry.getOrCreateTaskAgent(thread("thread-1"), active))
+        assertThatThrownBy(() -> registry.getOrCreate(thread("thread-1"), active))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("leased by another live session");
         // The pre-existing row stays put — refusing the attachment
@@ -125,7 +125,7 @@ class TestThreadRegistryLease
                 Instant.now().minusSeconds(3600), /* expiresAt */ null));
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreateTaskAgent(thread("thread-1"), active);
+        registry.getOrCreate(thread("thread-1"), active);
 
         assertThat(leaseService.find(WORKTREE).map(WorktreeLease::taskId))
                 .contains("task-1");
@@ -146,7 +146,7 @@ class TestThreadRegistryLease
                 Instant.now(), /* expiresAt */ null));
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreateTaskAgent(thread("thread-1"), active);
+        registry.getOrCreate(thread("thread-1"), active);
 
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
         assertThat(leaseService.find(WORKTREE).map(WorktreeLease::taskId))
@@ -174,7 +174,7 @@ class TestThreadRegistryLease
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         ThreadRegistry registry = newRegistry();
 
-        assertThatThrownBy(() -> registry.getOrCreateTaskAgent(thread("thread-1"), null))
+        assertThatThrownBy(() -> registry.getOrCreate(thread("thread-1"), null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("task is null");
 
@@ -212,8 +212,8 @@ class TestThreadRegistryLease
         Task active = task("task-1", "thread-1", WORKTREE);
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreateTaskAgent(thread("thread-1"), active);
-        registry.getOrCreateTaskAgent(thread("thread-1"), active);
+        registry.getOrCreate(thread("thread-1"), active);
+        registry.getOrCreate(thread("thread-1"), active);
 
         // Explicit Task identity makes the second attach hit the same cached
         // provider session and keeps one worktree lease.

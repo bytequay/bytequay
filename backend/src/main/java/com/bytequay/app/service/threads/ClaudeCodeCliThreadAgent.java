@@ -20,7 +20,6 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.agents.AgentContextCompiler;
-import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.workspaces.WorkspaceDocumentLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -36,7 +35,7 @@ import java.util.function.Supplier;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Wraps the {@code claude} CLI as a {@link ThreadAgent}.
+ * Wraps the {@code claude} CLI as a {@link Agent}.
  *
  * <p>Each {@link #send} spawns a fresh {@code claude -p
  * --output-format stream-json ... [--resume <session-id>]}, feeds the
@@ -67,7 +66,7 @@ public class ClaudeCodeCliThreadAgent
 
     /** {@code claude}'s default binary name on PATH. Overridable in case
      *  the user installed it under a different name. */
-    private static final String DEFAULT_BINARY = "claude";
+    static final String DEFAULT_BINARY = "claude";
 
     /** Resolves the thread's workspace memory_md at spawn time. Empty
      *  string when nothing's there yet. The CLI sees the result via
@@ -86,149 +85,6 @@ public class ClaudeCodeCliThreadAgent
      *  moves between the trunk key and stage-scoped review keys. */
     private final AtomicReference<String> mcpConfigAgentKey = new AtomicReference<>();
 
-    public ClaudeCodeCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            StreamJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            @SuppressWarnings("unused") SkillMaterializer skillMaterializer,
-            String roleSkillText,
-            Task boundTask)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                (String) null, boundTask, (String) null, (String) null);
-    }
-
-    /**
-     * Stage-scoped constructor carrying the resolved work-model cascade's
-     * model id (stage → task → thread → workspace → global), so a stage or
-     * task override reaches the {@code --model} spawn arg instead of only
-     * the thread's frozen {@link Thread#model()}. Null/blank means no
-     * override — falls back to {@code thread.model()} like the constructor
-     * above.
-     */
-    public ClaudeCodeCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            StreamJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
-            String roleSkillText,
-            Task boundTask,
-            String modelOverride)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText,
-                boundTask, modelOverride, null);
-    }
-
-    /** Stage-scoped constructor with model and provider-native effort. */
-    public ClaudeCodeCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            StreamJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
-            String roleSkillText,
-            Task boundTask,
-            String modelOverride,
-            String reasoningEffort)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                (String) null, boundTask, modelOverride, reasoningEffort);
-    }
-
-    /**
-     * Trunk-mode constructor: the agent runs without a focused Task, cwd
-     * defaulting to {@code trunkCwd} (a watched-repo clone root), with
-     * {@code thread.agentSessionId} as the {@code --resume} id.
-     */
-    public ClaudeCodeCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            StreamJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
-            String roleSkillText,
-            String trunkCwd,
-            @SuppressWarnings("unused") TrunkMode trunkMode)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                trunkCwd, (Task) null, (String) null, (String) null);
-    }
-
-    /** Trunk / brain constructor with an explicit provider-native effort. */
-    public ClaudeCodeCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            StreamJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
-            String roleSkillText,
-            String trunkCwd,
-            @SuppressWarnings("unused") TrunkMode trunkMode,
-            String reasoningEffort)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText,
-                trunkCwd, trunkMode, null, reasoningEffort);
-    }
-
-    /** Trunk / brain constructor with explicit model and effort overrides. */
-    public ClaudeCodeCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            StreamJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
-            String roleSkillText,
-            String trunkCwd,
-            @SuppressWarnings("unused") TrunkMode trunkMode,
-            String modelOverride,
-            String reasoningEffort)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                trunkCwd, (Task) null, modelOverride, reasoningEffort);
-    }
-
-    /** Marker enum disambiguating the two-argument trailing-string
-     *  constructor overloads. {@link #ENABLED} = trunk mode. */
-    public enum TrunkMode { ENABLED }
-
     ClaudeCodeCliThreadAgent(
             Thread thread,
             ThreadStore store,
@@ -239,27 +95,6 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
-            String roleSkillText,
-            String binary,
-            Task boundTask)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, roleSkillText, binary,
-                (String) null, boundTask, (String) null, (String) null);
-    }
-
-    private ClaudeCodeCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            StreamJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            @SuppressWarnings("unused") SkillMaterializer skillMaterializer,
             String roleSkillText,
             String binary,
             String trunkCwd,

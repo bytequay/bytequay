@@ -70,7 +70,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Shared machinery for wrapping a one-shot streaming CLI agent (Claude
  * Code's {@code claude -p}, OpenAI's {@code codex exec}) as a
- * {@link ThreadAgent}.
+ * {@link Agent}.
  *
  * <p>One <em>logical</em> session spans many subprocess invocations:
  * each {@link #send} spawns a fresh provider process, reads its
@@ -97,7 +97,7 @@ import static java.util.Objects.requireNonNull;
  * turn is already in flight.
  */
 public abstract class AbstractCliThreadAgent
-        implements ThreadAgent
+        implements Agent
 {
     private static final Logger log = LoggerFactory.getLogger(AbstractCliThreadAgent.class);
 
@@ -407,7 +407,7 @@ public abstract class AbstractCliThreadAgent
         return activeTaskId == null;
     }
 
-    // ---- ThreadAgent --------------------------------------------------
+    // ---- Agent --------------------------------------------------
 
     @Override
     public final String id()

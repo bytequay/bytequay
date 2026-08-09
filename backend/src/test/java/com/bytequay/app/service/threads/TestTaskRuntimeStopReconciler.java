@@ -70,7 +70,7 @@ class TestTaskRuntimeStopReconciler
     {
         when(taskStore.findTaskById("t1")).thenReturn(
                 Optional.of(task("t1", TaskStatus.PAUSED)));
-        ThreadAgent agent = mock(ThreadAgent.class);
+        Agent agent = mock(Agent.class);
         when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of(agent));
         when(validationStore.findOpenByTask("t1")).thenReturn(List.of(
                 claim("claim-1", null, null)));
@@ -117,7 +117,7 @@ class TestTaskRuntimeStopReconciler
 
         when(turnStore.listTurnsByExactTaskIdAndStatus("t1", ThreadTurnStatus.QUEUED, 1))
                 .thenReturn(List.of());
-        when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of(mock(ThreadAgent.class)));
+        when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of(mock(Agent.class)));
         assertThat(reconciler.runtimeStopped("t1")).isFalse();
 
         when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of());

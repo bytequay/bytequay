@@ -947,7 +947,7 @@ public class TaskLifecycleDriver
     /** Interrupt + evict every runtime owned by the Task. */
     private void evictTaskRuntime(Task task)
     {
-        registry.findTaskAgents(List.of(task.id())).forEach(ThreadAgent::interrupt);
+        registry.findTaskAgents(List.of(task.id())).forEach(Agent::interrupt);
         registry.evictTaskAgent(task.threadId(), task.id());
     }
 }

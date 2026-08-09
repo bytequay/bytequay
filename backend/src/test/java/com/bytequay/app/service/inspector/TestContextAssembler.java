@@ -30,7 +30,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.concepts.ConceptRegistry;
-import com.bytequay.app.service.skills.RoleSkillService;
+import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.skills.SkillManifestEntry;
 import com.bytequay.app.service.skills.SkillManifestService;
 import com.bytequay.app.service.tools.TurnAssembler;
@@ -74,7 +74,7 @@ class TestContextAssembler
 {
     private ThreadStore threadStore;
     private TaskStore taskStore;
-    private RoleSkillService roleSkills;
+    private RoleRegistry roleSkills;
     private WorkspaceService workspaces;
     private SkillManifestService skillManifest;
     private MemoryItemService memoryItems;
@@ -89,7 +89,7 @@ class TestContextAssembler
         taskStore = mock(TaskStore.class);
         ConceptRegistry concepts = new ConceptRegistry();
         concepts.scan();
-        roleSkills = new RoleSkillService(concepts);
+        roleSkills = new RoleRegistry(concepts);
         workspaces = mock(WorkspaceService.class);
         skillManifest = mock(SkillManifestService.class);
         memoryItems = mock(MemoryItemService.class);

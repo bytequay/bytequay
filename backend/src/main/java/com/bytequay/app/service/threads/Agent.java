@@ -32,9 +32,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
 /**
- * One running or paused agent runtime. Scope-specific entry points expose
- * this as {@link TrunkAgent}, {@link TaskBrainAgent}, or {@link TaskAgent};
- * {@link ThreadAgent} remains the old compatibility name.
+ * One running or paused agent runtime.
  */
 public interface Agent
 {

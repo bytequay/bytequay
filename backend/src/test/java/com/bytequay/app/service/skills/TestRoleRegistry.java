@@ -24,21 +24,21 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class TestRoleSkillService
+class TestRoleRegistry
 {
-    private static RoleSkillService bootedService()
+    private static RoleRegistry bootedService()
             throws IOException
     {
         ConceptRegistry concepts = new ConceptRegistry();
         concepts.scan();
-        return new RoleSkillService(concepts);
+        return new RoleRegistry(concepts);
     }
 
     @Test
     void trunkTemplateComesFromTheVersionedByteQuayRegistry()
             throws IOException
     {
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
 
         assertThat(service.trunkTemplate())
                 .contains("ByteQuay role · Trunk")
@@ -53,7 +53,7 @@ class TestRoleSkillService
     void taskTemplateInterpolatesAllPlaceholders()
             throws IOException
     {
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
 
         String body = service.generateForTask(
                 "acme/widgets", "feature/x", "task-123", "main");
@@ -70,7 +70,7 @@ class TestRoleSkillService
     void taskTemplateFallsBackToUnsetWhenAFieldIsMissing()
             throws IOException
     {
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
 
         String body = service.generateForTask(null, "branch", "task-1", null);
 
@@ -85,7 +85,7 @@ class TestRoleSkillService
         // Cache stability: the frozen role skill is the first system
         // block; two reads of the same template must produce
         // byte-identical bytes so the prefix stays warm.
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
         String first = service.generateForTask("acme/x", "branch", "id", "main");
         String second = service.generateForTask("acme/x", "branch", "id", "main");
 
@@ -101,7 +101,7 @@ class TestRoleSkillService
         // sentence that turns memory into an active read instead of
         // a passive store; if it disappears from the template, the
         // policy isn't enforced anywhere else.
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
 
         String body = service.generateForTask("acme/x", "b", "t", "main");
 
@@ -115,7 +115,7 @@ class TestRoleSkillService
     void trunkTemplateCarriesTheRecallBeforeAskInstruction()
             throws IOException
     {
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
 
         assertThat(service.trunkTemplate())
                 .contains("Recall before asking")
@@ -131,7 +131,7 @@ class TestRoleSkillService
         // backticks plus the one-line definition. Pin the names so a
         // future change to TASK_PREAMBLE_CONCEPTS is caught by the
         // test rather than silently changing every new task's prefix.
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
 
         String body = service.generateForTask("acme/x", "b", "t", "main");
 
@@ -149,7 +149,7 @@ class TestRoleSkillService
     void taskRowsStoreAVersionReferenceAndLegacyBodiesStillResolve()
             throws IOException
     {
-        RoleSkillService service = bootedService();
+        RoleRegistry service = bootedService();
 
         assertThat(service.taskRoleReference()).isEqualTo("task@1");
         assertThat(service.resolveForTask(task("task@1")))

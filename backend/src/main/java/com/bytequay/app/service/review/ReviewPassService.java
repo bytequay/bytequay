@@ -1635,19 +1635,6 @@ public class ReviewPassService
     {
     }
 
-    /** Retained compatibility seam. Runtime publication is authorized through
-     *  the durable standalone ReviewPass protocol in V2UserRemoteActionRuntime. */
-    @Deprecated(forRemoval = true)
-    public ReviewPassDetail publishPass(
-            String passId, ReviewVerdict verdict, List<String> includedFindingIds)
-    {
-        requireNonNull(passId, "passId is null");
-        requireNonNull(verdict, "verdict is null");
-        requireNonNull(includedFindingIds, "includedFindingIds is null");
-        throw new IllegalStateException(
-                "direct ReviewPass publication is retired; use the durable V2 command");
-    }
-
     /**
      * Mark a pass COMPLETED by hand — the human closing the review out
      * without posting to GitHub. A terminal-but-reversible state: the

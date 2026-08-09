@@ -32,7 +32,7 @@ import java.util.function.Supplier;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Wraps the {@code codex} CLI as a {@link ThreadAgent}.
+ * Wraps the {@code codex} CLI as a {@link Agent}.
  *
  * <p>Each {@link #send} spawns {@code codex exec --json} (or {@code codex
  * exec resume <session-id> --json} on a follow-up turn) with the prompt
@@ -53,7 +53,7 @@ public class CodexCliThreadAgent
         extends AbstractCliThreadAgent
 {
     /** {@code codex}'s default binary name on PATH. */
-    private static final String DEFAULT_BINARY = "codex";
+    static final String DEFAULT_BINARY = "codex";
 
     /** Task agents write only inside their worktree; trunk agents stay
      *  read-only and hand implementation to a Task. */
@@ -65,158 +65,7 @@ public class CodexCliThreadAgent
     /** Optional Codex reasoning-effort override for planning-heavy sessions. */
     private volatile String reasoningEffort;
 
-    public CodexCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            CodexJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            String roleSkillText,
-            Task boundTask)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null,
-                boundTask, (String) null, (String) null);
-    }
-
-    /**
-     * Stage-scoped constructor carrying the resolved work-model cascade's
-     * model id (stage → task → thread → workspace → global), so a stage or
-     * task override reaches the {@code -m} spawn arg instead of only the
-     * thread's frozen {@link Thread#model()}. Null/blank means no override —
-     * falls back to {@code thread.model()} like the constructor above.
-     */
-    public CodexCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            CodexJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            String roleSkillText,
-            Task boundTask,
-            String modelOverride)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, boundTask, modelOverride, null);
-    }
-
-    /** Stage-scoped constructor with model and provider-native effort. */
-    public CodexCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            CodexJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            String roleSkillText,
-            Task boundTask,
-            String modelOverride,
-            String reasoningEffort)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null,
-                boundTask, modelOverride, reasoningEffort);
-    }
-
-    /** Trunk-mode constructor: no focused Task, cwd defaulting to {@code
-     *  trunkCwd}, resuming {@code thread.agentSessionId}. */
-    public CodexCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            CodexJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            String roleSkillText,
-            String trunkCwd,
-            @SuppressWarnings("unused") TrunkMode trunkMode)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd,
-                (Task) null, (String) null, (String) null);
-    }
-
-    /** Trunk-mode constructor with an explicit provider-native effort. */
-    public CodexCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            CodexJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            String roleSkillText,
-            String trunkCwd,
-            @SuppressWarnings("unused") TrunkMode trunkMode,
-            String reasoningEffort)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, trunkCwd, trunkMode,
-                null, reasoningEffort);
-    }
-
-    /** Trunk-mode constructor with explicit model and effort overrides. */
-    public CodexCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            CodexJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            String roleSkillText,
-            String trunkCwd,
-            @SuppressWarnings("unused") TrunkMode trunkMode,
-            String modelOverride,
-            String reasoningEffort)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd,
-                (Task) null, modelOverride, reasoningEffort);
-    }
-
-    /** Marker enum disambiguating the trailing-string constructor
-     *  overloads. {@link #ENABLED} = trunk mode. */
-    public enum TrunkMode { ENABLED }
-
     CodexCliThreadAgent(
-            Thread thread,
-            ThreadStore store,
-            TaskStore taskStore,
-            CodexJsonParser parser,
-            ObjectMapper mapper,
-            McpPermissionGate gate,
-            ExecutorService executor,
-            CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            String roleSkillText,
-            String binary,
-            Task boundTask)
-    {
-        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, roleSkillText, binary, (String) null,
-                boundTask, (String) null, (String) null);
-    }
-
-    private CodexCliThreadAgent(
             Thread thread,
             ThreadStore store,
             TaskStore taskStore,

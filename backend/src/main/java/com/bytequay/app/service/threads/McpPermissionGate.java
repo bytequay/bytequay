@@ -27,7 +27,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Coordination point between the MCP {@code approval_prompt} tool
  * call (which has to block the agent until the user decides) and
- * {@link ThreadAgent#decide}, which the user invokes through the
+ * {@link Agent#decide}, which the user invokes through the
  * Allow / Deny banner in the conversation pane.
  *
  * <p>Lifecycle for one prompt:

@@ -28,7 +28,6 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringServiceImpl;
@@ -79,7 +78,6 @@ public class StageController
             StageServiceImpl service,
             StageDetailServiceImpl detailService,
             StageSteeringServiceImpl steeringService,
-            PlanStageService planStageService,
             StageStore stageStore,
             TaskStore taskStore,
             ThreadStore threadStore,
@@ -88,7 +86,6 @@ public class StageController
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
         this.steeringService = requireNonNull(steeringService, "steeringService is null");
-        requireNonNull(planStageService, "planStageService is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
@@ -217,13 +214,13 @@ public class StageController
     }
 
     @PostMapping("/api/stages/{planStageId}/approve")
-    public PlanStageService.ApproveResult approvePlan(@PathVariable String planStageId)
+    public ApprovePlanResult approvePlan(@PathVariable String planStageId)
     {
         UUID stageId = parseStageId(planStageId);
         if (isV2Stage(stageId)) {
             V2PlanControlService.Approval approval = requireV2PlanControls()
                     .approve(stageId.toString());
-            return new PlanStageService.ApproveResult(
+            return new ApprovePlanResult(
                     approval.localStageId(),
                     "/tasks/" + approval.taskId() + "/stages/"
                             + approval.localStageId());
@@ -232,18 +229,22 @@ public class StageController
     }
 
     @PostMapping("/api/tasks/{taskId}/replan")
-    public PlanStageService.ReplanResult replan(@PathVariable String taskId)
+    public ReplanResult replan(@PathVariable String taskId)
     {
         if (taskStore.isV2Task(taskId)) {
             V2PlanControlService.Replan result = requireV2PlanControls()
                     .replan(taskId);
-            return new PlanStageService.ReplanResult(
+            return new ReplanResult(
                     result.planStageId(), result.preparing());
         }
         throw legacyStageMutationRetired(taskId);
     }
 
     public record FollowupPatch(String status) {}
+
+    public record ApprovePlanResult(String localStageId, String redirectPath) {}
+
+    public record ReplanResult(String planStageId, boolean preparing) {}
 
     @PatchMapping("/api/stages/{planStageId}/followups/{followupEventId}")
     public void resolveFollowup(

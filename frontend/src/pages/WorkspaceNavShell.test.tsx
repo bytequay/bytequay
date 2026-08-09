@@ -198,7 +198,7 @@ describe('WorkspaceNavShell', () => {
         ? {
             workspaceId: 'bq', upstreamWorkspaceId: 'tr', upstreamWorkspaceName: 'Trino',
             upstreamRepoFullName: 'trinodb/trino', commitsEnabled: true, tagsEnabled: true,
-            branchesEnabled: false, issuesPullRequestsEnabled: false, lastFetchedAt: null as string | null,
+            lastFetchedAt: null as string | null,
             autoFetchIntervalMinutes: 30, indexedCommitCount: 10,
           }
         : null),

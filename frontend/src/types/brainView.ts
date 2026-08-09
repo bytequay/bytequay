@@ -296,12 +296,6 @@ export type PlanCardDto = {
   error?: string | null;                // set when the latest planning turn failed
 };
 
-export type ContextWindowDto = {
-  tokensUsed: number;
-  tokensLimit: number;
-  safeBand: 'safe' | 'warn' | 'danger';   // server-classified
-};
-
 export type CommitDto = {
   sha: string;
   subject: string;
@@ -351,7 +345,6 @@ export type TaskBrainViewData = {
   rightRail: {
     approval: ApprovalDto | null;     // present when any stage is in NEEDS_ATTENTION
     linkedPr: LinkedPrDto | null;
-    context: ContextWindowDto;        // brain-agent's own (Task, Agent) context
     recentCommits: CommitDto[];       // limit 5
     panelSpawnable: boolean;          // true in an internal-review phase over a PR
     parentStageId: string | null;     // the stage a panel review is called from
@@ -437,7 +430,6 @@ export type StageDetailData = {
    *  labels, a CI check summary, and the per-line review threads. Null when
    *  the task has no linked PR. */
   pr: StagePrTab | null;
-  context: ContextWindowDto;
   scrubber: { userMessages: ScrubberDash[] };
   /** Folded in for the same reason as {@link TaskBrainViewData.liveRuns} —
    *  this page renders the plan rail too. */

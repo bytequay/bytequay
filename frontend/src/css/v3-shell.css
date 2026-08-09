@@ -223,141 +223,13 @@
   flex-direction: column;
   gap: var(--left-nav-group-gap);
 }
-.shell .session-item {
-  display: flex;
-  align-items: center;
-  gap: var(--left-nav-row-gap);
-  padding: var(--left-nav-row-padding);
-  border-radius: var(--left-nav-row-radius);
-  font-size: var(--left-nav-font-size);
-  font-weight: var(--left-nav-font-weight);
-  line-height: var(--left-nav-row-line-height);
-  color: var(--text-2);
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  text-align: left;
-  width: 100%;
-}
-.shell .session-item:hover {
-  background: var(--left-nav-hover-bg);
-}
-.shell .session-item.active {
-  background: var(--left-nav-active-bg);
-  color: var(--text-1);
-  font-weight: var(--left-nav-font-weight);
-}
-.shell .session-item .ic {
-  font-size: 12px;
-  color: var(--text-3);
-  width: 14px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.shell .session-item .label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.shell .session-children {
-  padding-left: 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.shell .session-item.nested {
-  font-size: var(--left-nav-nested-font-size);
-}
-.shell .session-item.current {
-  color: var(--text-1);
-  font-weight: var(--left-nav-font-weight);
-}
-.shell .session-item .ts {
-  margin-left: auto;
-  font-size: var(--left-nav-meta-font-size);
-  color: var(--text-4);
-}
 
 /* Status dot inside a nested stage / task row pins to the right. The
    dot itself is the v3-dot primitive. */
-.shell .session-item .v3-dot {
-  margin-left: auto;
-}
-.shell .session-item.future {
-  opacity: 0.55;
-}
 
 /* Closed-threads folder */
-.shell .closed-folder {
-  padding: 8px;
-  margin-top: 4px;
-  border-top: 1px dashed var(--border);
-}
-.shell .closed-folder .folder-row {
-  display: flex;
-  align-items: center;
-  gap: var(--left-nav-row-gap);
-  padding: var(--left-nav-row-padding);
-  border-radius: var(--left-nav-row-radius);
-  font-size: var(--left-nav-font-size);
-  font-weight: var(--left-nav-font-weight);
-  line-height: var(--left-nav-row-line-height);
-  color: var(--text-3);
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  width: 100%;
-  text-align: left;
-}
-.shell .closed-folder .folder-row:hover {
-  background: var(--left-nav-hover-bg);
-  color: var(--text-2);
-}
-.shell .closed-folder .folder-row .ic {
-  font-size: 13px;
-}
-.shell .closed-folder .folder-row .count {
-  margin-left: auto;
-  font-size: var(--left-nav-meta-font-size);
-  color: var(--text-4);
-  font-family: inherit;
-}
-.shell .closed-folder .folder-row .chev {
-  font-size: 9px;
-  color: var(--text-4);
-}
-
-.shell .sb-footer {
-  margin-top: auto;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.shell .sb-footer .name {
-  font-size: var(--left-nav-font-size);
-  font-weight: var(--left-nav-font-weight);
-  color: var(--text-2);
-}
-.shell .sb-footer .actions {
-  margin-left: auto;
-  color: var(--text-4);
-  display: flex;
-  gap: 10px;
-  font-size: 14px;
-}
-.shell .sb-footer .actions span {
-  cursor: pointer;
-}
 
 /* Sidebar toggle row — only visible in the collapsed state. */
-.shell .sb-toggle-row {
-  display: none;
-}
 
 /* ── Sidebar collapsed state ─────────────────────────────────── */
 .shell.sidebar-collapsed .sidebar {
@@ -381,32 +253,8 @@
   gap: 6px;
 }
 .shell.sidebar-collapsed .sb-nav,
-.shell.sidebar-collapsed .sb-section,
-.shell.sidebar-collapsed .closed-folder,
-.shell.sidebar-collapsed .sb-footer {
+.shell.sidebar-collapsed .sb-section {
   display: none;
-}
-.shell.sidebar-collapsed .sb-toggle-row {
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: center;
-}
-.shell.sidebar-collapsed .sb-toggle-row .toggle-btn {
-  width: 32px;
-  height: 28px;
-  border: 1px solid var(--border-mid);
-  border-radius: 6px;
-  background: var(--bg-elev);
-  color: var(--text-3);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.shell.sidebar-collapsed .sb-toggle-row .toggle-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-2);
 }
 
 /* ── Main column ─────────────────────────────────────────────── */
@@ -427,56 +275,11 @@
   background: var(--bg);
   flex-shrink: 0;
 }
-.shell .topbar .nav-row {
-  display: flex;
-  gap: 4px;
-  color: var(--text-4);
-}
-.shell .topbar .nav-row span {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-size: 13px;
-  border-radius: 4px;
-}
-.shell .topbar .nav-row span:hover {
-  color: var(--text-2);
-  background: var(--bg-hover);
-}
 .shell .topbar .title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-1);
   letter-spacing: -0.005em;
-}
-.shell .topbar .crumb-sep {
-  color: var(--text-4);
-  font-size: 11px;
-  padding: 0 1px;
-}
-.shell .topbar .ctx-chip {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-3);
-  padding: 3px 8px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
-.shell .topbar .created-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  color: var(--text-3);
-  padding: 3px 8px;
-}
-.shell .topbar .created-chip .ic {
-  font-size: 11px;
-  color: var(--text-4);
 }
 .shell .topbar .grow {
   flex: 1;
@@ -530,82 +333,8 @@
 }
 
 /* Linked-PR chip in the top bar — clickable, opens the PR on GitHub. */
-.shell .topbar .pr-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border: 1px solid var(--border-mid);
-  background: var(--bg-elev);
-  border-radius: 999px;
-  font-family: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-  color: var(--text-2);
-}
-.shell .topbar .pr-chip:hover {
-  border-color: var(--accent);
-  color: var(--text-1);
-}
-.shell .topbar .pr-chip__num {
-  font-family: var(--mono);
-  font-weight: 600;
-  color: var(--accent);
-}
-.shell .topbar .pr-chip__status {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-4);
-}
 
 /* Stage-chip strip */
-.shell .stage-chips {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-}
-.shell .stage-chips .chip {
-  padding: 2px 8px;
-  font-size: 11px;
-  color: var(--text-3);
-  border-radius: 4px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-}
-.shell .stage-chips .chip:hover {
-  background: var(--bg-hover);
-  color: var(--text-2);
-}
-.shell .stage-chips .chip.current {
-  background: var(--bg-elev);
-  color: var(--text-1);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-.shell .stage-chips .chip .dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-}
-.shell .stage-chips .chip .dot.done {
-  background: var(--green);
-}
-.shell .stage-chips .chip .dot.active {
-  background: var(--orange);
-}
-.shell .stage-chips .chip .dot.planning {
-  background: var(--accent);
-}
 
 /* Run / lifecycle dropdown in the top bar. Unscoped from .shell — the PR
    Changes toolbar reuses this chrome outside a Shell. */
@@ -680,9 +409,6 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
-}
-.shell .body.with-pane {
-  grid-template-columns: minmax(0, 1fr) 520px;
 }
 
 /* ── Composer ────────────────────────────────────────────────── */
@@ -785,11 +511,6 @@
    the right (filling right-to-left). A lone pill keeps the original 32px
    inset + auto-margin push; a second pill hugs the first with a fixed gap
    and takes over the auto-margin push instead. */
-.shell .chip-reminder-row { display: flex; align-items: center; }
-.shell .chip-reminder-row .plan-reminder { margin: 0 8px 0 32px; }
-.shell .chip-reminder-row .plan-reminder + .plan-reminder { margin-left: 0; }
-.shell .chip-reminder-row .plan-reminder:last-of-type { margin-right: auto; }
-.shell .chip-reminder-row .inline-chips { padding-left: 0; justify-content: flex-end; flex: 1 1 auto; }
 .shell .composer .input {
   font-size: 15px;
   color: var(--text-1);
@@ -853,193 +574,29 @@
   overflow-y: auto;
 }
 
-.shell .task-identity { padding: 12px 14px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
-.shell .task-identity .pill-row { display: flex; align-items: center; gap: 8px; }
-.shell .task-identity .task-num {
-  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
-  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-border);
-  border-radius: 5px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em;
-}
-.shell .task-identity .ti-title { font-size: 13.5px; color: var(--text-1); line-height: 1.35; }
-.shell .task-identity .ti-sub { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.shell .task-identity .ti-branch { font-family: var(--mono); font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shell .task-identity .ti-meta { font-size: 10.5px; color: var(--text-4); display: flex; align-items: center; gap: 8px; padding-top: 2px; }
-.shell .task-identity .ti-meta .dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-4); }
-
-.shell .plan-section-h {
-  padding: 14px 14px 0; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--text-3); text-transform: uppercase; display: flex; align-items: baseline;
-}
-.shell .plan-section-h .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #16a34a; margin-left: auto; animation: working-pulse 1.4s infinite; }
-
 .shell .live-plan { padding: 10px 12px 14px; display: flex; flex-direction: column; align-items: stretch; gap: 0; }
-.shell .plan-node {
-  display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px;
-  padding: 7px 10px; background: var(--bg-elev); border: 1px solid var(--border);
-  border-radius: 8px; cursor: pointer; font-family: inherit; text-align: left;
-  transition: all 0.15s; width: 100%;
-}
-.shell .plan-node:hover { border-color: var(--accent); transform: translateX(1px); }
-.shell .plan-node:disabled { cursor: default; }
-.shell .plan-node:disabled:hover { transform: none; }
-.shell .plan-node.sm { padding: 5px 9px; }
-.shell .plan-node.sm .pn-name { font-size: 11.5px; }
 /* A node with a phase ladder (Development) renders its expand/collapse
    chevron inside the same pill as the nav button, sharing one border/
    background instead of a separate box beside it. */
-.shell .plan-node.has-toggle { display: flex; align-items: stretch; padding: 0; }
-.shell .plan-node-nav {
-  display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px;
-  padding: 7px 10px; background: none; border: none; flex: 1; min-width: 0;
-  font: inherit; text-align: left; color: inherit; cursor: pointer;
-}
-.shell .plan-node-nav:disabled { cursor: default; }
-.shell .plan-node-toggle {
-  display: flex; align-items: center; justify-content: center; width: 22px; flex: none;
-  background: none; border: none; border-left: 1px solid var(--border);
-  color: var(--text-4); font-size: 11px; cursor: pointer; transition: color 0.15s;
-}
-.shell .plan-node-toggle:hover { color: var(--text-2); }
 /* Explicit purple, not the theme's --accent — some themes define --accent
    as blue, which made this render blue instead of purple. */
-.shell .plan-node.done { background: rgba(139, 92, 246, 0.14); border-color: rgba(139, 92, 246, 0.32); }
-.shell .plan-node.done .pn-glyph { color: #16a34a; }
-.shell .plan-node.running { background: rgba(217, 119, 6, 0.08); border-color: var(--orange); }
-.shell .plan-node.running .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
-.shell .plan-node.running .pn-name { color: var(--text-1); font-weight: 600; }
 /* Planning (the Plan node while the brain is actively drafting) — same
    orange "agent working" treatment as .running, for one consistent signal. */
-.shell .plan-node.planning { background: rgba(217, 119, 6, 0.08); border-color: var(--orange); }
-.shell .plan-node.planning .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
-.shell .plan-node.planning .pn-name { color: var(--text-1); font-weight: 600; }
 /* Pushed and polling the remote (CI re-running / out for review) — a distinct
    blue "watching" background, separate from the orange agent-working state. */
-.shell .plan-node.monitoring { background: rgba(37, 99, 235, 0.08); border-color: rgba(37, 99, 235, 0.45); }
-.shell .plan-node.monitoring .pn-glyph { color: #2563eb; animation: working-pulse 1.4s infinite; }
-.shell .plan-node.monitoring .pn-name { color: var(--text-1); font-weight: 600; }
-.shell .plan-node.monitoring .pn-meta { color: #2563eb; opacity: 0.8; }
-.shell .plan-node.awaiting { background: rgba(194, 99, 42, 0.16); border-color: var(--orange); }
-.shell .plan-node.awaiting .pn-glyph { color: var(--orange); animation: none; }
-.shell .plan-node.awaiting .pn-name { color: var(--text-1); font-weight: 600; }
-.shell .plan-node.awaiting .pn-meta { color: var(--orange); opacity: 0.85; }
-.shell .plan-node.sleep .pn-glyph { color: var(--text-4); }
-.shell .plan-node.sleep .pn-name { color: var(--text-3); }
 /* A sleep node that's also disabled never ran and never will (its task is
    already done) — gray it out instead of the normal clickable card look. */
-.shell .plan-node.sleep:disabled { background: var(--bg-hover); border-color: var(--border); }
-.shell .plan-node.future { background: transparent; border-color: transparent; opacity: 0.6; }
-.shell .plan-node.future .pn-glyph { color: var(--text-4); }
-.shell .plan-node.future .pn-name { color: var(--text-4); }
-.shell .plan-node.errored { background: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.32); }
-.shell .plan-node.errored .pn-glyph { color: var(--red); }
-.shell .plan-node.active-view { box-shadow: 0 0 0 2px var(--accent), 0 2px 8px var(--accent-a10); border-color: var(--accent); }
-.shell .plan-node .pn-glyph { font-size: 11px; line-height: 1; text-align: center; font-weight: 700; }
-.shell .plan-node .pn-name { font-size: 12px; font-weight: 500; color: var(--text-2); line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shell .plan-node .pn-meta { font-family: var(--mono); font-size: 10px; color: var(--text-4); }
-.shell .plan-node.running .pn-meta, .shell .plan-node.planning .pn-meta { color: inherit; opacity: 0.7; }
 /* Node-type styling (R26/R30): a gate opens an action surface and waits on
    the user, so it renders dashed — matching stage-phase-rail.html's `.nd.gate`. */
-.shell .plan-node.nt-gate { border-style: dashed; }
-
-.shell .plan-line { width: 2px; height: 14px; background: var(--border-mid); margin-left: 18px; }
-.shell .plan-line.dim { background: var(--border); }
-.shell .plan-sub-row { display: grid; grid-template-columns: 18px 1fr; align-items: center; padding: 0 0 0 14px; margin: 4px 0 0; }
-.shell .plan-sub-row .branch-glyph { color: var(--text-4); font-size: 11px; padding-top: 3px; }
 
 /* Development's in-stage phase ladder (R29) — nested rows with a left accent
    border, matching stage-phase-rail.html's `.ph`. */
-.shell .plan-phase-row {
-  display: grid; grid-template-columns: 13px 1fr auto; align-items: center; gap: 6px;
-  padding: 4px 8px 4px 10px; margin: 3px 0 0 14px; background: var(--bg-elev);
-  border: 1px solid var(--border); border-left: 2px solid rgba(139, 92, 246, 0.35);
-  border-radius: 6px; cursor: pointer; font-family: inherit; text-align: left;
-  transition: all 0.15s; width: calc(100% - 14px);
-}
-.shell .plan-phase-row:hover { border-color: var(--accent); }
-.shell .plan-phase-row:disabled { cursor: default; }
-.shell .plan-phase-row .ph-glyph { font-size: 10px; line-height: 1; text-align: center; font-weight: 700; color: var(--text-4); }
-.shell .plan-phase-row .ph-name { font-size: 11px; font-weight: 500; color: var(--text-2); line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shell .plan-phase-row .ph-meta { font-family: var(--mono); font-size: 9px; color: var(--text-4); }
-.shell .plan-phase-row .ph-badge {
-  font-size: 8px; font-weight: 800; background: rgba(194, 99, 42, 0.12); color: var(--orange);
-  border: 1px solid rgba(194, 99, 42, 0.30); border-radius: 999px; padding: 0 5px; white-space: nowrap;
-}
 /* Explicit purple, matching .plan-node.done — a finished phase reads the
    same "settled" color as a finished top-level stage, not a plain white row. */
-.shell .plan-phase-row.done { background: rgba(139, 92, 246, 0.14); border-color: rgba(139, 92, 246, 0.32); }
-.shell .plan-phase-row.done .ph-glyph { color: #16a34a; }
-.shell .plan-phase-row.running { background: rgba(139, 92, 246, 0.10); border-left-color: var(--accent); }
-.shell .plan-phase-row.running .ph-glyph { color: var(--accent); animation: working-pulse 1.4s infinite; }
-.shell .plan-phase-row.running .ph-name { color: var(--text-1); font-weight: 600; }
-.shell .plan-phase-row.running .ph-meta { color: var(--accent); opacity: 0.8; }
-.shell .plan-phase-row.awaiting { background: rgba(194, 99, 42, 0.12); border-left-color: var(--orange); }
-.shell .plan-phase-row.awaiting .ph-glyph { color: var(--orange); animation: none; }
-.shell .plan-phase-row.awaiting .ph-name { color: var(--text-1); font-weight: 600; }
-.shell .plan-phase-row.awaiting .ph-meta { color: var(--orange); opacity: 0.85; }
-.shell .plan-phase-row.future { opacity: 0.6; border-left-color: var(--border); }
 
 /* Branch-guard chip, above the rail — hidden entirely until the task has
    pushed (buildGuardChip returns null); dimmed with a toggle while disabled. */
-.shell .guard-chip {
-  display: flex; align-items: center; gap: 6px; padding: 5px 10px;
-  border: 1px solid var(--border); border-radius: 7px; margin-bottom: 10px;
-  font-size: 11px; background: var(--bg-elev);
-}
-.shell .guard-chip .guard-icon { font-size: 11px; }
-.shell .guard-chip .guard-lb { font-weight: 700; }
-.shell .guard-chip .guard-label { color: var(--text-2); }
-.shell .guard-chip .guard-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-.shell .guard-chip .guard-meta { font-family: var(--mono); font-size: 9.5px; opacity: 0.8; }
-.shell .guard-chip.off { opacity: 0.6; }
 /* Matches plan-spine-options.html's `.guard.ok`/`.guard.warn` — the whole
    chip tints to the state's color, not just its border. */
-.shell .guard-chip.healthy { border-color: rgba(34, 197, 94, 0.28); background: rgba(34, 197, 94, 0.10); }
-.shell .guard-chip.healthy .guard-label { color: #16a34a; }
-.shell .guard-chip.drifting, .shell .guard-chip.conflicted, .shell .guard-chip.fixing { border-color: var(--orange); background: rgba(217, 119, 6, 0.08); }
-.shell .guard-chip.drifting .guard-label, .shell .guard-chip.conflicted .guard-label, .shell .guard-chip.fixing .guard-label { color: var(--orange); }
-.shell .guard-chip.needs_attention { border-color: var(--red); background: rgba(220, 38, 38, 0.08); }
-.shell .guard-chip.needs_attention .guard-label { color: var(--red); }
-
-.shell .task-sidebar .panel-actions { margin-top: auto; padding: 12px 12px 12px; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); }
-.shell .task-agent-review { border-top: 1px solid var(--border); padding-bottom: 14px; }
-.shell .task-agent-review__heading { padding-top: 13px; }
-.shell .task-agent-review__heading .plan-count { margin-left: auto; }
-.shell .task-agent-review__root {
-  width: calc(100% - 24px); margin: 10px 12px 0; padding: 7px 9px;
-  display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 7px; align-items: center;
-  border: 1px solid rgba(139, 92, 246, 0.34); border-radius: 8px;
-  background: rgba(139, 92, 246, 0.09); color: var(--text-2); font: inherit; text-align: left; cursor: pointer;
-}
-.shell .task-agent-review__root:hover { border-color: #8b5cf6; }
-.shell .task-agent-review__root b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
-.shell .task-agent-review__root > span:last-child { color: var(--text-4); font-family: var(--mono); font-size: 9.5px; }
-.shell .task-agent-review__rounds { margin: 4px 12px 0 27px; border-left: 2px solid rgba(139, 92, 246, 0.24); padding-left: 8px; }
-.shell .task-agent-review__rounds button {
-  width: 100%; display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 5px;
-  padding: 5px 6px; border: 0; border-radius: 5px; background: transparent;
-  color: var(--text-2); font: inherit; text-align: left; cursor: pointer;
-}
-.shell .task-agent-review__rounds button:hover { background: var(--bg-hover); }
-.shell .task-agent-review__rounds button > span:nth-child(2) { font-size: 11px; }
-.shell .task-agent-review__rounds small { color: var(--text-4); font-family: var(--mono); font-size: 9px; }
-.shell .task-agent-review__glyph { color: #16a34a; font-size: 9px; font-weight: 800; }
-.shell .task-agent-review__glyph--running { color: var(--orange); animation: working-pulse 1.4s infinite; }
-.shell .task-agent-review__glyph--questions { color: var(--orange); }
-.shell .task-agent-review__glyph--cancelled { color: var(--text-4); }
-.shell .task-agent-review__glyph--errored { color: var(--red); }
-.shell .task-sidebar .panel-action-btn {
-  display: flex; align-items: center; gap: 7px; padding: 7px 11px; background: var(--bg-elev);
-  border: 1px solid var(--border); border-radius: 7px; font-size: 11.5px; color: var(--text-2);
-  cursor: pointer; font-family: inherit; text-align: left;
-}
-.shell .task-sidebar .panel-action-btn:hover { border-color: var(--accent); }
-.shell .task-sidebar .panel-action-btn .ic { color: var(--text-3); font-size: 12px; }
-.shell .task-sidebar .panel-action-btn .count { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text-4); }
 
 /* The git-merge glyph before a finished task's name (merged / done). */
-.shell .merge-icon {
-  color: #8b5cf6;
-  vertical-align: -2px;
-  margin-right: 5px;
-  flex-shrink: 0;
-}

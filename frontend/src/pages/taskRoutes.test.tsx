@@ -751,7 +751,6 @@ describe('StageDetailRoute', () => {
       allStages: [], subStages: [], conversationThreadId: 'stage-thread',
       iterations: [], conversation: [], realtimeCi: null, ciFixHistory: [],
       pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null,
       liveRound: null, devPhases: [],
       recovery: {
@@ -843,7 +842,6 @@ describe('StageDetailRoute', () => {
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
       conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
       devPhases: [],
     };
@@ -916,7 +914,6 @@ describe('StageDetailRoute', () => {
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [], conversation: [],
       realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null, devPhases: [],
     };
     const retryFailedCi = vi.fn().mockResolvedValue(undefined);
@@ -971,7 +968,6 @@ describe('StageDetailRoute', () => {
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
       conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
       devPhases: [],
     };
@@ -1032,7 +1028,6 @@ describe('StageDetailRoute', () => {
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
       conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
       devPhases: [],
       recovery: { replacement: null, failure: null, ci: null, cleanup: null },
@@ -1100,7 +1095,6 @@ describe('StageDetailRoute', () => {
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
       conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
       devPhases: [],
       recovery: {
@@ -1172,7 +1166,6 @@ describe('StageDetailRoute', () => {
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [],
       conversation: [], realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null,
       devPhases: [],
       recovery: {
@@ -1289,7 +1282,6 @@ describe('StageDetailRoute', () => {
         },
       ],
       realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null, devPhases: [],
     };
     (window as unknown as { bridge: unknown }).bridge = {
@@ -1338,7 +1330,6 @@ describe('StageDetailRoute', () => {
         },
       ],
       realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null, devPhases: [],
     };
     (window as unknown as { bridge: unknown }).bridge = {
@@ -1388,7 +1379,6 @@ describe('StageDetailRoute', () => {
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [], conversation: [],
       realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null, devPhases: [],
     };
     const approveRound = vi.fn().mockRejectedValue(new Error('Could not post this round'));
@@ -1505,7 +1495,6 @@ describe('StageDetailRoute', () => {
         },
       ],
       realtimeCi: null, ciFixHistory: [], pr: null,
-      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
       scrubber: { userMessages: [] }, liveRuns: [],
       guard: {
         taskId: 'task-plan', enabled: false, schedule: 'nightly', state: 'healthy',

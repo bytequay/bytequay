@@ -68,7 +68,7 @@ class TestWorkspaceIssueIntakeMonitor
                 .getParameterTypes())
                 .extracting(Class::getSimpleName)
                 .doesNotContain(
-                        "StageStore", "PlanStageService", "TaskService",
+                        "StageStore", "TaskService",
                         "RetiredThreadTurnScheduler");
     }
 

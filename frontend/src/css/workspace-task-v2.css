@@ -221,11 +221,6 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   font-size: var(--left-nav-meta-font-size);
   font-weight: var(--left-nav-font-weight);
 }
-.workspace-task-stage.tone-plan > small.is-done { color: #1a7f37; }
-.workspace-task-stage.tone-local > small.is-done { color: #57606a; }
-.workspace-task-stage.tone-cleanup > small.is-done { color: #8b949e; }
-.workspace-task-stage.tone-remote > small.is-done { color: #8250df; }
-.workspace-task-stage > small.is-errored { color: #cf222e; }
 .workspace-task-stage > svg { flex-shrink: 0; color: #c6cbd1; }
 .workspace-task-stage.has-phases > svg { transition: transform 0.12s; }
 .workspace-task-stage.has-phases.is-open > svg { transform: rotate(90deg); }
@@ -244,8 +239,6 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
 .workspace-task-stage__status-icon.is-planning > i,
 .workspace-task-stage__status-icon.is-monitoring > i { background: #2da44e; animation: working-pulse 2s infinite; }
 .workspace-task-stage__status-icon.is-awaiting > i { background: #bf8700; }
-.workspace-task-stage__owner.is-stage { font-size: 12px; }
-.workspace-task-stage__owner.is-gate { color: #bf8700; }
 .workspace-task-stage__plan {
   display: flex;
   flex-direction: column;
@@ -320,7 +313,6 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   letter-spacing: 0.06em;
   white-space: nowrap;
 }
-.workspace-task-header__badge.is-stage { background: #ddf4ff; color: #0969da; }
 .workspace-task-header__title {
   min-width: 0;
   overflow: hidden;
@@ -502,8 +494,7 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   font-size: 10.5px;
 }
 .task-brain.workspace-task-v2 .shell .sp-headline::before,
-.task-brain.workspace-task-v2 .shell .sp-work::before,
-.task-brain.workspace-task-v2 .shell .sp-bmsg::before {
+.task-brain.workspace-task-v2 .shell .sp-work::before {
   /* 13px marker (border-box) centred on the 2px rail at x=12: 36 - 30.5 + 6.5 = 12. */
   left: -30.5px;
   border-color: #d0d7de;
@@ -602,7 +593,6 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
 }
 .workspace-task-v2--stage .spine > .ev,
 .workspace-task-v2--stage .spine > .sp-work,
-.workspace-task-v2--stage .spine > .run-episode,
 .workspace-task-v2--stage .spine > .round-episode { margin-bottom: 13px; }
 .workspace-task-v2--stage .spine > .ev--agent .who-row { display: none; }
 .workspace-task-v2--stage .spine > .ev--agent .tx {

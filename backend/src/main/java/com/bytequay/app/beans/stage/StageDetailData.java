@@ -55,7 +55,6 @@ public record StageDetailData(
         RealtimeCi realtimeCi,
         List<CiFixHistoryEntry> ciFixHistory,
         PrTab pr,
-        ContextWindowDto context,
         Scrubber scrubber,
         List<AgentRun> liveRuns,
         BranchGuard guard,

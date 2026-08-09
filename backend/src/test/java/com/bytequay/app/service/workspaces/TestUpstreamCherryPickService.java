@@ -81,7 +81,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 2);
+                        true, true, null, 15, 2);
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
@@ -191,7 +191,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 2);
+                        true, true, null, 15, 2);
         WorkspaceRelationService.ResolvedRelation resolved =
                 new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream);
@@ -368,7 +368,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 1);
+                        true, true, null, 15, 1);
         when(relations.requireResolved("fork-ws")).thenReturn(
                 new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
@@ -439,7 +439,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 1);
+                        true, true, null, 15, 1);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "fork", "acme/fork", "main");
@@ -517,7 +517,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 2);
+                        true, true, null, 15, 2);
         WorkspaceRelationService.ResolvedRelation resolved =
                 new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream);
@@ -598,7 +598,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 1);
+                        true, true, null, 15, 1);
         WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "fork", "acme/fork", "main");
@@ -690,7 +690,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 0);
+                        true, true, null, 15, 0);
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
@@ -1060,7 +1060,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 1);
+                        true, true, null, 15, 1);
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
@@ -1289,7 +1289,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 1);
+                        true, true, null, 15, 1);
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));
@@ -1437,7 +1437,7 @@ class TestUpstreamCherryPickService
         WorkspaceRelationService.WorkspaceRelationDto relationDto =
                 new WorkspaceRelationService.WorkspaceRelationDto(
                         "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
-                        true, true, false, false, null, 15, 1);
+                        true, true, null, 15, 1);
         when(relations.requireResolved("fork-ws"))
                 .thenReturn(new WorkspaceRelationService.ResolvedRelation(
                         relationDto, targetIdentity, upstreamIdentity, target, upstream));

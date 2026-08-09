@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.stage;
 
-import com.bytequay.app.beans.stage.ContextWindowDto;
 import com.bytequay.app.beans.stage.PullRequestCreatedData;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailData;
@@ -89,7 +88,6 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class StageDetailServiceImpl
 {
-    private static final int DEFAULT_CONTEXT_TOKEN_LIMIT = 200_000;
     /** Generous cap when listing the task's turns to count those in window. */
     private static final int TURN_SCAN_CAP = 1000;
 
@@ -191,7 +189,6 @@ public class StageDetailServiceImpl
                 buildRealtimeCi(task, prDetail),
                 buildCiFixHistory(stage, iters, events),
                 buildPrTab(task, prDetail),
-                new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe"),
                 new Scrubber(List.<ScrubberDash>of()),
                 liveRuns,
                 branchGuards.get(task.id()),

@@ -519,8 +519,6 @@ public class WorkspaceRelationService
                 rs.getString("upstream_repo_full_name"),
                 rs.getInt("commits_enabled") != 0,
                 rs.getInt("tags_enabled") != 0,
-                false,
-                false,
                 fetchedWasNull ? null : Instant.ofEpochMilli(fetched),
                 rs.getInt("auto_fetch_interval_minutes"),
                 rs.getInt("indexed_commit_count"));
@@ -539,8 +537,6 @@ public class WorkspaceRelationService
             String upstreamRepoFullName,
             boolean commitsEnabled,
             boolean tagsEnabled,
-            boolean branchesEnabled,
-            boolean issuesPullRequestsEnabled,
             Instant lastFetchedAt,
             int autoFetchIntervalMinutes,
             int indexedCommitCount) {}

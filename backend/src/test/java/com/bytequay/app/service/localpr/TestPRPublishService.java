@@ -53,7 +53,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/** Orchestration coverage for saga delegation and explicit remote PR actions. */
+/** Orchestration coverage for push routing and explicit remote PR actions. */
 class TestPRPublishService
 {
     private static final Instant NOW = Instant.parse("2026-07-01T00:00:00Z");
@@ -67,14 +67,13 @@ class TestPRPublishService
     private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
     private final PullRequestDetail liveDetail = mock(PullRequestDetail.class);
     private final TaskService taskService = mock(TaskService.class);
-    private final TaskPushSaga pushSaga = mock(TaskPushSaga.class);
     private final V2PrRemoteControlService v2Controls = mock(V2PrRemoteControlService.class);
     private final V2UserRemoteActionRuntime v2UserRemoteActions =
             mock(V2UserRemoteActionRuntime.class);
     private final PRPublishService service =
             new PRPublishService(
                     prService, taskStore, pullRequests, patResolver, brainReview,
-                    pullRequestDetails, readyToMerge, taskService, pushSaga,
+                    pullRequestDetails, readyToMerge, taskService,
                     v2Controls, v2UserRemoteActions);
 
     {
@@ -130,25 +129,19 @@ class TestPRPublishService
     }
 
     @Test
-    void pushDelegatesToTheDurableSaga()
+    void legacyPushFailsClosed()
     {
-        PR pushed = pushedPr(PR.STATUS_REMOTE_DRAFTED);
-        when(pushSaga.push("pr1", false)).thenReturn(pushed);
-
-        assertThat(service.push("pr1")).isSameAs(pushed);
-
-        verify(pushSaga).push("pr1", false);
+        assertThatThrownBy(() -> service.push("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("retired");
     }
 
     @Test
-    void explicitApprovalDelegatesWithTheHumanOverride()
+    void legacyExplicitApprovalFailsClosed()
     {
-        PR pushed = pushedPr(PR.STATUS_REMOTE_DRAFTED);
-        when(pushSaga.push("pr1", true)).thenReturn(pushed);
-
-        assertThat(service.push("pr1", true)).isSameAs(pushed);
-
-        verify(pushSaga).push("pr1", true);
+        assertThatThrownBy(() -> service.push("pr1", true))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("retired");
     }
 
     @Test
@@ -162,7 +155,6 @@ class TestPRPublishService
 
         verify(v2Controls).approveAndShip(
                 "push-command", "task1", "pr1", true);
-        verify(pushSaga, never()).push(anyString(), anyBoolean());
     }
 
     @Test
@@ -321,7 +313,6 @@ class TestPRPublishService
                 "task1", "acme/widget", 145,
                 "https://github.com/acme/widget/pull/145"));
 
-        verify(pushSaga, never()).adoptRemotePullRequest(any(), any(), anyInt(), any());
         verify(prService, never()).recordPush(any(), any(), anyInt(), any());
     }
 
@@ -338,7 +329,6 @@ class TestPRPublishService
 
         verify(v2Controls, never()).approveAndShip(
                 any(), any(), any(), anyBoolean());
-        verify(pushSaga, never()).push(anyString(), anyBoolean());
     }
 
     @Test
@@ -350,7 +340,6 @@ class TestPRPublishService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Historical LEGACY Task-owned PR");
 
-        verify(pushSaga, never()).adoptRemotePullRequest(any(), any(), anyInt(), any());
         verify(prService, never()).recordPush(any(), any(), anyInt(), any());
         verify(prService, never()).findByTask(any());
     }
@@ -363,7 +352,6 @@ class TestPRPublishService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Historical LEGACY Task-owned PR");
 
-        verify(pushSaga, never()).push(anyString(), anyBoolean());
         verify(prService, never()).recordGateApproval(any(), any(), any());
     }
 

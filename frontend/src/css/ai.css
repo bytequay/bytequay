@@ -31,10 +31,6 @@
 .severity--suggestion { border-left-color: var(--accent); }
 .severity--info { border-left-color: #8a8a8d; }
 
-.severity--blocker .ai-comment__severity { background: rgba(170, 78, 62, 0.18); color: #8a3a2d; }
-.severity--warning .ai-comment__severity { background: rgba(199, 134, 40, 0.18); color: #8f5f10; }
-.severity--suggestion .ai-comment__severity { background: var(--accent-a10); color: var(--accent); }
-
 .settings-input-number {
   width: 80px;
   padding: var(--space-1) var(--space-2);
@@ -80,9 +76,6 @@
    Borderless rows with a thin divider between them. Action column right-
    aligned. Description column truncates so long blurbs don't push the
    actions off-screen. */
-.skills-table__actions .button {
-  margin-left: 6px;
-}
 
 /* Skill editor card — sits below the table when adding or editing. */
 
@@ -593,12 +586,6 @@
 /* Human-staged comments use a neutral slate dot so AI's color-coding
    (info/warn/blocker) stays meaningful and human comments don't compete
    for severity attention. */
-.diff-row--inline-finding--human .inline-finding {
-  /* A faint amber wash on the rail row so reviewers can spot their own
-     pending comments at a glance without the AI's severity gradient. */
-  background: rgba(245, 158, 11, 0.06);
-  border-left: 2px solid rgba(245, 158, 11, 0.6);
-}
 /* Rendered markdown (renderMarkdown output) — compact margins so the
    prose sits tight inside the inline diff card. */
 

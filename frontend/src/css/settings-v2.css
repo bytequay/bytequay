@@ -384,10 +384,6 @@
   color: var(--sv2-text-4);
 }
 
-.sv2-card__row {
-  border-top: 1px solid var(--sv2-line-row);
-}
-
 .sv2-btn {
   display: inline-flex;
   align-items: center;
@@ -475,12 +471,6 @@
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--sv2-text-3);
-}
-
-.sv2-note--info {
-  border-color: rgba(9, 105, 218, 0.2);
-  background: var(--sv2-accent-soft);
-  color: var(--sv2-accent-deep);
 }
 
 .sv2-note__icon {
@@ -846,12 +836,6 @@
   color: var(--sv2-green);
   font-size: 11.5px;
   font-weight: 600;
-}
-
-.sv2-soon {
-  margin-top: 12px;
-  font-size: 12.5px;
-  color: var(--sv2-text-5);
 }
 
 /* ------------------------------------------------------------------ help */
@@ -1247,11 +1231,6 @@
   font-weight: 500;
 }
 
-.sv2-cred__result--ok {
-  background: var(--sv2-green-bg);
-  color: var(--sv2-green);
-}
-
 .sv2-cred__result--bad {
   background: var(--sv2-red-bg);
   color: var(--sv2-red);
@@ -1280,129 +1259,8 @@
 
 /* -------------------------------------------------------------------- ai */
 
-.sv2-ai__row {
-  display: grid;
-  grid-template-columns: 78px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 18px;
-  border-top: 1px solid var(--sv2-line-row);
-}
-
-.sv2-ai__row:hover {
-  background: #fcfcfd;
-}
-
-.sv2-ai__kind {
-  justify-self: start;
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.sv2-ai__title {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--sv2-text-1);
-}
-
-.sv2-ai__sub {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--sv2-text-4);
-}
-
-.sv2-ai__pick {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.sv2-ai__glyph {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  font-family: var(--sv2-mono);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.sv2-ai__glyph--claude { background: #ffe7d1; color: #bc4c00; }
-.sv2-ai__glyph--gpt { background: var(--sv2-green-bg); color: var(--sv2-green); }
-.sv2-ai__glyph--api { background: var(--sv2-accent-bg); color: var(--sv2-accent); }
-.sv2-ai__glyph--local { background: #fbefff; color: #8250df; }
-
-.sv2-ai__select {
-  position: relative;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 29px;
-  min-width: 190px;
-  padding: 0 9px;
-  border: 1px solid var(--sv2-line-strong);
-  border-radius: 7px;
-  background: #fff;
-  font-family: var(--sv2-mono);
-  font-size: 12px;
-  color: var(--sv2-text-1);
-}
-
-.sv2-ai__select:hover {
-  background: #f6f8fa;
-}
-
-.sv2-ai__select span {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.sv2-ai__select svg {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: var(--sv2-text-4);
-}
-
 /* The native select covers the styled shell so the OS menu opens where
    the user clicks; the visible text underneath is ours. */
-.sv2-ai__select select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  border: 0;
-  cursor: pointer;
-}
-
-.sv2-ai__status {
-  flex-shrink: 0;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: var(--sv2-line-row);
-  color: var(--sv2-text-3);
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.sv2-ai__status--ok {
-  background: var(--sv2-green-bg);
-  color: var(--sv2-green);
-}
 
 .sv2-ai__backend {
   display: flex;
@@ -1474,24 +1332,6 @@
 
 .sv2-ai__avail--on { background: var(--sv2-green-bg); color: var(--sv2-green); }
 .sv2-ai__avail--off { background: var(--sv2-line-row); color: var(--sv2-text-3); }
-
-.sv2-ai__uses {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11.5px;
-  color: var(--sv2-text-5);
-}
-
-.sv2-ai__uses b {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--sv2-line-row);
-  color: var(--sv2-text-3);
-  font-size: 11px;
-  font-weight: 400;
-}
 
 .sv2-ai__stats {
   display: flex;

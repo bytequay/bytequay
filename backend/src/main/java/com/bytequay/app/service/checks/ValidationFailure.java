@@ -14,7 +14,7 @@
 package com.bytequay.app.service.checks;
 
 /**
- * One failure surfaced by a {@link ValidationCheck} — handed to the
+ * One failure surfaced by repository validation — handed to the
  * agent's fix turn and recorded on the validation_pass audit row.
  *
  * @param source where it came from, e.g. {@code "test"}, {@code

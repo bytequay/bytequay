@@ -30,17 +30,13 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The {@code ValidationCheck} that actually runs the repo's tests (design
+ * Runs the repo's tests during durable validation (design
  * doc slice 4 — "local CI"): auto-detects the ecosystem the same way the
  * {@code run_checks} agent tool does and runs its canonical verify command,
  * then records the outcome on the task's local PR (materialising it first if
  * it doesn't exist yet — {@link PRSyncService#syncFromTask} is
  * idempotent) so the PR page's Tests card shows real runs instead of only
  * whatever the agent recorded manually via {@code record_pr_check}.
- *
- * <p>A failure here feeds into the durable validation flow — this class only
- * supplies one round's verdict, same contract as any other
- * {@link ValidationCheck}.
  *
  * <p>No repo-config file (e.g. a {@code .bytequay/tests.yml}) is read yet —
  * {@link TestRunnerDetector}'s ecosystem-marker detection is the only source
@@ -50,7 +46,6 @@ import static java.util.Objects.requireNonNull;
  */
 @Component
 public class RepoTestValidationCheck
-        implements ValidationCheck
 {
     /** Matches the {@code run_checks} agent tool's bounds — a full test
      *  suite can run long, and 256 KB is plenty for a failure's tail. */
@@ -79,7 +74,6 @@ public class RepoTestValidationCheck
         this.prSync = requireNonNull(prSync, "prSync is null");
     }
 
-    @Override
     public List<ValidationFailure> run(String taskId, Path worktree)
     {
         Optional<TestRun> run = runWithoutRecording(worktree);

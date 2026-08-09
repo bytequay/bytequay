@@ -17,7 +17,6 @@ import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.domain.ThreadTurn;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
@@ -71,11 +70,6 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public Task resumeFromLocalReviewInCommand(String taskId, Actor actor, String reason)
-    {
-        throw retired();
-    }
-
     public Task markRemoteInReviewInCommand(String taskId, Actor actor, String reason)
     {
         throw retired();
@@ -86,60 +80,7 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public void requestRecoveryInCommand(String taskId, String kind)
-    {
-        throw retired();
-    }
-
-    public void requestRecoveryInCommand(String taskId, String kind, String payloadJson)
-    {
-        throw retired();
-    }
-
-    public void rejectRecoveryRequestInCommand(
-            String taskId, String requestId, String reason)
-    {
-        throw retired();
-    }
-
-    public Task completeRecoveryInCommand(
-            String taskId, Actor actor, String reason, TaskPhase fallbackPhase)
-    {
-        throw retired();
-    }
-
-    public Task completeExternalSagaRecoveryInCommand(
-            String taskId, Actor actor, String reason, TaskPhase fallbackPhase)
-    {
-        throw retired();
-    }
-
-    public Task completeReplanInCommand(String taskId, Actor actor, String reason)
-    {
-        throw retired();
-    }
-
-    public ThreadTurn retryErroredInCommand(String taskId, String failedTurnId)
-    {
-        throw retired();
-    }
-
-    public Task reviveArchivedInCommand(String taskId)
-    {
-        throw retired();
-    }
-
-    public Task resumeIdleRuntimeInCommand(String taskId)
-    {
-        throw retired();
-    }
-
     public void observe(String taskId, TaskPhase to, String reason)
-    {
-        throw retired();
-    }
-
-    public void observeRemoteOpenedInCommand(String taskId, String reason)
     {
         throw retired();
     }
@@ -155,12 +96,7 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public void requestResumeInCommand(String taskId)
-    {
-        throw retired();
-    }
-
-    public Task completeResumeInCommand(String taskId, Actor actor, String reason)
+    public Task resumeFromLocalReviewInCommand(String taskId, Actor actor, String reason)
     {
         throw retired();
     }

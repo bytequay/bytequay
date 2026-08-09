@@ -119,7 +119,7 @@ import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
@@ -791,8 +791,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteLocalDevelopmentRuntimeStore.class))
                 .withBean(SqliteStageSteeringStore.class,
                         () -> mock(SqliteStageSteeringStore.class))
-                .withBean(ValidationCheck.class,
-                        () -> mock(ValidationCheck.class))
+                .withBean(RepoTestValidationCheck.class,
+                        () -> mock(RepoTestValidationCheck.class))
                 .withBean(CodeFingerprints.class,
                         () -> mock(CodeFingerprints.class))
                 .withBean(GitRunner.class, () -> mock(GitRunner.class))

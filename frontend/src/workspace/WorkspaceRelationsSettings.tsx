@@ -108,10 +108,6 @@ export default function WorkspaceRelationsSettings({ workspaceId, repoName }: {
             <RelationToggle label="Tags" detail="Show releases and tags in upstream history."
               checked={relation.tagsEnabled} disabled={busy}
               onChange={value => { void save(relation, { tagsEnabled: value }); }} />
-            <RelationToggle label="Branches" detail="Branch browsing is coming soon."
-              checked={relation.branchesEnabled} disabled onChange={() => {}} soon />
-            <RelationToggle label="Issues & pull requests" detail="Cross-workspace issue and PR reads are coming soon."
-              checked={relation.issuesPullRequestsEnabled} disabled onChange={() => {}} soon />
             <div className="wu-relation-setting-row">
               <span><strong>Auto-fetch</strong><small>Refreshes refs and the trailer index. Never pulls or pushes.</small></span>
               <select aria-label="Upstream auto-fetch interval" value={relation.autoFetchIntervalMinutes}
@@ -218,17 +214,16 @@ export function LinkUpstreamDialog({ workspaceId, onClose, onLinked }: {
   );
 }
 
-function RelationToggle({ label, detail, checked, disabled, soon = false, onChange }: {
+function RelationToggle({ label, detail, checked, disabled, onChange }: {
   label: string;
   detail: string;
   checked: boolean;
   disabled: boolean;
-  soon?: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
     <div className={`wu-relation-setting-row${disabled ? ' is-disabled' : ''}`}>
-      <span><strong>{label}{soon && <i>soon</i>}</strong><small>{detail}</small></span>
+      <span><strong>{label}</strong><small>{detail}</small></span>
       <button type="button" role="switch" aria-label={label} aria-checked={checked}
         disabled={disabled} className={`wu-switch${checked ? ' on' : ''}`}
         onClick={() => onChange(!checked)}><i /></button>

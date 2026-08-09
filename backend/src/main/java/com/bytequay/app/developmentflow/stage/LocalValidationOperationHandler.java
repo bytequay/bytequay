@@ -19,7 +19,7 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.ValidationContext;
 import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -45,7 +45,7 @@ public final class LocalValidationOperationHandler
     public static final String CALLBACK_ROUTE = "STAGE_VALIDATION_RESULT";
 
     private final SqliteLocalDevelopmentRuntimeStore store;
-    private final List<ValidationCheck> checks;
+    private final RepoTestValidationCheck check;
     private final CodeFingerprints fingerprints;
     private final GitRunner git;
     private final ObjectMapper json;
@@ -53,14 +53,14 @@ public final class LocalValidationOperationHandler
 
     public LocalValidationOperationHandler(
             SqliteLocalDevelopmentRuntimeStore store,
-            List<ValidationCheck> checks,
+            RepoTestValidationCheck check,
             CodeFingerprints fingerprints,
             GitRunner git,
             ObjectMapper json,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
-        this.checks = List.copyOf(requireNonNull(checks, "checks is null"));
+        this.check = requireNonNull(check, "check is null");
         this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
         this.git = requireNonNull(git, "git is null");
         this.json = requireNonNull(json, "json is null");
@@ -82,13 +82,11 @@ public final class LocalValidationOperationHandler
         boolean current = context.isCurrent() && before.matches(context);
         List<ValidationFailure> failures = new ArrayList<>();
         if (current) {
-            for (ValidationCheck check : checks) {
-                if (execution.isCancellationRequested()) {
-                    throw new ExecutionPorts.OperationCanceledException(
-                            "Local validation was canceled");
-                }
-                failures.addAll(check.run(context.taskId(), worktree));
+            if (execution.isCancellationRequested()) {
+                throw new ExecutionPorts.OperationCanceledException(
+                        "Local validation was canceled");
             }
+            failures.addAll(check.run(context.taskId(), worktree));
         }
         ObservedCode after = observe(worktree, context.baseSha());
         current = current && after.matches(context) && before.equals(after);

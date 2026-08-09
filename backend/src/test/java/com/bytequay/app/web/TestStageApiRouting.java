@@ -24,7 +24,6 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringServiceImpl;
@@ -189,8 +188,7 @@ class TestStageApiRouting
     private StageController controller()
     {
         StageController result = new StageController(
-                stages, legacyDetail, steering,
-                mock(PlanStageService.class), stageStore,
+                stages, legacyDetail, steering, stageStore,
                 taskStore, mock(ThreadStore.class),
                 mock(WorkModelResolver.class));
         result.setV2Stages(routes, v2);

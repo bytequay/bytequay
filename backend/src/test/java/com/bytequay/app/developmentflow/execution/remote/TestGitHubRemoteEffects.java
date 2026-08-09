@@ -24,7 +24,7 @@ import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -65,6 +66,7 @@ class TestGitHubRemoteEffects
     private CodeFingerprints fingerprints;
     private PullRequestRepository pullRequests;
     private PatResolver pats;
+    private RepoTestValidationCheck check;
     private GitHubRemoteEffects effects;
     private ExecutionContext execution;
 
@@ -76,10 +78,12 @@ class TestGitHubRemoteEffects
         fingerprints = mock(CodeFingerprints.class);
         pullRequests = mock(PullRequestRepository.class);
         pats = mock(PatResolver.class);
+        check = mock(RepoTestValidationCheck.class);
+        when(check.run(anyString(), any())).thenReturn(List.of());
         effects = new GitHubRemoteEffects(
                 git, mock(GitRunnerProvisioningGit.class),
                 baseHistory, fingerprints,
-                List.of(), pullRequests, pats, new ObjectMapper());
+                check, pullRequests, pats, new ObjectMapper());
         execution = mock(ExecutionContext.class);
         when(pats.resolve("acme/widget")).thenReturn("pat");
     }
@@ -263,13 +267,14 @@ class TestGitHubRemoteEffects
         String stageFingerprint = realFingerprints.fingerprint(worktree);
         RemoteEffectOperationHandler.Request request = rewriteRequest(
                 worktree, stageFingerprint, stageHead, baseSha, originalHead);
-        ValidationCheck failing = (taskId, path) -> List.of(
-                new ValidationFailure("frontend", "lint failed"));
+        RepoTestValidationCheck failing = mock(RepoTestValidationCheck.class);
+        when(failing.run(anyString(), any())).thenReturn(List.of(
+                new ValidationFailure("frontend", "lint failed")));
         ObjectMapper mapper = new ObjectMapper();
         GitHubRemoteEffects failingEffects = new GitHubRemoteEffects(
                 realGit, mock(GitRunnerProvisioningGit.class),
                 new BaseCiHistoryRewriter(realGit), realFingerprints,
-                List.of(failing), pullRequests, pats, mapper);
+                failing, pullRequests, pats, mapper);
 
         RemoteEffectOperationHandler.Result failed = failingEffects.perform(
                 request, RemoteEffectOperationHandler.Mode.EXECUTE, execution,
@@ -298,7 +303,7 @@ class TestGitHubRemoteEffects
         GitHubRemoteEffects retryEffects = new GitHubRemoteEffects(
                 realGit, mock(GitRunnerProvisioningGit.class),
                 new BaseCiHistoryRewriter(realGit), realFingerprints,
-                List.of(), pullRequests, pats, mapper);
+                check, pullRequests, pats, mapper);
 
         RemoteEffectOperationHandler.Result passed = retryEffects.perform(
                 retry, RemoteEffectOperationHandler.Mode.EXECUTE, execution,
@@ -391,12 +396,12 @@ class TestGitHubRemoteEffects
             head.set(invocation.getArgument(1));
             return null;
         }).when(git).resetHard(worktree, "stage-head");
-        ValidationCheck validation = mock(ValidationCheck.class);
+        RepoTestValidationCheck validation = mock(RepoTestValidationCheck.class);
         when(validation.run("task-1", worktree))
                 .thenThrow(new IllegalStateException("runner crashed"));
         effects = new GitHubRemoteEffects(
                 git, mock(GitRunnerProvisioningGit.class), baseHistory,
-                fingerprints, List.of(validation), pullRequests, pats,
+                fingerprints, validation, pullRequests, pats,
                 new ObjectMapper());
 
         assertThatThrownBy(() -> effects.perform(
@@ -446,11 +451,11 @@ class TestGitHubRemoteEffects
             head.set(invocation.getArgument(1));
             return null;
         }).when(git).resetHard(worktree, "stage-head");
-        ValidationCheck validation = mock(ValidationCheck.class);
+        RepoTestValidationCheck validation = mock(RepoTestValidationCheck.class);
         when(execution.isCancellationRequested()).thenReturn(false, true);
         effects = new GitHubRemoteEffects(
                 git, mock(GitRunnerProvisioningGit.class), baseHistory,
-                fingerprints, List.of(validation), pullRequests, pats,
+                fingerprints, validation, pullRequests, pats,
                 new ObjectMapper());
 
         assertThatThrownBy(() -> effects.perform(

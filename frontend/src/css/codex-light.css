@@ -163,37 +163,6 @@
 
 /* Both settings implementations keep their existing information hierarchy,
    but share Codex's measured content width, type rhythm, rows, and controls. */
-:root[data-theme="github-light"] .settings-shell__content {
-  padding: 50px 32px;
-}
-
-:root[data-theme="github-light"] .settings-shell__layout {
-  grid-template-columns: 272px minmax(0, 1fr);
-}
-
-:root[data-theme="github-light"] .settings-shell-sidebar {
-  padding: 16px 8px;
-}
-
-:root[data-theme="github-light"] .settings-shell-sidebar__group {
-  margin-top: 14px;
-  padding: 6px 10px 4px;
-  color: #afb1b3;
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: normal;
-  line-height: 20px;
-  text-transform: none;
-}
-
-:root[data-theme="github-light"] .settings-shell-sidebar__link {
-  min-height: 30px;
-  padding: 5px 10px;
-  border-radius: 9px;
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 20px;
-}
 
 :root[data-theme="github-light"] :is(
   .settings-shell-page__head,
@@ -362,11 +331,6 @@
   animation: none;
 }
 
-:root[data-theme="github-light"] .stage-detail .sd-breadcrumb {
-  background: rgba(9, 105, 218, 0.04);
-  border-bottom-color: rgba(9, 105, 218, 0.16);
-}
-
 :root[data-theme="github-light"] .stage-detail :is(
   .sd-task-chip,
   .sd-diff-btn,
@@ -376,10 +340,6 @@
   .sd-iter-status--closed
 ) {
   background: rgba(9, 105, 218, 0.10);
-}
-
-:root[data-theme="github-light"] .stage-detail .sd-diff-btn:hover {
-  background: rgba(9, 105, 218, 0.15);
 }
 
 :root[data-theme="github-light"] .stage-detail :is(.conv-card, .ev .ic, .ev .tx code) {
@@ -398,25 +358,8 @@
   background: linear-gradient(180deg, #ffffff, #f6f6f6);
 }
 
-:root[data-theme="github-light"] .stage-detail .tool-card__head:hover {
-  background: rgba(9, 105, 218, 0.04);
-}
-
-:root[data-theme="github-light"] .stage-detail .iter-sum {
-  background: linear-gradient(90deg, rgba(9, 105, 218, 0.07), rgba(9, 105, 218, 0.02));
-}
-
-:root[data-theme="github-light"] .stage-detail .iter-sum-ic {
-  background: rgba(9, 105, 218, 0.12);
-}
-
 :root[data-theme="github-light"] .stage-detail .composer .t {
   font-size: var(--ui-font-size);
-}
-
-:root[data-theme="github-light"] .stage-detail .composer .send-icon {
-  background: #0969da;
-  box-shadow: 0 2px 6px rgba(9, 105, 218, 0.25);
 }
 
 @media (prefers-reduced-motion: reduce) {

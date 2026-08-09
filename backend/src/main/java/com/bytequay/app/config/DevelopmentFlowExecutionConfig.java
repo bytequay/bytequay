@@ -133,7 +133,7 @@ import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
@@ -510,13 +510,13 @@ public class DevelopmentFlowExecutionConfig
     @ConditionalOnMissingBean(LocalValidationOperationHandler.class)
     public LocalValidationOperationHandler v2LocalValidationOperationHandler(
             SqliteLocalDevelopmentRuntimeStore store,
-            List<ValidationCheck> checks,
+            RepoTestValidationCheck check,
             CodeFingerprints fingerprints,
             GitRunner git,
             ObjectMapper json)
     {
         return new LocalValidationOperationHandler(
-                store, checks, fingerprints, git, json, Clock.systemUTC());
+                store, check, fingerprints, git, json, Clock.systemUTC());
     }
 
     @Bean
@@ -596,13 +596,13 @@ public class DevelopmentFlowExecutionConfig
     public RemoteFeedbackValidationOperationHandler
             v2RemoteFeedbackValidationOperationHandler(
                     SqliteRemoteFeedbackLoopStore store,
-                    List<ValidationCheck> checks,
+                    RepoTestValidationCheck check,
                     CodeFingerprints fingerprints,
                     GitRunner git,
                     ObjectMapper json)
     {
         return new RemoteFeedbackValidationOperationHandler(
-                store, checks, fingerprints, git, json, Clock.systemUTC());
+                store, check, fingerprints, git, json, Clock.systemUTC());
     }
 
     @Bean

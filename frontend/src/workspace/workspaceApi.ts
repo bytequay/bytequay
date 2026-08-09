@@ -343,8 +343,6 @@ export type WorkspaceRelationDto = {
   upstreamRepoFullName: string;
   commitsEnabled: boolean;
   tagsEnabled: boolean;
-  branchesEnabled: boolean;
-  issuesPullRequestsEnabled: boolean;
   lastFetchedAt: string | null;
   autoFetchIntervalMinutes: number;
   indexedCommitCount: number;

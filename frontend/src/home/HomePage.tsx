@@ -21,7 +21,6 @@ import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
 import InboxSection from './InboxSection';
-import TeamsGrid from './TeamsGrid';
 import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
 
@@ -268,9 +267,6 @@ function HomePage({
         onWatch={() => setShowModal(true)}
         onRemove={(owner, repo) => { void handleRemove(owner, repo); }}
       />
-
-      {/* ── Teams you track ── */}
-      <TeamsGrid />
 
       </main>
 

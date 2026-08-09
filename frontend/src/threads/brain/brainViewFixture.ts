@@ -39,7 +39,6 @@ export function buildEmptyBrainView(taskId: string): TaskBrainViewData {
     rightRail: {
       approval: null,
       linkedPr: null,
-      context: { tokensUsed: 0, tokensLimit: 0, safeBand: 'safe' },
       recentCommits: [],
       panelSpawnable: false,
       parentStageId: null,
@@ -227,11 +226,6 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
       reviewersTotal: 3,
       conflictsState: 'none',
       mergeable: false,
-    },
-    context: {
-      tokensUsed: 86_000,
-      tokensLimit: 200_000,
-      safeBand: 'safe',
     },
     recentCommits: [
       {

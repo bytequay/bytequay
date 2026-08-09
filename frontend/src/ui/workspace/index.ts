@@ -11,6 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { LogoColor } from '../primitives';
+
+export type RepoChip = { initials: string; color: LogoColor };
 
 /** Workspace-model navigation shell. */
 export { WorkspaceBottomNav, WorkspaceNavSidebar, WorkspacePrimaryNav } from './WorkspaceNavSidebar';
@@ -23,4 +26,3 @@ export { RecentList } from './RecentList';
 export { WorkspaceSwitcher } from './WorkspaceSwitcher';
 export { ThreadList, ThreadListItem } from './ThreadList';
 export type { ThreadRow, TaskNavRow } from './ThreadList';
-export type { WsTab, RepoChip } from './WorkspaceTopBar';

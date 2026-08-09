@@ -12,7 +12,12 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PendingPermission } from './ConversationPane';
+
+type PendingPermission = {
+  callId: string;
+  toolName: string;
+  summary: string;
+};
 
 /** A human-readable read of a permission prompt: a plain-language
  *  action ("Run shell command", "Edit file"), an optional target the

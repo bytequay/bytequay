@@ -18,7 +18,6 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
-import com.bytequay.app.service.checks.ValidationPassFinishedEvent;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
@@ -67,21 +66,6 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public boolean spendLocalShipAuthorizationInCommand(String taskId, Actor actor)
-    {
-        throw retired();
-    }
-
-    public void finalizeLocalShipInCommand(String taskId, Actor actor, String reason)
-    {
-        throw retired();
-    }
-
-    public void invalidateLocalShipInCommand(String taskId, Actor actor, String reason)
-    {
-        throw retired();
-    }
-
     public Task parkForLocalReviewInCommand(String taskId, Actor actor, String reason)
     {
         throw retired();
@@ -97,17 +81,7 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public void parkOperational(String taskId, Actor actor, String reason)
-    {
-        throw retired();
-    }
-
     public void parkOperationalInCommand(String taskId, Actor actor, String reason)
-    {
-        throw retired();
-    }
-
-    public void requestRecovery(String taskId, String kind)
     {
         throw retired();
     }
@@ -122,19 +96,8 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public void rejectRecoveryRequest(String taskId, String requestId, String reason)
-    {
-        throw retired();
-    }
-
     public void rejectRecoveryRequestInCommand(
             String taskId, String requestId, String reason)
-    {
-        throw retired();
-    }
-
-    public Task completeRecovery(
-            String taskId, Actor actor, String reason, TaskPhase fallbackPhase)
     {
         throw retired();
     }
@@ -156,27 +119,7 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public ThreadTurn retryErrored(String taskId, String failedTurnId)
-    {
-        throw retired();
-    }
-
     public ThreadTurn retryErroredInCommand(String taskId, String failedTurnId)
-    {
-        throw retired();
-    }
-
-    public void archiveIdle(String taskId)
-    {
-        throw retired();
-    }
-
-    public void archiveIdleInCommand(String taskId)
-    {
-        throw retired();
-    }
-
-    public Task reviveArchived(String taskId)
     {
         throw retired();
     }
@@ -191,53 +134,12 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public void onValidationFinished(ValidationPassFinishedEvent event)
-    {
-        throw retired();
-    }
-
     public void observe(String taskId, TaskPhase to, String reason)
     {
         throw retired();
     }
 
-    public void observeRemoteOpened(String taskId, String reason)
-    {
-        throw retired();
-    }
-
     public void observeRemoteOpenedInCommand(String taskId, String reason)
-    {
-        throw retired();
-    }
-
-    public void observeRemoteCiGreen(String taskId, boolean draft, String reason)
-    {
-        throw retired();
-    }
-
-    public void observeRemoteCiGreenInCommand(String taskId, boolean draft, String reason)
-    {
-        throw retired();
-    }
-
-    public void observeReady(String taskId, String reason)
-    {
-        throw retired();
-    }
-
-    public void observeReadyInCommand(String taskId, String reason)
-    {
-        throw retired();
-    }
-
-    public void observeInCommand(String taskId, TaskPhase to, String reason)
-    {
-        throw retired();
-    }
-
-    public void finishTerminal(
-            String taskId, TaskStatus terminalStatus, Actor actor, String reason)
     {
         throw retired();
     }
@@ -248,27 +150,12 @@ public class TaskPhaseMachine
         throw retired();
     }
 
-    public Task pause(String taskId, Actor actor, String reason)
-    {
-        throw retired();
-    }
-
     public Task pauseInCommand(String taskId, Actor actor, String reason)
     {
         throw retired();
     }
 
-    public void requestResume(String taskId)
-    {
-        throw retired();
-    }
-
     public void requestResumeInCommand(String taskId)
-    {
-        throw retired();
-    }
-
-    public Task completeResume(String taskId, Actor actor, String reason)
     {
         throw retired();
     }

@@ -17,7 +17,6 @@ import type {
   LocalRepoStatusDto,
   PullRequestDto,
   ThreadGroupDto,
-  WorkModelDto,
 } from '../types';
 
 /**

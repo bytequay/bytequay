@@ -14,12 +14,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import CurrentUserAvatar from '../CurrentUserAvatar';
 import type {
-  ActivityItemDto,
   IssueDetailDto,
   IssueDto,
-  PullRequestCommitDto,
-  PullRequestDetailDto,
-  PullRequestDto,
 } from '../types';
 import { renderMarkdown } from '../markdown';
 import {
@@ -30,7 +26,6 @@ import {
   type WorkspaceRepositoryDto,
   type WorkspaceTrunkDto,
 } from './workspaceApi';
-import PullRequestBoardList from './PullRequestBoardList';
 import WorkspacePullsScreen from '../pulls/WorkspacePullsScreen';
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
 import WorkspaceCommitsPage from './WorkspaceCommitsPage';
@@ -44,9 +39,7 @@ import {
   ExternalIcon,
   PageHeader,
   SearchIcon,
-  isToday,
   message,
-  prInitials,
   relative,
   useDismissOnOutside,
 } from './WorkspaceRepoUi';
@@ -142,331 +135,8 @@ export default function WorkspaceRepoPage({
       />
     );
   }
-  return <WorkspaceCommitsPage workspaceId={workspaceId} repo={repo} onOpenTrunk={onOpenTrunk}
+  return <WorkspaceCommitsPage workspaceId={workspaceId} repo={repo}
     onOpenSync={onOpenSync} onOpenIssue={onOpenIssue} />;
-}
-
-function PullRequestsPage({
-  workspaceId,
-  onOpen,
-}: {
-  workspaceId: string;
-  onOpen: (number: number) => void;
-}) {
-  const [rows, setRows] = useState<PullRequestDto[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      setRows(await workspaceApi.pullRequests(workspaceId));
-      setError(null);
-    }
-    catch (reason) {
-      setError(message(reason));
-    }
-    finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  return (
-    <PullRequestBoardList
-      title="Pull requests"
-      rows={rows}
-      loading={loading}
-      error={error}
-      showRepository={false}
-      onOpen={pr => onOpen(pr.number)}
-      onRefresh={() => { void refresh(); }}
-    />
-  );
-}
-
-function PullRequestDetailPage({
-  workspaceId,
-  number,
-  onBack,
-  onOpenTrunk,
-}: {
-  workspaceId: string;
-  number: number;
-  onBack: () => void;
-  onOpenTrunk?: (trunkId: string) => void;
-}) {
-  const [pr, setPr] = useState<PullRequestDto | null>(null);
-  const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
-  const [commits, setCommits] = useState<PullRequestCommitDto[] | null>(null);
-  const [tab, setTab] = useState<'conversation' | 'commits' | 'checks' | 'changes'>('conversation');
-  const [error, setError] = useState<string | null>(null);
-  const [reviewing, setReviewing] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const [nextPr, nextDetail, nextCommits] = await Promise.all([
-        workspaceApi.pullRequest(workspaceId, number),
-        workspaceApi.pullRequestDetail(workspaceId, number),
-        workspaceApi.pullRequestCommits(workspaceId, number),
-      ]);
-      setPr(nextPr);
-      setDetail(nextDetail);
-      setCommits(nextCommits);
-      setError(null);
-    }
-    catch (reason) {
-      setError(message(reason));
-    }
-  }, [workspaceId, number]);
-  useEffect(() => { void load(); }, [load]);
-
-  if (error !== null) return <PageError title={`Pull request #${number}`} message={error} />;
-  if (pr === null || detail === null) return <PageLoading title={`Pull request #${number}`} />;
-
-  const startReview = async () => {
-    setReviewing(true);
-    try {
-      const started = await workspaceApi.reviewPullRequest(workspaceId, number);
-      if (started.trunkId !== null) onOpenTrunk?.(started.trunkId);
-    }
-    catch (reason) {
-      setError(message(reason));
-    }
-    finally {
-      setReviewing(false);
-    }
-  };
-
-  const workspaceLinks: NonNullable<PullRequestDetailDto['workspaceLinks']> =
-    detail.workspaceLinks ?? detail.linkedIssues.map(issue => ({
-    kind: 'task' as const,
-    title: `#${issue.number} ${issue.title}`,
-    detail: 'linked issue',
-  }));
-  const reviewers = detail.reviewers ?? deriveReviewerRows(pr, detail);
-  const developmentLinks = detail.developmentLinks
-    ?? detail.linkedIssues.map(issue => ({ number: issue.number, title: issue.title, closes: true }));
-  const participants = detail.participants ?? unique([
-    pr.author,
-    ...reviewers.map(reviewer => reviewer.login),
-  ]);
-  const commitCount = commits?.length ?? 0;
-
-  return (
-    <section className="wu-page wu-pr-detail">
-      <header className="wu-pr-detail__header">
-        <div className="wu-pr-detail__topline">
-          <span
-            className="wu-pr-detail__back"
-            role="button"
-            tabIndex={0}
-            onClick={onBack}
-            onKeyDown={event => {
-              if (event.key === 'Enter' || event.key === ' ') onBack();
-            }}
-          >
-            <PrDetailIcon kind="back" /> Pull requests
-          </span>
-          <span className="wu-sync-ok"><PrDetailIcon kind="check" /> synced {detail.syncedLabel ?? 'just now'}</span>
-          <button
-            type="button"
-            className="wu-primary-button"
-            disabled={reviewing}
-            onClick={() => { void startReview(); }}
-          >
-            <PrDetailIcon kind="agent" /> {reviewing ? 'Starting review…' : 'Review with agent'}
-          </button>
-        </div>
-        <h1>{pr.title} <span>#{pr.number}</span></h1>
-        <div className="wu-pr-detail__meta">
-          <span className={`wu-open-pill ${pr.state ?? 'open'}`}>
-            <PullIcon tone={pr.state === 'merged' ? 'merged' : pr.state === 'closed' ? 'closed' : 'open'} />
-            {pr.state === 'merged' ? 'Merged' : pr.state === 'closed' ? 'Closed' : 'Open'}
-          </span>
-          <span>
-            <b>@{pr.author ?? 'unknown'}</b>
-            {' wants to merge '}
-            {commitCount} {commitCount === 1 ? 'commit' : 'commits'} into <span className="wu-pr-ref">{detail.baseRef ?? 'main'}</span>
-            {' from '}<span className="wu-pr-ref">{detail.headRef ?? pr.headRef ?? 'branch'}</span>
-          </span>
-          <span className="wu-pr-detail__delta">
-            <b>+{detail.additions}</b>{' '}<b className="deletions">−{detail.deletions}</b>
-          </span>
-        </div>
-        <nav className="wu-detail-tabs">
-          <TabButton active={tab === 'conversation'} onClick={() => setTab('conversation')}>
-            <PrDetailIcon kind="conversation" /> Conversation <i>{detail.conversationCount ?? detail.recentActivity.length}</i>
-          </TabButton>
-          <TabButton active={tab === 'commits'} onClick={() => setTab('commits')}>
-            <PrDetailIcon kind="commit" /> Commits <i>{commitCount}</i>
-          </TabButton>
-          <TabButton active={tab === 'checks'} onClick={() => setTab('checks')}>
-            <PrDetailIcon kind="check" /> Checks <i>{detail.checkCount ?? detail.checkRuns.length}</i>
-          </TabButton>
-          <TabButton active={tab === 'changes'} onClick={() => setTab('changes')}>
-            <PrDetailIcon kind="changes" /> Changes
-          </TabButton>
-        </nav>
-      </header>
-      <div className="wu-pr-detail__body">
-        <main>
-          {tab === 'conversation' && (
-            <div className="wu-pr-conversation">
-              <div className="wu-pr-feed-card">
-                <PrAvatar name={pr.author ?? '?'} />
-                <article className="wu-conversation-card wu-pr-description-card">
-                  <header>
-                    <span>
-                      <strong>{pr.author ?? 'unknown'}</strong>
-                      {' drafted the description · '}
-                      {pr.createdAt === null ? 'recently' : prTimelineDate(pr.createdAt, true)}
-                    </span>
-                    <i>AUTHOR</i>
-                  </header>
-                  <MarkdownBody body={detail.body} />
-                </article>
-              </div>
-              {detail.recentActivity.map((activity, index) => (
-                <PrActivity
-                  key={`${activity.githubId ?? activity.timestamp}-${index}`}
-                  activity={activity}
-                  author={pr.author}
-                  resolvedThreads={detail.reviewThreads.filter(thread => thread.resolved === true)}
-                />
-              ))}
-              {detail.recentActivity.length === 0 && <BodyMessage>No conversation activity yet.</BodyMessage>}
-            </div>
-          )}
-          {tab === 'commits' && (
-            <DetailList>
-              {commits?.map(commit => (
-                <div className="wu-detail-list-row wu-pr-commit-row" key={commit.sha}>
-                  <AvatarLetters name={commit.authorLogin ?? commit.authorName ?? '?'} />
-                  <span>
-                    <strong>{firstLine(commit.message) || 'Untitled commit'}</strong>
-                    <small>
-                      <b>{commit.authorLogin ?? commit.authorName ?? 'Unknown author'}</b>
-                      {' committed '}
-                      {commit.authoredAt === null ? 'at an unknown time' : relative(commit.authoredAt)}
-                    </small>
-                  </span>
-                  <code>{commit.sha.slice(0, 7)}</code>
-                </div>
-              ))}
-              {commits?.length === 0 && <BodyMessage>No commits are attached to this pull request.</BodyMessage>}
-            </DetailList>
-          )}
-          {tab === 'checks' && (
-            <DetailList>
-              {detail.checkRuns.map((check, index) => (
-                <div className="wu-detail-list-row" key={check.githubId ?? `${check.name}-${index}`}>
-                  <span className={`wu-check-state ${check.conclusion ?? check.status ?? ''}`}>
-                    {check.conclusion === 'success' ? '✓' : check.status === 'in_progress' ? '●' : '×'}
-                  </span>
-                  <span>
-                    <strong>{check.name ?? 'Check'}</strong>
-                    <small>{check.outputTitle ?? check.conclusion ?? check.status ?? 'unknown'}</small>
-                  </span>
-                  {check.htmlUrl !== null && <a href={check.htmlUrl}>Open ↗</a>}
-                </div>
-              ))}
-            </DetailList>
-          )}
-          {tab === 'changes' && (
-            <DetailList>
-              {detail.files.map(file => (
-                <div className="wu-detail-list-row" key={file.filename}>
-                  <span className="wu-file-status">{file.status.slice(0, 1).toUpperCase()}</span>
-                  <span><strong>{file.filename}</strong></span>
-                  <b className="wu-delta">+{file.additions} <em>−{file.deletions}</em></b>
-                </div>
-              ))}
-            </DetailList>
-          )}
-        </main>
-        <aside className="wu-pr-detail__rail">
-          <section className="wu-pr-meta-section wu-pr-linked-work">
-            <h2>Linked work</h2>
-            {workspaceLinks.map((link, index) => (
-              <div
-                role="button"
-                tabIndex={0}
-                key={`${link.kind}-${link.title}-${index}`}
-                onClick={() => {
-                  const trunkId = link.trunkId;
-                  if (trunkId !== undefined && trunkId !== null) onOpenTrunk?.(trunkId);
-                }}
-                onKeyDown={event => {
-                  const trunkId = link.trunkId;
-                  if ((event.key === 'Enter' || event.key === ' ')
-                    && trunkId !== undefined && trunkId !== null) onOpenTrunk?.(trunkId);
-                }}
-              >
-                <span className={`wu-pr-link-icon ${link.kind}`}>
-                  <PrDetailIcon kind={link.kind === 'trunk' ? 'trunk' : link.kind === 'task' ? 'merged' : 'agent'} />
-                </span>
-                <span>{link.title} <i>{link.detail}</i></span>
-              </div>
-            ))}
-            {workspaceLinks.length === 0 && <p>No linked work</p>}
-          </section>
-          <section className="wu-pr-meta-section wu-pr-reviewers">
-            <h2>Reviewers <PrDetailIcon kind="settings" /></h2>
-            {reviewers.map(reviewer => (
-              <div key={reviewer.login}>
-                <PrAvatar name={reviewer.login} compact agent={reviewer.login.includes('agent')} />
-                <span>{reviewer.login}</span>
-                <ReviewerState state={reviewer.state} />
-              </div>
-            ))}
-            {reviewers.length === 0 && <p>No reviewers</p>}
-          </section>
-          <section className="wu-pr-meta-section">
-            <h2>Assignees</h2>
-            {detail.assignees !== undefined && detail.assignees.length > 0
-              ? detail.assignees.map(login => <span key={login}>@{login}</span>)
-              : <p>No one — <a href={pr.htmlUrl}>assign yourself</a></p>}
-          </section>
-          <section className="wu-pr-meta-section">
-            <h2>Labels</h2>
-            <div className="wu-pr-labels">
-              {detail.labels.map((label, index) => <i key={label} className={index % 2 === 0 ? 'blue' : 'purple'}>{label}</i>)}
-            </div>
-          </section>
-          <section className="wu-pr-meta-section">
-            <h2>Milestone</h2>
-            {detail.milestone === null || detail.milestone === undefined
-              ? <p>No milestone</p>
-              : (
-                <>
-                  <div className="wu-pr-milestone">
-                    <span style={{ width: `${Math.max(0, Math.min(100, detail.milestone.progressPercent))}%` }} />
-                  </div>
-                  <strong>{detail.milestone.title}</strong>
-                </>
-              )}
-          </section>
-          <section className="wu-pr-meta-section">
-            <h2>Development</h2>
-            {developmentLinks.map(link => (
-              <p key={link.number}>{link.closes ? 'Merging may close ' : 'Linked to '}<a href={pr.htmlUrl}>#{link.number}</a></p>
-            ))}
-            {developmentLinks.length === 0 && <p>No linked issues</p>}
-          </section>
-          <section className="wu-pr-meta-section wu-pr-participants">
-            <h2>{participants.length} participants</h2>
-            <div>
-              {participants.slice(0, 5).map(login => <PrAvatar key={login} name={login} compact blank />)}
-              {participants.length > 5 && <span className="wu-pr-participant-more">+{participants.length - 5}</span>}
-            </div>
-            <button type="button" className="wu-pr-unsubscribe"><PrDetailIcon kind="bell-off" /> Unsubscribe</button>
-            <p>{detail.subscriptionReason ?? "You're notified because your review was requested."}</p>
-          </section>
-        </aside>
-      </div>
-    </section>
-  );
 }
 
 function IssuesPage({
@@ -1314,40 +984,12 @@ function Segmented<T extends string>({
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      className={active ? 'active' : ''}
-      onClick={onClick}
-      onKeyDown={event => {
-        if (event.key === 'Enter' || event.key === ' ') onClick();
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
 function PageLoading({ title }: { title: string }) {
   return <section className="wu-page"><PageHeader title={title} /><BodyMessage>Loading repository…</BodyMessage></section>;
 }
 
 function PageError({ title, message: error }: { title: string; message: string }) {
   return <section className="wu-page"><PageHeader title={title} /><BodyMessage>{error}</BodyMessage></section>;
-}
-
-function DetailList({ children }: { children: ReactNode }) {
-  return <div className="wu-detail-list">{children}</div>;
 }
 
 function RailCard({ title, children }: { title: string; children: ReactNode }) {
@@ -1372,95 +1014,6 @@ function MarkdownBody({
       }}
     />
   );
-}
-
-function PrActivity({
-  activity,
-  author,
-  resolvedThreads,
-}: {
-  activity: ActivityItemDto;
-  author: string | null;
-  resolvedThreads: PullRequestDetailDto['reviewThreads'];
-}) {
-  if (activity.eventType === 'reviewed') {
-    const path = resolvedThreads[0]?.filePath;
-    return (
-      <div className="wu-pr-feed-card wu-pr-review-card">
-        <PrAvatar name={activity.actor} />
-        <article className="wu-conversation-card">
-          <header>
-            <span><strong>{activity.actor}</strong> reviewed · {prTimelineDate(activity.timestamp)}</span>
-            {resolvedThreads.length > 0 && <b>{resolvedThreads.length} resolved</b>}
-          </header>
-          {path !== null && path !== undefined && (
-            <div className="wu-pr-resolved-summary">
-              <code>{compactPath(path)}</code>
-              <span>RESOLVED</span>
-            </div>
-          )}
-          {activity.body !== null && <MarkdownBody body={activity.body} />}
-        </article>
-      </div>
-    );
-  }
-  if (activity.body !== null) {
-    return (
-      <div className="wu-pr-feed-card wu-pr-comment-card">
-        <PrAvatar name={activity.actor} />
-        <article className="wu-conversation-card">
-          <header>
-            <span>
-              <strong>{activity.actor}</strong> · {prTimelineDate(activity.timestamp)}
-              {author === activity.actor && <i>AUTHOR</i>}
-            </span>
-          </header>
-          <MarkdownBody body={activity.body} />
-        </article>
-      </div>
-    );
-  }
-  return (
-    <div className="wu-timeline-event">
-      <span><PrDetailIcon kind={timelineIcon(activity.eventType)} /></span>
-      <span>
-        <b>{activity.actor}</b>{' '}
-        {activity.eventType === 'labeled' ? (
-          <>added the <i className="wu-pr-event-label">{activity.labelName ?? 'label'}</i> label</>
-        ) : activity.eventType.includes('push') ? (
-          <>force-pushed to <code>{activity.afterSha?.slice(0, 7) ?? 'the branch'}</code></>
-        ) : activity.eventType === 'cross-referenced' ? (
-          <>referenced <a href={activity.crossRefUrl ?? undefined}>
-            #{activity.crossRefNumber} {activity.crossRefTitle}
-          </a></>
-        ) : activityLabel(activity)}
-        {' · '}{prTimelineDate(activity.timestamp)}
-      </span>
-    </div>
-  );
-}
-
-function PrAvatar({
-  name,
-  compact = false,
-  agent = false,
-  blank = false,
-}: {
-  name: string;
-  compact?: boolean;
-  agent?: boolean;
-  blank?: boolean;
-}) {
-  return (
-    <span className={`wu-pr-avatar tone-${avatarTone(name)}${compact ? ' compact' : ''}${agent ? ' agent' : ''}${blank ? ' blank' : ''}`} aria-hidden>
-      {agent ? <PrDetailIcon kind="agent" /> : blank ? null : prInitials(name)}
-    </span>
-  );
-}
-
-function ReviewerState({ state }: { state: 'commented' | 'approved' | 'requested' }) {
-  if (state === 'requested') return <a>Request</a>;
-  return <PrDetailIcon kind={state === 'approved' ? 'check' : 'conversation'} />;
 }
 
 function AvatarLetters({ name }: { name: string }) {
@@ -1556,144 +1109,8 @@ function initials(name: string): string {
   return name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
 }
 
-function firstLine(value: string | null): string {
-  return value?.split(/\r?\n/, 1)[0]?.trim() ?? '';
-}
-
-function statusBadge(pr: PullRequestDto): string {
-  if (pr.state === 'merged') return 'merged';
-  if (pr.state === 'closed') return 'closed';
-  if (pr.draft) return 'draft';
-  if (pr.handledAction === 'APPROVED') return 'approved';
-  if (isToday(pr.reviewedAt)) return 'reviewed';
-  return '';
-}
-
-function activityLabel(activity: ActivityItemDto): string {
-  if (activity.eventType === 'labeled') return `added the ${activity.labelName ?? ''} label`;
-  if (activity.eventType === 'review_requested') return `requested review from ${activity.requestedReviewer ?? ''}`;
-  if (activity.eventType.includes('push')) {
-    return `force-pushed to ${activity.afterSha?.slice(0, 7) ?? 'the branch'}`;
-  }
-  return activity.eventType.replaceAll('_', ' ');
-}
-
-function deriveReviewerRows(
-  pr: PullRequestDto,
-  detail: PullRequestDetailDto,
-): NonNullable<PullRequestDetailDto['reviewers']> {
-  const rows = new Map<string, 'commented' | 'approved' | 'requested'>();
-  for (const [login, verdict] of Object.entries(pr.reviewerVerdicts ?? {})) {
-    rows.set(login, verdict === 'APPROVED' ? 'approved' : 'commented');
-  }
-  for (const login of detail.requestedReviewers) {
-    if (!rows.has(login)) rows.set(login, 'requested');
-  }
-  return [...rows].map(([login, state]) => ({ login, state }));
-}
-
 function unique(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.filter((value): value is string => value !== null && value !== undefined))];
-}
-
-function prTimelineDate(iso: string | null, includeYear = false): string {
-  if (iso === null) return 'recently';
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    ...(includeYear ? { year: 'numeric' as const } : {}),
-  }).format(new Date(iso));
-}
-
-function compactPath(path: string): string {
-  const parts = path.split('/');
-  return parts.length < 4 ? path : `${parts.slice(0, 2).join('/')}/…/${parts.at(-1)}`;
-}
-
-type PrDetailIconKind =
-  | 'agent' | 'back' | 'bell-off' | 'check' | 'clock' | 'commit' | 'conversation'
-  | 'changes' | 'link' | 'merged' | 'settings' | 'trunk';
-
-function timelineIcon(eventType: string): PrDetailIconKind {
-  if (eventType.includes('push')) return 'commit';
-  if (eventType === 'cross-referenced') return 'link';
-  return 'clock';
-}
-
-function avatarTone(name: string): number {
-  const normalized = name.toLowerCase();
-  if (normalized === 'skyglass' || normalized === 'math-ias') return 0;
-  if (normalized === 'ebyhr') return 1;
-  if (normalized === 'chenjian2664') return 2;
-  if (normalized.includes('agent')) return 3;
-  if (normalized === 'electrum') return 4;
-  return [...name].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 5;
-}
-
-function PrDetailIcon({ kind }: { kind: PrDetailIconKind }) {
-  const common = {
-    width: 13,
-    height: 13,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: kind === 'check' ? 2 : 1.8,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-  };
-  if (kind === 'back') return <svg {...common}><path d="m15 18-6-6 6-6" /></svg>;
-  if (kind === 'check') return <svg {...common}><path d="M20 6 9 17l-5-5" /></svg>;
-  if (kind === 'conversation') {
-    return <svg {...common}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>;
-  }
-  if (kind === 'commit') {
-    return <svg {...common} strokeWidth="1.7"><circle cx="12" cy="12" r="3" /><path d="M3 12h6M15 12h6" /></svg>;
-  }
-  if (kind === 'changes') {
-    return <svg {...common}><path d="m16 3 5 5-5 5M21 8H9M8 21l-5-5 5-5M3 16h12" /></svg>;
-  }
-  if (kind === 'agent') {
-    return (
-      <svg {...common}>
-        <rect x="5" y="9" width="14" height="10" rx="2" /><path d="M12 5v4" />
-        <circle cx="12" cy="4" r="1" /><path d="M9 13.5h.01M15 13.5h.01" />
-      </svg>
-    );
-  }
-  if (kind === 'trunk') {
-    return (
-      <svg {...common}>
-        <circle cx="6" cy="6" r="2.4" /><circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="12" r="2.4" />
-        <path d="M8.3 7.2 15.7 11M8.3 16.8 15.7 13" />
-      </svg>
-    );
-  }
-  if (kind === 'merged') {
-    return <svg {...common}><circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" /><path d="M6 21V9a9 9 0 0 0 9 9" /></svg>;
-  }
-  if (kind === 'settings') {
-    return (
-      <svg {...common} width="12" height="12">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.6 15H3.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 5 8.6l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 5.6h.09A1.65 1.65 0 0 0 10 3.6V3.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.4 9h.1a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-      </svg>
-    );
-  }
-  if (kind === 'bell-off') {
-    return (
-      <svg {...common} width="12" height="12" strokeWidth="1.7">
-        <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0M3 3l18 18" />
-      </svg>
-    );
-  }
-  if (kind === 'link') {
-    return (
-      <svg {...common}>
-        <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
-      </svg>
-    );
-  }
-  return <svg {...common} strokeWidth="1.7"><circle cx="12" cy="12" r="8.5" /><path d="M12 8v4l2.5 2" /></svg>;
 }
 
 function BackIcon() {
@@ -1710,12 +1127,6 @@ function PlusIcon() {
       <path d="M12 5v14M5 12h14" />
     </svg>
   );
-}
-
-function RefreshIcon() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="1.8" strokeLinecap="round"><path d="M20 6v5h-5" /><path d="M4 18v-5h5" />
-    <path d="M6.1 9A7 7 0 0 1 18 6l2 5M18 15a7 7 0 0 1-12 3l-2-5" /></svg>;
 }
 
 function BranchRefreshIcon() {
@@ -1765,10 +1176,4 @@ function TrunkIcon() {
     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="2.4" />
     <circle cx="6" cy="18" r="2.4" /><circle cx="18" cy="12" r="2.4" />
     <path d="M8.3 7.2 15.7 11M8.3 16.8 15.7 13" /></svg>;
-}
-
-function AgentIcon() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="1.8" strokeLinecap="round"><rect x="5" y="7" width="14" height="12" rx="3" />
-    <path d="M12 3v4M9 12h.01M15 12h.01M9 16h6" /></svg>;
 }

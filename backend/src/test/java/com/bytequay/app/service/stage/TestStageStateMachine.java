@@ -26,7 +26,6 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
@@ -57,11 +56,10 @@ class TestStageStateMachine
     private final TaskStore tasks = mock(TaskStore.class);
     private final AgentRunStore runs = mock(AgentRunStore.class);
     private final StageBudgetService budgets = mock(StageBudgetService.class);
-    private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final PlatformTransactionManager transactionManager = new TestTransactionManager();
     private final TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
     private final StageStateMachine machine =
-            new StageStateMachine(stages, tasks, runs, budgets, commands, events);
+            new StageStateMachine(stages, tasks, runs, budgets, commands);
 
     @Test
     void phaseOwnerOpensOnceAndReusesTheOpenStage()
@@ -104,7 +102,7 @@ class TestStageStateMachine
     }
 
     @Test
-    void realCloseUsesCasWritesOneAuditAndPublishesOneEvictionSignal()
+    void realCloseUsesCasAndWritesOneAuditEvent()
     {
         StageInstance open = stage(StageType.DEVELOPMENT_STAGE, StageState.OPEN);
         when(stages.findStageById(STAGE_ID)).thenReturn(Optional.of(open));
@@ -116,7 +114,6 @@ class TestStageStateMachine
 
         verify(stages).recordEvent(STAGE_ID, TASK_ID, StageEventType.CLOSED,
                 Map.of("reason", "phase_transition", "detail", "done"));
-        verify(events).publishEvent(new StageClosedEvent(TASK_ID, STAGE_ID.toString()));
     }
 
     @Test
@@ -128,7 +125,6 @@ class TestStageStateMachine
         assertThat(machine.close(STAGE_ID, "again")).isFalse();
 
         verify(stages, never()).updateStateIf(any(), any(), any(), any());
-        verify(events, never()).publishEvent(any());
     }
 
     @Test

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import { relativeTime } from '../relativeTime';
 import {
   workspaceApi,
   type WorkspaceRelationCandidateDto,
@@ -126,7 +127,7 @@ export default function WorkspaceRelationsSettings({ workspaceId, repoName }: {
           </div>
           <footer>
             <span>
-              {relation.lastFetchedAt === null ? 'Not fetched yet' : `Fetched ${relative(relation.lastFetchedAt)}`}
+              {relation.lastFetchedAt === null ? 'Not fetched yet' : `Fetched ${relativeTime(relation.lastFetchedAt)}`}
               {' · '}{relation.indexedCommitCount.toLocaleString()} commits indexed
             </span>
             <button type="button" disabled={busy} onClick={() => {
@@ -295,16 +296,6 @@ function RelationPicker({ candidates, selectedId, busy, error, onSelect, onClose
 function isIneligible(candidate: WorkspaceRelationCandidateDto): boolean {
   return typeof candidate.ineligibleReason === 'string'
     && candidate.ineligibleReason.length > 0;
-}
-
-function relative(value: string): string {
-  const elapsed = Date.now() - Date.parse(value);
-  if (!Number.isFinite(elapsed) || elapsed < 0) return 'recently';
-  const minutes = Math.max(1, Math.floor(elapsed / 60_000));
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }
 
 /** Shared with the rest of the workspace surfaces, so a 422 shows the

@@ -17,7 +17,6 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -30,10 +29,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
 class TestDs4LifecycleService
 {
@@ -44,7 +41,7 @@ class TestDs4LifecycleService
         // state: with nothing in app_settings the master switch resolves
         // to its baked-off default and the supervisor parks at DISABLED.
         InMemorySettings settings = new InMemorySettings();
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         Ds4Status snap = service.status();
         assertThat(snap.state()).isEqualTo(Ds4State.DISABLED);
@@ -57,7 +54,7 @@ class TestDs4LifecycleService
     {
         InMemorySettings settings = new InMemorySettings();
         settings.set(Key.DS4_ENABLED, "true");
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         Ds4Status snap = service.status();
         assertThat(snap.state()).isEqualTo(Ds4State.NOT_CONFIGURED);
@@ -74,7 +71,7 @@ class TestDs4LifecycleService
         // A binary path on file would normally auto-start at boot — the
         // master switch has to win over it.
         settings.set(Key.DS4_BINARY_PATH, "/usr/local/bin/ds4-server");
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         assertThat(service.status().state()).isEqualTo(Ds4State.DISABLED);
 
@@ -90,7 +87,7 @@ class TestDs4LifecycleService
         InMemorySettings settings = new InMemorySettings();
         settings.set(Key.DS4_ENABLED, "false");
         settings.set(Key.DS4_BINARY_PATH, "/usr/local/bin/ds4-server");
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         // A manual Start must not bring the subprocess up behind the
         // user's back while local AI is switched off.
@@ -106,7 +103,7 @@ class TestDs4LifecycleService
         InMemorySettings settings = new InMemorySettings();
         settings.set(Key.DS4_ENABLED, "true");
         settings.set(Key.DS4_BINARY_PATH, "/usr/local/bin/ds4-server");
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
         assertThat(service.status().state()).isEqualTo(Ds4State.STOPPED);
 
         service.setConfig(withEnabled(service.getConfig(), false));
@@ -133,7 +130,7 @@ class TestDs4LifecycleService
     void settingBinaryPathThroughSetConfigDropsFromNotConfiguredToStopped()
     {
         InMemorySettings settings = new InMemorySettings();
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         Ds4Config cfg = Ds4Config.defaults();
         Ds4Config withPath = new Ds4Config(
@@ -158,7 +155,7 @@ class TestDs4LifecycleService
         InMemorySettings settings = new InMemorySettings();
         settings.set(Key.DS4_ENABLED, "true");
         settings.set(Key.DS4_BINARY_PATH, ""); // explicit blank
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         service.startBlocking();
         service.awaitQuiet(Duration.ofSeconds(2));
@@ -175,7 +172,7 @@ class TestDs4LifecycleService
         InMemorySettings settings = new InMemorySettings();
         settings.set(Key.DS4_ENABLED, "true");
         settings.set(Key.DS4_BINARY_PATH, workingDir.resolve("does-not-exist").toString());
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, mock(ApplicationEventPublisher.class));
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         service.startBlocking();
         service.awaitQuiet(Duration.ofSeconds(2));
@@ -261,8 +258,7 @@ class TestDs4LifecycleService
         settings.set(Key.DS4_TRACE, "false");
         settings.set(Key.DS4_KV_CACHE_DIR, workingDir.resolve("kv").toString());
 
-        RecordingPublisher events = new RecordingPublisher();
-        Ds4LifecycleService service = new Ds4LifecycleService(settings, events);
+        Ds4LifecycleService service = new Ds4LifecycleService(settings);
 
         service.startBlocking();
         service.awaitQuiet(Duration.ofSeconds(60));
@@ -272,12 +268,6 @@ class TestDs4LifecycleService
         assertThat(snap.pid()).isGreaterThan(0L);
         assertThat(snap.spawnedByUs()).isTrue();
         assertThat(snap.startedAt()).isNotNull();
-        // Every transition published an event; we ought to have at
-        // least STARTING and RUNNING in the trail.
-        assertThat(events.events).extracting(Ds4StatusEvent::to)
-                .extracting(Ds4Status::state)
-                .contains(Ds4State.STARTING, Ds4State.RUNNING);
-
         service.stopBlocking();
         service.awaitQuiet(Duration.ofSeconds(30));
 
@@ -321,20 +311,6 @@ class TestDs4LifecycleService
         Files.writeString(script, body, StandardCharsets.UTF_8);
         Files.setPosixFilePermissions(script, PosixFilePermissions.fromString("rwxr-xr-x"));
         return script;
-    }
-
-    private static final class RecordingPublisher
-            implements ApplicationEventPublisher
-    {
-        final List<Ds4StatusEvent> events = new CopyOnWriteArrayList<>();
-
-        @Override
-        public void publishEvent(Object event)
-        {
-            if (event instanceof Ds4StatusEvent e) {
-                events.add(e);
-            }
-        }
     }
 
     private static final class InMemorySettings

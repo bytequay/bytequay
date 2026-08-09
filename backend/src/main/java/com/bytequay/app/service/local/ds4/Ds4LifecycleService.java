@@ -19,7 +19,6 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -123,7 +122,6 @@ public class Ds4LifecycleService
     private static final int LOG_RING_CAPACITY = 5_000;
 
     private final AppSettingsStore settings;
-    private final ApplicationEventPublisher events;
     private final HttpClient probeClient;
 
     /** Single-thread supervisor — every transition runs here so the
@@ -147,12 +145,9 @@ public class Ds4LifecycleService
      *  log and crash diagnosis. */
     private final Deque<String> logRing = new ArrayDeque<>(LOG_RING_CAPACITY);
 
-    public Ds4LifecycleService(
-            AppSettingsStore settings,
-            ApplicationEventPublisher events)
+    public Ds4LifecycleService(AppSettingsStore settings)
     {
         this.settings = requireNonNull(settings, "settings is null");
-        this.events = requireNonNull(events, "events is null");
         this.probeClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
                 .build();
@@ -663,7 +658,6 @@ public class Ds4LifecycleService
             log.info("ds4 {} → {} ({})", prev.state(), next.state(),
                     next.lastError() == null ? "ok" : next.lastError());
         }
-        events.publishEvent(new Ds4StatusEvent(prev == null ? null : prev.state(), next));
     }
 
     private Ds4Status initialStatusFor(Ds4Config cfg)

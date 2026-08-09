@@ -296,10 +296,6 @@ export default function WorkspaceSettingsPage({
       setRefreshingModels(false);
     }
   };
-  const visualFrame = typeof document === 'undefined'
-    ? undefined
-    : document.documentElement.dataset.workspaceVisualFrame;
-
   return (
     <section className="wu-page wu-settings">
       <header className="wu-page-header">

@@ -38,9 +38,9 @@ import static java.util.Objects.requireNonNull;
  * idempotent) so the PR page's Tests card shows real runs instead of only
  * whatever the agent recorded manually via {@code record_pr_check}.
  *
- * <p>A failure here feeds straight into {@link ValidationPassService}'s
- * existing bounded auto-fix loop — this class only supplies one round's
- * verdict, same contract as any other {@link ValidationCheck}.
+ * <p>A failure here feeds into the durable validation flow — this class only
+ * supplies one round's verdict, same contract as any other
+ * {@link ValidationCheck}.
  *
  * <p>No repo-config file (e.g. a {@code .bytequay/tests.yml}) is read yet —
  * {@link TestRunnerDetector}'s ecosystem-marker detection is the only source

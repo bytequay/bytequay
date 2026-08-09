@@ -19,9 +19,9 @@ import java.util.List;
 /**
  * One pluggable validation check run during the VALIDATING phase. The
  * concrete checks (unit tests, checkstyle, repo-rule checker) are
- * registered as Spring beans and discovered by {@link
- * ValidationPassService}; an empty registry means validation passes
- * trivially. Each returns the failures it found (empty = clean).
+ * registered as Spring beans and run by the durable validation handlers;
+ * an empty registry means validation passes trivially. Each returns the
+ * failures it found (empty = clean).
  *
  * <p>This is the SPI seam the spec's {@code testRunner / checkstyleRunner
  * / ruleChecker} plug into — they land as {@code ValidationCheck} beans

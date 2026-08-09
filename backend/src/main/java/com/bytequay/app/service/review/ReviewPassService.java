@@ -49,7 +49,6 @@ import com.bytequay.app.service.credentials.PatResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -116,7 +115,6 @@ public class ReviewPassService
     private final ReviewBudgetMeter budgetMeter;
     private final ReviewDiffCache diffCache;
     private final ReviewCallContext reviewCalls;
-    private final ApplicationEventPublisher events;
 
     public ReviewPassService(
             ThreadStore threadStore,
@@ -133,10 +131,8 @@ public class ReviewPassService
             ReviewBudgetMeter budgetMeter,
             ReviewDiffCache diffCache,
             ReviewCallContext reviewCalls,
-            SkillStore skills,
-            ApplicationEventPublisher events)
+            SkillStore skills)
     {
-        this.events = requireNonNull(events, "events is null");
         this.reviewExecutor = requireNonNull(reviewExecutor, "reviewExecutor is null");
         this.leadOrchestrator = requireNonNull(leadOrchestrator, "leadOrchestrator is null");
         this.reviewerSeat = requireNonNull(reviewerSeat, "reviewerSeat is null");
@@ -603,12 +599,6 @@ public class ReviewPassService
                 /* endedAt */ needsBallot ? null : Instant.now(),
                 fresh.spawnedBuildThreadId(), fresh.agendaJson());
         reviewStore.savePass(finalPass);
-        // A stage-linked pass that's truly done (TERMINATE, not parked at
-        // ARBITRATE awaiting the human ballot) tells the stage package to
-        // close its callable REVIEW_STAGE. Standalone passes carry no link.
-        if (!needsBallot && fresh.taskStageId() != null) {
-            events.publishEvent(new ReviewPassTerminatedEvent(passId, fresh.taskStageId()));
-        }
         return buildDetail(finalPass);
     }
 

@@ -126,7 +126,6 @@ describe('workspace unified interaction flows', () => {
         threads={[]}
         onNewThread={() => {}}
         onOpenInsights={() => {}}
-        onOpenMemory={() => {}}
       />,
     );
 
@@ -506,7 +505,6 @@ describe('workspace unified interaction flows', () => {
         threads={[]}
         onNewThread={() => {}}
         onOpenInsights={() => {}}
-        onOpenMemory={() => {}}
       />,
     );
 
@@ -548,7 +546,6 @@ describe('workspace unified interaction flows', () => {
         threads={[]}
         onNewThread={() => {}}
         onOpenInsights={() => {}}
-        onOpenMemory={() => {}}
       />,
     );
 

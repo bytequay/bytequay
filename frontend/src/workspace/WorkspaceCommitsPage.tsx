@@ -45,7 +45,6 @@ import {
 type Props = {
   workspaceId: string;
   repo: WorkspaceRepositoryDto;
-  onOpenTrunk?: (trunkId: string) => void;
   onOpenSync?: (jobId: string) => void;
   onOpenIssue?: (issueNumber: number) => void;
 };
@@ -53,7 +52,6 @@ type Props = {
 export default function WorkspaceCommitsPage({
   workspaceId,
   repo,
-  onOpenTrunk,
   onOpenSync,
   onOpenIssue,
 }: Props) {

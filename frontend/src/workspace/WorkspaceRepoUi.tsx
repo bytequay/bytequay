@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, type ReactNode } from 'react';
+import { relativeTime } from '../relativeTime';
 import type { CherryPickResultDto } from './workspaceApi';
 import { isToday } from '../format';
 
@@ -113,11 +114,7 @@ export function message(value: unknown): string {
 }
 
 export function relative(iso: string): string {
-  const delta = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(delta) || delta < 60_000) return 'now';
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
-  return `${Math.floor(delta / 86_400_000)}d`;
+  return relativeTime(iso, { suffix: false });
 }
 
 export function prInitials(name: string): string {

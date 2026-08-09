@@ -197,11 +197,13 @@ public class ReviewRoundStateMachine
     {
         TaskCommandExecutor.requireCurrent(taskId);
         Task task = requireRunnableTask(taskId, TaskPhase.INTERNAL_REVIEW);
-        PR pr = prs.findById(prId)
+        if (prs.findById(prId)
                 .filter(candidate -> taskId.equals(candidate.taskId()))
                 .filter(candidate -> PR.STATUS_LOCAL_DRAFTED.equals(candidate.status())
                         || PR.STATUS_LOCAL_OPEN.equals(candidate.status()))
-                .orElseThrow(() -> conflict("local PR does not belong to task " + taskId));
+                .isEmpty()) {
+            throw conflict("local PR does not belong to task " + taskId);
+        }
         LocalReviewBrainHandoffStore.Handoff handoff = validationClaimKey == null
                 ? handoffs.listUnconsumedByTask(taskId).stream().findFirst().orElse(null)
                 : handoffs.listUnconsumedByTask(taskId).stream()
@@ -259,9 +261,6 @@ public class ReviewRoundStateMachine
                     + claim.claimKey());
         }
         consumeHandoff(handoff, run.id());
-        events.publishEvent(new ReviewRoundOpenedEvent(
-                taskId, roundId, pr.id(), ReviewRound.ORIGIN_BRAIN,
-                effectiveClaimKey, state));
         return opened;
     }
 
@@ -280,11 +279,13 @@ public class ReviewRoundStateMachine
         if (task.status() != TaskStatus.IN_REVIEW) {
             throw conflict("task " + taskId + " is not in remote review");
         }
-        PR pr = prs.findById(prId)
+        if (prs.findById(prId)
                 .filter(candidate -> taskId.equals(candidate.taskId()))
                 .filter(candidate -> PR.STATUS_REMOTE_DRAFTED.equals(candidate.status())
                         || PR.STATUS_REMOTE_OPEN.equals(candidate.status()))
-                .orElseThrow(() -> conflict("remote PR does not belong to task " + taskId));
+                .isEmpty()) {
+            throw conflict("remote PR does not belong to task " + taskId);
+        }
         List<UUID> frozenIds = List.copyOf(requireNonNull(commentIds, "commentIds is null"));
         if (frozenIds.isEmpty() || new HashSet<>(frozenIds).size() != frozenIds.size()) {
             throw conflict("external round requires a nonempty unique comment batch");
@@ -325,8 +326,6 @@ public class ReviewRoundStateMachine
                 0, 0, 0, null, null);
         rounds.insert(opened);
         stages.assignCommentsToRound(frozenIds, UUID.fromString(roundId));
-        events.publishEvent(new ReviewRoundOpenedEvent(
-                taskId, roundId, pr.id(), ReviewRound.ORIGIN_EXTERNAL, null, ADDRESSING));
         return opened;
     }
 
@@ -396,7 +395,6 @@ public class ReviewRoundStateMachine
             runs.transitionInCommand(taskId, run.id(), runTarget,
                     target == CLOSED ? "brain_review_concluded" : "drafts_ready");
         }
-        publish(round, target, "brain_review_concluded");
 
         if (brainOrigin && target == CLOSED) {
             PR pr = prs.findByTask(taskId)
@@ -411,8 +409,6 @@ public class ReviewRoundStateMachine
                                 ? "local_review_reverified" : "local_review_opened",
                         Actor.AGENT);
             }
-            events.publishEvent(new BrainRoundConcludedEvent(
-                    taskId, roundId, pr.id(), approved, verdict, open, attemptId));
             events.publishEvent(new LocalReviewClearedEvent(taskId, pr.id(), approved));
         }
         return requireRound(roundId);
@@ -457,7 +453,6 @@ public class ReviewRoundStateMachine
                 claim.claimKey(), claim.codeFingerprint())) {
             throw changed(roundId, "finishing addressing");
         }
-        publish(round, TRIAGING, "addressing_validated");
         return requireRound(roundId);
     }
 
@@ -542,7 +537,6 @@ public class ReviewRoundStateMachine
                 if (!rounds.parkIf(roundId, round.status())) {
                     throw changed(roundId, "preserving its budget pause");
                 }
-                publish(round, PAUSED, "review_budget_paused");
             }
             Task task = tasks.findTaskById(taskId).orElse(null);
             if (task != null && !stopped(task)) {
@@ -659,7 +653,6 @@ public class ReviewRoundStateMachine
             throw changed(roundId, "parking");
         }
         runs.pauseInCommand(taskId, run.id(), reason);
-        publish(round, PAUSED, reason);
         return requireRound(roundId);
     }
 
@@ -692,7 +685,6 @@ public class ReviewRoundStateMachine
             runs.transitionInCommand(
                     taskId, replacement.id(), AgentRun.STATUS_AWAITING_GATE, "review_resumed");
         }
-        publish(round, target, reason);
         return requireRound(roundId);
     }
 
@@ -718,7 +710,6 @@ public class ReviewRoundStateMachine
             }
             throw changed(roundId, "sealing");
         }
-        publish(round, CLOSED, reason);
         return requireRound(roundId);
     }
 
@@ -767,7 +758,6 @@ public class ReviewRoundStateMachine
         runs.transitionInCommand(taskId, run.id(), AgentRun.STATUS_SUCCEEDED, "round_posted");
         taskPhases.transitionInCommand(
                 task.id(), TaskPhase.PUSHED_AWAITING_CI, reason, Actor.HUMAN);
-        publish(round, POSTED, reason);
         return requireRound(roundId);
     }
 
@@ -848,7 +838,6 @@ public class ReviewRoundStateMachine
         }
         runs.transitionInCommand(
                 taskId, run.id(), AgentRun.STATUS_QUEUED, "round_gate_changes_requested");
-        publish(round, ADDRESSING, "round_gate_changes_requested");
         return requireRound(roundId);
     }
 
@@ -918,7 +907,6 @@ public class ReviewRoundStateMachine
                                         roundId, "creating gate revalidation")));
             }
         }
-        publish(round, TRIAGING, "round_gate_fingerprint_changed");
         return requireRound(roundId);
     }
 
@@ -1235,13 +1223,6 @@ public class ReviewRoundStateMachine
             throw conflict("round " + round.id() + " does not own run " + run.id());
         }
         return run;
-    }
-
-    private void publish(ReviewRound round, ReviewRoundState to, String reason)
-    {
-        events.publishEvent(new ReviewRoundTransitionedEvent(
-                round.taskId(), round.id(), round.status(), to,
-                reason == null ? "" : reason));
     }
 
     private static boolean parkableRun(String status)

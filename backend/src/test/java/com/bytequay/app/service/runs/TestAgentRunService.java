@@ -45,34 +45,14 @@ class TestAgentRunService
     @Test
     void legacyCreationAndMutationPortsFailClosedWithoutStorageWrites()
     {
-        Thread thread = mock(Thread.class);
         List<ThrowingCallable> retiredCalls = List.of(
-                () -> service.open("task", "dev", null, null,
-                        StageType.DEVELOPMENT_STAGE, null),
                 () -> service.openInCommand("task", "dev", null, null,
                         StageType.DEVELOPMENT_STAGE, null),
-                () -> service.openInStage("task", "dev", null, "stage", null),
                 () -> service.openInStageInCommand("task", "dev", null, "stage", null),
-                () -> service.openDetached("panel_review", null, "round", 1),
-                () -> service.openTaskArtifact(
-                        "task", "panel_review", null, "round", 1),
-                () -> service.openSchedulerSession(
-                        thread, "task", "stage", "dev", "prompt"),
                 () -> service.openSchedulerSessionInCommand(
-                        thread, "task", "stage", "dev", "prompt"),
-                () -> service.attachOwnership(
-                        "run", "workspace", "thread", "provider", "model", "prompt"),
-                () -> service.recordIteration("run", "headline"),
-                () -> service.spendBudget("run"),
-                () -> service.updateHeadline("run", "headline"),
-                () -> service.updateMetrics("run", "{}"),
-                () -> service.updateAccounting("run", 1, 2, 3, 4),
-                () -> service.pause("run", "reason"),
+                        mock(Thread.class), "task", "stage", "dev", "prompt"),
                 () -> service.pauseInCommand("task", "run", "reason"),
-                () -> service.resume("run"),
-                () -> service.restart("run"),
                 () -> service.restartInCommand("task", "run"),
-                () -> service.transition("run", AgentRun.STATUS_SUCCEEDED, "done"),
                 () -> service.transitionInCommand(
                         "task", "run", AgentRun.STATUS_SUCCEEDED, "done"));
 

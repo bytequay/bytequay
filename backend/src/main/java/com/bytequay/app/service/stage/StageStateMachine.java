@@ -26,7 +26,6 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.statemachine.StateMachine;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -58,22 +57,19 @@ public class StageStateMachine
     private final AgentRunStore runs;
     private final StageBudgetService budgets;
     private final TaskCommandExecutor commands;
-    private final ApplicationEventPublisher events;
 
     public StageStateMachine(
             StageStore stages,
             TaskStore tasks,
             AgentRunStore runs,
             StageBudgetService budgets,
-            TaskCommandExecutor commands,
-            ApplicationEventPublisher events)
+            TaskCommandExecutor commands)
     {
         this.stages = requireNonNull(stages, "stages is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.runs = requireNonNull(runs, "runs is null");
         this.budgets = requireNonNull(budgets, "budgets is null");
         this.commands = requireNonNull(commands, "commands is null");
-        this.events = requireNonNull(events, "events is null");
     }
 
     /** Ensure the stage owned by the task's current phase is open. */
@@ -209,7 +205,6 @@ public class StageStateMachine
         payload.put("reason", reason == null ? "" : reason);
         payload.putAll(extraPayload);
         stages.recordEvent(stageId, taskId, StageEventType.CLOSED, payload);
-        events.publishEvent(new StageClosedEvent(taskId, stageId.toString()));
         return true;
     }
 

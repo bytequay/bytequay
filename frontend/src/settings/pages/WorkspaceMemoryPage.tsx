@@ -503,13 +503,6 @@ const budgetBarFillStyle: React.CSSProperties = {
   transition: 'width 140ms ease',
 };
 
-const budgetTextStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--ws-text-3)',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  whiteSpace: 'nowrap',
-};
-
 const budgetWarnStyle: React.CSSProperties = {
   color: '#dc2626',
   fontWeight: 600,

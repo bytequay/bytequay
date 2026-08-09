@@ -127,8 +127,6 @@ class TestReviewRoundStateMachine
         assertThat(machine.park(ROUND_ID, "cost cap")).isEqualTo(paused);
 
         verify(rounds).parkIf(ROUND_ID, ADDRESSING);
-        verify(events).publishEvent(new ReviewRoundTransitionedEvent(
-                TASK_ID, ROUND_ID, ADDRESSING, PAUSED, "cost cap"));
     }
 
     @Test
@@ -150,8 +148,6 @@ class TestReviewRoundStateMachine
         assertThat(machine.resume(ROUND_ID, "runtime stopped").kickAttempt()).isEqualTo(3);
 
         verify(rounds).resumeIf(ROUND_ID, AWAITING_GATE);
-        verify(events).publishEvent(new ReviewRoundTransitionedEvent(
-                TASK_ID, ROUND_ID, PAUSED, AWAITING_GATE, "runtime stopped"));
     }
 
     @Test
@@ -178,8 +174,6 @@ class TestReviewRoundStateMachine
         assertThat(machine.seal(ROUND_ID, "task terminal").status()).isEqualTo(CLOSED);
 
         verify(rounds).sealIf(eq(ROUND_ID), eq(POSTED), any());
-        verify(events).publishEvent(new ReviewRoundTransitionedEvent(
-                TASK_ID, ROUND_ID, POSTED, CLOSED, "task terminal"));
         verify(runs, never()).transitionInCommand(any(), any(), any(), any());
     }
 

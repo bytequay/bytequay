@@ -52,7 +52,6 @@ import com.bytequay.app.service.pr.PullRequestMergedEvent;
 import com.bytequay.app.service.review.BrainReviewServiceImpl;
 import com.bytequay.app.service.review.RoundGateSaga;
 import com.bytequay.app.service.workspaces.WorkspaceService;
-import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -565,14 +564,6 @@ public class TaskService
                         threadId, e.getMessage());
             }
 
-            // Phase B: tell the memory subsystem a unit of work just
-            // landed. ShipEventMemoryTrigger listens, dedups within
-            // a 5-minute window, and runs the workspace distiller in
-            // the background so memory catches up as work ships.
-            String workspaceId = thread.workspaceId();
-            if (workspaceId != null && !workspaceId.isBlank()) {
-                eventPublisher.publishEvent(new WorkspaceShipEvent(workspaceId, threadId, taskId));
-            }
             return parked;
         }
         catch (IOException e) {

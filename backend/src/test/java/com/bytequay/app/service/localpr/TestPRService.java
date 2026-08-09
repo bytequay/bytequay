@@ -1017,8 +1017,6 @@ class TestPRService
                 .contains("\"findingCount\":2")
                 .contains("\"body\":\"Please fix both.\"")
                 .contains("\"bodyCommentId\":\"summary\"");
-        verify(events).publishEvent(new LocalReviewSubmittedEvent("task1", "pr1"));
-
         when(store.timelineFor("pr1")).thenReturn(List.of(submitted));
         assertThat(service.localReviewSubmissions("pr1")).containsExactly(
                 new PRService.LocalReviewSubmission(

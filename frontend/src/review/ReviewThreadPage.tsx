@@ -20,7 +20,6 @@ import type {
   ReviewBuildCommentProposalDto,
   ReviewFindingDto,
   ReviewFindingSeverityDto,
-  ReviewFindingStatusDto,
   ReviewPanelMessageDto,
   ReviewParticipantDto,
   ReviewPassDetailDto,
@@ -2278,36 +2277,6 @@ function refLabel(ref: string): string {
   return id.length > 8 ? `${kind}-${id.slice(0, 6)}…` : `${kind}-${id}`;
 }
 
-function FindingsSection({ findings }: { findings: ReviewFindingDto[] }) {
-  return (
-    <section style={cardStyle} aria-label="Findings">
-      <h2 style={cardTitleStyle}>Findings ({findings.length})</h2>
-      {findings.length === 0 ? (
-        <div style={emptyInlineStyle}>
-          No findings — the reviewer didn't flag anything.
-        </div>
-      ) : (
-        <ul style={findingsListStyle}>
-          {findings.map(f => (
-            <li key={f.id} style={findingRowStyle}>
-              <SeverityChip severity={f.severity} />
-              <StatusChip status={f.status} />
-              <div style={findingBodyStyle}>
-                <div style={findingAnchorStyle}>
-                  {f.path !== null
-                      ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
-                      : 'Whole PR'}
-                </div>
-                <div>{f.body}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
 /** Compact publish control that lives under the Agreed-findings rail (in
  *  place of the old right-side "Publish to PR" panel). The agreed/included
  *  findings ARE the selection — no checklist; pick a verdict and post the
@@ -2624,44 +2593,12 @@ function SeverityChip({ severity }: { severity: ReviewFindingSeverityDto }) {
   );
 }
 
-/** Status chip surfaces consensus state (AGREED / DISPUTED / POSTED).
- *  The other status values (RESOLVED / ARBITRATED / DROPPED) belong
- *  to later phases and aren't currently emitted; they render with a
- *  neutral fallback if they ever land. */
-function StatusChip({ status }: { status: ReviewFindingStatusDto }) {
-  const color = statusColor(status);
-  return (
-    <span style={severityChipStyle(color)} aria-label={`status-${status.toLowerCase()}`}>
-      {status.toLowerCase()}
-    </span>
-  );
-}
-
-function statusColor(status: ReviewFindingStatusDto): string {
-  switch (status) {
-    case 'AGREED':     return '#16a34a';
-    case 'DISPUTED':   return '#d97706';
-    case 'POSTED':     return '#0066cc';
-    case 'RESOLVED':   return '#16a34a';
-    case 'ARBITRATED': return '#737373';
-    case 'DROPPED':    return '#737373';
-  }
-}
-
 function severityColor(severity: ReviewFindingSeverityDto): string {
   switch (severity) {
     case 'BLOCKER':  return '#cf1322';
     case 'MAJOR':    return '#d97706';
     case 'NIT':      return '#737373';
     case 'QUESTION': return '#0066cc';
-  }
-}
-
-function kindLabel(kind: ReviewParticipantDto['kind']): string {
-  switch (kind) {
-    case 'LEAD': return 'Lead';
-    case 'REVIEWER':  return 'Reviewer';
-    case 'HUMAN':     return 'You';
   }
 }
 
@@ -2864,14 +2801,6 @@ const viewOnDiffStyle: React.CSSProperties = {
   border: '1px solid rgba(22,163,74,0.30)',
   borderRadius: 9,
   cursor: 'pointer',
-};
-
-const reviewingTitleStyle: React.CSSProperties = {
-  marginTop: 3,
-  fontSize: 14,
-  fontWeight: 700,
-  color: 'var(--text-1)',
-  lineHeight: 1.3,
 };
 
 const prNumStyle: React.CSSProperties = {
@@ -3201,14 +3130,6 @@ const composerHintStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   fontStyle: 'italic',
 };
-
-const headerStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  marginBottom: 16,
-};
-
 
 const metaStyle: React.CSSProperties = {
   display: 'flex',
@@ -3718,23 +3639,6 @@ const findingsListStyle: React.CSSProperties = {
   gap: 10,
 };
 
-const findingRowStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  padding: 10,
-  background: 'var(--bg-2)',
-  borderRadius: 6,
-  border: '1px solid var(--border)',
-};
-
-const findingBodyStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  fontSize: 13,
-  lineHeight: 1.5,
-  overflowWrap: 'anywhere',
-  wordBreak: 'break-word',
-};
 // Arbitration ballot item — compact vertical card: a head row with the
 // severity badge + reviewer chip, the file anchor, the markdown body,
 // then the Include / Drop actions.
@@ -3803,18 +3707,6 @@ const ballotDropStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   cursor: 'pointer',
-};
-
-const findingAnchorStyle: React.CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  fontSize: 11,
-  color: 'var(--text-3)',
-  marginBottom: 4,
-  // Filename:line only (full path on hover) on a single clipped line —
-  // the full path broke mid-segment and dominated the row.
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
 };
 
 const checklistHeadStyle: React.CSSProperties = {
@@ -4064,10 +3956,6 @@ const emptyStyle: React.CSSProperties = {
   textAlign: 'center',
 };
 
-const emptyInlineStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: 'var(--text-3)',
-};
 const transcriptEmptyStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',

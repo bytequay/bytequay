@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useMemo, useState, type ReactNode } from 'react';
+import { relativeTime } from '../relativeTime';
 import type { PullRequestDto } from '../types';
 import { isToday } from '../format';
 
@@ -221,7 +222,7 @@ function PrCard({ pr, showRepository, onOpen }: {
         <span>{isToday(pr.reviewedAt) ? 'reviewed by you' : `@${pr.author ?? 'unknown'}`}</span>
         {pr.ciStatus === 'PASSING' && !isToday(pr.reviewedAt)
           && <span className="wu-ci-ok"><CiCheckIcon />build</span>}
-        <time>{relative(pr.updatedAt)}</time>
+        <time>{relativeTime(pr.updatedAt, { suffix: false })}</time>
       </div>
     </div>
   );
@@ -339,29 +340,21 @@ function listStatusTone(pr: PullRequestDto): string {
 
 function ListMeta({ pr }: { pr: PullRequestDto }) {
   if (pr.state === 'merged') {
-    return <>#{pr.number} · merged {relative(pr.mergedAt ?? pr.updatedAt)} ago
+    return <>#{pr.number} · merged {relativeTime(pr.mergedAt ?? pr.updatedAt, { suffix: false })} ago
       {pr.linkedTaskKey ? ` · task ${pr.linkedTaskKey.replace(/^TASK-/i, '#')}` : ''}</>;
   }
   if (pr.state === 'closed') {
-    return <>#{pr.number} · closed {relative(pr.closedAt ?? pr.updatedAt)} ago
+    return <>#{pr.number} · closed {relativeTime(pr.closedAt ?? pr.updatedAt, { suffix: false })} ago
       {pr.supersededBy ? ` · superseded by #${pr.supersededBy}` : ''}</>;
   }
   return <>#{pr.number} · <span className="wu-pr-head-ref">{pr.headRef ?? 'branch'}</span>
-    {' · '}updated {relative(pr.updatedAt)} ago</>;
+    {' · '}updated {relativeTime(pr.updatedAt, { suffix: false })} ago</>;
 }
 
 function labelTone(label: string): string {
   if (label === 'notable') return 'green';
   if (label === 'exasol') return 'pink';
   return '';
-}
-
-function relative(iso: string): string {
-  const delta = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(delta) || delta < 60_000) return 'now';
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
-  return `${Math.floor(delta / 86_400_000)}d`;
 }
 
 function PullIcon({ tone }: { tone: 'open' | 'merged' | 'closed' | 'neutral' }) {

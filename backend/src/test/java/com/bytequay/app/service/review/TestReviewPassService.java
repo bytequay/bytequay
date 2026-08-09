@@ -106,12 +106,10 @@ class TestReviewPassService
     private ReviewCallContext reviewAdmission;
     private ReviewBudgetMeter budgetMeter;
     private ReviewPassService service;
-    private final List<Object> publishedEvents = new ArrayList<>();
 
     @BeforeEach
     void setUp()
     {
-        publishedEvents.clear();
         threadStore = mock(ThreadStore.class);
         pullRequests = mock(PullRequestRepository.class);
         pullRequestStore = mock(PullRequestStore.class);
@@ -180,8 +178,7 @@ class TestReviewPassService
                 budgetMeter,
                 mock(ReviewDiffCache.class),
                 reviewAdmission,
-                skillStore,
-                publishedEvents::add);
+                skillStore);
     }
 
     // ── Seating + the phase walk ─────────────────────────────────────
@@ -223,32 +220,6 @@ class TestReviewPassService
         assertThat(pass.hostKind()).isEqualTo(ReviewPassHostKind.TASK_PHASE);
         assertThat(pass.hostId()).isEqualTo("task-7");
         assertThat(pass.kind()).isEqualTo(ReviewPassKind.RE_REVIEW);
-    }
-
-    @Test
-    void stageLinkedPassFiresTerminatedEventOnTerminate()
-    {
-        service.startTaskPhaseReview(
-                "task-7", "acme/widget", 42, ReviewPassKind.FRESH,
-                WS_OPTS, "stage-abc");
-
-        // The link is stamped during seating, before the (inline) body
-        // settles to TERMINATE, so the terminate hook sees it and fires.
-        ReviewPass pass = reviewStore.findPassById(passId()).orElseThrow();
-        assertThat(pass.phase()).isEqualTo(ReviewPhase.TERMINATE);
-        assertThat(pass.taskStageId()).isEqualTo("stage-abc");
-        assertThat(publishedEvents).filteredOn(e -> e instanceof ReviewPassTerminatedEvent)
-                .singleElement()
-                .isEqualTo(new ReviewPassTerminatedEvent(pass.id(), "stage-abc"));
-    }
-
-    @Test
-    void standaloneReviewFiresNoTerminatedEvent()
-    {
-        service.startReviewOnPr("acme/widget", 42, WS_OPTS);
-
-        // A THREAD-hosted pass carries no stage link, so nothing closes.
-        assertThat(publishedEvents).noneMatch(e -> e instanceof ReviewPassTerminatedEvent);
     }
 
     @Test
@@ -674,7 +645,7 @@ class TestReviewPassService
                 threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
                 appSettings, deferred::add,
                 leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
-                mock(ReviewDiffCache.class), reviewAdmission, skillStore, publishedEvents::add);
+                mock(ReviewDiffCache.class), reviewAdmission, skillStore);
         async.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
                 List.of(), 3, 500L, true, WS, null,
                 List.of(
@@ -714,7 +685,7 @@ class TestReviewPassService
                 threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
                 appSettings, deferred::add,
                 leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
-                diffCache, reviewAdmission, skillStore, publishedEvents::add);
+                diffCache, reviewAdmission, skillStore);
         svc.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
                 List.of(), 3, 500L, true, WS, null,
                 List.of(

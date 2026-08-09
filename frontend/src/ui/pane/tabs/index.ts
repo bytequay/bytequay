@@ -11,8 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { TaskStatus } from '../../conv';
+import type { PrGlyphState } from '../../primitives';
+
+export type TaskCardData = {
+  id: string;
+  title: string;
+  body?: string;
+  status: TaskStatus;
+  statusText?: string;
+  branch?: string;
+  createdLabel?: string;
+  prNumber?: number;
+  mergeReady?: boolean;
+  pr?: PrGlyphState;
+};
 
 /** V3 right-pane tab contents — one component per tab type. */
-export type { TaskCardData } from './TasksTabContent';
 export { BacklogTabContent } from './BacklogTabContent';
 export type { BacklogItemData } from './BacklogTabContent';

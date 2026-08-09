@@ -1394,7 +1394,6 @@ public class PRService
                     /* canceledAt */ null, /* cancelReason */ null));
         }
         notifyUpdated(pr.id());
-        events.publishEvent(new LocalReviewSubmittedEvent(pr.taskId(), pr.id()));
     }
 
     /** Freeze each submitted root's revision (body, anchor, order) so

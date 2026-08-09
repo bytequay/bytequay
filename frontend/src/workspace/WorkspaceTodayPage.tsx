@@ -28,7 +28,6 @@ type Props = {
   onOpenSync?: (jobId: string) => void;
   onNewThread: () => void;
   onOpenInsights: () => void;
-  onOpenMemory: () => void;
 };
 
 /**
@@ -36,7 +35,7 @@ type Props = {
  * scheduler data; no second "today" model is persisted.
  */
 export default function WorkspaceTodayPage({
-  workspace, threads, onOpenThread, onOpenSync, onNewThread, onOpenInsights, onOpenMemory,
+  workspace, threads, onOpenThread, onOpenSync, onNewThread, onOpenInsights,
 }: Props) {
   const [turns, setTurns] = useState<ThreadTurnDto[]>([]);
   const [onboarding, setOnboarding] = useState<WorkspaceOnboardingDto | null>(null);

@@ -124,20 +124,9 @@ public class AgentRunServiceImpl
                 "completed");
         return store.insert(header);
     }
-    public AgentRun open(
-            String taskId, String kind, String source, String parentStageId,
-            StageType backingStageType, Integer budget)
-    {
-        throw retired();
-    }
     public AgentRun openInCommand(
             String taskId, String kind, String source, String parentStageId,
             StageType backingStageType, Integer budget)
-    {
-        throw retired();
-    }
-    public AgentRun openInStage(
-            String taskId, String kind, String source, String stageId, Integer budget)
     {
         throw retired();
     }
@@ -146,54 +135,8 @@ public class AgentRunServiceImpl
     {
         throw retired();
     }
-    public AgentRun openDetached(
-            String kind, String source, String reviewRoundId, Integer budget)
-    {
-        throw retired();
-    }
-    public AgentRun openTaskArtifact(
-            String taskId, String kind, String source, String reviewRoundId, Integer budget)
-    {
-        throw retired();
-    }
-    public AgentRun openSchedulerSession(
-            Thread thread, String taskId, String stageId, String kind, String launchInput)
-    {
-        throw retired();
-    }
     public AgentRun openSchedulerSessionInCommand(
             Thread thread, String taskId, String stageId, String kind, String launchInput)
-    {
-        throw retired();
-    }
-    public AgentRun attachOwnership(
-            String runId, String workspaceId, String threadId,
-            String provider, String model, String launchInput)
-    {
-        throw retired();
-    }
-    public AgentRun recordIteration(String runId, String headlineOrNull)
-    {
-        throw retired();
-    }
-    public AgentRun spendBudget(String runId)
-    {
-        throw retired();
-    }
-    public AgentRun updateHeadline(String runId, String headline)
-    {
-        throw retired();
-    }
-    public AgentRun updateMetrics(String runId, String metricsJson)
-    {
-        throw retired();
-    }
-    public AgentRun updateAccounting(
-            String runId, long costUsdMilli, long tokensIn, long tokensOut, int stepCursor)
-    {
-        throw retired();
-    }
-    public AgentRun pause(String runId, String reason)
     {
         throw retired();
     }
@@ -201,19 +144,7 @@ public class AgentRunServiceImpl
     {
         throw retired();
     }
-    public AgentRun resume(String runId)
-    {
-        throw retired();
-    }
-    public AgentRun restart(String runId)
-    {
-        throw retired();
-    }
     public AgentRun restartInCommand(String taskId, String runId)
-    {
-        throw retired();
-    }
-    public AgentRun transition(String runId, String status, String reason)
     {
         throw retired();
     }

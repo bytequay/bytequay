@@ -16,10 +16,11 @@ import { isPendingLocalComment } from '../diff/DiffInlineComments';
 import type { ReviewVerdict } from '../pages/SubmitReviewDrawer';
 import type { WorkspaceRepoDto } from '../types';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
-import type { AgentReviewHeaderState, AgentReviewStartOptions } from './AgentReviewHeaderAction';
 import type { AgentReviewData } from './agentReviewTypes';
 import { localReviewSubmissionTransitions } from '../pr/localpr/localReviewSubmission';
 
+type AgentReviewHeaderState = 'never' | 'running' | 'done' | 'stale';
+type AgentReviewStartOptions = { runner?: 'api' | 'cli' };
 type ReviewIdentity = { prId: string | null; generation: number };
 type PendingEdit = {
   findingId: string;

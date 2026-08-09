@@ -144,7 +144,6 @@ function WorkspaceShell({
             onOpenSync={onOpenSync}
             onNewThread={() => setNewThreadOpen(true)}
             onOpenInsights={() => onSelectSection('insights')}
-            onOpenMemory={() => onSelectSection('memory')}
           />
         )}
         {activeSection === 'trunks' && (

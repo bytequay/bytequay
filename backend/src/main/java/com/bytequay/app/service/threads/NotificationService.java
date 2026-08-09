@@ -19,7 +19,6 @@ import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.repository.NotificationStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -53,31 +52,26 @@ public class NotificationService
     private static final int DEFAULT_LIMIT = 50;
 
     private final NotificationStore store;
-    private final ApplicationEventPublisher events;
     private final ThreadStore threads;
 
     @Autowired
     public NotificationService(
             NotificationStore store,
-            ApplicationEventPublisher events,
             ThreadStore threads)
     {
         this.store = requireNonNull(store, "store is null");
-        this.events = requireNonNull(events, "events is null");
         this.threads = requireNonNull(threads, "threads is null");
     }
 
     /** Test/compatibility constructor. */
-    public NotificationService(NotificationStore store, ApplicationEventPublisher events)
+    public NotificationService(NotificationStore store)
     {
         this.store = requireNonNull(store, "store is null");
-        this.events = requireNonNull(events, "events is null");
         this.threads = null;
     }
 
-    /** Headless run parked with a proposed diff + reply at the
-     *  publish gate. {@code payloadJson} is renderer-defined. Publishes a
-     *  {@link GateParkedEvent} so auto-approve mode can resolve the gate. */
+    /** Headless run parked with a proposed diff + reply at the publish gate.
+     *  {@code payloadJson} is renderer-defined. */
     public Notification notifyAwaitingReview(String threadId, String taskId, String payloadJson)
     {
         // A task has at most ONE live publish gate. Re-parking (a fresh
@@ -85,9 +79,7 @@ public class NotificationService
         // the task's prior pending proposal, so a stale "approve the dev
         // result" card can't linger and re-appear on a later stage.
         supersedeAwaitingReviewForTask(threadId, taskId);
-        Notification notification = create(NotificationKind.AWAITING_REVIEW, threadId, taskId, payloadJson);
-        events.publishEvent(new GateParkedEvent(notification.id(), taskId, payloadJson));
-        return notification;
+        return create(NotificationKind.AWAITING_REVIEW, threadId, taskId, payloadJson);
     }
 
     /** Resolve any still-open AWAITING_REVIEW proposal for the task, so the

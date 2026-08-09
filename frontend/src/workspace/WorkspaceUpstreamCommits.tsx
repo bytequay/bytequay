@@ -13,6 +13,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import Avatar from '../Avatar';
+import { relativeTime } from '../relativeTime';
 import { githubHandle } from './CommitEditorUi';
 import { message } from './WorkspaceRepoUi';
 import {
@@ -90,7 +91,7 @@ export function UpstreamCommitHistory({
                 <Avatar login={githubHandle(commit.authorName, commit.authorEmail)} size={16} />
                 {commit.authorName}
               </span>
-              <time>{commit.committedAt === null ? '' : relative(commit.committedAt)}</time>
+              <time>{relativeTime(commit.committedAt, { suffix: false })}</time>
             </label>
           </div>
         );
@@ -531,13 +532,3 @@ function jobResultCopy(job: UpstreamCherryPickJobDto): string {
 function BodyMessage({ children }: { children: ReactNode }) {
   return <div className="wu-body-message">{children}</div>;
 }
-
-function relative(iso: string): string {
-  const elapsed = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(elapsed)) return '';
-  if (elapsed < 60_000) return 'now';
-  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m`;
-  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)}h`;
-  return `${Math.floor(elapsed / 86_400_000)}d`;
-}
-

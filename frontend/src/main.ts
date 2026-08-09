@@ -132,11 +132,6 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 const APP_PROTOCOL = 'bytequay';
 app.setAsDefaultProtocolClient(APP_PROTOCOL);
 
-/** Pre-1.0 version surfaced in the About dialog and packaged metadata.
- *  Bump alongside frontend/package.json + backend/pom.xml when we cut
- *  a release. Shown in the About panel as e.g. "ByteQuay 0.1.0". */
-const APP_VERSION = '0.3.4';
-
 // Only one ByteQuay may run at a time: a second instance would spawn its own
 // backend against the same port and the same SQLite file, and the user just
 // sees two identical windows. Hand focus to the window that's already open.
@@ -252,7 +247,7 @@ function installApplicationMenu(): void {
 function configureAboutPanel(): void {
   const opts: Electron.AboutPanelOptionsOptions = {
     applicationName: 'ByteQuay',
-    applicationVersion: APP_VERSION,
+    applicationVersion: app.getVersion(),
     version: 'pre-1.0',
     copyright: '© 2026 Jian Chen — Apache License 2.0',
     website: 'https://github.com/bytequay/bytequay',
@@ -1578,7 +1573,7 @@ const url = new URL(`${BACKEND_BASE}/prs/body`);
   });
 
   ipcMain.handle('productIssues:report', async (_event, title: string, body: string) => {
-    const reportBody = `${body.trim()}\n\n---\nReported from ByteQuay ${APP_VERSION}.`;
+    const reportBody = `${body.trim()}\n\n---\nReported from ByteQuay ${app.getVersion()}.`;
     return backendJson(`${BACKEND_BASE}/api/product-issues`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2307,7 +2302,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const request = args as { path?: unknown; method?: unknown; body?: unknown };
     if (typeof request.path !== 'string'
-        || !/^\/api\/(?:ai\/(?:plan-usage(?:\/claude\/refresh)?|api-usage|deepseek\/balance)$|workspaces(?:\/|$)|workspace-creations(?:\/|$)|sessions(?:\/|$)|trunks(?:\/|$)|notifications\/workspace(?:\/|$))/.test(request.path)
+        || !/^\/api\/(?:workspaces(?:\/|$)|workspace-creations(?:\/|$)|sessions(?:\/|$)|trunks(?:\/|$)|notifications\/workspace(?:\/|$))/.test(request.path)
         || request.path.includes('..')) {
       throw new Error('workspace request path is not allowed');
     }
@@ -2323,8 +2318,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       body: request.body === undefined ? undefined : JSON.stringify(request.body),
       // Bound the wait so a slow/stuck backend endpoint fails fast and names
       // itself, instead of hanging ~5 min on undici's default header timeout.
-      // 60s clears the slowest legit proxied call — the ~35s Claude CLI usage
-      // probe behind /api/ai/plan-usage/claude/refresh.
       signal: AbortSignal.timeout(60_000),
     }).catch((err: unknown) => {
       const reason = err instanceof Error && err.name === 'TimeoutError'

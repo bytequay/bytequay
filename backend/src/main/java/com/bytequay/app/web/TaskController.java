@@ -18,8 +18,6 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
-import com.bytequay.app.service.inspector.AssembledContext;
-import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
@@ -32,7 +30,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -56,17 +53,14 @@ import static java.util.Objects.requireNonNull;
 public class TaskController
 {
     private final TaskService taskService;
-    private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
     private ReasoningEffortService reasoningEfforts;
 
     public TaskController(
             TaskService taskService,
-            ContextAssembler contextAssembler,
             WorkModelResolver workModelResolver)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
-        this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
     }
 
@@ -83,25 +77,6 @@ public class TaskController
     public List<Task> list(@PathVariable String threadId)
     {
         return taskService.listTasksForThread(threadId);
-    }
-
-    /**
-     * GET /api/threads/{threadId}/tasks/{taskId}/context?dryRun=true
-     * — read-only view of the task's prompt context. {@code dryRun=true}
-     * is mandatory; the endpoint never dispatches. Same contract as
-     * the trunk-scoped {@code /threads/{id}/context}.
-     */
-    @GetMapping("/{taskId}/context")
-    public AssembledContext context(
-            @PathVariable String threadId,
-            @PathVariable String taskId,
-            @RequestParam(value = "dryRun", required = false) Boolean dryRun)
-    {
-        if (!Boolean.TRUE.equals(dryRun)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "dryRun=true is required — this endpoint never dispatches");
-        }
-        return contextAssembler.forTask(threadId, taskId);
     }
 
     /** Close out the current task (commit + push + open PR) and start

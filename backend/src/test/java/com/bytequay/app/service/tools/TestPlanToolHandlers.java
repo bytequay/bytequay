@@ -256,10 +256,6 @@ class TestPlanToolHandlers
                 });
     }
 
-    // Auto-approve-on-finalize coverage moved to TestBrainReviewServiceImpl —
-    // plan-rail-runs.md R20 moved that check out of recordPlan() so it
-    // evaluates the plan AFTER the mandatory brain self-review, not before.
-
     @Test
     void recordingAfterTheStageClosedErrors()
     {

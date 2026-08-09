@@ -56,7 +56,7 @@ public class ToolExposurePolicy
             "check_test_coverage", "read_stage_metrics", "read_phase_history",
             "read_review_panel_findings", "read_remote_pr_status", "list_unresolved_comments",
             "record_plan", "read_plan_summary", "read_dev_report", "read_dev_conversation",
-            "record_pr_comment", "record_review_verdict", "explore_project");
+            "record_pr_comment", "explore_project");
 
     private static final Set<String> COMPLETION_SUMMARY = ImmutableSet.of(
             "codegraph_explore", "explore_project", "read_file",
@@ -76,14 +76,14 @@ public class ToolExposurePolicy
     private static final Set<String> DEVELOPMENT = union(TASK_CORE, ImmutableSet.of(
             "run_checks", "record_iteration_summary", "record_dev_report",
             "read_dev_report", "read_dev_conversation", "record_pr_progress", "record_pr_description",
-            "record_pr_commit", "record_pr_check", "record_local_review",
+            "record_pr_commit", "record_pr_check",
             "record_pr_comment", "resolve_pr_comment", "list_pr_review_threads"));
 
     private static final Set<String> REMOTE_DEVELOPMENT = union(TASK_CORE, ImmutableSet.of(
             "read_remote_pr_status", "read_ci_log", "get_new_updated_ci_fixing_log", "run_checks", "validate",
             "record_iteration_summary", "record_dev_report", "read_dev_report",
             "record_pr_commit", "record_pr_check", "list_pr_review_threads",
-            "record_round_reply", "resolve_review_comment"));
+            "resolve_review_comment"));
 
     private static final Set<String> CI_FIXING = union(TASK_CORE, ImmutableSet.of(
             "read_remote_pr_status", "read_ci_log", "get_new_updated_ci_fixing_log", "run_checks", "validate",
@@ -92,8 +92,8 @@ public class ToolExposurePolicy
 
     private static final Set<String> REVIEW = union(TASK_CORE, ImmutableSet.of(
             "read_commit_summary", "read_diff_summary", "check_test_coverage",
-            "list_unresolved_comments", "list_pr_review_threads", "record_round_reply",
-            "record_pr_comment", "resolve_pr_comment", "record_review_verdict"));
+            "list_unresolved_comments", "list_pr_review_threads",
+            "record_pr_comment", "resolve_pr_comment"));
 
     private static final Set<String> BRANCH_GUARD = union(TASK_CORE, ImmutableSet.of(
             "read_remote_pr_status", "list_unresolved_comments", "list_pr_review_threads",

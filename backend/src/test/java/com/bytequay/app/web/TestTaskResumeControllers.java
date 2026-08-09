@@ -16,7 +16,6 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.ReviewStore;
-import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.workmodel.ReasoningEffortService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
@@ -42,8 +41,6 @@ class TestTaskResumeControllers
 
     @MockitoBean
     private TaskService taskService;
-    @MockitoBean
-    private ContextAssembler contextAssembler;
     @MockitoBean
     private WorkModelResolver workModelResolver;
     @MockitoBean

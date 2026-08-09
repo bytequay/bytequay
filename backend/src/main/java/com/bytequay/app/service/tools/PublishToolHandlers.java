@@ -135,8 +135,7 @@ public class PublishToolHandlers
         Task task = active.get();
         if (hasPrivateLocalPr(task)) {
             return ToolOutcome.Completed.ok(
-                    "Not advanced — record_local_review is the sole development handoff "
-                            + "for a task with a Local PR.");
+                    "Not advanced — typed Local Development owns this handoff.");
         }
         if (task.phase() != TaskPhase.IMPLEMENTING) {
             return ToolOutcome.Completed.ok(
@@ -306,8 +305,7 @@ public class PublishToolHandlers
         }
         if (hasTaskOriginPr(active.get())) {
             return ToolOutcome.Completed.ok(
-                    "Not parked — review-round replies are drafted locally with record_round_reply "
-                            + "and published atomically from the round gate.");
+                    "Not parked — typed Remote Development owns review replies.");
         }
         Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
         if (prRef.isEmpty()) {
@@ -987,8 +985,8 @@ public class PublishToolHandlers
         return taskStore.findTaskById(call.requireTaskId());
     }
 
-    /** Canonical task-origin PRs advance through record_local_review,
-     *  validation, Brain, and the Local Review gate. The legacy publish
+    /** Canonical task-origin PRs advance through typed stage results and the
+     *  Local Review gate. The legacy publish
      *  tools must not manufacture an earlier AWAITING_PUSH promotion. */
     private Optional<ToolOutcome> rejectLegacyPublishForLocalPr(Task task)
     {
@@ -997,8 +995,7 @@ public class PublishToolHandlers
         }
         return Optional.of(ToolOutcome.Completed.ok(
                 "Not parked — this task already has a Local PR. Finish development with "
-                        + "record_local_review; validation, Brain review, and Local Review "
-                        + "must complete before the app offers Push."));
+                        + "the typed Local Development flow before the app offers Push."));
     }
 
     private boolean hasPrivateLocalPr(Task task)

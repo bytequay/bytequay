@@ -19,7 +19,6 @@ import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore;
 import com.bytequay.app.repository.sqlite.SqliteGithubHomeCacheStore.EventFeed;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoService;
-import com.bytequay.app.service.StatsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -42,7 +41,6 @@ import static java.util.Objects.requireNonNull;
  * <ul>
  *   <li>profile — 2 min ({@code github_user_profile_cache})</li>
  *   <li>recent + following events — 2 min ({@code github_user_event_cache})</li>
- *   <li>stats — 5 min ({@code github_user_stats_cache})</li>
  *   <li>orgs — 30 days ({@code github_user_orgs_cache})</li>
  * </ul>
  *
@@ -57,8 +55,6 @@ public class GithubHomeCacheRefreshJob
 
     private static final Duration PROFILE_TTL = Duration.ofMinutes(2);
     private static final Duration EVENTS_TTL = Duration.ofMinutes(2);
-    // Mirrors StatsService.CACHE_TTL — keep in sync if either side moves.
-    private static final Duration STATS_TTL = Duration.ofMinutes(5);
     // Org membership changes on the order of months, not minutes. The home
     // page profile card just needs the org list to render the avatar strip;
     // stale by a day is fine, stale by 30 days is the threshold where we
@@ -69,7 +65,6 @@ public class GithubHomeCacheRefreshJob
     private final AppSettingsStore settingsStore;
     private final SqliteGithubHomeCacheStore homeCache;
     private final RepoService repoService;
-    private final StatsService statsService;
     private final QuietHoursPolicy quietHours;
 
     private final AtomicBoolean refreshing = new AtomicBoolean(false);
@@ -79,14 +74,12 @@ public class GithubHomeCacheRefreshJob
             AppSettingsStore settingsStore,
             SqliteGithubHomeCacheStore homeCache,
             RepoService repoService,
-            StatsService statsService,
             QuietHoursPolicy quietHours)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.homeCache = requireNonNull(homeCache, "homeCache is null");
         this.repoService = requireNonNull(repoService, "repoService is null");
-        this.statsService = requireNonNull(statsService, "statsService is null");
         this.quietHours = requireNonNull(quietHours, "quietHours is null");
     }
 
@@ -132,7 +125,6 @@ public class GithubHomeCacheRefreshJob
 
         refreshEventsIfStale(login, EventFeed.RECENT, now);
         refreshEventsIfStale(login, EventFeed.FOLLOWING, now);
-        refreshStatsIfStale(login, now);
         refreshOrgsIfStale(login, now);
     }
 
@@ -171,22 +163,6 @@ public class GithubHomeCacheRefreshJob
         }
         catch (Exception e) {
             log.warn("{} events refresh failed: {}", feed, e.getMessage());
-        }
-    }
-
-    private void refreshStatsIfStale(String login, Instant now)
-    {
-        Instant fetchedAt = homeCache.findStats(login)
-                .map(SqliteGithubHomeCacheStore.TimedValue::fetchedAt)
-                .orElse(Instant.EPOCH);
-        if (Duration.between(fetchedAt, now).compareTo(STATS_TTL) < 0) {
-            return;
-        }
-        try {
-            statsService.refreshFromGitHub(login);
-        }
-        catch (Exception e) {
-            log.warn("Stats refresh failed: {}", e.getMessage());
         }
     }
 

@@ -57,11 +57,9 @@ local PR artifact current:
   summarising the fix — it posts your reply under the comment, then resolves
   it. Use `resolution: dismissed` (no reply) only to close one you are not
   acting on.
-- Finish with `record_dev_report`, then call `record_local_review` with
-  `request_user_review: true`. ByteQuay checkpoints remaining changes, runs
-  canonical validation outside the provider sandbox, and starts its bounded
-  fix loop when validation fails. Brain review follows only after validation;
-  it hands the private PR to the user after that bounded review loop ends.
+- Finish with `record_dev_report`, then submit the exact stage result requested
+  by the runtime. ByteQuay checkpoints remaining changes and runs canonical
+  validation outside the provider sandbox.
 - Do not call `ship_task`, `push`, or `request_review` during initial
   Development. The user promotes the private Local PR through its single
   Local Review gate after all local threads are closed and checks pass.
@@ -76,12 +74,10 @@ Anything that changes GitHub goes through ByteQuay's controlled publish path.
 Never use raw `git push`, `gh` writes, or direct GitHub API writes. A CI-fix
 turn commits its verified fix locally; ByteQuay auto-pushes it when the turn
 completes because the user's opt-in is standing authorization. Branch-guard
-turns may use their pre-authorized `push` tool. A review-round turn must commit
-its fixes locally, call `record_round_reply` and
-`resolve_review_comment`, and never call generic publish or push tools; the
-server publishes the push and replies together only after the user approves
-the round. When a gated tool parks, stop and wait; do not retry or find another
-route.
+turns may use their pre-authorized `push` tool. A remote-development turn must
+commit its fixes locally and submit the exact result requested by the runtime;
+the server publishes authorized effects. When a gated tool parks, stop and
+wait; do not retry or find another route.
 
 Skills explain how to work. They never grant permissions: the active role,
 task scope, and ByteQuay runtime remain authoritative.

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { Nav } from '../App';
+import type { Nav } from '../workspace/workspaceRoutes';
 import type { SurfaceVisitInput } from '../types';
 
 /**

@@ -16,7 +16,6 @@ package com.bytequay.app.scheduler;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.CredentialService;
-import com.bytequay.app.service.StatsService;
 import com.bytequay.app.service.SyncSettingsService;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -57,7 +56,6 @@ public class PullRequestSyncJob
     private final PullRequestService pullRequestService;
     private final PullRequestStore store;
     private final SyncSettingsService syncSettings;
-    private final StatsService statsService;
     private final CredentialService credentialService;
     private final Executor executor;
     private final QuietHoursPolicy quietHours;
@@ -70,7 +68,6 @@ public class PullRequestSyncJob
             PullRequestService pullRequestService,
             PullRequestStore store,
             SyncSettingsService syncSettings,
-            StatsService statsService,
             CredentialService credentialService,
             QuietHoursPolicy quietHours,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
@@ -79,7 +76,6 @@ public class PullRequestSyncJob
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.store = requireNonNull(store, "store is null");
         this.syncSettings = requireNonNull(syncSettings, "syncSettings is null");
-        this.statsService = requireNonNull(statsService, "statsService is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.quietHours = requireNonNull(quietHours, "quietHours is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -129,7 +125,6 @@ public class PullRequestSyncJob
             log.info("Syncing pull requests from GitHub");
             pullRequestService.syncFromGitHub();
             log.info("Sync complete");
-            statsService.refreshIfStale();
         }
         catch (Exception e) {
             log.warn("Pull request sync failed: {}", e.getMessage());

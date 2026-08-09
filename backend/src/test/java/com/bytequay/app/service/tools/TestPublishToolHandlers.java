@@ -198,11 +198,11 @@ class TestPublishToolHandlers
         ToolOutcome validate = handlers.validate(
                 new PublishToolHandlers.ValidateArgs("tests pass"), call);
 
-        assertThat(((ToolOutcome.Completed) ship).text()).contains("record_local_review");
-        assertThat(((ToolOutcome.Completed) push).text()).contains("record_local_review");
-        assertThat(((ToolOutcome.Completed) next).text()).contains("record_local_review");
-        assertThat(((ToolOutcome.Completed) requestReview).text()).contains("record_local_review");
-        assertThat(((ToolOutcome.Completed) validate).text()).contains("record_local_review");
+        assertThat(((ToolOutcome.Completed) ship).text()).contains("typed Local Development");
+        assertThat(((ToolOutcome.Completed) push).text()).contains("typed Local Development");
+        assertThat(((ToolOutcome.Completed) next).text()).contains("typed Local Development");
+        assertThat(((ToolOutcome.Completed) requestReview).text()).contains("typed Local Development");
+        assertThat(((ToolOutcome.Completed) validate).text()).contains("typed Local Development");
         assertThat(task.status()).isEqualTo(TaskStatus.RUNNING);
         assertThat(task.phase()).isEqualTo(TaskPhase.IMPLEMENTING);
         verify(parkedProposals, never()).park(any(), any());

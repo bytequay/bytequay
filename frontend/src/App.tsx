@@ -33,14 +33,8 @@ import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import WorkspaceCreationToasts from './workspace/WorkspaceCreationToasts';
 import WorkspaceHarnessPage from './workspace/WorkspaceHarnessPage';
 import {
-  parseWorkspaceRoute, workspaceRouteHash, type WorkspaceRoute,
+  parseWorkspaceRoute, workspaceRouteHash, type Nav, type WorkspaceNavigation,
 } from './workspace/workspaceRoutes';
-import type {
-  StatusFilter as ThreadsStatusFilter,
-  ProviderFilter as ThreadsProviderFilter,
-  RepoFilter as ThreadsRepoFilter,
-} from './threads/ThreadsLeftRail';
-import type { SettingsSection } from './settings/types';
 import PullsScreen from './pulls/PullsScreen';
 import HomePage from './home/HomePage';
 import type { AgentReviewNavTarget } from './pulls/agentColumnModel';
@@ -52,81 +46,6 @@ import { useSurfaceVisitCapture } from './footprints/useSurfaceVisitCapture';
 import { resumeStop } from './footprints/resume';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
-export type Nav =
-  | { view: 'home' }
-  /** The unified Pull-requests surface (pulls/PullsScreen). {@code initialPr}
-   *  deep-links a specific PR: the screen resolves it and opens its pane
-   *  even when the row isn't in the dashboard list ({@code repo} is the
-   *  "owner/name" fullName). */
-  | { view: 'pulls';
-      initialPr?: { repo: string; number: number };
-      /** Review action handed off from a PR surface that does not own the
-       *  watched-repository setup flow. */
-      initialReviewAction?: 'quick' | 'watch';
-    }
-  /** `back` carries the parent screen so the PR-detail breadcrumb
-   *  returns the user where they came from — Repository home, Local
-   *  repo, Team kanban, or just Home. Defaults to Home when unset. */
-  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; diffCommitSha?: string; openDiff?: boolean; back?: Nav }
-  | { view: 'email' }
-  | { view: 'thread-create'; initialGroupId?: string }
-  /** When {@code taskId} is omitted the nav lands on the thread's
-   *  trunk window (planning altitude); when set, it lands on that
-   *  specific task's detail window (the old monolithic detail page
-   *  for now — Phase 3 redesigns it as the proper task-detail shell). */
-  | { view: 'thread-detail'; threadId: string; taskId?: string }
-  /** Task brain view — the per-task "brain" surface (aggregate strip,
-   *  stage navigator, brain feed, action rail). Sits alongside the
-   *  older task-detail page; the back link returns to that page. */
-  | { view: 'task-brain'; threadId: string; taskId: string; initialPrSubTab?: 'changes' }
-  /** Stage drill-in — the detailed per-stage view reached from a brain-
-   *  view stage chip or a brain-agent response's drill-in chip. */
-  | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
-  /** The CI Harness surface: the workspace's sync runs, the one being shown,
-   *  and its pull request beside it. Owns the whole window — its left column
-   *  is the run's queue, not the workspace rail. */
-  | { view: 'ci-harness'; jobId?: string }
-  | { view: 'review-thread'; threadId: string; back?: Nav }
-  | { view: 'notifications' }
-  | { view: 'repos' }
-  | { view: 'repository'; owner: string; repo: string }
-  | { view: 'local-repo'; owner: string; repo: string; initialBranch?: string }
-  | { view: 'settings'; section?: SettingsSection }
-  /** Workspace shell. {@code section} picks one of the five inner
-   *  surfaces. When section==='threads' the four threadsXxx fields
-   *  hold the URL-ish filter state the inlined ThreadsPage reads —
-   *  same shape as the old top-level {@code view: 'threads'}, just
-   *  reached as a nested surface so threads stay workspace-scoped
-   *  per the model doc. */
-  | { view: 'workspace';
-      section?: WorkspaceSection;
-      prNumber?: number;
-      /** Stable unified PR id. Required for local PRs that do not have a
-       * GitHub number yet and for PR-owned AgentReview navigation. */
-      prId?: string;
-      /** Open the pull-requests section with the agent-review column
-       *  already replacing the work list (deep link from PullsScreen's
-       *  "Work with agent" button). */
-      agentColumn?: boolean;
-      issueNumber?: number;
-      sessionId?: string;
-      backlogKey?: string;
-      branchName?: string;
-      settingsSection?: string;
-      threadsFilter?: ThreadsStatusFilter;
-      threadsProvider?: ThreadsProviderFilter;
-      threadsGroupId?: string;
-      threadsRepo?: ThreadsRepoFilter;
-    }
-  /** Top-level "which project brain do I enter?" page. Lives above
-   *  any workspace; the global Workspace nav button and the in-shell
-   *  brand chevron both route here. While we're single-workspace the
-   *  landing always renders; the ambient "skip to the only non-scratch
-   *  workspace's Home" behaviour will land back when multi-workspace
-   *  creation ships and the visual design is settled. */
-  | { view: 'workspaces-landing' };
-
-
 /**
  * Catches render errors in the routed content so the global topbar
  * stays visible — without this, a thrown render unmounts the entire
@@ -203,142 +122,6 @@ function workspaceSectionNav(section: WorkspaceSection): WsNavKey {
   return section;
 }
 
-type PublicNavigation = { nav: Nav; workspaceId: string | null };
-
-function publicNavigation(route: WorkspaceRoute): PublicNavigation {
-  switch (route.kind) {
-    case 'home': return { nav: { view: 'home' }, workspaceId: null };
-    // URL compat: the retired Reviews surface's hash lands on Pulls.
-    case 'reviews': return { nav: { view: 'pulls' }, workspaceId: null };
-    case 'workspaces': return { nav: { view: 'workspaces-landing' }, workspaceId: null };
-    case 'workspace':
-      return { nav: { view: 'workspace', section: 'today' }, workspaceId: route.workspaceId };
-    case 'trunks':
-      return {
-        nav: route.trunkId === undefined
-          ? { view: 'workspace', section: 'trunks' }
-          : { view: 'thread-detail', threadId: route.trunkId },
-        workspaceId: route.workspaceId,
-      };
-    case 'pull-request':
-      return {
-        nav: {
-          view: 'workspace',
-          section: 'pull-requests',
-          prNumber: route.number,
-          prId: route.prId,
-          agentColumn: route.agentColumn,
-        },
-        workspaceId: route.workspaceId,
-      };
-    case 'issue':
-      return {
-        nav: { view: 'workspace', section: 'issues', issueNumber: route.number },
-        workspaceId: route.workspaceId,
-      };
-    case 'session':
-      return {
-        nav: { view: 'workspace', section: 'sessions', sessionId: route.sessionId },
-        workspaceId: route.workspaceId,
-      };
-    case 'backlog':
-      return {
-        nav: { view: 'workspace', section: 'backlog', backlogKey: route.key },
-        workspaceId: route.workspaceId,
-      };
-    case 'branches':
-      return {
-        nav: { view: 'workspace', section: 'branches', branchName: route.name },
-        workspaceId: route.workspaceId,
-      };
-    case 'commits':
-    case 'memory':
-    case 'insights':
-    case 'notifications':
-      return {
-        nav: { view: 'workspace', section: route.kind },
-        workspaceId: route.workspaceId,
-      };
-    case 'sync':
-      return {
-        nav: { view: 'ci-harness', jobId: route.jobId },
-        workspaceId: route.workspaceId,
-      };
-    case 'settings':
-      return {
-        nav: { view: 'workspace', section: 'settings', settingsSection: route.section ?? 'agents' },
-        workspaceId: route.workspaceId,
-      };
-    case 'legacy-repo':
-      if (route.owner === undefined || route.repo === undefined) {
-        return { nav: { view: 'workspaces-landing' }, workspaceId: null };
-      }
-      return {
-        nav: route.page === 'branches'
-          ? { view: 'local-repo', owner: route.owner, repo: route.repo }
-          : {
-              view: 'repo',
-              owner: route.owner,
-              repo: route.repo,
-              initialTab: route.page === 'issues' ? 'issues' : 'pulls',
-            },
-        workspaceId: null,
-      };
-  }
-}
-
-function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | null {
-  switch (nav.view) {
-    case 'home': return { kind: 'home' };
-    case 'workspaces-landing': return { kind: 'workspaces' };
-    case 'thread-detail':
-    case 'task-brain':
-    case 'stage-detail':
-      return workspaceId === null ? null : {
-        kind: 'trunks', workspaceId, trunkId: nav.threadId,
-      };
-    case 'workspace': {
-      if (workspaceId === null) return { kind: 'workspaces' };
-      const section = nav.section === 'home' ? 'today' : nav.section === 'threads' ? 'trunks'
-        : nav.section ?? 'today';
-      switch (section) {
-        case 'today': return { kind: 'workspace', workspaceId };
-        case 'trunks': return { kind: 'trunks', workspaceId };
-        case 'pull-requests':
-          return {
-            kind: 'pull-request',
-            workspaceId,
-            number: nav.prNumber,
-            prId: nav.prId,
-            agentColumn: nav.agentColumn,
-          };
-        case 'issues':
-          return { kind: 'issue', workspaceId, number: nav.issueNumber };
-        case 'sessions':
-          return { kind: 'session', workspaceId, sessionId: nav.sessionId };
-        case 'backlog': return { kind: 'backlog', workspaceId, key: nav.backlogKey };
-        case 'branches': return { kind: 'branches', workspaceId, name: nav.branchName };
-        case 'commits': return { kind: 'commits', workspaceId };
-        case 'memory': return { kind: 'memory', workspaceId };
-        case 'insights': return { kind: 'insights', workspaceId };
-        case 'notifications': return { kind: 'notifications', workspaceId };
-        case 'settings': return { kind: 'settings', workspaceId, section: nav.settingsSection ?? 'agents' };
-      }
-      return null;
-    }
-    case 'ci-harness':
-      return workspaceId === null ? null : {
-        kind: 'sync', workspaceId, jobId: nav.jobId,
-      };
-    case 'repos': return { kind: 'legacy-repo' };
-    case 'repository':
-      return { kind: 'legacy-repo', owner: nav.owner, repo: nav.repo, page: 'pulls' };
-    case 'local-repo':
-      return { kind: 'legacy-repo', owner: nav.owner, repo: nav.repo, page: 'branches' };
-    default: return null;
-  }
-}
-
 /** Per-task memory of the last sub-surface the user viewed (brain or a specific
  *  stage), so reopening a task lands back where they left
  *  off instead of always on the brain. Persisted so it survives a reload. */
@@ -380,9 +163,9 @@ function lastTaskNav(threadId: string, taskId: string): Nav {
 
 function App() {
   const initialNavigation = useRef((() => {
-    const parsed = publicNavigation(parseWorkspaceRoute(
+    const parsed = parseWorkspaceRoute(
       typeof window === 'undefined' ? '' : window.location.hash,
-    ));
+    );
     const stored = typeof window === 'undefined'
       ? undefined
       : (window.history.state as { bytequayNav?: Nav } | null)?.bytequayNav;
@@ -596,22 +379,21 @@ function App() {
   // together. Internal routes live in history.state when no public hash can
   // represent them exactly.
   useEffect(() => {
-    const route = publicRoute(nav, activeWorkspaceId);
+    const hash = workspaceRouteHash(nav, activeWorkspaceId);
     const state = {
       bytequayNav: nav,
       bytequayPosition: historyPositionRef.current,
     };
-    if (route === null) {
+    if (hash === null) {
       window.history.replaceState(state, '');
       return;
     }
-    const hash = workspaceRouteHash(route);
     window.history.replaceState(state, '', hash);
   }, [activeWorkspaceId, nav]);
 
   useEffect(() => {
     let poppedUrl: string | null = null;
-    const applyTarget = (target: PublicNavigation, position: number) => {
+    const applyTarget = (target: WorkspaceNavigation, position: number) => {
       if (target.workspaceId !== null) {
         setActiveWorkspaceId(target.workspaceId);
         writeActiveWorkspaceId(target.workspaceId);
@@ -628,7 +410,7 @@ function App() {
         bytequayNav?: Nav;
         bytequayPosition?: number;
       } | null;
-      const parsed = publicNavigation(parseWorkspaceRoute(window.location.hash));
+      const parsed = parseWorkspaceRoute(window.location.hash);
       applyTarget(
         { nav: state?.bytequayNav ?? parsed.nav, workspaceId: parsed.workspaceId },
         state?.bytequayPosition ?? 0,
@@ -640,7 +422,7 @@ function App() {
         return;
       }
       const position = historyPositionRef.current + 1;
-      const target = publicNavigation(parseWorkspaceRoute(window.location.hash));
+      const target = parseWorkspaceRoute(window.location.hash);
       window.history.replaceState(
         { bytequayNav: target.nav, bytequayPosition: position },
         '',
@@ -826,7 +608,7 @@ function App() {
   useEffect(() => {
     const unsub = window.bridge.onAppNavRequest(({ action, params }) => {
       if (action === 'open' && params.path) {
-        const target = publicNavigation(parseWorkspaceRoute(params.path));
+        const target = parseWorkspaceRoute(params.path);
         if (target.workspaceId !== null) {
           setActiveWorkspaceId(target.workspaceId);
           writeActiveWorkspaceId(target.workspaceId);

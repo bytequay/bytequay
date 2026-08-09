@@ -37,8 +37,8 @@ import static java.util.Objects.requireNonNull;
  *                     before the brain has reviewed it
  * @param iteration how many review turns have been enqueued so far — bumped
  *                  when a review turn is scheduled, not when the verdict
- *                  tool is called, so a turn that never calls {@code
- *                  record_review_verdict} still counts against the budget
+ *                  tool is called, so a turn that never records a verdict
+ *                  still counts against the budget
  *                  instead of wedging the loop open forever
  * @param budget max review-fix cycles before escalating to the human
  *               (default 5, R23)

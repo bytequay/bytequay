@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef } from 'react';
-import type { Nav } from '../App';
+import type { Nav } from '../workspace/workspaceRoutes';
 import { navToSurfaceVisit, visitKey } from './surfaceVisit';
 
 /**

@@ -30,8 +30,6 @@ const linked: WorkspaceRelationDto = {
   upstreamRepoFullName: 'trinodb/trino',
   commitsEnabled: true,
   tagsEnabled: true,
-  branchesEnabled: false,
-  issuesPullRequestsEnabled: false,
   lastFetchedAt: '2026-07-24T10:00:00Z',
   autoFetchIntervalMinutes: 30,
   indexedCommitCount: 3481,
@@ -165,8 +163,6 @@ describe('WorkspaceRelationsSettings', () => {
         autoFetchIntervalMinutes: 30,
       },
     }));
-    expect((screen.getByRole('switch', { name: 'Branches' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('switch', { name: 'Issues & pull requests' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('THIS WORKSPACE')).toBeTruthy();
     expect(screen.getByText('READS FROM')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open workspace' }));

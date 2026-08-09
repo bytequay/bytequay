@@ -227,7 +227,6 @@
 .wu-commit-source button:disabled { cursor: not-allowed; opacity: .5; }
 .wu-commit-source button > span { color: #8250df; }
 .wu-commit-source small { color: #8b949e; font-size: 9px; font-weight: 700; }
-.wu-branch-select.is-static { pointer-events: none; }
 
 .wu-upstream-banner {
   align-items: center;

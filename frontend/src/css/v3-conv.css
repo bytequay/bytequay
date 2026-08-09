@@ -335,9 +335,6 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
-.shell .tool-block .body-code .grn {
-  color: var(--green);
-}
 .shell .tool-block .body-code .red {
   color: var(--red);
 }
@@ -396,15 +393,6 @@
 /* The file-path tail after the label. Head-truncates (ellipsis on the left,
    same BiDi trick as the diff-pane filename) so the leaf filename survives,
    and shrinks far ahead of the label so "Running Write:" stays visible. */
-.shell .working__tail {
-  flex: 0 999 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-}
 .shell .working__elapsed,
 .shell .working__stop { flex: none; }
 /* ── Queued messages (typed while the agent is working) ──────── */
@@ -440,89 +428,6 @@
 .shell .queued-msg__remove:hover { color: var(--red); border-color: var(--red-border); }
 
 /* ── Live CI status panel (CI-fixing stage) ──────────────────── */
-.shell .ci-panel {
-  border: 1px solid var(--code-border);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-elev);
-  flex-shrink: 0;
-}
-.shell .ci-panel__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--code-bg-warm);
-}
-.shell .ci-panel__toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0;
-  margin: 0;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  font-family: inherit;
-  color: inherit;
-}
-.shell .ci-panel__toggle:disabled { cursor: default; }
-.shell .ci-panel__chev {
-  font-size: 9px;
-  color: var(--text-3);
-  width: 9px;
-  flex-shrink: 0;
-}
-.shell .ci-panel__count {
-  font-size: 11px;
-  color: var(--text-3);
-}
-.shell .ci-panel__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--text-4);
-}
-.shell .ci-panel--green .ci-panel__dot { background: #16a34a; }
-.shell .ci-panel--failing .ci-panel__dot { background: var(--red); }
-.shell .ci-panel--pending .ci-panel__dot {
-  background: var(--orange);
-  animation: working-pulse 1.2s ease-in-out infinite;
-}
-.shell .ci-panel__status {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-.shell .ci-panel__grow { flex: 1; }
-.shell .ci-panel__link {
-  font-size: 11.5px;
-  color: var(--accent);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  font-family: inherit;
-}
-.shell .ci-panel__checks {
-  list-style: none;
-  margin: 0;
-  padding: 4px 0;
-}
-.shell .ci-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  font-size: 12px;
-  color: var(--text-2);
-}
-.shell .ci-check__icon { width: 14px; text-align: center; flex-shrink: 0; }
-.shell .ci-check--ok .ci-check__icon { color: #16a34a; }
-.shell .ci-check--fail .ci-check__icon { color: var(--red); }
-.shell .ci-check--pending .ci-check__icon { color: var(--orange); }
-.shell .ci-check__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shell .ci-check__dur { font-family: var(--mono); font-size: 11px; color: var(--text-4); }
 
 .shell .working__stop {
   margin-left: 10px;
@@ -652,41 +557,6 @@
 }
 
 /* ── Closed-stage fold ───────────────────────────────────────── */
-.shell .stage-fold {
-  display: flex;
-  flex-direction: column;
-}
-.shell .stage-fold__bar {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  background: var(--bg-input);
-  border: 1px dashed var(--border-mid);
-  border-radius: 7px;
-  font-size: 11.5px;
-  color: var(--text-3);
-  cursor: pointer;
-  align-self: flex-start;
-  font-family: inherit;
-}
-.shell .stage-fold__bar:hover {
-  color: var(--text-2);
-  border-color: var(--border-strong);
-}
-.shell .stage-fold__chev {
-  font-size: 9px;
-}
-.shell .stage-fold__count {
-  font-family: var(--mono);
-  color: var(--text-4);
-}
-.shell .stage-fold__body {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  padding-top: 22px;
-}
 
 /* ── Run / round episodes (Comments + Dev feed, plan-rail-runs.md Phase 5) */
 .shell .round-episode {
@@ -995,74 +865,6 @@
 .shell .backlog-dropped-tag + .backlog-drop-btn { margin-left: 6px; }
 
 /* ── Triage cards (trunk-proposed backlog candidates) ─────────── */
-.shell .trunk-triage {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 0 32px 8px;
-}
-.shell .trunk-triage__head {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-3);
-}
-.shell .triage-card {
-  border: 1px solid var(--border-mid);
-  border-radius: 8px;
-  background: var(--bg-elev);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.shell .triage-card__title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-.shell .triage-card__body {
-  font-size: 12px;
-  color: var(--text-2);
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.shell .triage-card__meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.shell .triage-card__grow { flex: 1; }
-.shell .triage-card__tag {
-  font-size: 10.5px;
-  color: var(--text-3);
-  padding: 1px 7px;
-  background: var(--bg-code);
-  border: 1px solid var(--code-border);
-  border-radius: 999px;
-}
-.shell .triage-card__btn {
-  font-size: 11.5px;
-  padding: 4px 11px;
-  border: 1px solid var(--border-mid);
-  border-radius: 7px;
-  background: #fff;
-  color: var(--text-2);
-  cursor: pointer;
-  font-family: inherit;
-}
-.shell .triage-card__btn:hover { border-color: var(--accent); }
-.shell .triage-card__btn--start {
-  background: var(--orange);
-  border-color: var(--orange);
-  color: #fff;
-  font-weight: 600;
-}
-.shell .triage-card__btn--start:hover { filter: brightness(1.05); }
 
 /* ════════════════════════════════════════════════════════════════════
    TIMELINE SPINE (M10) — the shared spine system for the brain feed, the
@@ -1129,14 +931,14 @@
 .shell .spine--trunk .sp-work__inner .sp-act::before { display: none; }
 
 /* node colour → --n (mark/label hue) + --nd (deep text hue) */
-.shell .sp-node--purple, .shell .sp-nodecard--purple { --n: var(--accent); --nd: var(--accent-deep); }
-.shell .sp-node--blue,   .shell .sp-nodecard--blue   { --n: var(--blue);   --nd: var(--blue-deep); }
-.shell .sp-node--amber,  .shell .sp-nodecard--amber  { --n: var(--amber);  --nd: var(--amber-deep); }
-.shell .sp-node--teal,   .shell .sp-nodecard--teal   { --n: var(--teal);   --nd: var(--teal-deep); }
-.shell .sp-node--orange, .shell .sp-nodecard--orange { --n: var(--orange); --nd: var(--orange); }
-.shell .sp-node--green,  .shell .sp-nodecard--green  { --n: var(--green);  --nd: var(--green); }
-.shell .sp-node--red,    .shell .sp-nodecard--red    { --n: var(--red);    --nd: var(--red); }
-.shell .sp-node--gray,   .shell .sp-nodecard--gray   { --n: var(--text-4); --nd: var(--text-3); }
+.shell .sp-node--purple { --n: var(--accent); --nd: var(--accent-deep); }
+.shell .sp-node--blue   { --n: var(--blue);   --nd: var(--blue-deep); }
+.shell .sp-node--amber  { --n: var(--amber);  --nd: var(--amber-deep); }
+.shell .sp-node--teal   { --n: var(--teal);   --nd: var(--teal-deep); }
+.shell .sp-node--orange { --n: var(--orange); --nd: var(--orange); }
+.shell .sp-node--green  { --n: var(--green);  --nd: var(--green); }
+.shell .sp-node--red    { --n: var(--red);    --nd: var(--red); }
+.shell .sp-node--gray   { --n: var(--text-4); --nd: var(--text-3); }
 
 /* ── Boundary node (Layer 1) ── */
 .shell .sp-node { position: relative; margin: 0 0 14px -30px; padding-left: 30px; }
@@ -1233,9 +1035,6 @@
 .shell .sp-headline__tx b, .shell .sp-headline__tx strong { color: var(--text-1); }
 
 /* brain chatter dot (Layer 2) — lowest-signal message */
-.shell .sp-bmsg { position: relative; margin: 0 0 13px; }
-.shell .sp-bmsg::before { content: ""; position: absolute; left: -25.5px; top: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-4); border: 2px solid var(--bg); z-index: 2; }
-.shell .sp-bmsg .sp-headline__who { color: var(--blue-deep); }
 
 /* Q&A reply tucked under a user turn (Layer 2) */
 .shell .sp-reply { position: relative; margin: -4px 0 13px; padding: 9px 11px 2px 13px; border-left: 2px dashed var(--teal-border); margin-left: 2px; }
@@ -1611,26 +1410,14 @@
 /* approval card */
 .shell .sp-appr__head { display: flex; align-items: center; gap: 8px; padding: 8px 12px 0; }
 .shell .sp-appr__lbl { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--orange); }
-.shell .sp-appr__tool { margin-left: auto; font-size: 9.5px; font-family: var(--mono); color: var(--orange); background: var(--bg-elev); border: 1px solid var(--orange-border); padding: 1px 7px; border-radius: 5px; }
-.shell .sp-appr__cmd { margin: 9px 12px; padding: 9px 11px; background: #1f1b16; border-radius: 7px; font-family: var(--mono); font-size: 11px; color: #e9e2d6; overflow: auto; }
-.shell .sp-appr__pfx { color: #8a8f98; }
 .shell .sp-appr__why { padding: 0 12px 10px; font-size: 11px; color: var(--text-3); line-height: 1.5; }
 .shell .sp-appr__actions { padding: 0 12px 12px; display: flex; gap: 7px; flex-wrap: wrap; }
 .shell .sp-ab { padding: 7px 12px; border-radius: 7px; font-size: 11.5px; font-weight: 700; font-family: inherit; cursor: pointer; border: 1px solid transparent; }
 .shell .sp-ab:hover { filter: brightness(1.04); }
 .shell .sp-ab--ok { background: var(--green); color: #fff; }
-.shell .sp-ab--deny { background: var(--bg-elev); color: var(--text-2); border-color: var(--border-mid); }
-.shell .sp-ab--always { background: var(--bg-elev); color: var(--orange); border-color: var(--orange-border); margin-left: auto; }
 /* resolved record */
-.shell .sp-appr--done { display: flex; align-items: center; gap: 8px; padding: 9px 12px; }
-.shell .sp-appr__rc { font-size: 11.5px; font-weight: 700; color: var(--green); }
-.shell .sp-appr--denied .sp-appr__rc { color: var(--red); }
-.shell .sp-appr__rcmd { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* answered question chip */
-.shell .sp-answered { display: flex; align-items: center; gap: 8px; }
-.shell .sp-answered__chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; padding: 5px 10px; border-radius: 999px; background: var(--teal-soft); border: 1px solid var(--teal-border); color: var(--teal-deep); font-weight: 700; }
-.shell .sp-answered__by { font-size: 10.5px; color: var(--text-4); }
 
 /* ── Milestone nodes (Layer 4, trunk feed) ── */
 .shell .sp-ms { position: relative; margin: 8px 0 16px -30px; padding-left: 30px; }
@@ -1677,115 +1464,18 @@
 
 /* plan card */
 .shell .plan-card { border: 1.5px solid var(--accent-border); border-radius: 12px; background: linear-gradient(135deg, var(--accent-a7), var(--accent-a4)); box-shadow: 0 3px 14px rgba(124, 92, 255, 0.1); overflow: hidden; }
-.shell .plan-card--awaiting { border-color: var(--orange); background: linear-gradient(135deg, rgba(217, 119, 6, 0.14), rgba(217, 119, 6, 0.06)); box-shadow: 0 3px 14px rgba(217, 119, 6, 0.12); }
-.shell .plan-card__hd { display: flex; align-items: center; gap: 8px; padding: 11px 13px 9px; }
-.shell .plan-card__ic { font-size: 13px; }
-.shell .plan-card__t { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-deep); }
-.shell .plan-card__rev { margin-left: auto; font-family: var(--mono); font-size: 9.5px; padding: 1px 7px; background: rgba(255, 255, 255, 0.75); border: 1px solid var(--border); border-radius: 4px; color: var(--text-3); font-weight: 700; }
 /* Auto-approve switch in the plan-card header. margin-left:auto pins it to the
    far right (after the rev pill when present). Switch styling mirrors the
    root-node redesign mockup. */
-.shell .plan-auto { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
-.shell .plan-auto__lbl { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
-.shell .plan-auto__sw { position: relative; display: inline-flex; }
-.shell .plan-auto__sw input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
-.shell .plan-auto__track { display: block; width: 30px; height: 17px; border-radius: 999px; background: var(--border-strong); transition: background .16s; }
-.shell .plan-auto__knob { position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: transform .16s; }
-.shell .plan-auto__sw input:checked + .plan-auto__track { background: var(--green); }
 /* A second switch (auto-merge) following auto-approve groups with a fixed gap
    instead of both grabbing the free space via margin-left:auto. */
-.shell .plan-auto + .plan-auto { margin-left: 12px; }
 /* Minimum-approvals selector in the plan-card header. Sits at the right; when
    the auto-approve switch follows it, they group with a fixed gap instead of
    both grabbing the free space. */
-.shell .plan-approvals { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; user-select: none; }
-.shell .plan-approvals + .plan-auto { margin-left: 12px; }
-.shell .plan-approvals__lbl { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
-.shell .plan-approvals__opts { display: inline-flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
-.shell .plan-approvals__opt { font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 1px 8px; background: transparent; border: none; border-left: 1px solid var(--border); color: var(--text-3); cursor: pointer; }
-.shell .plan-approvals__opt:first-child { border-left: none; }
-.shell .plan-approvals__opt.active { background: var(--accent); color: #fff; }
-.shell .plan-auto__sw input:checked + .plan-auto__track .plan-auto__knob { transform: translateX(13px); }
-.shell .plan-card__body { padding: 0 13px 13px; }
-.shell .plan-goal { display: flex; gap: 9px; padding: 10px 11px; background: rgba(255, 255, 255, 0.65); border: 1px solid var(--border); border-radius: 8px; }
-.shell .plan-goal__i { font-size: 13px; }
-.shell .plan-goal__t { font-size: 13px; font-weight: 650; line-height: 1.45; color: var(--text-1); }
-.shell .plan-goal__t p { margin: 0; display: inline; }
-.shell .plan-goal__approach { display: block; margin-top: 4px; font-size: 11.5px; font-weight: 400; color: var(--text-3); line-height: 1.5; }
-.shell .plan-goal__approach p { margin: 0; }
-.shell .plan-seclbl { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); margin: 13px 0 6px; }
-.shell .plan-seclbl .cnt { font-family: var(--mono); font-weight: 700; color: var(--text-4); }
-.shell .plan-steps { display: flex; flex-direction: column; gap: 6px; }
-.shell .plan-step { background: rgba(255, 255, 255, 0.6); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.shell .plan-step__hd { display: grid; grid-template-columns: 18px 1fr auto; gap: 9px; align-items: center; padding: 8px 10px; cursor: pointer; width: 100%; background: none; border: none; font-family: inherit; text-align: left; }
-.shell .plan-step__hd:hover { background: rgba(255, 255, 255, 0.5); }
-.shell .plan-step__ord { width: 17px; height: 17px; border-radius: 50%; background: linear-gradient(135deg, #b794f4, #7c5cff); color: #fff; font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
-.shell .plan-step__title { font-size: 12px; font-weight: 600; color: var(--text-1); line-height: 1.35; overflow-wrap: break-word; }
-.shell .plan-step__title p { margin: 0; display: inline; }
-.shell .plan-step__right { display: flex; align-items: center; gap: 7px; }
-.shell .plan-step .risk { font-size: 8.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: 1.5px 6px; border-radius: 999px; }
-.shell .plan-step .risk.low { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
-.shell .plan-step .risk.med { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-border); }
-.shell .plan-step .risk.high { background: var(--red-soft); color: var(--red); border: 1px solid var(--red-border); }
-.shell .plan-step__chev { font-size: 9px; color: var(--text-4); transition: transform .18s; }
-.shell .plan-step.open .plan-step__chev { transform: rotate(90deg); }
-.shell .plan-step__detail { padding: 0 10px 10px 37px; font-size: 11.5px; line-height: 1.55; color: var(--text-2); }
-.shell .plan-step__detail p { margin: 0 0 6px; }
-.shell .plan-step__cmt { margin-top: 6px; font-size: 10.5px; color: var(--accent-deep); cursor: pointer; background: none; border: none; padding: 0; font-family: inherit; }
-.shell .plan-step__cmt:hover { text-decoration: underline; }
-.shell .plan-mini { background: rgba(255, 255, 255, 0.55); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-top: 10px; }
-.shell .plan-mini__h { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-4); margin-bottom: 5px; }
-.shell .plan-mini__tx { font-size: 11px; line-height: 1.5; color: var(--text-2); }
-.shell .plan-mini__tx p { margin: 0; }
-.shell .plan-signals { display: flex; gap: 7px; margin-top: 12px; }
-.shell .plan-sig { flex: 1; background: rgba(255, 255, 255, 0.55); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; text-align: center; }
-.shell .plan-sig__l { font-size: 8.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--text-4); }
-.shell .plan-sig__v { font-size: 12px; font-weight: 700; margin-top: 2px; }
-.shell .plan-sig__v--g { color: var(--green); }
-.shell .plan-sig__v--a { color: var(--amber); }
-.shell .plan-sig__v--r { color: var(--red); }
-.shell .plan-conf { margin-top: 9px; display: flex; align-items: flex-start; gap: 8px; border-radius: 8px; padding: 8px 10px; }
-.shell .plan-conf--high { background: var(--green-soft); border: 1px solid var(--green-border); }
-.shell .plan-conf--medium { background: var(--amber-soft); border: 1px solid var(--amber-border); }
-.shell .plan-conf--low { background: var(--red-soft); border: 1px solid var(--red-border); }
-.shell .plan-conf__b { font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; background: var(--bg-elev); border-radius: 999px; padding: 2px 8px; flex-shrink: 0; }
-.shell .plan-conf--high .plan-conf__b { color: var(--green); border: 1px solid var(--green-border); }
-.shell .plan-conf--medium .plan-conf__b { color: var(--amber); border: 1px solid var(--amber-border); }
-.shell .plan-conf--low .plan-conf__b { color: var(--red); border: 1px solid var(--red-border); }
 
 /* review bar */
-.shell .review-bar { margin-top: 13px; border-top: 1px dashed var(--border-mid); padding-top: 11px; }
-.shell .scope-guard { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 11px; background: var(--bg-code); border: 1px solid var(--code-border); border-radius: 8px; font-size: 11px; color: var(--text-2); margin-bottom: 9px; }
-.shell .scope-guard .sg { display: inline-flex; align-items: center; gap: 5px; }
-.shell .scope-guard .dot { width: 6px; height: 6px; border-radius: 50%; }
-.shell .scope-guard .dot.g { background: var(--green); }
-.shell .scope-guard .dot.b { background: var(--accent); }
-.shell .trigger-note { font-size: 10.5px; color: var(--text-3); line-height: 1.5; margin: 0 2px 10px; }
-.shell .trigger-note .flow { font-weight: 700; color: var(--text-2); }
-.shell .actions-row { display: flex; gap: 8px; }
-.shell .rb-btn { flex: 1; padding: 9px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; border: 1px solid transparent; }
-.shell .rb-btn:hover { filter: brightness(1.04); }
-.shell .rb-btn:disabled { opacity: .55; cursor: default; filter: none; }
-.shell .rb-btn--primary { background: var(--green); color: #fff; flex: 1.5; }
-.shell .rb-btn--ghost { background: var(--bg-elev); color: var(--text-2); border-color: var(--border-mid); }
-.shell .rb-btn--amber { color: var(--amber); border-color: var(--amber-border); background: var(--amber-soft); }
-.shell .review-locked { margin-top: 12px; font-size: 11px; color: var(--green); font-weight: 600; }
-.shell .auto-banner { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--green-soft); border: 1px solid var(--green-border); }
-.shell .auto-banner__ic { font-size: 15px; }
-.shell .auto-banner__tx { flex: 1; font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
-.shell .auto-banner__tx b { color: var(--green); }
-.shell .auto-banner__hold { padding: 6px 11px; border-radius: 7px; font-size: 11px; font-weight: 700; font-family: inherit; cursor: pointer; background: var(--bg-elev); color: var(--text-2); border: 1px solid var(--border-mid); }
-.shell .auto-banner__cd { font-family: var(--mono); font-weight: 700; color: var(--text-1); }
 
 /* typed plan-step file chips + optional-risk pill + mini grid (P7) */
-.shell .plan-step .risk.opt { background: var(--bg-code); color: var(--text-3); border: 1px solid var(--border-mid); }
-.shell .plan-step__files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.shell .plan-step__files .fref { font-family: var(--mono); font-size: 10.5px; background: var(--accent-soft); padding: 1px 5px; border-radius: 3px; color: var(--accent-deep); border: 1px solid var(--accent-border); white-space: nowrap; }
-.shell .plan-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
-.shell .plan-mini-grid:empty { display: none; }
-.shell .plan-mini-grid .plan-mini { margin-top: 0; }
-.shell .plan-mini__oos { margin: 0; padding-left: 15px; }
-.shell .plan-mini__oos li { font-size: 11px; line-height: 1.5; color: var(--text-3); margin: 2px 0; }
 
 /* ── Plan overlay (opened from the reminder pill) ─────────────────
    Full-viewport backdrop centring the original execution plan card.
@@ -1812,7 +1502,6 @@
 /* The plan card fills the panel edge-to-edge (drop its conversation margins). */
 .shell .plan-overlay__panel .plan-card { margin: 0; }
 /* Keep the header's auto-approve toggle clear of the overlay close button. */
-.shell .plan-overlay__panel .plan-card__hd { padding-right: 44px; }
 .shell .plan-overlay__close {
   position: absolute;
   top: 8px;
@@ -1838,66 +1527,18 @@
    Canvas/typography stay v3-warm; only semantic colors (green/purple/amber/
    red/blue) are GitHub's, reusing this file's existing tokens. */
 @keyframes pulse { 50% { opacity: 0.45; } }
-
-.pr-details-view { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-.pr-details-view__error { padding: 8px 16px; color: var(--red, #c0392b); font-size: 12.5px; flex-shrink: 0; }
 /* Without this the PR panel falls back to the browser default serif (body sets
    no font-family). Match the `.workspace-redesign` system font — the same face
    the task conversation uses — NOT var(--font) (the Inter-first `.shell` font). */
 .pr-view { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
-.pr-view .pr-header { padding: 20px 20px 0 52px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; background: var(--bg); flex-shrink: 0; }
-.pr-view .pr-header > * { width: 100%; }
-.pr-view .pr-header .pr-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pr-view .pr-header .pr-title { font-size: 20px; font-weight: 700; color: var(--text-1); line-height: 1.3; min-width: 0; }
-.pr-view .pr-header .pr-num { font-size: 20px; color: var(--text-4); font-weight: 500; }
-.pr-view .pr-header button.pr-num-link { background: none; border: none; padding: 0; cursor: pointer; font: inherit; }
-.pr-view .pr-header button.pr-num-link:hover { color: var(--accent); text-decoration: underline; }
-.pr-view .pr-header .pr-header-action { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
-.pr-view .pr-header .pr-meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; font-size: 11.5px; color: var(--text-3); }
-.pr-view .pr-header .pr-meta-row .who { font-weight: 600; color: var(--text-2); }
-.pr-view .pr-header .pr-meta-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-.pr-view .pr-header .pr-branch { font-family: var(--mono); font-size: 11px; padding: 1.5px 6px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 4px; color: var(--text-2); }
 
 /* U13a — solid state pill */
-.pr-state-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: #fff; white-space: nowrap; }
-.pr-state-pill.open { background: var(--green); }
-.pr-state-pill.merged { background: var(--purple); }
-.pr-state-pill.local { background: var(--amber); }
-.pr-state-pill.closed { background: var(--text-4); }
 
 /* U6 — sync chip */
-.pr-sync-chip { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-family: var(--mono); color: var(--text-4); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; background: var(--bg-elev); cursor: pointer; }
-.pr-sync-chip:hover { border-color: var(--border-mid); color: var(--text-3); }
-.pr-sync-chip.live { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
-.pr-sync-chip.stale { color: var(--amber-deep); border-color: var(--amber-border); background: var(--amber-soft); }
-.pr-sync-chip .spin { display: inline-block; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* U13b — tab strip + delta meter. */
-.pr-tabs { display: flex; align-items: center; gap: 2px; padding-top: 4px; }
-.pr-tabs .pt { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-md); color: var(--text-3); padding: 7px 12px 9px; border-bottom: 2px solid transparent;
-  /* reset from <span> to <button> so real tab-switching doesn't change the look */
-  background: none; border-left: none; border-right: none; border-top: none; font-family: inherit; cursor: pointer; }
-.pr-tabs .pt.on { font-weight: 600; color: var(--text-1); border-bottom-color: var(--orange); }
-.pr-tabs .cnt { font-size: 10.5px; background: var(--bg-input); border-radius: 999px; padding: 1px 7px; color: var(--text-2); }
-.pr-tabs .delta { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; padding-bottom: 8px; }
-.pr-tabs .delta .add { color: var(--green); font-weight: 700; }
-.pr-tabs .delta .del { color: var(--red); font-weight: 700; }
-.pr-delta-blocks { display: inline-flex; gap: 1.5px; }
-.pr-delta-blocks i { width: 7px; height: 7px; border-radius: 1.5px; background: var(--border-mid); display: block; }
-.pr-delta-blocks i.g { background: var(--green); }
-.pr-delta-blocks i.r { background: var(--red); }
-
-.pr-body-scroll { flex: 1; overflow-y: auto; padding: 16px 20px 30px 52px; display: flex; flex-direction: column; gap: 0; }
 .pr-body-scroll:not(.pr-body-scroll--changes) > * { width: 100%; }
-.pr-body-scroll--changes { overflow: hidden; padding: 0; }
-.pr-changes-tab { display: flex; flex: 1; min-height: 0; }
-.pr-changes-tab .diff-viewer {
-  position: relative;
-  inset: auto;
-  flex: 1;
-  min-height: 0;
-}
 
 /* U15 (revised) — the timeline rail: a 2px vertical line at x=64, sitting
    inside the comment bubble's own (fixed, unmoved) body rather than
@@ -1906,22 +1547,10 @@
    disappears rather than crossing its visible content. Every other
    on-rail marker (.tic, the person-event eye) is recentered to sit on
    this line too; the avatar and the card itself are NOT moved. */
-.pr-tl-rail { position: relative; }
-.pr-tl-rail::before { content: ''; position: absolute; left: 64px; top: 4px; bottom: 4px; width: 2px; background: var(--border-mid); }
 /* Inline review-thread cards (GitHub-native, see RailReviewThread.tsx) need
    a left offset clearing the rail line, since ReviewThreadCard's own
    styling (pr-detail.css) is scoped to a different, wider rail system and
    has no avatar-vs-line positioning of its own to inherit here. */
-.pr-tl-rail .rail-thread { margin: 0 0 12px 88px; }
-
-.pr-avatar { position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, var(--orange), var(--amber-deep)); color: #fff; font-size: 9px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: 2px solid var(--bg); }
-.pr-avatar.agent { background: linear-gradient(135deg, var(--accent), var(--accent-dark)); border-radius: 6px; }
-.pr-avatar.author { background: linear-gradient(135deg, var(--blue), var(--blue-deep)); }
-.pr-avatar.you { background: linear-gradient(135deg, var(--teal), var(--teal-deep)); }
-.pr-avatar.s28 { width: 28px; height: 28px; font-size: 10px; }
-.pr-avatar.s20 { width: 20px; height: 20px; font-size: 8px; }
-.pr-avatar.s32 { width: 32px; height: 32px; font-size: 11px; }
-.pr-avatar.s40 { width: 40px; height: 40px; font-size: 13px; }
 
 .pr-badge { font-size: 10px; font-weight: 600; color: var(--text-3); border: 1px solid var(--border-mid); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
 .pr-badge.agent { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
@@ -1933,95 +1562,24 @@
    so it lines up with .pr-person-event's avatar. The card's left edge lands
    at x=54 (avatar 40px + 20px gap - 6), while the independent x=64 rail is
    covered by the card body. */
-.pr-bubble-row { position: relative; display: flex; align-items: flex-start; gap: 20px; margin: 0 0 12px; }
-.pr-bubble-row .pr-avatar { margin-top: 4px; margin-left: -6px; }
-.pr-bubble { position: relative; z-index: 1; flex: 1; min-width: 0; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin-top: 3px; }
-.pr-bubble::before { content: ''; position: absolute; top: 13px; right: 100%; width: 8px; height: 16px; background: var(--border-mid); clip-path: polygon(100% 0, 0 50%, 100% 100%, calc(100% - 1px) 50%); }
-.pr-bubble::after { content: ''; position: absolute; top: 14px; right: calc(100% - 1px); width: 8px; height: 14px; background: var(--bh, var(--bg-code)); clip-path: polygon(100% 0, 0 50%, 100% 100%, calc(100% - 1px) 50%); }
-.pr-bubble .bh { display: flex; align-items: center; gap: 7px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bh, var(--bg-code)); border-radius: 8px 8px 0 0; font-size: 12px; color: var(--text-3); flex-wrap: wrap; }
-.pr-bubble.hl-agent { --bh: var(--accent-soft); }
-.pr-bubble.hl-agent .bh { border-bottom-color: var(--accent-border); }
-.pr-bubble.hl-author { --bh: var(--blue-soft); }
-.pr-bubble.hl-author .bh { border-bottom-color: var(--blue-border); }
-.pr-bubble .bh .who { font-weight: 600; color: var(--text-1); }
-.pr-bubble .bh .dots { margin-left: auto; color: var(--text-4); letter-spacing: 1px; font-weight: 700; }
-.pr-bubble .bb { padding: 6px 12px 12px; font-size: var(--font-size-lg); line-height: 1.6; color: var(--text-2); }
-.pr-bubble .bb .drafting-hint { color: var(--text-4); font-style: italic; }
-.pr-local-replies { margin: 10px -12px -12px; border-top: 1px solid var(--border); }
-.pr-local-reply { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 10px 12px; background: var(--bg); }
-.pr-local-reply + .pr-local-reply { border-top: 1px solid var(--border); }
-.pr-local-reply > div { min-width: 0; }
-.pr-local-reply header { display: flex; align-items: center; gap: 7px; color: var(--text-3); font-size: 11.5px; }
-.pr-local-reply header b { color: var(--text-1); }
-.pr-local-reply header time { margin-left: auto; color: var(--text-4); }
-.pr-local-reply-stub { width: 100%; margin-top: 10px; border: 1px solid var(--border-mid); border-radius: 7px; padding: 7px 10px; color: var(--text-4); background: var(--bg-elev); text-align: left; cursor: text; font: inherit; font-size: 11.5px; }
-.pr-local-reply-stub:hover { color: var(--text-2); border-color: var(--accent-border); }
-.pr-local-reply-composer { display: grid; gap: 8px; margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
-.pr-local-reply-composer__input { box-sizing: border-box; width: 100%; min-height: 76px; border: 1px solid var(--border-mid); border-radius: 7px; padding: 8px 10px; resize: vertical; color: var(--text-1); background: var(--bg-elev); font: inherit; font-size: 12px; line-height: 1.5; }
-.pr-local-reply-composer__input:focus { border-color: var(--accent-border); outline: 2px solid var(--accent-soft); }
-.pr-local-reply-composer__actions { display: flex; gap: 7px; justify-content: flex-end; }
-.pr-local-reply-composer__error { color: var(--red); }
 
 /* U15 — compact one-line icon events (commits, checks, status, labels).
    .tic is the row's first child (no gap before it), 28px wide — margin-left
    50px centers it exactly on the x=64 rail (50 + 28/2 = 64). */
-.pr-tl-icon-row { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; }
-.pr-tl-icon-row .tic { position: relative; z-index: 1; margin-left: 50px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
-.pr-tl-icon-row .tic.green { background: var(--green); color: #fff; }
-.pr-tl-icon-row .tic.merged { background: #8250df; color: #fff; }
-.pr-tl-icon-row .tic.fail { background: var(--red); color: #fff; }
-.pr-tl-icon-row .tb { font-size: var(--font-size-md); color: var(--text-3); line-height: 1.55; padding-top: 5px; min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pr-tl-icon-row .tb .who { color: var(--text-1); font-weight: 600; }
-.pr-tl-icon-row .tb .sha { font-family: var(--mono); font-size: 10.5px; color: var(--blue); }
-.pr-tl-icon-row .tb code { font-family: var(--mono); font-size: 10.5px; background: var(--bg-code); padding: 0 4px; border-radius: 3px; border: 1px solid var(--code-border); }
-.pr-tl-icon-row .lock-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 700; color: var(--amber-deep); background: var(--amber-soft); border: 1px solid var(--amber-border); border-radius: 999px; padding: 0 6px; }
-.pr-tl-icon-row .ts { padding-top: 8px; font-size: 10.5px; color: var(--text-4); flex-shrink: 0; }
-.pr-tl-icon-row .verdict-pill { font-size: 9.5px; font-weight: 700; border-radius: 999px; padding: 1px 8px; }
-.pr-tl-icon-row .verdict-pill.ok { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
-.pr-tl-icon-row .verdict-pill.chg { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid var(--amber-border); }
-.pr-tl-icon-row .tb .lbl { font-size: 10.5px; font-weight: 600; border: 1px solid var(--border-mid); border-radius: 999px; padding: 1px 8px; color: var(--text-2); }
-.pr-merge-event__main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.pr-merge-event__branch { font-family: var(--mono); background: var(--blue-soft); color: var(--blue); border-radius: 6px; padding: 1px 6px; }
-.pr-merge-event__checks { color: var(--text-3); }
 
 /* Folded local-only development history for task PRs after they have a
    GitHub conversation. The row stays on the same x=64 rail as commits/CI,
    while the body summarizes the private ByteQuay work that was stripped
    before push. */
-.pr-local-fold { position: relative; margin: 2px 0 12px; }
-.pr-local-fold > summary { list-style: none; display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; cursor: pointer; }
-.pr-local-fold > summary::-webkit-details-marker { display: none; }
-.pr-local-fold > summary .tic { position: relative; z-index: 1; margin-left: 50px; width: 28px; height: 28px; border-radius: 50%; background: var(--bg-input); border: 2px solid var(--bg); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11px; }
-.pr-local-fold[open] > summary .tic { background: var(--blue-soft); color: var(--blue); border-color: var(--bg); }
-.pr-local-fold__body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 6px 12px 8px; border: 1px solid var(--border-mid); border-radius: 8px; background: var(--bg-elev); }
-.pr-local-fold__title { font-size: 12px; font-weight: 700; color: var(--text-1); }
-.pr-local-fold__meta { font-size: 11.5px; color: var(--text-3); }
-.pr-local-fold__components { display: flex; flex-wrap: wrap; gap: 5px; }
-.pr-local-fold__components span { font-size: 10.5px; font-weight: 600; color: var(--text-2); background: var(--bg-input); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; }
-.pr-local-fold__details { margin: 2px 0 4px 88px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elev); color: var(--text-3); font-size: 11.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 6px; }
-.pr-local-fold__details div { display: flex; flex-wrap: wrap; gap: 6px 10px; }
-.pr-local-fold__details span { min-width: 0; overflow-wrap: anywhere; }
-.pr-local-fold__files span { font-family: var(--mono); font-size: 10.5px; color: var(--text-2); }
 
 /* A cross-referenced issue/PR's title — its own line below the "referenced
  *  this X" row (github.com never inlines the title into that line either).
  *  margin-left roughly matches where .pr-tl-icon-row .tb's text starts. */
-.pr-tl-crossref { margin: -4px 0 8px 80px; padding: 6px 10px; border: 1px solid var(--border-mid); border-radius: 6px; font-size: 12px; }
-.pr-tl-crossref a { color: var(--blue); text-decoration: none; }
-.pr-tl-crossref a:hover { text-decoration: underline; }
 
 /* A same-page link card under a timeline row — click-to-navigate rather
    than an <a>, same box as .pr-tl-crossref above. Used by the
    plan-finalized row to jump back to the Plan node on the Live Plan
    ladder. */
-.pr-tl-plan-link {
-  display: flex; align-items: center; gap: 6px;
-  margin: -4px 0 8px 80px; padding: 6px 10px;
-  border: 1px solid var(--border-mid); border-radius: 6px;
-  background: var(--bg-elev); color: var(--blue); font-size: 12px;
-  font-family: inherit; cursor: pointer; width: fit-content;
-}
-.pr-tl-plan-link:hover { background: var(--bg-hover); text-decoration: underline; }
 
 /* Copilot-redesign pass — person-event: the avatar matches the comment
    bubble's exactly (margin-left: -6px, same margin-top the row's own
@@ -2034,44 +1592,14 @@
    x=64. The net effect also widens the avatar-to-rail gap, as intended.
    The eye/check matches the 28px .tic markers so approved and CI/commit
    icons read at the same visual weight on the rail. */
-.pr-person-event { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; }
-.pr-person-event .pr-avatar { margin-top: -3px; margin-left: -6px; }
-.pr-person-event .eye {
-  position: relative; z-index: 1; flex-shrink: 0; margin-left: 8px;
-  width: 28px; height: 28px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 13px; color: var(--text-3);
-  background: var(--bg-input); border: 2px solid var(--bg);
-}
-.pr-person-event .eye.approved { background: var(--green); color: #fff; }
-.pr-person-event .tb { font-size: 12.5px; color: var(--text-3); }
-.pr-person-event .tb .who { color: var(--text-1); font-weight: 600; }
-.pr-person-event .ts { margin-left: auto; font-size: 10.5px; color: var(--text-4); }
-.pr-link-btn { background: none; border: none; cursor: pointer; font-family: inherit; color: var(--accent); }
 
 .pr-section-h { font-size: 10.5px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 0; }
 
 /* U13d — review-thread card: file header + threaded comments + footer */
-.pr-thread { position: relative; z-index: 1; background: var(--bg-elev); border: 1px solid var(--border-mid); border-radius: 8px; margin: 0 0 12px 40px; overflow: hidden; }
-.pr-thread .th-file { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--bg-code); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 11px; color: var(--text-2); }
-.pr-thread .th-cmt { display: flex; gap: 9px; padding: 11px 12px; }
-.pr-thread .th-cmt + .th-cmt { border-top: 1px solid var(--border); }
-.pr-thread .th-cmt .m { min-width: 0; flex: 1; }
-.pr-thread .th-cmt .mh { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-3); flex-wrap: wrap; }
-.pr-thread .th-cmt .mh .who { font-weight: 600; color: var(--text-1); }
-.pr-thread .th-cmt .mb { font-size: 12.5px; color: var(--text-2); line-height: 1.55; margin-top: 3px; white-space: pre-wrap; }
-.pr-thread .th-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); background: var(--bg); }
-.pr-thread .th-foot .reply { flex: 1; border: 1px solid var(--border-mid); border-radius: 7px; background: var(--bg-elev); padding: 6px 10px; font: inherit; font-size: 11.5px; color: var(--text-4); text-align: left; cursor: text; }
-.pr-thread .th-foot .reply:hover { color: var(--text-2); border-color: var(--accent-border); }
-.pr-thread .th-foot .btn.sm { font-size: 11.5px; padding: 4.5px 11px; }
-.pr-thread__reply-composer { display: grid; gap: 8px; border-top: 1px solid var(--border); padding: 10px 12px; background: var(--bg); }
 
 /* A brain pass is a real local review submission, not a loose collection of
    timeline bubbles. Keep the GitHub review-card anatomy: verdict header,
    summary, then the review's PR-level and file-level comments. */
-.brain-pr-review-card.approved { border-color: var(--green-border); border-left-color: var(--green); }
-.brain-pr-review-card > .pr-thread { margin: 0 14px 12px; }
-.brain-review-activity .tic { color: var(--accent); }
 
 .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; border-radius: 7px; padding: 7px 14px; border: 1px solid var(--border-mid); background: var(--bg-elev); color: var(--text-1); cursor: pointer; white-space: nowrap; }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -2082,115 +1610,23 @@
 /* U13e — GitHub-sized merge status box. The branch marker sits on the
    timeline outside the bordered card, while every status/action state keeps
    using this one shared MergeBox renderer. */
-.pr-merge-shell { position: relative; z-index: 1; flex-shrink: 0; margin-top: 34px; margin-bottom: 16px; padding-left: 46px; }
-.pr-merge-shell::before { content: ''; position: absolute; top: -28px; left: 0; right: 0; height: 2px; background: var(--border-mid); }
-.pr-merge-shell .mb-branch-icon { position: absolute; z-index: 2; top: 0; left: 0; width: 36px; height: 36px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
-.pr-merge-shell .mb-branch-icon svg { width: 20px; height: 20px; }
-.pr-merge-shell .mb-branch-icon.green { background: #1f883d; }
-.pr-merge-shell .mb-branch-icon.amber { background: #bf8700; }
-.pr-merge-shell .mb-branch-icon.purple { background: var(--purple); }
-.pr-merge-box { position: relative; z-index: 1; background: #fff; border: 1px solid #d0d7de; border-radius: 7px; overflow: hidden; }
-.pr-merge-box.ok { border-color: #1f883d; }
-.pr-merge-box .mb-sec { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid #d8dee4; display: flex; gap: 10px; align-items: center; background: #fff; color: var(--text-1); font-family: inherit; text-align: left; }
-.pr-merge-box .mb-sec:last-child { border-bottom: none; }
-.pr-merge-box .mb-sec.clickable { cursor: pointer; }
-.pr-merge-box .mb-sec.clickable:hover { background: #f6f8fa; }
-.pr-merge-box .mb-sec .btn.sm { align-self: center; flex-shrink: 0; font-size: 11.5px; padding: 4px 11px; }
-.pr-merge-box .mb-ic { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; font-size: 13px; }
-.pr-merge-box .mb-ic svg { width: 14px; height: 14px; }
-.pr-merge-box .mb-ic.green { background: #1f883d; }
-.pr-merge-box .mb-ic.amber { background: #bf8700; }
-.pr-merge-box .mb-t { min-width: 0; flex: 1; }
-.pr-merge-box .mb-t .h { font-size: 13px; line-height: 1.35; font-weight: 600; color: #1f2328; display: flex; align-items: center; gap: 7px; }
-.pr-merge-box .mb-t .s { font-size: 11.5px; line-height: 1.45; color: #656d76; margin-top: 1px; }
-.pr-merge-box .mb-chevron { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #57606a; transform: rotate(90deg); transition: transform .12s ease-out; }
-.pr-merge-box .mb-chevron svg { width: 13px; height: 13px; }
-.pr-merge-box .mb-chevron.open { transform: rotate(-90deg); }
-.pr-merge-box .check-list { background: #f6f8fa; border-bottom: 1px solid #d8dee4; }
-.pr-merge-box .check-group { padding: 7px 14px 3px 50px; font-size: 10.5px; font-weight: 600; color: #656d76; }
-.pr-merge-box .check-row { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 5px 14px 5px 50px; font-size: 12px; color: #424a53; }
-.pr-merge-box .check-row .st { width: 16px; display: inline-flex; justify-content: center; flex-shrink: 0; font-size: 12px; }
-.pr-merge-box .check-row .st.ok { color: var(--green); }
-.pr-merge-box .check-row .st.fail { color: var(--red); }
-.pr-merge-box .check-row .st.skip { color: var(--text-4); }
-.pr-merge-box .check-row .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; }
-.pr-merge-box .check-row .res { color: #656d76; font-size: 11px; margin-left: auto; flex-shrink: 0; }
-.pr-merge-box .mb-warn { margin: 0 14px 12px 50px; padding: 8px 11px; background: var(--amber-soft); border: 1px solid var(--amber-border); border-radius: 6px; font-size: 11.5px; color: var(--amber-deep); line-height: 1.5; }
-.pr-merge-box .mb-actions { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px 50px; flex-wrap: wrap; }
-.pr-merge-box .mb-actions .alt { font-size: 11.5px; color: #656d76; }
-.pr-merge-box .mb-cli-hint { padding: 0 14px 14px 50px; font-size: 11.5px; color: #656d76; }
-.pr-merge-box .btn { min-height: 30px; padding: 4px 13px; border-radius: 6px; font-size: 12px; line-height: 20px; }
-.pr-merge-box .btn.green { background: #1f883d; border-color: rgba(27, 31, 36, 0.15); box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1); }
-.pr-merge-box .btn.green:hover { background: #1a7f37; }
 
 /* Merge-flow terminal states (U13e follow-up: merge queue + post-merge
    branch cleanup) — the whole card tints amber/purple instead of the
    checks-based green once the PR is queued or merged. */
-.pr-merge-box.queued { border-color: #bf8700; }
-.pr-merge-box.merged { border-color: var(--purple-border); }
-.pr-merge-box .mb-ic.purple { background: var(--purple); }
 
 /* Merge-method split button — same visual language as .shell .run-menu
    (the top-bar run/lifecycle dropdown) but self-contained: MergeBox can
    render outside `.shell` (the standalone PR details page), so it can't
    rely on that rule being in scope. */
-.pr-merge-box .run-menu { position: relative; display: inline-flex; }
-.pr-merge-box .run-menu__chev { width: 36px; padding: 0; justify-content: center; border-left: 1px solid rgba(255, 255, 255, 0.3); margin-left: -1px; }
-.pr-merge-box .run-menu__chev .chev { display: inline-flex; transform: rotate(90deg); }
-.pr-merge-box .run-menu__pop {
-  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20;
-  min-width: 180px; background: var(--bg-elev); border: 1px solid var(--border-mid);
-  border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  padding: 4px; display: flex; flex-direction: column; gap: 1px;
-}
-.pr-merge-box .run-menu__item { padding: 6px 10px; border-radius: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; border: 0; background: transparent; font-family: inherit; text-align: left; }
-.pr-merge-box .run-menu__item:hover { background: var(--bg-hover); }
 
 /* Commits tab — plain read-only list (U13/U15 follow-up: real tab content) */
-.pr-commits-tab__row { display: flex; align-items: baseline; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
-.pr-commits-tab__row .sha { flex-shrink: 0; }
-.pr-commits-tab__subject { color: var(--text-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.pr-commits-tab__meta { flex-shrink: 0; font-size: 11px; color: var(--text-4); }
-.pr-commits-tab__meta .who { color: var(--text-3); font-weight: 600; }
-.pr-commits-tab__meta .add { color: var(--green); }
-.pr-commits-tab__meta .del { color: var(--red); }
 
 /* Brain dev-end review outcome (plan-rail-runs.md R21/R23) */
-.brain-review-tag.ok { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
-.brain-review-tag.warn { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid var(--amber-border); }
 
 /* U13f — composer */
-.pr-comment-composer { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: 28px; margin: 26px 0 0; padding-left: 54px; padding-bottom: 10px; }
-.pr-comment-composer__avatar { width: 40px; height: 40px; margin-left: -60px; margin-top: 2px; border: 1px solid #d0d7de; }
-.pr-comment-composer .cc-main { flex: 1; min-width: 0; }
-.pr-comment-composer .cc-title { margin: 0 0 14px; color: #1f2328; font-size: 16px; font-weight: 600; line-height: 1.25; }
-.pr-comment-composer .cc-box { min-width: 0; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; overflow: hidden; }
-.pr-comment-composer .cc-tabs { min-height: 46px; display: flex; align-items: flex-end; background: #f6f8fa; border-bottom: 1px solid #d0d7de; padding: 0 16px; }
-.pr-comment-composer .cc-tab { height: 46px; padding: 0 16px; color: #57606a; cursor: pointer; border: 1px solid transparent; border-bottom: 0; background: transparent; font-family: inherit; font-size: 14px; font-weight: 400; }
-.pr-comment-composer .cc-tab.active { background: #fff; border-color: #d0d7de; border-radius: 6px 6px 0 0; margin-bottom: -1px; color: #1f2328; }
-.pr-comment-composer .cc-toolbar { align-self: center; margin-left: auto; display: flex; align-items: center; gap: 2px; color: #57606a; }
-.pr-comment-composer .cc-tool { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; font-family: var(--sans); font-size: 16px; line-height: 1; }
-.pr-comment-composer .cc-tool.text { font-size: 15px; }
-.pr-comment-composer .cc-tool.bold { font-weight: 700; }
-.pr-comment-composer .cc-tool.italic { font-family: Georgia, serif; font-style: italic; }
 .pr-comment-composer .cc-tool:not(.divider):hover { background: #eaeef2; }
-.pr-comment-composer .cc-tool.divider { width: 1px; height: 24px; margin: 0 7px; border-radius: 0; background: #d8dee4; }
-.pr-comment-composer .cc-tool > svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.pr-comment-composer .cc-input { display: block; width: calc(100% - 32px); min-height: 152px; margin: 16px; padding: 12px 16px; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; color: #1f2328; font-family: inherit; font-size: 14px; line-height: 1.5; resize: vertical; }
-.pr-comment-composer textarea.cc-input:focus { border-color: #0969da; box-shadow: 0 0 0 3px rgba(9, 105, 218, .2); outline: none; }
-.pr-comment-composer textarea.cc-input::placeholder { color: #656d76; font-style: normal; }
-.pr-comment-composer .cc-preview { overflow-y: auto; }
-.pr-comment-composer .cc-empty-preview { color: #656d76; font-style: italic; }
-.pr-comment-composer .cc-footer { min-height: 48px; display: flex; align-items: center; gap: 20px; padding: 0 16px; border-top: 0; color: #57606a; font-size: 13px; flex-wrap: wrap; }
-.pr-comment-composer .cc-markdown { display: inline-flex; align-items: center; gap: 8px; color: #1f2328; font-weight: 500; }
-.pr-comment-composer .cc-markdown b { padding: 1px 3px; border-radius: 2px; background: #57606a; color: #fff; font-family: var(--mono); font-size: 9px; line-height: 1; }
-.pr-comment-composer .cc-footer .local-note { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border: 1px solid var(--amber-border); border-radius: 999px; background: var(--amber-soft); color: var(--amber-deep); font-size: 12px; font-weight: 600; }
-.pr-comment-composer .cc-footer .local-note svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
-.pr-comment-composer .cc-destination { margin-left: auto; }
-.pr-comment-composer .cc-actions { display: flex; justify-content: flex-end; padding-top: 12px; }
-.pr-comment-composer .cc-actions .btn { min-height: 36px; padding: 7px 18px; border-radius: 6px; background: #1f883d; border-color: rgba(27, 31, 36, .15); color: #fff; font-size: 14px; font-weight: 600; }
 .pr-comment-composer .cc-actions .btn:hover:not(:disabled) { background: #1a7f37; }
-.pr-comment-composer .cc-actions .btn:disabled { background: #94d3a2; border-color: transparent; color: rgba(255,255,255,.8); }
 
 /* ── Push dialog (mockup frame 16) — namespaced to avoid the existing
    .modal / .modal-overlay in modals.css. Confirms the one-way local→remote
@@ -2257,6 +1693,4 @@
 .review-callout__btn:disabled { opacity: 0.6; cursor: default; }
 .review-callout__btn--ok { padding: 8px 15px; border-color: #1a7f37; background: #1f883d; color: #fff; }
 .review-callout__btn--ok:hover { background: #1a7f37; border-color: #1a7f37; color: #fff; }
-.review-callout__btn--danger { color: #cf222e; }
-.review-callout__btn--danger:hover { border-color: #cf222e; color: #cf222e; }
 .review-callout__note { margin-top: 8px; font-size: 12px; color: #cf222e; }

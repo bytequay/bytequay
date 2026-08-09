@@ -39,25 +39,10 @@ class TestTaskPhaseMachine
                 () -> machine.resumeFromLocalReviewInCommand("task", Actor.HUMAN, "reason"),
                 () -> machine.markRemoteInReviewInCommand("task", Actor.HUMAN, "reason"),
                 () -> machine.parkOperationalInCommand("task", Actor.HUMAN, "reason"),
-                () -> machine.requestRecoveryInCommand("task", "normal"),
-                () -> machine.requestRecoveryInCommand("task", "normal", "{}"),
-                () -> machine.rejectRecoveryRequestInCommand(
-                        "task", "request", "reason"),
-                () -> machine.completeRecoveryInCommand(
-                        "task", Actor.HUMAN, "reason", TaskPhase.IMPLEMENTING),
-                () -> machine.completeExternalSagaRecoveryInCommand(
-                        "task", Actor.HUMAN, "reason", TaskPhase.IMPLEMENTING),
-                () -> machine.completeReplanInCommand("task", Actor.HUMAN, "reason"),
-                () -> machine.retryErroredInCommand("task", "turn"),
-                () -> machine.reviveArchivedInCommand("task"),
-                () -> machine.resumeIdleRuntimeInCommand("task"),
                 () -> machine.observe("task", TaskPhase.VALIDATING, "reason"),
-                () -> machine.observeRemoteOpenedInCommand("task", "reason"),
                 () -> machine.finishTerminalInCommand(
                         "task", TaskStatus.COMPLETED, Actor.HUMAN, "reason"),
-                () -> machine.pauseInCommand("task", Actor.HUMAN, "reason"),
-                () -> machine.requestResumeInCommand("task"),
-                () -> machine.completeResumeInCommand("task", Actor.HUMAN, "reason"));
+                () -> machine.pauseInCommand("task", Actor.HUMAN, "reason"));
 
         for (ThrowingCallable call : calls) {
             assertThatThrownBy(call)

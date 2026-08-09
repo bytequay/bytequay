@@ -405,7 +405,6 @@
 }
 
 .sr-queue__phase2.is-wait .sr-queue__phase2-dot { background: #bf8700; }
-.sr-queue__phase2.is-green .sr-queue__phase2-dot { background: #1a7f37; }
 .sr-queue__phase2.is-attention .sr-queue__phase2-dot { background: #cf222e; }
 
 .sr-queue__phase2 strong {
@@ -811,7 +810,6 @@
 .sr-note.is-done .sr-note__copy b,
 .sr-note.is-pr .sr-note__copy b { color: #1a7f37; }
 .sr-note.is-park .sr-note__copy b { color: #b45309; }
-.sr-note.is-error .sr-note__copy b { color: #cf222e; }
 
 .sr-guidance {
   background: rgba(139, 92, 246, 0.05);
@@ -1006,10 +1004,7 @@
 .sr-rail__item small { color: #b1b5bb; font-size: 8px; line-height: 1.3; text-align: center; }
 .sr-rail__item.is-idle { cursor: default; opacity: 0.45; }
 .sr-rail__item.is-static { cursor: default; }
-.sr-rail__item.is-safe { color: #1a7f37; }
-.sr-rail__item.is-watch { color: #7c3aed; }
 .sr-rail__item:not(.is-idle):not(.is-static):hover { color: #7c3aed; }
-.sr-rail__rule { background: rgba(0, 0, 0, 0.07); height: 1px; width: 24px; }
 
 .sr-rail__stat {
   align-items: center;

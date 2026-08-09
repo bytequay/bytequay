@@ -634,19 +634,8 @@
 
 /* The seeded default workspace ("ByteQuay") — a muted gray tile so it
    reads as the always-present home rather than a user-created one. */
-.workspace-landing-card--default {
-  /* Translucent slate so it reads gray in light mode and stays muted
-     in dark; a solid token would need a per-theme override. */
-  background: rgba(148, 163, 184, 0.16);
-}
 
 /* Top accent strip on the current card, per the claude_design mockup. */
-.workspace-landing-card__strip {
-  display: block;
-  height: 3px;
-  margin: -16px -16px 13px;
-  background: var(--accent);
-}
 
 .workspace-landing-card__head {
   display: flex;
@@ -757,12 +746,6 @@
   background: var(--text-4);
 }
 
-.workspace-landing-card__repos {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 /* Base repo-chip look; WorkspaceCard sets the per-repo hue inline
  * (background/color/border) so each repo reads as a consistent colour
  * across every card it appears on. */
@@ -772,13 +755,6 @@
   font-weight: 600;
   padding: 2px 9px;
   border-radius: 6px;
-}
-
-.workspace-landing-card__stats {
-  display: flex;
-  align-items: center;
-  padding-top: 11px;
-  border-top: 1px dashed var(--border);
 }
 
 .workspace-landing-card__stat {
@@ -794,22 +770,6 @@
   padding-right: 14px;
 }
 
-.workspace-landing-card__stat-value {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-1);
-  font-variant-numeric: tabular-nums;
-}
-
-.workspace-landing-card__stat-label {
-  font-size: 10px;
-  color: var(--text-3);
-}
-
-.workspace-landing-card__stat--dim .workspace-landing-card__stat-value {
-  color: var(--text-3);
-}
-
 .workspace-landing-card__foot {
   display: flex;
   align-items: center;
@@ -818,22 +778,6 @@
   padding-top: 11px;
   border-top: 1px solid var(--border-light);
   font-size: 11px;
-  color: var(--text-4);
-}
-
-.workspace-landing-card__attention {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--orange-soft);
-  color: var(--orange);
-  border: 1px solid var(--orange-border);
-  font-weight: 700;
-  font-size: 10px;
-}
-
-.workspace-landing-card__edited {
   color: var(--text-4);
 }
 
@@ -855,13 +799,6 @@
 
 .workspace-landing-card--scratch .workspace-landing-card__name {
   color: var(--text-2);
-}
-
-.workspace-landing-card__scratch-blurb {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-3);
-  line-height: 1.45;
 }
 
 /* + New workspace tile — dashed, centered, no header / stats. */
@@ -941,95 +878,6 @@
  * other two land in later phases — the placeholder body explains why
  * a button is greeted with an empty state. */
 
-.threads-view-toggle {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid var(--ws-card-border);
-  border-radius: 999px;
-}
-
-.threads-view-toggle__btn {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: none;
-  background: transparent;
-  color: var(--ws-text-3);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background var(--ws-fast), color var(--ws-fast);
-}
-
-.threads-view-toggle__btn:hover {
-  color: var(--ws-text-1);
-}
-
-.threads-view-toggle__btn--active {
-  background: #fff;
-  color: var(--ws-accent-deep);
-  box-shadow: none;
-}
-
-.threads-view-toggle__icon {
-  font-size: 13px;
-  line-height: 1;
-}
-
-.threads-view-placeholder {
-  margin: 16px 2px;
-  padding: 32px 28px;
-  background: var(--ws-glass);
-  border: 1px dashed var(--ws-card-border);
-  border-radius: 14px;
-  text-align: center;
-}
-
-.threads-view-placeholder__title {
-  margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--ws-text-1);
-}
-
-.threads-view-placeholder__body {
-  margin: 0 auto 8px;
-  max-width: 440px;
-  font-size: 13px;
-  color: var(--ws-text-2);
-  line-height: 1.5;
-}
-
-.threads-view-placeholder__meta {
-  margin: 0 auto 18px;
-  max-width: 440px;
-  font-size: 12px;
-  color: var(--ws-text-3);
-}
-
-.threads-view-placeholder__btn {
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 14px;
-  border: 1px solid var(--ws-card-border);
-  background: #fff;
-  color: var(--ws-accent-deep);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background var(--ws-fast), color var(--ws-fast);
-}
-
-.threads-view-placeholder__btn:hover {
-  background: var(--ws-accent);
-  color: #fff;
-}
-
 /* ── Threads page header (workspace > Threads) ─────────────────────
  *
  * Single inline row: "Threads" title + view toggle + spacer + the
@@ -1039,69 +887,6 @@
  * margins, hairline bottom border separating it from the chip row
  * and content below. */
 
-.threads-pageheader {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  /* Negative left/right margins pull the bar out of
-   * .workspace-content's 28 px side gutter so it reaches the
-   * workspace area's edges. The 28 px bottom margin gives the chip
-   * row breathing room below the hairline. */
-  margin: 0 -28px 28px;
-  padding: 14px 28px;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
-  border-bottom: 1px solid var(--ws-card-border);
-  box-shadow: none;
-}
-
-.threads-pageheader__title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--ws-text-1);
-}
-
-.threads-pageheader__spacer {
-  flex: 1;
-}
-
-.threads-pageheader__new {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 14px;
-  color: #fff;
-  background: var(--ws-accent);
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  box-shadow: none;
-  transition: background var(--ws-fast), transform var(--ws-fast),
-    box-shadow var(--ws-fast);
-}
-
-.threads-pageheader__new:hover {
-  background: var(--ws-accent-deep);
-  transform: translateY(-1px);
-  box-shadow: none;
-}
-
-.threads-pageheader__new-kbd {
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.72);
-  letter-spacing: 0.02em;
-}
-
 /* ── Filter chip row ──────────────────────────────────────────────
  *
  * Horizontal pill row sitting under the page title. Replaces the
@@ -1110,66 +895,10 @@
  * active chip is filled with workspace accent — the auto* chip
  * is purple to distinguish the automation queue at a glance. */
 
-.threads-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 40px;
-}
-
-.threads-chips__chip {
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--ws-card-border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--ws-text-2);
-  cursor: pointer;
-  transition: background var(--ws-fast), color var(--ws-fast),
-    border-color var(--ws-fast);
-}
-
-.threads-chips__chip:hover {
-  background: #fff;
-  color: var(--ws-text-1);
-  border-color: var(--ws-card-border);
-}
-
-.threads-chips__chip--active {
-  background: var(--ws-accent);
-  color: #fff;
-  border-color: var(--ws-accent);
-}
-
-.threads-chips__chip--active:hover {
-  background: var(--ws-accent-deep);
-  border-color: var(--ws-accent-deep);
-  color: #fff;
-}
-
 /* auto* chip gets a slightly different active treatment — the purple
  * fill maps onto the accent already, so we just tighten the weight to
  * signal "this is the queue" when active. */
-.threads-chips__chip--active.threads-chips__chip--auto {
-  background: var(--ws-accent);
-  font-weight: 600;
-}
 
 /* Count renders as plain inline text after the label, just slightly
  * dimmer — no badge bubble. Hidden via parent gating when the value
  * is zero. The active chip flips it to white for legibility. */
-.threads-chips__count {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ws-text-3);
-  margin-left: 1px;
-}
-
-.threads-chips__chip--active .threads-chips__count {
-  color: rgba(255, 255, 255, 0.85);
-}

@@ -25,7 +25,7 @@ import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.checks.CodeFingerprints;
-import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.checks.RepoTestValidationCheck;
 import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -63,7 +63,7 @@ public final class GitHubRemoteEffects
     private final GitRunnerProvisioningGit remotes;
     private final BaseCiHistoryRewriter baseHistory;
     private final CodeFingerprints fingerprints;
-    private final List<ValidationCheck> checks;
+    private final RepoTestValidationCheck check;
     private final PullRequestRepository pullRequests;
     private final PatResolver pats;
     private final ObjectMapper json;
@@ -73,7 +73,7 @@ public final class GitHubRemoteEffects
             GitRunnerProvisioningGit remotes,
             BaseCiHistoryRewriter baseHistory,
             CodeFingerprints fingerprints,
-            List<ValidationCheck> checks,
+            RepoTestValidationCheck check,
             PullRequestRepository pullRequests,
             PatResolver pats,
             ObjectMapper json)
@@ -82,7 +82,7 @@ public final class GitHubRemoteEffects
         this.remotes = requireNonNull(remotes, "remotes is null");
         this.baseHistory = requireNonNull(baseHistory, "baseHistory is null");
         this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
-        this.checks = List.copyOf(requireNonNull(checks, "checks is null"));
+        this.check = requireNonNull(check, "check is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pats = requireNonNull(pats, "pats is null");
         this.json = requireNonNull(json, "json is null");
@@ -258,11 +258,8 @@ public final class GitHubRemoteEffects
                     request.expectedBaseSha(),
                     "base repair did not preserve the exact Task commit series");
         }
-        List<ValidationFailure> failures = new ArrayList<>();
-        for (ValidationCheck check : checks) {
-            requireActive(execution);
-            failures.addAll(check.run(request.taskId(), worktree));
-        }
+        requireActive(execution);
+        List<ValidationFailure> failures = check.run(request.taskId(), worktree);
         CodeSubject after = requireSubject(request, worktree);
         if (!before.equals(after)) {
             return failed(request, after.fingerprint(), after.headSha(),
@@ -324,11 +321,9 @@ public final class GitHubRemoteEffects
             CodeSubject beforeValidation = new CodeSubject(
                     fingerprints.fingerprint(worktree), rewritten.headSha());
             requireCleanBranch(request, worktree);
-            List<ValidationFailure> failures = new ArrayList<>();
-            for (ValidationCheck check : checks) {
-                requireActive(execution);
-                failures.addAll(check.run(request.taskId(), worktree));
-            }
+            requireActive(execution);
+            List<ValidationFailure> failures =
+                    new ArrayList<>(check.run(request.taskId(), worktree));
             CodeSubject afterValidation = new CodeSubject(
                     fingerprints.fingerprint(worktree), git.headSha(worktree));
             if (!beforeValidation.equals(afterValidation)

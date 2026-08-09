@@ -26,7 +26,6 @@ afterEach(() => {
 const linked: WorkspaceRelationDto = {
   workspaceId: 'fork', upstreamWorkspaceId: 'upstream', upstreamWorkspaceName: 'Trino',
   upstreamRepoFullName: 'trinodb/trino', commitsEnabled: true, tagsEnabled: true,
-  branchesEnabled: false, issuesPullRequestsEnabled: false,
   lastFetchedAt: '2026-07-24T10:00:00Z', autoFetchIntervalMinutes: 30, indexedCommitCount: 3481,
 };
 

@@ -582,35 +582,6 @@ samp {
   font-size: 0.95rem;
 }
 
-.setup-shell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 40px 20px;
-  background: var(--bg-base);
-}
-
-[data-theme="warm"] .setup-shell {
-  background: radial-gradient(
-      circle at top right,
-      rgba(247, 208, 122, 0.28),
-      transparent 24rem
-    ),
-    linear-gradient(180deg, #f4efe5 0%, #efe7d8 100%);
-}
-
-.setup-shell__inner {
-  width: 100%;
-  max-width: 520px;
-}
-
-.setup-shell__title {
-  margin: 0 0 24px;
-  font-size: 2rem;
-  color: var(--text-1);
-}
-
 /* ── Brand motion ───────────────────────────────────────── */
 
 .bq-sweep {

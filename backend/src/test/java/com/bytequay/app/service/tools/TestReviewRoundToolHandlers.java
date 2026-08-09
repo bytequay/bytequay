@@ -19,10 +19,7 @@ import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.service.review.RoundGateSaga;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -31,10 +28,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,20 +37,11 @@ class TestReviewRoundToolHandlers
 {
     private final StageStore stageStore = mock(StageStore.class);
     private final ReviewRoundStore roundStore = mock(ReviewRoundStore.class);
-    private final RoundGateSaga roundGate = mock(RoundGateSaga.class);
-    private final ReviewRoundToolHandlers handlers;
-
-    TestReviewRoundToolHandlers()
-    {
-        doAnswer(invocation -> {
-            invocation.<Runnable>getArgument(2).run();
-            return null;
-        }).when(roundGate).editPayload(anyString(), anyString(), any(Runnable.class));
-        handlers = new ReviewRoundToolHandlers(stageStore, roundStore, roundGate);
-    }
+    private final ReviewRoundToolHandlers handlers =
+            new ReviewRoundToolHandlers(stageStore, roundStore);
 
     @Test
-    void draftsOnlyForACommentInTheCallingRunsLiveRound()
+    void retiredRoundGateReturnsAnErrorBeforeSavingTheDraft()
     {
         UUID roundId = UUID.randomUUID();
         ReviewComment comment = comment(roundId, "task-1");
@@ -70,10 +54,8 @@ class TestReviewRoundToolHandlers
                 new ToolCall(ThreadScope.STAGE, "thread-1", null, AgentRole.TASK,
                         "task-1", "stage-1", "run-1"));
 
-        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
-        verify(roundGate).editPayload(
-                eq("task-1"), eq(roundId.toString()), any(Runnable.class));
-        verify(stageStore).saveReviewComment(any());
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        verify(stageStore, never()).saveReviewComment(any());
     }
 
     @Test
@@ -85,30 +67,6 @@ class TestReviewRoundToolHandlers
 
         ToolOutcome outcome = handlers.recordRoundReply(
                 new ReviewRoundToolHandlers.RecordRoundReplyArgs(comment.id().toString(), "Fixed"),
-                new ToolCall(ThreadScope.STAGE, "thread-1", null, AgentRole.TASK,
-                        "task-1", "stage-1", "run-1"));
-
-        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
-        verify(roundGate, never()).editPayload(anyString(), anyString(), any(Runnable.class));
-        verify(stageStore, never()).saveReviewComment(any());
-    }
-
-    @Test
-    void retiredRoundGateReturnsAnErrorBeforeSavingTheDraft()
-    {
-        UUID roundId = UUID.randomUUID();
-        ReviewComment comment = comment(roundId, "task-1");
-        when(stageStore.findReviewCommentById(comment.id())).thenReturn(Optional.of(comment));
-        when(roundStore.findLiveByTask("task-1")).thenReturn(Optional.of(
-                round(roundId, "task-1", "run-1")));
-        doThrow(new ResponseStatusException(
-                HttpStatus.CONFLICT, "LEGACY review-round gates are read-only"))
-                .when(roundGate).editPayload(
-                        eq("task-1"), eq(roundId.toString()), any(Runnable.class));
-
-        ToolOutcome outcome = handlers.recordRoundReply(
-                new ReviewRoundToolHandlers.RecordRoundReplyArgs(
-                        comment.id().toString(), "Fixed"),
                 new ToolCall(ThreadScope.STAGE, "thread-1", null, AgentRole.TASK,
                         "task-1", "stage-1", "run-1"));
 

@@ -16,7 +16,6 @@ package com.bytequay.app.service.stage;
 import com.bytequay.app.beans.stage.ApprovalDto;
 import com.bytequay.app.beans.stage.BrainFeedRow;
 import com.bytequay.app.beans.stage.CommitDto;
-import com.bytequay.app.beans.stage.ContextWindowDto;
 import com.bytequay.app.beans.stage.LinkedPrDto;
 import com.bytequay.app.beans.stage.PullRequestCreatedData;
 import com.bytequay.app.beans.stage.ScrubberDash;
@@ -76,7 +75,6 @@ import static java.util.Objects.requireNonNull;
 public class StageServiceImpl
 {
     /** Placeholder context-window cap until the token accounting lands. */
-    private static final int DEFAULT_CONTEXT_TOKEN_LIMIT = 200_000;
 
     /** Max events returned with a stage detail payload. */
     private static final int STAGE_DETAIL_EVENT_LIMIT = 50;
@@ -919,7 +917,6 @@ public class StageServiceImpl
     {
         boolean mergeable = taskStore.mergeNotificationSentAt(task.id()).isPresent();
         LinkedPrDto linkedPr = task.prNumber() == null ? null : buildLinkedPr(task, mergeable);
-        ContextWindowDto context = new ContextWindowDto(0, DEFAULT_CONTEXT_TOKEN_LIMIT, "safe");
         // A panel review is launchable while the task is reviewing its own
         // work (internal-review phases) over an existing PR, called from the
         // current top-level stage. The frontend renders the launch card off
@@ -928,7 +925,7 @@ public class StageServiceImpl
                 ? topLevelActiveStage(stages).orElse(null)
                 : null;
         return new TaskBrainViewData.RightRail(
-                buildApproval(stages, taskLiveRuns), linkedPr, context, List.<CommitDto>of(),
+                buildApproval(stages, taskLiveRuns), linkedPr, List.<CommitDto>of(),
                 parentStage != null,
                 parentStage == null ? null : parentStage.id().toString(),
                 costBreakdown,

@@ -18,7 +18,6 @@ import com.bytequay.app.developmentflow.stage.V2PlanControlService;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringServiceImpl;
@@ -38,7 +37,6 @@ import static org.mockito.Mockito.when;
 
 class TestPlanControlRouting
 {
-    private final PlanStageService legacy = mock(PlanStageService.class);
     private final TaskStore tasks = mock(TaskStore.class);
     private final V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
     private final V2PlanControlService controls = mock(V2PlanControlService.class);
@@ -58,10 +56,10 @@ class TestPlanControlRouting
                 .thenReturn(new V2PlanControlService.Replan(null, true));
 
         assertThat(controller.approvePlan(planStageId.toString()))
-                .isEqualTo(new PlanStageService.ApproveResult(
+                .isEqualTo(new StageController.ApprovePlanResult(
                         "local-new", "/tasks/task-new/stages/local-new"));
         assertThat(controller.replan("task-new"))
-                .isEqualTo(new PlanStageService.ReplanResult(null, true));
+                .isEqualTo(new StageController.ReplanResult(null, true));
         controller.resolveFollowup(
                 planStageId.toString(), "followup-new",
                 new StageController.FollowupPatch("addressed"));
@@ -70,7 +68,6 @@ class TestPlanControlRouting
         verify(controls).replan("task-new");
         verify(controls).resolveFollowup(
                 "task-new", planStageId.toString(), "followup-new", "addressed");
-        verifyNoInteractions(legacy);
     }
 
     @Test
@@ -94,7 +91,6 @@ class TestPlanControlRouting
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("read-only");
 
-        verifyNoInteractions(legacy);
         verifyNoInteractions(controls);
     }
 
@@ -104,7 +100,6 @@ class TestPlanControlRouting
                 mock(StageServiceImpl.class),
                 mock(StageDetailServiceImpl.class),
                 mock(StageSteeringServiceImpl.class),
-                legacy,
                 mock(StageStore.class),
                 tasks,
                 mock(ThreadStore.class),

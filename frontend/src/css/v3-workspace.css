@@ -141,90 +141,9 @@
 }
 /* The row wrapper hosts the drill-in button + an absolutely-placed delete
    button, so the delete isn't nested inside the row button. */
-.shell .ws-item-wrap {
-  position: relative;
-}
-.shell .ws-item {
-  display: flex;
-  align-items: center;
-  gap: var(--left-nav-row-gap);
-  padding: var(--left-nav-row-padding);
-  border-radius: var(--left-nav-row-radius);
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  text-align: left;
-  width: 100%;
-}
-.shell .ws-item:hover {
-  background: var(--left-nav-hover-bg);
-}
 /* Delete affordance on a workspace row — revealed on row hover (a list row is
    obviously hoverable, unlike the landing card), full strength on its own
    hover. Sits over the right edge where the count badge would be. */
-.shell .ws-item__delete {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  z-index: 2;
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-3);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--ws-fast, 0.12s), color var(--ws-fast, 0.12s),
-              border-color var(--ws-fast, 0.12s);
-}
-.shell .ws-item-wrap:hover .ws-item__delete,
-.shell .ws-item__delete:focus-visible {
-  opacity: 1;
-}
-.shell .ws-item__delete:hover {
-  color: #b91c1c;
-  border-color: #fca5a5;
-}
-.shell .ws-item.active {
-  background: var(--left-nav-active-bg);
-}
-.shell .ws-item .ws-meta {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.shell .ws-item .ws-name {
-  font-size: var(--left-nav-font-size);
-  font-weight: var(--left-nav-font-weight);
-  color: var(--text-1);
-  line-height: 1.2;
-}
-.shell .ws-item .ws-sub {
-  font-size: var(--left-nav-meta-font-size);
-  color: var(--text-3);
-  line-height: 1.2;
-}
-.shell .ws-item .ws-count {
-  margin-left: auto;
-  font-size: var(--left-nav-meta-font-size);
-  font-family: inherit;
-  font-weight: var(--left-nav-font-weight);
-  color: var(--text-4);
-  padding: 1px 6px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
 
 /* ── Workspace switcher (drill-in chip) ──────────────────────── */
 .shell .ws-switcher {
@@ -354,179 +273,13 @@
   flex-shrink: 0;
   margin-right: 0;
 }
-
-.shell .stage-sublist {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 1px 0 3px;
-  /* Indented under the task name (deeper than the task), with a hairline
-     spine tying the stages to their task. */
-  margin-left: 30px;
-  padding-left: 9px;
-  border-left: 1px solid var(--border);
-}
-.shell .stage-subitem {
-  display: flex;
-  align-items: center;
-  gap: var(--left-nav-row-gap);
-  padding: var(--left-nav-row-padding);
-  border-radius: var(--left-nav-row-radius);
-  font-size: var(--left-nav-nested-font-size);
-  font-weight: var(--left-nav-font-weight);
-  line-height: var(--left-nav-row-line-height);
-  color: var(--text-3);
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  text-align: left;
-  width: 100%;
-}
-.shell .stage-subitem:hover {
-  background: var(--left-nav-hover-bg);
-  color: var(--text-2);
-}
-.shell .stage-subitem.active {
-  background: var(--left-nav-active-bg);
-  color: var(--text-1);
-  font-weight: var(--left-nav-font-weight);
-}
 /* A stage shown before its row exists — dimmed and not clickable. */
-.shell .stage-subitem.pending {
-  color: var(--text-4);
-  cursor: default;
-}
-.shell .stage-subitem.pending:hover {
-  background: transparent;
-  color: var(--text-4);
-}
-.shell .stage-subitem .nm {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* ── Workspace top bar + tabs (main) ─────────────────────────── */
-.shell .ws-topbar {
-  display: flex;
-  flex-direction: column;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-  flex-shrink: 0;
-}
-.shell .ws-topbar .head-row {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 12px 20px 0;
-}
 /* Dark hero tile with the trunk glyph — the workspace's identity mark,
    shared by the main-pane header and the sidebar's workspace switcher. */
-.shell .ws-hero-tile {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #3a3a44, #1c1c22);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.shell .ws-topbar .head-row .ws-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-1);
-}
-.shell .ws-topbar .head-row .ws-repo-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--text-3);
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 3px 9px;
-}
-.shell .ws-topbar .head-row .ws-repo-chip svg {
-  color: var(--accent);
-}
-.shell .ws-topbar .head-row .grow {
-  flex: 1;
-}
 /* "+ New thread" is the top bar's primary action — accent gradient so it
  * pulls the eye in against the plain-text tabs beside it. */
-.shell .ws-topbar .head-row .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 15px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-  color: #fff;
-  border-color: var(--accent-dark);
-  border-radius: 9px;
-  font-weight: 600;
-  box-shadow: 0 2px 8px var(--accent-a40);
-}
-.shell .ws-topbar .head-row .btn:hover {
-  filter: brightness(1.06);
-}
-.shell .ws-tabs {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 12px 20px 0;
-}
-.shell .ws-topbar .head-row + .ws-tabs {
-  padding-top: 12px;
-}
-.shell .ws-tab {
-  padding: 9px 14px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-3);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  background: transparent;
-  font-family: inherit;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.shell .ws-tab:hover {
-  color: var(--text-2);
-}
-.shell .ws-tab.active {
-  color: var(--text-1);
-  font-weight: 700;
-  border-bottom-color: var(--accent);
-}
-.shell .ws-tab .ic {
-  display: inline-flex;
-  color: var(--text-3);
-}
-.shell .ws-tab.active .ic {
-  color: var(--accent);
-}
-.shell .ws-tab .count {
-  font-size: 10.5px;
-  font-weight: 700;
-  font-family: var(--mono);
-  color: var(--text-3);
-  padding: 1px 7px;
-  background: var(--bg-hover);
-  border-radius: 999px;
-}
-.shell .ws-tab.active .count {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 
 /* ── Threads surface (main body) ─────────────────────────────── */
 .shell .surface {
@@ -536,38 +289,6 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-.shell .surface-h {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.shell .surface-h .t {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-1);
-}
-.shell .surface-h .n {
-  font-size: 12px;
-  color: var(--text-4);
-}
-.shell .surface-h .grow {
-  flex: 1;
-}
-.shell .surface-h .filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 11px;
-  border: 1px solid var(--border-mid);
-  background: var(--bg-elev);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
-}
-.shell .surface-h .filter:hover {
-  background: var(--bg-hover);
 }
 
 .shell .thread-card {
@@ -643,12 +364,6 @@
   color: var(--text-3);
   white-space: nowrap;
 }
-.shell .thread-card .task-hint {
-  font-size: 11.5px;
-  color: var(--orange);
-  font-weight: 500;
-  white-space: nowrap;
-}
 .shell .thread-card .right {
   display: flex;
   align-items: center;
@@ -660,56 +375,9 @@
   color: var(--text-4);
   white-space: nowrap;
 }
-.shell .tasks-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--text-2);
-  padding: 2px 8px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
-.shell .tasks-pill .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-4);
-}
 /* Colour-coded status tones, shared by the list pill and the trunk chip. */
-.shell .tasks-pill--running .dot,
-.shell .trunk-status--running .dot { background: var(--orange); animation: working-pulse 1.4s infinite; }
-.shell .tasks-pill--review .dot,
-.shell .trunk-status--review .dot { background: #2563eb; }
-.shell .tasks-pill--attention .dot,
-.shell .trunk-status--attention .dot { background: var(--red); }
-.shell .tasks-pill--done .dot,
-.shell .trunk-status--done .dot { background: #16a34a; }
-.shell .tasks-pill--idle .dot,
-.shell .trunk-status--idle .dot { background: var(--text-4); }
 
 /* The thread-page (trunk) headline status chip in the top bar. */
-.shell .trunk-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-2);
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  white-space: nowrap;
-}
-.shell .trunk-status .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-4);
-}
 
 /* Breadcrumb in the top bar when a thread is open. */
 .shell .topbar .crumb {
@@ -726,52 +394,8 @@
 .shell .topbar .crumb:hover {
   color: var(--text-2);
 }
-.shell .topbar .crumb-sep {
-  color: var(--text-4);
-  font-size: 11px;
-  padding: 0 1px;
-}
 
 /* ── Workspace-level Backlog page (filter row + source-badged card grid) ── */
-.shell .wb-body { display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; }
-.shell .wb-filter-row { display: flex; align-items: center; gap: 8px; padding: 10px 22px; border-bottom: 1px solid var(--border); background: var(--bg); flex-wrap: wrap; }
-.shell .wb-filter-row .filter-group { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.shell .wb-filter-row .filter-label { font-size: 10.5px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
-.shell .wb-filter-row .filter-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 999px; font-size: 11.5px; color: var(--text-2); cursor: pointer; font-family: inherit; }
-.shell .wb-filter-row .filter-pill:hover { background: var(--bg-hover); }
-.shell .wb-filter-row .filter-pill.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border); font-weight: 600; }
-.shell .wb-filter-row .filter-pill .count { font-family: var(--mono); font-size: 10.5px; opacity: 0.8; }
-.shell .wb-filter-row .grow { flex: 1; }
-.shell .wb-filter-row .filter-search { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; background: var(--bg-input); border: 1px solid var(--border-mid); border-radius: 7px; min-width: 200px; }
-.shell .wb-filter-row .filter-search .ic { color: var(--text-3); font-size: 12px; }
-.shell .wb-filter-row .filter-search input { border: 0; background: transparent; font-family: inherit; font-size: 12px; color: var(--text-2); outline: none; flex: 1; }
-.shell .wb-filter-row .filter-search input::placeholder { color: var(--text-4); }
-
-.shell .wb-grid { padding: 18px 22px; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; align-content: start; flex: 1; }
-.shell .wb-grid .backlog-card-with-source { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-.shell .wb-grid .backlog-card-with-source:hover { border-color: var(--accent); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: var(--text-4); padding-bottom: 4px; border-bottom: 1px dashed var(--border); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .from-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 4px; font-size: 10.5px; color: var(--text-3); cursor: pointer; font-family: inherit; }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .from-chip:hover { color: var(--accent); border-color: var(--accent-border); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .from-chip .ic { color: var(--text-4); font-size: 10px; }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .source-badge { padding: 0 6px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; border-radius: 3px; }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .source-badge.manual { background: var(--bg-hover); color: var(--text-3); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .source-badge.trunk-split { background: var(--accent-soft); color: var(--accent); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .status-tag { margin-left: auto; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .status-tag.created { background: var(--bg-hover); color: var(--text-2); border: 1px solid var(--border); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .status-tag.in-progress { background: rgba(217,119,6,0.10); color: var(--orange); border: 1px solid rgba(217,119,6,0.30); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .status-tag.resolved { background: var(--green-soft); color: var(--green); border: 1px solid var(--green-border); }
-.shell .wb-grid .backlog-card-with-source .bs-source-row .status-tag.not-to-proceed { background: var(--bg-hover); color: var(--text-4); border: 1px solid var(--border); text-decoration: line-through; }
-.shell .wb-grid .backlog-card-with-source .bs-title { font-size: 13px; font-weight: 700; color: var(--text-1); line-height: 1.35; }
-.shell .wb-grid .backlog-card-with-source .bs-body { font-size: 12px; color: var(--text-2); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row { display: flex; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--border); flex-wrap: wrap; }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row .tag { padding: 1px 7px; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-border); border-radius: 4px; font-size: 10px; font-weight: 600; }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row .priority { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; text-transform: capitalize; }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row .priority.high { color: var(--red); background: rgba(220,38,38,0.08); }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row .priority.medium { color: var(--orange); background: rgba(217,119,6,0.10); }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row .priority.low { color: var(--green); background: var(--green-soft); }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row .action-btn { margin-left: auto; padding: 3px 9px; background: linear-gradient(135deg, #f97316, #ea580c); border: 1px solid #c2410c; border-radius: 5px; font-size: 10px; font-weight: 700; color: #fff; cursor: pointer; font-family: inherit; letter-spacing: 0.03em; }
-.shell .wb-grid .backlog-card-with-source .bs-meta-row .linked-task { margin-left: auto; font-size: 10.5px; color: var(--accent); font-weight: 600; }
 
 /* ── Sidebar "Recent" list (Home surface) ───────────────────────────
    Recently visited surfaces in place of the workspace list. */
@@ -835,13 +459,6 @@
   color: var(--text-4);
   padding: 4px 10px;
   margin: 0;
-}
-.shell .sb-recent__label {
-  font-size: var(--left-nav-meta-font-size);
-  font-weight: var(--left-nav-font-weight);
-  color: var(--text-4);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 /* The "Recent" section (visited-surface stops) reads larger than its
    "Today" sibling below it — scoped to --recent so Today's PR-bucket rows

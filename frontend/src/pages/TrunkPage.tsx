@@ -406,10 +406,8 @@ function WorkspaceOverviewPanel({
                 <strong>{runningItem?.title ?? runningTrunk?.title ?? 'Review session'}</strong>
                 <small>{runningItem?.summary ?? `${runningTrunk?.provider ?? 'agent'} · ${runningTrunk?.model ?? 'working'}`}</small>
               </span>
-              {runningOpensTask ? (
+              {runningOpensTask && (
                 <button type="button" onClick={() => { if (runningItem !== undefined) onOpenActivity(runningItem); }}>Watch</button>
-              ) : (
-                <button type="button" disabled title="Live session view coming soon">Watch</button>
               )}
             </div>
           ) : <p className="trunk-page-v2__overview-empty">No sessions running.</p>}

@@ -33,7 +33,6 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
-import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailServiceImpl;
 import com.bytequay.app.service.stage.StageServiceImpl;
 import com.bytequay.app.service.stage.StageSteeringServiceImpl;
@@ -227,7 +226,6 @@ class TestDevelopmentFlowCompatibilityApi
                 service,
                 mock(StageDetailServiceImpl.class),
                 mock(StageSteeringServiceImpl.class),
-                mock(PlanStageService.class),
                 mock(StageStore.class),
                 mock(TaskStore.class),
                 mock(ThreadStore.class),
@@ -262,7 +260,7 @@ class TestDevelopmentFlowCompatibilityApi
                 "brain-1",
                 List.of(),
                 new TaskBrainViewData.RightRail(
-                        null, null, null, List.of(), false, null, null, null),
+                        null, null, List.of(), false, null, null, null),
                 new TaskBrainViewData.Scrubbers(List.of(), List.of()),
                 List.of(),
                 null,

@@ -123,7 +123,6 @@ public record TaskBrainViewData(
     public record RightRail(
             ApprovalDto approval,
             LinkedPrDto linkedPr,
-            ContextWindowDto context,
             List<CommitDto> recentCommits,
             boolean panelSpawnable,
             String parentStageId,

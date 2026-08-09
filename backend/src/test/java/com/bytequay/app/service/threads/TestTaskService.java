@@ -16,22 +16,11 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.PullRequestRepository;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.local.GitRunner;
-import com.bytequay.app.service.localpr.PRService;
-import com.bytequay.app.service.localpr.TaskPushSaga;
-import com.bytequay.app.service.review.BrainReviewServiceImpl;
-import com.bytequay.app.service.review.RoundGateSaga;
-import com.bytequay.app.service.workspaces.WorkspaceService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -55,7 +44,6 @@ class TestTaskService
 
     private TaskStore taskStore;
     private V2TaskControlService typed;
-    private PRService prs;
     private TaskService service;
 
     @BeforeEach
@@ -63,19 +51,8 @@ class TestTaskService
     {
         taskStore = mock(TaskStore.class);
         typed = mock(V2TaskControlService.class);
-        prs = mock(PRService.class);
         service = new TaskService(
-                mock(ThreadStore.class), taskStore, mock(StageStore.class),
-                mock(WatchedRepoStore.class), mock(WorktreeService.class),
-                mock(GitRunner.class), mock(PullRequestRepository.class),
-                mock(PatResolver.class), mock(ThreadRegistry.class),
-                mock(WorkspaceService.class), mock(NotificationService.class),
-                new ObjectMapper(), mock(ApplicationEventPublisher.class),
-                mock(TaskCommandExecutor.class), mock(TaskPhaseMachine.class),
-                mock(TaskTerminalSealer.class), prs, mock(TaskPushSaga.class),
-                mock(RoundGateSaga.class), mock(BrainReviewServiceImpl.class),
-                mock(ThreadTurnScheduler.class),
-                mock(TaskRuntimeStopReconciler.class));
+                mock(ThreadStore.class), taskStore, mock(WatchedRepoStore.class));
         service.setV2Controls(typed);
     }
 
@@ -118,7 +95,6 @@ class TestTaskService
 
         assertThat(result).isSameAs(current);
         verify(taskStore, never()).saveTask(any());
-        verifyNoInteractions(prs);
     }
 
     @Test

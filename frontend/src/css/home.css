@@ -175,198 +175,9 @@
   padding: 8px 0;
 }
 
-.hp-empty__link {
-  appearance: none;
-  background: transparent;
-  border: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--font-size-md);
-  text-decoration: underline;
-  cursor: pointer;
-  padding: 0;
-}
-
 /* ── My open PRs panel (used by the kanban view) ──
    Shared rows so the same compact "PR + state chips" presentation can
    appear anywhere we want a quick "what am I shipping?" surface. */
-.mypr-panel {
-  margin: 12px 16px 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  overflow: hidden;
-  flex: 0 0 auto;
-}
-.mypr-panel__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  user-select: none;
-}
-.mypr-panel__header:hover { background: var(--bg-elevated); }
-.mypr-panel__title {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-1);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.mypr-panel__count {
-  font-size: var(--font-size-xs);
-  background: var(--accent-a7);
-  color: var(--accent);
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  font-weight: 700;
-}
-.mypr-panel__caret {
-  margin-left: auto;
-  color: var(--text-3);
-  font-size: var(--font-size-xs);
-}
-.mypr-panel__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2);
-  max-height: 280px;
-  overflow-y: auto;
-}
-.mypr-row {
-  appearance: none;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-3);
-  align-items: center;
-  min-width: 0;
-}
-.mypr-row:hover {
-  border-color: var(--accent-a40);
-  background: var(--bg-elevated);
-}
-.mypr-row__title-col { min-width: 0; }
-.mypr-row__title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-  font-weight: 500;
-  min-width: 0;
-}
-.mypr-row__title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mypr-row__chip {
-  font-size: 9.5px;
-  letter-spacing: 0.04em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.mypr-row__chip--draft {
-  background: var(--bg-elevated);
-  color: var(--text-3);
-  border: 1px solid var(--border);
-}
-.mypr-row__sub {
-  margin-top: 2px;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.mypr-row__repo {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mypr-row__num { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
-.mypr-row__sep { opacity: 0.5; }
-.mypr-row__attn {
-  color: #b45309;
-  font-weight: 600;
-}
-.mypr-row__signals {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-.mypr-row__ci {
-  font-size: var(--font-size-xs);
-  line-height: 1;
-}
-.mypr-row__ci--passing { color: #16a34a; }
-.mypr-row__ci--failing { color: #ef4444; }
-.mypr-row__ci--pending { color: #eab308; }
-.mypr-row__count {
-  font-size: var(--font-size-xs);
-  color: var(--text-2);
-  font-variant-numeric: tabular-nums;
-}
-.mypr-row__count--zero { color: var(--text-3); }
-.mypr-empty {
-  padding: var(--space-3);
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-}
-
-.home-year-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  /* Let the card shrink inside its grid cell; without this it grows to the
-     chart's intrinsic width and overlaps the right sidebar. */
-  min-width: 0;
-}
-
-.home-year-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.home-year-card__title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-.home-year-card__subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  margin-top: 2px;
-}
-
-.home-year-card__badge {
-  font-size: var(--font-size-xs);
-  color: var(--text-2);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 2px 10px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
 
 /* Native contribution heatmap. Rendered as inline SVG with a viewBox so
    it scales crisply at any zoom — the renderer paints rects at the
@@ -755,12 +566,6 @@
 }
 
 /* Section title (used by PullRequestPreview) */
-.section-title {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-2);
-  margin: 0 0 8px 0;
-}
 
 /* Edit profile modal */
 /* ── Section header + 2-col card grids (repos / teams) ───────────── */
@@ -796,8 +601,7 @@
   gap: var(--space-2);
 }
 
-.home-repo-tile,
-.home-team-tile {
+.home-repo-tile {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -807,8 +611,7 @@
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.home-repo-tile:hover,
-.home-team-tile:hover {
+.home-repo-tile:hover {
   border-color: var(--accent-a40);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
@@ -884,62 +687,6 @@
   margin-left: auto;
   color: var(--green);
   font-weight: 500;
-}
-
-.home-team-tile__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-
-.home-team-tile__names {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.home-team-tile__name {
-  font-size: var(--font-size-md);
-  font-weight: 600;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-team-tile:hover .home-team-tile__name {
-  color: var(--accent);
-}
-
-.home-team-tile__meta {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-}
-
-.home-team-tile__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  border-top: 1px solid var(--border);
-  padding-top: var(--space-1);
-}
-
-.home-team-tile__foot b {
-  color: var(--text-1);
-  font-weight: 600;
-}
-
-.home-team-tile__view {
-  color: var(--accent);
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.home-team-tile:hover .home-team-tile__view {
-  opacity: 1;
 }
 
 /* ── Contribution card ──────────────────────────────────────────────
@@ -1146,19 +893,6 @@
   background: var(--accent);
 }
 
-.home-inbox__seeall {
-  background: none;
-  border: none;
-  font-size: var(--font-size-sm);
-  color: var(--accent);
-  cursor: pointer;
-  padding: 2px 4px;
-}
-
-.home-inbox__seeall:hover {
-  color: var(--accent-deep);
-}
-
 .home-inbox__list {
   display: flex;
   flex-direction: column;
@@ -1255,18 +989,6 @@
   text-overflow: ellipsis;
 }
 
-.home-inbox-card__meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.home-inbox-card__author {
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .home-inbox-card__repo {
   border-radius: 4px;
   flex-shrink: 0;
@@ -1282,137 +1004,4 @@
 .home-inbox-card__time {
   font-size: var(--font-size-sm);
   color: var(--text-3);
-}
-
-.home-inbox-card__chev {
-  color: var(--text-3);
-  font-size: 14px;
-  transition: transform 120ms ease;
-}
-
-.home-inbox-card__chev--open {
-  transform: rotate(90deg);
-}
-
-.home-inbox-detail {
-  border-top: 1px solid var(--border);
-  padding: var(--space-2) var(--space-3) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.home-inbox-detail__byline {
-  font-size: var(--font-size-sm);
-  color: var(--text-3);
-  margin: 0;
-}
-
-.home-inbox-detail__byline b {
-  color: var(--text-1);
-  font-weight: 500;
-}
-
-.home-inbox-detail__ref {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.home-inbox-detail__stats {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-size-sm);
-}
-
-.home-inbox-checks {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid;
-  font-weight: 500;
-  font-size: var(--font-size-xs);
-}
-
-.home-inbox-checks--ok {
-  background: var(--green-soft);
-  color: var(--green);
-  border-color: var(--green-border);
-}
-
-.home-inbox-checks--bad {
-  background: var(--red-soft);
-  color: var(--red);
-  border-color: var(--red-border);
-}
-
-.home-inbox-delta {
-  font-family: var(--mono);
-  font-weight: 500;
-  font-size: var(--font-size-xs);
-}
-
-.home-inbox-delta--add { color: var(--green); }
-.home-inbox-delta--del { color: var(--red); }
-
-.home-inbox-detail__muted {
-  color: var(--text-3);
-}
-
-.home-inbox-detail__grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: var(--space-3);
-  row-gap: 2px;
-  font-size: var(--font-size-sm);
-}
-
-.home-inbox-detail__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.home-inbox-btn {
-  font-size: var(--font-size-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
-  color: var(--text-2);
-  border-radius: var(--radius-md);
-  padding: 3px 10px;
-  cursor: pointer;
-}
-
-.home-inbox-btn:hover {
-  color: var(--text-1);
-  border-color: var(--border-mid);
-}
-
-.home-inbox-btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 500;
-}
-
-.home-inbox-btn--primary:hover {
-  background: var(--accent-deep);
-  color: #fff;
-}
-
-.home-inbox-btn--primary:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.home-inbox-btn--quiet {
-  border: none;
-  background: none;
-  color: var(--text-3);
-  margin-left: auto;
-}
-
-.home-inbox-btn--quiet:hover {
-  color: var(--text-1);
 }

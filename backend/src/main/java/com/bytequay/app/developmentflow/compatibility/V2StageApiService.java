@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.developmentflow.compatibility;
 
-import com.bytequay.app.beans.stage.ContextWindowDto;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailData.BranchSyncRecovery;
@@ -57,7 +56,6 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
-import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -68,7 +66,6 @@ import static java.util.Objects.requireNonNull;
 @Service
 public final class V2StageApiService
 {
-    private static final int CONTEXT_TOKEN_LIMIT = 200_000;
     private static final long STREAM_POLL_MS = 100;
 
     private final JdbcTemplate jdbc;
@@ -169,9 +166,6 @@ public final class V2StageApiService
                 null,
                 List.of(),
                 null,
-                new ContextWindowDto(
-                        toIntExact(Math.min(Integer.MAX_VALUE, usage.tokens())),
-                        CONTEXT_TOKEN_LIMIT, contextBand(usage.tokens())),
                 new Scrubber(scrubbers),
                 List.of(),
                 branchGuards.project(stage.taskId()),
@@ -1415,17 +1409,6 @@ public final class V2StageApiService
             case "TASK_CANCELED", "SUPERSEDED_BY_REPLAN" -> "aborted";
             default -> "succeeded";
         };
-    }
-
-    private static String contextBand(long tokens)
-    {
-        if (tokens >= CONTEXT_TOKEN_LIMIT * 9L / 10L) {
-            return "danger";
-        }
-        if (tokens >= CONTEXT_TOKEN_LIMIT * 3L / 4L) {
-            return "warn";
-        }
-        return "safe";
     }
 
     private static Instant instant(long value)

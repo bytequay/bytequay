@@ -59,7 +59,6 @@ function AppearancePage() {
                 : <span className="sv2-btn sv2-btn--sm" style={{ marginLeft: 'auto' }}>Use this theme</span>}
             </div>
           </div>
-          <div className="sv2-soon">More themes coming soon.</div>
         </div>
       </div>
     </SettingsPage>

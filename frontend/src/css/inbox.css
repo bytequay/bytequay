@@ -112,10 +112,6 @@
    - reviewed solid  : You reviewed (commented / changes-requested),
                        waiting on the author. Quieter than new/resurfaced. */
 
-.v2-card--seen .v2-card__title {
-  color: var(--text-2);
-}
-
 /* Small repo badge (avatar + name) shown as the first item in a card's top
    row — so the user can tell at a glance which repo a PR belongs to in the
    kanban or sidebar list, where multiple repos share the same column. */
@@ -176,44 +172,7 @@
 /* "Awaiting author" — you reviewed, waiting on the PR author to respond.
    Muted blue so it's distinct from the "new" glow without shouting. */
 
-.v2-card:hover .v2-hover-action {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
 /* Handled card status badges ─────────────────────────────── */
-
-.handled-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-}
-
-.handled-badge--approved {
-  background: rgba(34, 139, 82, 0.15);
-  color: #1f7a48;
-}
-.handled-badge--merged {
-  background: rgba(137, 87, 229, 0.15);
-  color: #6f47c7;
-}
-.handled-badge--commented {
-  background: rgba(88, 133, 214, 0.18);
-  color: #3e6bb1;
-}
-.handled-badge--changes {
-  background: rgba(214, 79, 67, 0.15);
-  color: #b13a2d;
-}
-.handled-badge--dismissed {
-  background: var(--border);
-  color: var(--text-3);
-}
 
 /* Right help panel ───────────────────────────────────────── */
 
@@ -241,14 +200,6 @@
    user can click "Why?" to expand the details inline if they want. */
 
 /* Native diff viewer (Phase 2c slice A — read-only) ───────── */
-.diff-viewer {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-base);
-  min-height: 0;
-}
 
 /* ── Task code page · review mode ──────────────────────────────────────
    The actions bar lives at the right of the toolbar; the editable PR
@@ -277,13 +228,6 @@
 /* ── Conversation column (leftmost) — reuses the V3 conversation +
    composer, but `.shell` would impose its 2-column grid, so flatten it
    to a flex column here. ─────────────────────────────────────── */
-.diff-viewer__chat.shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 100%;
-  background: var(--bg-elevated);
-}
 
 /* Segmented control: [Tree | Flat]. Sits on the right end of the header. */
 
@@ -304,50 +248,13 @@
 /* Full-path name: wrap so the user sees everything without truncation —
    flat mode is specifically about "give me all the context". */
 
-.diff-file-row {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 1px 8px 1px 0;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font: inherit;
-  color: var(--text-1);
-  text-align: left;
-  transition: background 0.08s;
-  min-height: 20px;
-  line-height: 1.2;
-  position: relative;
-}
-
-.diff-file-row:hover { background: var(--accent-a7); }
-
 /* Tree-indent chevron. Rotates via transform rather than swapping glyphs so
    the motion reads as "this row expands/collapses" instead of a flicker. */
-.tree-chevron {
-  flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
-  color: var(--text-3);
-  transition: transform 0.12s ease;
-  transform: rotate(0deg);
-}
-.tree-chevron--open { transform: rotate(90deg); }
-.tree-chevron--placeholder { visibility: hidden; }
-.diff-file-row--dir:hover .tree-chevron,
-.diff-file-row--dir .tree-chevron { color: var(--text-2); }
 
 .tree-folder {
   flex: 0 0 auto;
   color: var(--accent);
   opacity: 0.85;
-}
-.diff-file-row--selected .tree-folder,
-.diff-file-row--selected .tree-chevron {
-  color: var(--accent);
-  opacity: 1;
 }
 
 /* Soft tinted status indicator — a colored letter on a matching light wash
@@ -355,179 +262,25 @@
 
 /* Same trick for the pane header filename — long monorepo paths otherwise
    hide the actual file name at the end. */
-.diff-viewer__pane-filename {
-  direction: rtl;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: inline-block;
-  min-width: 0;
-  max-width: 100%;
-}
 
 /* File stats pill — tabular-numeric so the + / − numbers line up vertically
    across rows, and a subtle gap between them for readability. */
 
-.diff-file-row__add { color: #3e8060; }
-.diff-file-row__del { color: #aa4e3e; }
-
-.diff-viewer__pane {
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-base);
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
 /* The one scroll container for the diff. Only y-scrolls — long lines wrap
    like github.com's PR diff so you never need a horizontal scrollbar. */
-.diff-viewer__pane-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
 
 /* Continuous-files variant: every changed file is rendered into the same
    scroll container, with sticky per-file headers. The user scrolls through
    the whole diff like GitHub's "Files changed" tab. */
-.diff-viewer__pane-scroll--continuous {
-  scroll-behavior: smooth;
-  /* Breathing room so each file card floats off the pane edges, the way
-     GitHub's "Files changed" tab insets its file boxes. No TOP padding,
-     though: a sticky `top: 0` header in a top-padded scroll container sticks
-     *below* the padding, leaving a persistent gap above it that the previous
-     file's content shows through while scrolling. The top inset comes from a
-     first-child margin instead. */
-  padding: 0 var(--space-3) var(--space-3);
-}
-.diff-file-section:first-child { margin-top: var(--space-3); }
-.diff-file-section {
-  display: flex;
-  flex-direction: column;
-  /* Each changed file is its own bordered card with a gap to the next,
-     matching GitHub rather than running every file together with a hairline. */
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-3);
-  /* Opaque (not --bg-card's translucent wash) — GitHub-style diff colors
-     below assume a solid white card, matching docs/mockups/design/diff-view. */
-  background: var(--bg-elevated);
-}
-.diff-file-section:last-child { margin-bottom: 0; }
-.diff-file-section__header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  /* Taller, roomier header to match GitHub's file box title bar. */
-  padding: var(--space-3) var(--space-4);
-  min-height: 48px;
-  border-bottom: 1px solid var(--border);
-  background: #f6f8fa;
-  /* Match the card's rounded top so the sticky header doesn't square off
-     the corners. */
-  border-top-left-radius: var(--radius-md);
-  border-top-right-radius: var(--radius-md);
-}
-[data-theme="atom-one-dark"] .diff-file-section__header {
-  background: var(--bg-card);
-}
-.diff-file-section__fold {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  color: var(--text-2);
-  font-size: 11px;
-  line-height: 1;
-  border-radius: 4px;
-}
-.diff-file-section__fold:hover {
-  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
-  color: var(--text-1);
-}
-.diff-file-section__stats {
-  margin-left: auto;
-  display: flex;
-  gap: var(--space-1);
-  font-size: var(--font-size-xs);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-}
-
-.diff-viewer__pane-filename {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: var(--font-size-sm);
-  color: var(--text-1);
-}
-
-.diff-viewer__pane-status {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-weight: 600;
-}
 
 /* Status-specific tints — yellow for modified, green for added, red for
    removed. Background wash is the saturated color at low opacity so the
    chip stays readable on either light or dark backgrounds. */
-.diff-viewer__pane-status--modified {
-  color: #996600;
-  background: rgba(191, 135, 0, 0.18);
-}
-.diff-viewer__pane-status--added {
-  color: #2ea043;
-  background: rgba(46, 160, 67, 0.18);
-}
-.diff-viewer__pane-status--removed {
-  color: #cf222e;
-  background: rgba(207, 34, 46, 0.18);
-}
-.diff-viewer__pane-status--renamed,
-.diff-viewer__pane-status--copied {
-  color: #8250df;
-  background: rgba(130, 80, 223, 0.16);
-}
 
 /* Per-file header bar above a single-file diff —
    filename + change status + line counts, like the PR viewer's file head. */
-.diff-viewer__pane-file-bar .diff-viewer__pane-filename {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.diff-viewer__pane-stat { margin-left: auto; display: inline-flex; gap: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-size-xs); font-weight: 700; flex-shrink: 0; }
-.diff-viewer__pane-stat .add { color: #2ea043; }
-.diff-viewer__pane-stat .del { color: #cf222e; }
 
 /* ── Mockup-V2 toolbar buttons ────────────────────────────────────────── */
-
-.submit-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 280px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
-  padding: var(--space-2);
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
 
 /* ── Finish-your-review panel ─────────────────────────────────────────── */
 /* Anchored to the Submit-review pill in the toolbar; replaces the smaller
@@ -565,7 +318,6 @@
 /* ═══════════ Three-column diff view: commits lane ═══════════
    All lanes share the white canvas; hairline dividers separate the
    columns (commits → files → diff). */
-.diff-viewer__pane { background: #ffffff; }
 
 /* Column header + bare-chevron fold toggle (no border / no button box). */
 

@@ -78,7 +78,6 @@
 }
 .pl-quick-review__header > span { color: #17191c; font-size: 13px; font-weight: 700; }
 .pl-quick-review__header > small { color: #59636e; font-size: 11px; }
-.pl-quick-review__summary,
 .pl-quick-review__empty {
   margin: 0;
   padding: 12px;
@@ -89,7 +88,6 @@
 }
 .pl-quick-review__empty { color: #59636e; }
 .pl-quick-review__findings { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
-.pl-quick-review__summary + .pl-quick-review__findings { padding-top: 0; }
 .pl-quick-review__finding { padding: 10px; border: 1px solid #e7e9ec; border-radius: 8px; }
 .pl-quick-review__finding-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .pl-quick-review__finding-meta > span {
@@ -106,9 +104,7 @@
   font-size: 12.5px;
   line-height: 1.5;
 }
-.pl-quick-review__summary > :first-child,
 .pl-quick-review__finding-body > :first-child { margin-top: 0; }
-.pl-quick-review__summary > :last-child,
 .pl-quick-review__finding-body > :last-child { margin-bottom: 0; }
 .pl-hov-green:hover:not(:disabled) { background: #1a7f37 !important; }
 .agent-review-v2__trunk:hover { background: #f0f2f4 !important; }

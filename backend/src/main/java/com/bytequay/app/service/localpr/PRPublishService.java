@@ -43,14 +43,12 @@ import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
-/** Publishes local PRs through the durable push saga and owns the remaining
- * explicit remote PR actions (review, merge, dequeue, and branch deletion). */
+/** Owns explicit typed remote PR actions. */
 @Service
 public class PRPublishService
 {
     private final PRService prService;
     private final TaskStore taskStore;
-    private final TaskPushSaga pushSaga;
     private final V2PrRemoteControlService v2Controls;
     private final V2UserRemoteActionRuntime v2UserRemoteActions;
 
@@ -63,7 +61,6 @@ public class PRPublishService
             PullRequestService pullRequestDetails,
             ReadyToMergeService readyToMerge,
             TaskService taskService,
-            TaskPushSaga pushSaga,
             V2PrRemoteControlService v2Controls,
             V2UserRemoteActionRuntime v2UserRemoteActions)
     {
@@ -75,7 +72,6 @@ public class PRPublishService
         requireNonNull(pullRequestDetails, "pullRequestDetails is null");
         requireNonNull(readyToMerge, "readyToMerge is null");
         requireNonNull(taskService, "taskService is null");
-        this.pushSaga = requireNonNull(pushSaga, "pushSaga is null");
         this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
         this.v2UserRemoteActions = requireNonNull(
                 v2UserRemoteActions, "v2UserRemoteActions is null");
@@ -151,7 +147,9 @@ public class PRPublishService
             return prService.findById(prId).orElse(pr);
         }
         candidate.ifPresent(PRPublishService::rejectLegacyTaskPr);
-        return pushSaga.push(prId, userOverride);
+        throw new ResponseStatusException(
+                HttpStatus.CONFLICT,
+                "Legacy PR publish is retired; use the typed V2 remote owner");
     }
 
     /**

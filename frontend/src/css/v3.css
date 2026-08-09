@@ -52,30 +52,6 @@
 }
 
 /* ── Pill — bold surface-kind pill (THREAD / TASK / STAGE) ────── */
-.v3-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px 3px 7px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-}
-.v3-pill--thread {
-  background: var(--teal-soft);
-  color: var(--teal);
-}
-.v3-pill--task {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.v3-pill--stage {
-  background: var(--orange-soft);
-  color: var(--orange);
-}
-.v3-pill__ic {
-  font-size: 10px;
-}
 
 /* ── Tag — small chip for a label / tag ──────────────────────── */
 .v3-tag {
@@ -192,26 +168,3 @@
 }
 
 /* ── IconBtn — 28px square icon button ───────────────────────── */
-.v3-iconbtn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border-mid);
-  background: var(--bg-elev);
-  border-radius: 6px;
-  color: var(--text-3);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-}
-.v3-iconbtn:hover {
-  background: var(--bg-hover);
-  color: var(--text-2);
-}
-.v3-iconbtn--active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--accent-border);
-}

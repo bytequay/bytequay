@@ -776,7 +776,7 @@ class TestPRService
         String reason = "x".repeat(2_050);
 
         commands.executeVoid("task1", () -> service.recordPushFailureInCommand(
-                "pr1", TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST, reason));
+                "pr1", "ensure_pull_request", reason));
 
         ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
         verify(store).addEvent(event.capture());
@@ -786,7 +786,7 @@ class TestPRService
         JsonNode timelinePayload = new ObjectMapper().readTree(event.getValue().payloadJson());
         assertThat(timelinePayload.path("phase").asText()).isEqualTo(PRTimelineEntry.PHASE_FAILED);
         assertThat(timelinePayload.path("failedStep").asText())
-                .isEqualTo(TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST);
+                .isEqualTo("ensure_pull_request");
         assertThat(timelinePayload.path("reason").asText()).hasSize(2_000);
 
         @SuppressWarnings("unchecked")
@@ -798,7 +798,7 @@ class TestPRService
                 .containsEntry("phase", PRTimelineEntry.PHASE_FAILED)
                 .containsEntry("branch", "dev/x")
                 .containsEntry("baseBranch", "main")
-                .containsEntry("failedStep", TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST);
+                .containsEntry("failedStep", "ensure_pull_request");
         assertThat((String) stagePayload.getValue().get("reason")).hasSize(2_000);
     }
 

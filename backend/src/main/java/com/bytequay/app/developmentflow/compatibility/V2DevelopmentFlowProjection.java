@@ -15,7 +15,6 @@ package com.bytequay.app.developmentflow.compatibility;
 
 import com.bytequay.app.beans.stage.ApprovalDto;
 import com.bytequay.app.beans.stage.BrainFeedRow;
-import com.bytequay.app.beans.stage.ContextWindowDto;
 import com.bytequay.app.beans.stage.LinkedPrDto;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailDto;
@@ -54,7 +53,6 @@ import static java.util.Objects.requireNonNull;
 public final class V2DevelopmentFlowProjection
 {
     private static final int STAGE_EVENT_LIMIT = 50;
-    private static final int CONTEXT_TOKEN_LIMIT = 200_000;
     private static final Set<String> TERMINAL_LIFECYCLES =
             Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED");
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -158,11 +156,6 @@ public final class V2DevelopmentFlowProjection
                 feed,
                 new TaskBrainViewData.RightRail(
                         approval, linkedPr,
-                        new ContextWindowDto(
-                                Math.toIntExact(Math.min(Integer.MAX_VALUE,
-                                        row.tokensIn() + row.tokensOut())),
-                                CONTEXT_TOKEN_LIMIT,
-                                contextBand(row.tokensIn() + row.tokensOut())),
                         List.of(),
                         false,
                         null,
@@ -1588,17 +1581,6 @@ public final class V2DevelopmentFlowProjection
             return "NEEDS ATTENTION";
         }
         return task.phase().name().replace('_', ' ');
-    }
-
-    private static String contextBand(long tokens)
-    {
-        if (tokens >= CONTEXT_TOKEN_LIMIT * 9L / 10L) {
-            return "danger";
-        }
-        if (tokens >= CONTEXT_TOKEN_LIMIT * 3L / 4L) {
-            return "warn";
-        }
-        return "safe";
     }
 
     private static boolean isDraft(String state)

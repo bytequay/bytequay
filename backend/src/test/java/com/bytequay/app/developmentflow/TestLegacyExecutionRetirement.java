@@ -29,13 +29,9 @@ class TestLegacyExecutionRetirement
             "java/com/bytequay/app/service");
 
     private static final List<String> DIRECT_ONLY_LEGACY_CALLBACKS = List.of(
-            "localpr/TaskPushSaga.java",
-            "review/RoundGateSaga.java",
             "review/BrainReviewServiceImpl.java",
-            "threads/TaskRuntimeStopReconciler.java",
             "threads/TaskPhaseMachine.java",
             "threads/TaskTerminalSealer.java",
-            "stage/PlanStageService.java",
             "stage/IterationService.java",
             "stage/StageBudgetService.java",
             "review/BranchGuardServiceImpl.java",

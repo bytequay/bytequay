@@ -78,7 +78,7 @@ class TestHarnessDiagnosisService
         Path upstream = root.resolve("upstream");
         WorkspaceRelationDto relation = new WorkspaceRelationDto(
                 "ws", "upstream-ws", "Upstream", "upstream/widget",
-                true, false, false, false, null, 60, 1);
+                true, false, null, 60, 1);
         ResolvedRelation resolved = new ResolvedRelation(
                 relation,
                 new RepositoryIdentity("acme", "widget", "acme/widget", "main"),

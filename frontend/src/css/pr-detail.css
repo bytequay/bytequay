@@ -81,16 +81,6 @@
    the rail only shows in the gaps between cards and around event rows.
    top:0/bottom:0 makes the rail exactly the height of the entries. */
 /* Each timeline entry sits in front of the rail. */
-.prc-timeline__entries > .prc-comment-card,
-.prc-timeline__entries > .prc-event-row,
-.prc-timeline__entries > .prc-approved-row,
-.prc-timeline__entries > .prc-review-event,
-.prc-timeline__entries > .prc-review-thread,
-.prc-timeline__entries > .prc-event-group,
-.prc-timeline__entries > .merge-card {
-  position: relative;
-  z-index: 1;
-}
 
 /* Merge card living inside the timeline — adopts the same gutter
    geometry as .prc-comment-card so the icon avatar lines up with the
@@ -99,19 +89,6 @@
    through this entry so the timeline visually continues to the merge
    action. The 30px sibling gap from .prc-timeline__entries already
    gives 30px above; the comment box below sits with its own margin. */
-.prc-timeline__entries > .merge-card {
-  padding-left: 16px;
-  gap: var(--space-4);
-  margin-bottom: 0;
-}
-.prc-timeline__entries > .merge-card .merge-card__icon {
-  width: 40px;
-  height: 40px;
-  margin-top: 0;
-}
-.prc-timeline__entries > .merge-card .merge-card__rows {
-  font-size: var(--font-size-lg);
-}
 
 /* Comment & review cards. The avatar is OUTSIDE the bubble — flex row of
    [avatar] + [bordered body with leftward tail]. Reads like the avatar is
@@ -352,10 +329,6 @@
    as a "double-bordered" block. */
 /* Expanded body — review body markdown + attached inline threads.
    Stacks vertically with a bit of breathing room above. */
-.prc-review-card__content .prc-comment-body {
-  font-size: var(--font-size-md);
-  color: var(--text-1);
-}
 
 /* Threaded review comment (per-line code review, with diff_hunk). */
 .prc-review-thread {
@@ -369,9 +342,6 @@
    avatar gutter — but ONLY when sitting as a direct timeline entry, not
    when rendered in the clean-mode side panel or nested inside a comment
    card body (which already pads them). */
-.prc-timeline__entries > .prc-review-thread {
-  margin-left: 72px;
-}
 .prc-review-thread__head {
   padding: var(--space-2) var(--space-3);
   background: var(--bg-elevated);
@@ -399,15 +369,6 @@
 .prc-review-thread__loc-btn:hover code {
   color: var(--accent, var(--link, #4c8dff));
   text-decoration: underline;
-}
-.prc-review-thread__side {
-  font-size: 9.5px;
-  letter-spacing: 0.05em;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--accent-a7);
-  color: var(--accent);
 }
 /* Wrapper around the trimmed hunk + its "Comment on lines +X to +Y"
    header. Used for review-thread comments scoped to a specific line
@@ -687,40 +648,12 @@
 
 /* Clickable variant: the whole row is a button so users can click anywhere
    on a review comment to start a reply. Strip the default button look. */
-.prc-review-thread__msg--clickable {
-  background: transparent;
-  border: 0;
-  padding: var(--space-1);
-  margin: 0 -6px;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  border-radius: var(--radius-md);
-  width: calc(100% + 12px);
-}
-.prc-review-thread__msg--clickable:hover {
-  background: var(--bg-hover, rgba(99, 102, 241, 0.06));
-}
 
 /* Inline reply stub + composer at the bottom of a thread. */
 .prc-review-thread__reply-stub {
   padding: 6px 10px 10px;
   display: flex;
   justify-content: flex-end;
-}
-.prc-review-thread__reply-btn {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  cursor: pointer;
-}
-.prc-review-thread__reply-btn:hover {
-  border-color: var(--text-2);
-  color: var(--text-1);
 }
 .prc-review-thread__reply {
   border-top: 1px dashed var(--border);
@@ -977,50 +910,6 @@
 .prc-review-thread--compact .prc-review-thread__msg-body .reaction-chips {
   margin-top: 12px;
 }
-.prc-review-thread__compact-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  min-height: 52px;
-  padding: 8px 30px;
-  border-top: 1px solid #e7e9ec;
-  background: #fff;
-}
-.prc-review-thread__compact-reply {
-  appearance: none;
-  border: 0;
-  padding: 4px 0;
-  background: transparent;
-  color: #1f2328;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.prc-review-thread__compact-reply:hover { color: #0969da; }
-.prc-review-thread__compact-editor {
-  display: grid;
-  gap: 8px;
-  flex: 1 1 100%;
-  padding: 4px 0;
-}
-.prc-review-thread__compact-footer .prc-review-thread__resolve-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  padding: 6px 11px;
-  border-color: #d0d7de;
-  border-radius: 8px;
-  background: #f6f8fa;
-  color: #24292f;
-  font-size: 13px;
-  letter-spacing: 0;
-}
-.prc-review-thread__compact-footer .pr-comment-box__error {
-  flex-basis: 100%;
-}
 .prc-review-thread__outdated-pill {
   font-size: 9.5px;
   font-weight: 700;
@@ -1044,20 +933,6 @@
 /* Inline Reply link rendered next to the last message's timestamp.
    Replaces the old reply-stub row so the action sits on the same line as
    metadata instead of taking its own row below the messages. */
-.prc-review-thread__reply-inline {
-  margin-left: auto;
-  background: transparent;
-  border: 0;
-  padding: 0 6px;
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.prc-review-thread__reply-inline:hover {
-  background: var(--accent-a7, rgba(99, 102, 241, 0.06));
-  color: var(--accent);
-}
 
 /* Compact emoji-count chips shown below a comment body (👍 3, 🎉 1, …).
    Mirrors GitHub's reaction row but read-only for now. */
@@ -1168,10 +1043,6 @@
 .prc-comment-menu {
   position: relative;
   display: inline-flex;
-}
-.prc-comment-head > .prc-comment-menu,
-.activity-item__header > .prc-comment-menu {
-  margin-left: auto;
 }
 .prc-comment-menu__trigger {
   background: transparent;
@@ -1338,28 +1209,11 @@
 /* The bubble's tail (top:14) lands in the tinted header zone for the
    description variant, so the fill triangle must match the header bg
    instead of the default body bg or the seam reads as a color crack. */
-.description-card__body {
-  padding: 12px 16px 14px;
-}
-.description-card__body .md-body :first-child { margin-top: 0; }
-.description-card__body .md-body :last-child { margin-bottom: 0; }
 
 /* Inline edit form sits inside the bubble — strip the standalone
    .description-card chrome (border/radius/elevated bg/overflow) since
    the bubble itself is now the visual container. */
-.prc-comment-card--description .description-card--editing {
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-  padding: var(--space-3);
-  background: transparent;
-  flex: 0 0 auto;
-  overflow: visible;
-}
 /* Edit button hugs the right side of the description header. */
-.prc-comment-head--description .description-card__edit {
-  margin-left: auto;
-}
 
 /* Clean-mode sizing: when the description card is wrapped in the
    flex-growing .preview__section--description, the bubble must grow to
@@ -1368,11 +1222,6 @@
    handle its own overflow. In classic mode (no wrapper) these rules
    don't apply, so the description sits at natural height as a regular
    timeline entry. */
-.preview__section--description > .prc-comment-card--description .description-card__body {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;            /* THIS is the scroll surface in clean mode */
-}
 
 /* Manual refresh button on the PR detail header. Force-reloads this
    PR's comments / timeline / reviews from GitHub (drops the backend's

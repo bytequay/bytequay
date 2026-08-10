@@ -17,6 +17,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
@@ -156,15 +157,38 @@ public final class InProcessWriterAgentSupervisor
             });
         }
 
+        /** Program-bound local checks; the model supplies no command/evidence. */
+        public List<LocalCheckRun> runChecks(
+                LocalChecks localChecks,
+                Path programOwnedRepositoryRoot,
+                String profileName)
+        {
+            return execution.runChecks(
+                    localChecks, programOwnedRepositoryRoot, profileName);
+        }
+
         /** Terminal Task tool; its immutable request durably seals all tools. */
         public ReviewerRequest spawnAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
                 String expectedChangeSetRevisionId,
-                List<String> checkRunRefs)
+                LocalChecks.ReviewerEvidence reviewerEvidence)
         {
             return execution.spawnAdversarialReviewer(
                     programOwnedRepositoryRoot,
                     expectedChangeSetRevisionId,
+                    reviewerEvidence);
+        }
+
+        public ReviewerRequest replayAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                String localCheckPolicyRevisionId,
+                List<String> checkRunRefs)
+        {
+            return execution.replayAdversarialReviewer(
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId,
+                    localCheckPolicyRevisionId,
                     checkRunRefs);
         }
 
@@ -609,6 +633,7 @@ public final class InProcessWriterAgentSupervisor
         private int activeToolCalls;
         private boolean cancellationRequested;
         private boolean quarantined;
+        private boolean localCheckBoundaryUnproven;
         private AgentResult result;
         private AgentCompletion finalizationCompletion;
         private InProcessStopType stopType;
@@ -721,6 +746,10 @@ public final class InProcessWriterAgentSupervisor
                     throw new FlowRuntime.StaleCapabilityException(
                             "writer tool capability is revoked");
                 }
+                if (localCheckBoundaryUnproven) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "local-check process boundary is unresolved");
+                }
                 runtime.assertInProcessWriterToolCapability(
                         runId,
                         claim,
@@ -739,29 +768,72 @@ public final class InProcessWriterAgentSupervisor
             }
         }
 
+        private List<LocalCheckRun> runChecks(
+                LocalChecks localChecks,
+                Path programOwnedRepositoryRoot,
+                String profileName)
+        {
+            requireNonNull(localChecks, "localChecks is null");
+            requireNonNull(programOwnedRepositoryRoot,
+                    "programOwnedRepositoryRoot is null");
+            return callTool(() -> {
+                LocalChecks.PreparedLocalCheckBatch batch =
+                        localChecks.prepareBatch(runId, profileName);
+                renewFor(batch.requiredAuthorityDuration());
+                try {
+                    return localChecks.runAndRecord(
+                            batch,
+                            claim,
+                            fence,
+                            programOwnedRepositoryRoot,
+                            () -> {
+                                synchronized (this) {
+                                    localCheckBoundaryUnproven = true;
+                                }
+                            });
+                }
+                catch (LocalChecks.ProcessBoundaryUnprovenException failure) {
+                    synchronized (this) {
+                        localCheckBoundaryUnproven = true;
+                    }
+                    throw failure;
+                }
+            });
+        }
+
+        private void renewFor(Duration requiredTtl)
+        {
+            Claim previousClaim;
+            WriterFence previousFence;
+            synchronized (this) {
+                previousClaim = claim;
+                previousFence = fence;
+            }
+            Claim renewedClaim = runtime.renewClaim(
+                    previousClaim, requiredTtl);
+            WriterFence renewedFence = runtime.renewWriterLease(
+                    renewedClaim, previousFence, requiredTtl);
+            synchronized (this) {
+                if (!sameClaimAuthority(claim, renewedClaim)
+                        || !sameFenceAuthority(fence, renewedFence)) {
+                    throw new IllegalStateException(
+                            "writer authority changed during local-check renewal");
+                }
+                claim = laterClaim(claim, renewedClaim);
+                fence = laterFence(fence, renewedFence);
+            }
+        }
+
         private ReviewerRequest spawnAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
                 String expectedChangeSetRevisionId,
-                List<String> checkRunRefs)
+                LocalChecks.ReviewerEvidence reviewerEvidence)
         {
             synchronized (this) {
                 if (Thread.currentThread() != thread) {
                     throw new FlowRuntime.StaleCapabilityException(
                             "terminal tool requires the owned writer thread");
                 }
-            }
-            Optional<ReviewerRequest> existing =
-                    runtime.reviewerRequestForParentRun(runId);
-            if (existing.isPresent()) {
-                ReviewerRequest replayed = runtime.replayReviewerRequest(
-                        runId,
-                        programOwnedRepositoryRoot,
-                        expectedChangeSetRevisionId,
-                        checkRunRefs);
-                synchronized (this) {
-                    revocationRequested = true;
-                }
-                return replayed;
             }
             ReviewerRequest result = callTool(() -> {
                 FlowRuntime.PreparedReviewerRequest prepared =
@@ -771,7 +843,7 @@ public final class InProcessWriterAgentSupervisor
                                 fence,
                                 programOwnedRepositoryRoot,
                                 expectedChangeSetRevisionId,
-                                checkRunRefs);
+                                reviewerEvidence);
                 return runtime.reserveReviewerRequest(
                         runId,
                         claim,
@@ -784,6 +856,30 @@ public final class InProcessWriterAgentSupervisor
                 revocationRequested = true;
             }
             return result;
+        }
+
+        private ReviewerRequest replayAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                String localCheckPolicyRevisionId,
+                List<String> checkRunRefs)
+        {
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "terminal tool requires the owned writer thread");
+                }
+            }
+            ReviewerRequest replayed = runtime.replayReviewerRequest(
+                    runId,
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId,
+                    localCheckPolicyRevisionId,
+                    checkRunRefs);
+            synchronized (this) {
+                revocationRequested = true;
+            }
+            return replayed;
         }
 
         private synchronized void adoptCurrentOwner(
@@ -799,8 +895,8 @@ public final class InProcessWriterAgentSupervisor
                 throw new IllegalStateException(
                         "live execution belongs to another owner");
             }
-            claim = expectedClaim;
-            fence = expectedFence;
+            claim = laterClaim(claim, expectedClaim);
+            fence = laterFence(fence, expectedFence);
         }
 
         private synchronized void assertFinalizerKey(String expectedKey)
@@ -854,5 +950,16 @@ public final class InProcessWriterAgentSupervisor
                 && first.treeDigest().equals(second.treeDigest())
                 && first.snapshotEvidenceRef()
                         .equals(second.snapshotEvidenceRef());
+    }
+
+    private static Claim laterClaim(Claim first, Claim second)
+    {
+        return first.expiresAt().isAfter(second.expiresAt()) ? first : second;
+    }
+
+    private static WriterFence laterFence(
+            WriterFence first, WriterFence second)
+    {
+        return first.expiresAt().isAfter(second.expiresAt()) ? first : second;
     }
 }

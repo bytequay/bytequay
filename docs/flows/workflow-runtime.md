@@ -409,17 +409,17 @@ LocalCheckPolicyRevision {
 LocalCheckProfile {
   profileId, policyRevisionId, name,
   command, workingDirectory, environmentAllowlist,
-  timeoutSeconds, requiredForGateKinds[],
-  permittedGeneratedPaths[]
+  timeoutSeconds, requiredForGateKinds[]
 }
 
 LocalCheckRun {
   checkRunId, taskId, changeSetRevisionId,
-  policyRevisionId, profileId, operationId,
+  policyRevisionId, profileId, operationId, agentRunId, attemptSequence,
   observedStartHead, observedEndHead,
-  commandDigest, startedAt, completedAt,
+  startedAt, completedAt,
   conclusion = PASSED | FAILED | UNAVAILABLE,
   exitCode?, unavailableReasonCode?, outputRef,
+  outputText, outputTruncated,
   trackedTreeCleanBefore, trackedTreeCleanAfter
 }
 ```
@@ -433,12 +433,11 @@ Fresh evidence for change-set revision `C` requires:
 - the run binds `C`, its exact head at both start and end, and the current policy
   revision/profile;
 - every profile required for the target gate has one terminal run;
-- the tracked tree is clean before and after (permitted generated paths do not
-  alter tracked source); and
+- the same hardened inspector proves an exact clean tree before and after; and
 - no later change-set or applicable policy revision exists.
 
 A real attempted profile may conclude `UNAVAILABLE` only from a program-observed
-missing toolchain/credential/environment condition with retained output. A
+missing toolchain/environment condition with retained bounded evidence. A
 missing attempt is not `UNAVAILABLE`. `LocalCheckRun` is immutable: a later
 head/tree/policy change does not rewrite its conclusion. Instead,
 `LocalChecks.requiredEvidence` returns an objective `STALE_*` blocker for the
@@ -525,9 +524,9 @@ shapes.
 | `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery. A CI Fixer must use its role-specific `CiAutofix` finalizer, which atomically stores its clean outcome or dirty cleanup handoff before releasing ownership; this generic method rejects `CI_FIXER`. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewers instead use the implemented no-fence `finishReviewerAgentRun` path; CI-learning finalization remains deferred. |
 | `TaskQuestions.ask(taskId, runId, question)` | authenticated terminal agent tool | Store the question and measured sealed state, set the waiting barrier, move the Task to `WAITING_USER`, seal the current run against more tools, and request finalization. It does not persist the run result, release the fence/pointer, or change session state; only `AgentRuns.finish` does so and then exposes the question as answerable. |
 | `TaskQuestions.answer(userId, questionId, body)` | authenticated user command | Require the predecessor `AgentResult` durable/question answerable, append the exact answer, release any exact reconciliation wait on this question, reconcile a pending terminal-remote fact first, and if still active atomically create/reserve the one `USER_ANSWER` successor bound to the sealed state; never resume a generic latest turn. |
-| `LocalCheckPolicies.current(repositoryId)` | check/gate builders | Return the current immutable policy revision and allowed profiles. |
-| `LocalChecks.runAndRecord(taskId, changeSetRevisionId, profileId, operationId, fence)` | authenticated `run_checks` execution tool inside an ordinary Task/CI-round writer turn | Resolve the program-owned profile, verify the current operation/fence and exact change set, execute/capture it, inspect final head/tree, and append one immutable run. It creates no nested operation or lease. `CI_CLEANUP` is excluded because that run permits one final STOPPED adoption only. |
-| `LocalChecks.requiredEvidence(taskId, changeSetRevisionId, gateKind)` | gate builder | Return exact current-policy required runs plus blocker/warning codes; never choose a result from model text. |
+| `LocalChecks.recordPolicy(repositoryId, expectedCurrentPolicyRevisionId, sourceRevision, ...)` / `currentPolicy(repositoryId)` | program policy owner | Append or exactly replay one immutable bounded policy and compare-and-set its durable current pointer. Delayed older publication cannot become current. |
+| `LocalChecks.runAndRecord(preparedBatch, operationId, fence)` | authenticated `run_checks` execution tool in the implemented CI review Task turn | Freeze the exact current policy/profile order and aggregate authority duration, renew the existing claim/fence, adopt only a genuinely new clean committed head, execute each program-owned foreground profile, and append immutable at-least-once attempts. It creates no nested operation or lease. `CI_CLEANUP` is excluded because that run permits one final STOPPED adoption only. |
+| `LocalChecks.requiredEvidence(taskId, changeSetRevisionId, gateKind)` | reviewer-request builder | Return the ordered latest attempt for every current-policy required profile plus mechanical missing/stale/process-boundary blockers. `FAILED` and genuine environment/tool `UNAVAILABLE` remain exact reviewer evidence; gate interpretation is deferred to User Gates. |
 | `ExternalInbox.ingest(source, key, revision, payload)` | GitHub observer | Insert once, link the Task/PR, and call `Reconciliation.ensure`. Never start an agent directly. |
 | `Reconciliation.ensure(taskId, causeRef)` | every pending-work owner | Lock Task and idempotently register `causeRef`: a new cause gets the next `pending_work_watermark`, redelivery reuses its existing one. Reuse the one nonterminal `RECONCILE_TASK`, including `WAITING`, if present. Otherwise, when an unhandled/unselected cause exists, increment `reconciliation_sequence` and create an operation/ticket binding `(taskEpoch, generation, throughWorkWatermark=current pending watermark)`. A cause arriving during that run advances the watermark but cannot mutate its frozen subject. |
 | `Reconciliation.waitFor(operationId, blockerOwnerRef, blockerRevision)` | claimed reconciliation operation | Revalidate that the exact blocker revision is still nonterminal; if so persist `ReconciliationWait`, transition this operation once to `WAITING`, and create no writer or next generation. If it already advanced, restart selection under the same Task lock instead of installing a lost wait. |
@@ -558,12 +557,50 @@ error. The agent may keep working after a check, but any later commit creates a
 new change-set revision and makes the earlier run stale; readiness then requires
 fresh checks for the final adopted revision.
 
+Profiles are program-owned foreground commands and explicitly forbid detached or
+background work. The runner clears inherited environment, restores only `LANG`,
+`LC_ALL`, and named allowlisted values, uses the canonical worktree-relative
+directory, and waits for direct-child exit plus stdout/stderr EOF. Policy source
+IDs/digests, argv, cwd, and environment names are durable
+non-secret metadata; secret values may enter the child only through the runtime
+allowlist lookup and are never stored in policy command arguments. The runner
+does not
+claim process-tree quiescence: timeout, interruption, failed direct-child join,
+or exit without EOF records `UNAVAILABLE(PROCESS_BOUNDARY_UNPROVEN)`, immediately
+seals the live tool capability, and blocks reviewer reservation. A future native
+process-group runner is required before detached closed-fd work can be supported.
+Output continues draining after the cap. Oversized output becomes a fixed
+program diagnostic. If any nonempty allowlisted environment value enters the
+child, all captured child output is instead replaced with a fixed program
+diagnostic before storage or return. Output from profiles without such values
+remains bounded but may still contain repository secrets, so policy owners must
+choose commands accordingly.
+
+Execution is honestly at-least-once: each completed invocation appends an
+immutable attempt sequence, and evidence chooses the latest attempt per required
+profile. If policy changes after a command starts but before its final authority
+CAS, no old-policy run is committed. A run committed before a later policy change
+remains historical but cannot satisfy current-policy evidence.
+Required-profile batches are intentionally non-atomic: a crash, expiry, or
+policy change between profiles leaves already committed attempts as history,
+revalidates the frozen policy before starting another command, and provides no
+complete reviewer evidence until a later call supplies every latest current-policy
+attempt.
+
 The mandatory `CI_CLEANUP` successor is the narrow exception. Its distinct
 capability manifest does not expose this adopting `run_checks` path. Cleanup may
 execute bounded test commands, but it has exactly one mechanical adoption in
 its STOPPED finalizer, directly from the logical input C1/H1 to the final clean
 revision. Formal check evidence is produced later against that adopted revision
 by the Task review/gate path; intermediate cleanup revisions are not supported.
+
+The current executable binding is deliberately narrower than the eventual Task
+surface: only `CI_FIX_READY` and its changed `AGENT_RESULT_READY` review turns
+launched by `CiFixReviewCoordinator` expose `run_checks`. Their specialized
+no-request finalizer converts an in-memory process-boundary seal into durable
+typed attention with no successor writer. Initial/upstream/feedback/local-review
+Task bindings remain deferred until they provide the same finalizer-aware
+attention/quarantine contract; the generic Task finalizer is not sufficient.
 
 `ready_for_review()` is also an agent tool. It is only a semantic declaration
 that the Task Agent wants the current work shown to the user. The handler first
@@ -955,13 +992,18 @@ joined; recovery never manufactures a stop proof or launches a replacement.
 
 ### G. Program-owned local checks
 
-1. For adopted change set `C2`, call `run_checks("unit")`; program resolves the
-   current profile, captures output and start/end head, and appends one run.
+1. For adopted change set `C2`, call `run_checks("unit")`; program freezes the
+   current policy/profile, captures bounded output and exact start/end
+   head, and appends one immutable attempt.
 2. Assert the agent cannot substitute a command or conclusion.
 3. Adopt `C3` or publish a new applicable policy revision; the `C2` run remains
    historical but `requiredEvidence(C3, gateKind)` rejects it as stale.
 4. A missing attempt cannot become `UNAVAILABLE`; a real attempted profile with
    captured objective environment failure may.
+5. Repeat a profile and assert exact evidence selects only its latest attempt.
+6. Hold an inherited pipe open after direct-child exit and separately time out a
+   command; both record `PROCESS_BOUNDARY_UNPROVEN`, seal tools, and create no
+   reviewer request.
 
 ### H. One selector despite simultaneous causes
 

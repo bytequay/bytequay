@@ -171,8 +171,9 @@ These are narrative lifecycle steps, not persisted phases or stages.
 6. Task calls `save_pr_draft(title, body)` when the change is reviewable.
 7. Task calls `run_checks()` or selects an allowed named profile. The program runs
    every profile required by the current `LocalCheckPolicyRevision` and records each
-   `LocalCheckRun`, including command digest, output reference, conclusion,
-   environment fingerprint, policy revision, and measured start/end head.
+   immutable `LocalCheckRun` attempt, including bounded fail-closed output
+   reference/excerpt, conclusion, policy revision, attempt sequence, and
+   measured start/end head. Environment values are never hashed into evidence.
 
 ### Adversarial review
 
@@ -284,6 +285,12 @@ cannot bypass it.
 There is no timeline, push, mark-ready, GitHub-comment, GitHub-resolve, merge,
 Task-complete, arbitrary subagent, or direct CI-Fixer spawn tool.
 
+Current implementation note: `run_checks` is exposed only by the specialized
+`CI_FIX_READY`/changed-reviewer-result Task wrapper. Ordinary initial, upstream,
+feedback, and local-review Task wrappers remain deferred until their finalizer
+can durably convert an unproven process boundary into typed attention without
+releasing a successor writer.
+
 When the Task has an authenticated `UpstreamSyncRun`, runtime adds only the bounded
 `UPSTREAM_SYNC` capabilities defined by [Upstream Sync](./upstream-sync.md):
 `read_upstream_pick`, `read_upstream_diff`, `read_conflict_file`,
@@ -319,7 +326,7 @@ The Task Agent's standing instruction is short and explicit:
 | `AgentSessions.close(sessionId, reason)` | Close only from a program-observed Task terminal state |
 | `TaskStateReader.read(taskId)` | Assemble current objective state from owner records |
 | `WriterLeases.acquire(taskId, operationId, holderKind)` | Through canonical `MutationAdmission`, enforce one eligible Task Agent, CI Fixer, or `UPSTREAM_SYNC` program writer and issue a fencing token |
-| `LocalChecks.runAndRecord(taskId, changeSetRevisionId, profileId, operationId, fence)` | Execute one resolved program-owned profile inside the current writer turn and bind immutable exact-head evidence; the no-arg agent tool loops over the required profile set |
+| `LocalChecks.runAndRecord(preparedBatch, operationId, fence)` | Execute one frozen program-owned foreground profile batch inside the current writer turn and bind immutable exact-head attempts; the no-arg agent tool runs the required profile set without a nested operation/session/lease |
 | `PrRecords.materialize(taskId, expectedHead)` | Idempotently create the Task's one Local PR after a clean committed diff exists |
 | `PrRecords.saveDraft(prId, expectedRevision, title, body, actor)` | Before remote identity exists, append the exact local title/body revision; reject after publication |
 | `TaskQuestions.ask(taskId, runId, question)` | Store a Task-scoped question, seal measured Git/sequencer state, install the waiting barrier, and seal the run; `AgentRuns.finish` alone persists its result, releases its fence, leaves the session `IDLE`, and exposes the question |

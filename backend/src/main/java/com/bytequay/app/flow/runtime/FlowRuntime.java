@@ -139,6 +139,8 @@ public final class FlowRuntime
         private final ReviewRequestSnapshot snapshot;
         private final Inspection inspection;
         private final String repositoryRoot;
+        private final LocalChecks.ReviewerEvidence reviewerEvidence;
+        private final String localCheckPolicyRevisionId;
         private final List<String> checkRunRefs;
 
         private PreparedReviewerRequest(
@@ -147,6 +149,8 @@ public final class FlowRuntime
                 ReviewRequestSnapshot snapshot,
                 Inspection inspection,
                 String repositoryRoot,
+                LocalChecks.ReviewerEvidence reviewerEvidence,
+                String localCheckPolicyRevisionId,
                 List<String> checkRunRefs)
         {
             this.claim = claim;
@@ -154,6 +158,9 @@ public final class FlowRuntime
             this.snapshot = snapshot;
             this.inspection = inspection;
             this.repositoryRoot = repositoryRoot;
+            this.reviewerEvidence = reviewerEvidence;
+            this.localCheckPolicyRevisionId =
+                    localCheckPolicyRevisionId;
             this.checkRunRefs = List.copyOf(checkRunRefs);
         }
     }
@@ -1705,7 +1712,7 @@ public final class FlowRuntime
             WriterFence fence,
             Path programOwnedRepositoryRoot,
             String expectedChangeSetRevisionId,
-            List<String> checkRunRefs)
+            LocalChecks.ReviewerEvidence reviewerEvidence)
     {
         requireText(runId, "runId");
         requireNonNull(claim, "claim is null");
@@ -1714,8 +1721,9 @@ public final class FlowRuntime
                 "programOwnedRepositoryRoot is null");
         requireText(expectedChangeSetRevisionId,
                 "expectedChangeSetRevisionId");
+        requireNonNull(reviewerEvidence, "reviewerEvidence is null");
         List<String> boundedCheckRunRefs = validateReviewerCheckRunRefs(
-                checkRunRefs);
+                reviewerEvidence.checkRunRefs());
         ReviewRequestSnapshot snapshot;
         synchronized (this) {
             snapshot = inTransaction(() -> reviewRequestSnapshot(
@@ -1723,6 +1731,18 @@ public final class FlowRuntime
                     claim,
                     fence,
                     expectedChangeSetRevisionId));
+            inTransaction(() -> {
+                if (!reviewerEvidence.taskId().equals(snapshot.taskId())
+                        || !reviewerEvidence.changeSetRevisionId().equals(
+                                snapshot.changeSetRevisionId())
+                        || reviewerEvidence.gateKind()
+                                != snapshot.intendedGateKind()) {
+                    throw new StaleOwnerRevisionException(
+                            "review local-check evidence subject changed");
+                }
+                reviewerEvidence.assertCurrentForReservation();
+                return Boolean.TRUE;
+            });
         }
         Inspection inspection = worktreeInspector.inspect(
                 programOwnedRepositoryRoot,
@@ -1745,6 +1765,8 @@ public final class FlowRuntime
                 inspection,
                 programOwnedRepositoryRoot.toAbsolutePath()
                         .normalize().toString(),
+                reviewerEvidence,
+                reviewerEvidence.policyRevisionId(),
                 boundedCheckRunRefs);
     }
 
@@ -1797,6 +1819,7 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "review request subject changed after inspection");
             }
+            prepared.reviewerEvidence.assertCurrentForReservation();
             Optional<ReviewerRequest> existing = reviewerRequestForParentRun(
                     runId);
             String requestId = stableId(
@@ -1813,6 +1836,7 @@ public final class FlowRuntime
                     current.reviewedHeadSha(),
                     current.remoteHeadSha(),
                     current.changeSetRevisionId(),
+                    prepared.localCheckPolicyRevisionId,
                     current.headTreeDigest(),
                     current.diffDigest(),
                     prepared.repositoryRoot,
@@ -1834,6 +1858,7 @@ public final class FlowRuntime
                     current.reviewedHeadSha(),
                     current.remoteHeadSha(),
                     current.changeSetRevisionId(),
+                    prepared.localCheckPolicyRevisionId,
                     current.headTreeDigest(),
                     current.diffDigest(),
                     prepared.checkRunRefs,
@@ -1866,9 +1891,10 @@ public final class FlowRuntime
                         request_id, task_id, parent_operation_id,
                         parent_run_id, reviewer_operation_id, repository_root,
                         base_head_sha, reviewed_head_sha, remote_head_sha,
-                        change_set_revision_id, head_tree_digest, diff_digest,
-                        intended_gate_kind, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        change_set_revision_id, local_check_policy_revision_id,
+                        head_tree_digest, diff_digest, intended_gate_kind,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     requestId,
                     current.taskId(),
@@ -1880,6 +1906,7 @@ public final class FlowRuntime
                     current.reviewedHeadSha(),
                     current.remoteHeadSha(),
                     current.changeSetRevisionId(),
+                    prepared.localCheckPolicyRevisionId,
                     current.headTreeDigest(),
                     current.diffDigest(),
                     current.intendedGateKind().name(),
@@ -1907,6 +1934,7 @@ public final class FlowRuntime
             String runId,
             Path programOwnedRepositoryRoot,
             String expectedChangeSetRevisionId,
+            String localCheckPolicyRevisionId,
             List<String> checkRunRefs)
     {
         requireText(runId, "runId");
@@ -1914,6 +1942,8 @@ public final class FlowRuntime
                 "programOwnedRepositoryRoot is null");
         requireText(expectedChangeSetRevisionId,
                 "expectedChangeSetRevisionId");
+        requireText(localCheckPolicyRevisionId,
+                "localCheckPolicyRevisionId");
         List<String> boundedCheckRunRefs = validateReviewerCheckRunRefs(
                 checkRunRefs);
         ReviewerRequest request = reviewerRequestForParentRun(runId)
@@ -1925,6 +1955,8 @@ public final class FlowRuntime
         if (!request.repositoryRoot().equals(normalizedRoot)
                 || !Objects.equals(run.inputChangeSetRevisionId(),
                         expectedChangeSetRevisionId)
+                || !request.localCheckPolicyRevisionId().equals(
+                        localCheckPolicyRevisionId)
                 || !request.checkRunRefs().equals(boundedCheckRunRefs)) {
             throw new IllegalStateException(
                     "reviewer request replay changed terminal arguments");
@@ -2087,12 +2119,15 @@ public final class FlowRuntime
             int updated = jdbc.update(
                     """
                     UPDATE flow_runtime_dispatch_ticket
-                    SET claim_expires_at = MAX(claim_expires_at, ?)
+                    SET claim_expires_at = CASE
+                        WHEN claim_expires_at > ? THEN claim_expires_at
+                        ELSE ? END
                     WHERE operation_id = ? AND claim_generation = ?
                       AND claim_token = ? AND claim_owner = ?
                       AND delivery_state = 'CLAIMED'
                       AND claim_expires_at > ?
                     """,
+                    requestedExpiry.toEpochMilli(),
                     requestedExpiry.toEpochMilli(),
                     claim.operationId(),
                     claim.generation(),
@@ -2134,12 +2169,14 @@ public final class FlowRuntime
             int updated = jdbc.update(
                     """
                     UPDATE flow_runtime_writer_lease
-                    SET expires_at = ?
+                    SET expires_at = CASE
+                        WHEN expires_at > ? THEN expires_at ELSE ? END
                     WHERE task_id = ? AND operation_id = ?
                       AND task_epoch = ? AND fencing_token = ?
                       AND claim_generation = ? AND claim_token_digest = ?
                       AND expires_at > ?
                     """,
+                    expiresAt.toEpochMilli(),
                     expiresAt.toEpochMilli(),
                     fence.taskId(),
                     fence.operationId(),
@@ -2152,6 +2189,8 @@ public final class FlowRuntime
                 throw new StaleWriterFenceException(
                         "writer fence changed during renewal");
             }
+            Instant storedExpiry = writerFence(fence.taskId())
+                    .orElseThrow().expiresAt();
             return new WriterFence(
                     fence.taskId(),
                     fence.operationId(),
@@ -2163,7 +2202,7 @@ public final class FlowRuntime
                     fence.headSha(),
                     fence.treeDigest(),
                     fence.snapshotEvidenceRef(),
-                    expiresAt);
+                    storedExpiry);
         });
     }
 
@@ -3726,7 +3765,6 @@ public final class FlowRuntime
         requireNonNull(fence, "fence is null");
         return inTransaction(() -> {
             assertCurrentClaim(claim, OperationState.CLAIMED);
-            assertFenceRow(claim, fence);
             Operation operation = requireOperation(claim.operationId());
             if (!Objects.equals(claim.taskId(), operation.taskId())
                     || claim.kind() != operation.kind()
@@ -3753,8 +3791,11 @@ public final class FlowRuntime
                     throw new IllegalStateException(
                             "process-attempt identity has conflicting content");
                 }
+                assertExistingAttemptRedeliveryAuthority(
+                        claim, fence, operation);
                 return attempt;
             }
+            assertFenceRow(claim, fence);
             if (run.state() != RunState.QUEUED) {
                 throw new StaleClaimException(
                         "run is not queued for a new process attempt");
@@ -3780,6 +3821,34 @@ public final class FlowRuntime
                     now.toEpochMilli());
             return requireProcessAttempt(attemptId);
         });
+    }
+
+    private void assertExistingAttemptRedeliveryAuthority(
+            Claim suppliedClaim,
+            WriterFence suppliedFence,
+            Operation operation)
+    {
+        Instant storedClaimExpiry = currentClaimExpiry(suppliedClaim);
+        Claim storedClaim = new Claim(
+                suppliedClaim.operationId(),
+                operation.taskId(),
+                operation.kind(),
+                suppliedClaim.generation(),
+                suppliedClaim.claimToken(),
+                suppliedClaim.workerId(),
+                storedClaimExpiry);
+        WriterFence storedFence = writerFence(operation.taskId())
+                .orElseThrow(() -> new StaleWriterFenceException(
+                        "writer fence is no longer current"));
+        assertFenceRow(storedClaim, storedFence);
+        if (!sameClaimAuthority(suppliedClaim, storedClaim)
+                || suppliedClaim.expiresAt().isAfter(storedClaimExpiry)
+                || !sameFenceAuthority(suppliedFence, storedFence)
+                || suppliedFence.expiresAt().isAfter(
+                        storedFence.expiresAt())) {
+            throw new StaleWriterFenceException(
+                    "writer redelivery authority changed after renewal");
+        }
     }
 
     /**
@@ -7635,6 +7704,8 @@ public final class FlowRuntime
                         requested.remoteHeadSha())
                 || !existing.changeSetRevisionId().equals(
                         requested.changeSetRevisionId())
+                || !existing.localCheckPolicyRevisionId().equals(
+                        requested.localCheckPolicyRevisionId())
                 || !existing.headTreeDigest().equals(
                         requested.headTreeDigest())
                 || !existing.diffDigest().equals(requested.diffDigest())
@@ -8049,6 +8120,7 @@ public final class FlowRuntime
                 result.getString("reviewed_head_sha"),
                 result.getString("remote_head_sha"),
                 result.getString("change_set_revision_id"),
+                result.getString("local_check_policy_revision_id"),
                 result.getString("head_tree_digest"),
                 result.getString("diff_digest"),
                 checkRefs,

@@ -31,6 +31,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
@@ -47,6 +48,7 @@ import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.ExecutionH
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.ReviewerToolCapability;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCapability;
+import com.bytequay.app.flow.runtime.LocalChecks;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -71,11 +73,16 @@ public final class CiFixReviewCoordinator
 
     private final CiAutofix autofix;
     private final FlowRuntime runtime;
+    private final LocalChecks localChecks;
 
-    public CiFixReviewCoordinator(CiAutofix autofix, FlowRuntime runtime)
+    public CiFixReviewCoordinator(
+            CiAutofix autofix,
+            FlowRuntime runtime,
+            LocalChecks localChecks)
     {
         this.autofix = requireNonNull(autofix, "autofix is null");
         this.runtime = requireNonNull(runtime, "runtime is null");
+        this.localChecks = requireNonNull(localChecks, "localChecks is null");
     }
 
     public enum FixSource
@@ -94,7 +101,6 @@ public final class CiFixReviewCoordinator
             String inputRemoteHead,
             AgentResult fixerResult,
             ChangeSetRevision output,
-            List<String> checkRunRefs,
             GateIntent intendedGateKind)
     {
         public CiFixReviewProjection
@@ -107,7 +113,6 @@ public final class CiFixReviewCoordinator
             requireText(inputRemoteHead, "inputRemoteHead");
             requireNonNull(fixerResult, "fixerResult is null");
             requireNonNull(output, "output is null");
-            checkRunRefs = List.copyOf(checkRunRefs);
             requireNonNull(intendedGateKind,
                     "intendedGateKind is null");
         }
@@ -134,33 +139,53 @@ public final class CiFixReviewCoordinator
     public static final class TaskInspectionToolCapability
     {
         private final WriterToolCapability writer;
+        private final FlowRuntime runtime;
+        private final LocalChecks localChecks;
         private final Path repositoryRoot;
+        private final String taskId;
+        private final String runId;
         private final String changeSetRevisionId;
-        private final List<String> checkRunRefs;
+        private final GateIntent intendedGateKind;
 
         private TaskInspectionToolCapability(
                 WriterToolCapability writer,
-                TaskInspectionBinding binding)
+                TaskInspectionBinding binding,
+                FlowRuntime runtime,
+                LocalChecks localChecks)
         {
             this(
                     writer,
+                    runtime,
+                    localChecks,
                     binding.repositoryRoot(),
+                    binding.projection().taskId(),
+                    binding.run().runId(),
                     binding.run().inputChangeSetRevisionId(),
-                    binding.projection().checkRunRefs());
+                    binding.run().intendedGateKind());
         }
 
         private TaskInspectionToolCapability(
                 WriterToolCapability writer,
+                FlowRuntime runtime,
+                LocalChecks localChecks,
                 Path repositoryRoot,
+                String taskId,
+                String runId,
                 String changeSetRevisionId,
-                List<String> checkRunRefs)
+                GateIntent intendedGateKind)
         {
             this.writer = requireNonNull(writer, "writer is null");
+            this.runtime = requireNonNull(runtime, "runtime is null");
+            this.localChecks = requireNonNull(
+                    localChecks, "localChecks is null");
             this.repositoryRoot = requireNonNull(
                     repositoryRoot, "repositoryRoot is null");
+            this.taskId = requireNonNull(taskId, "taskId is null");
+            this.runId = requireNonNull(runId, "runId is null");
             this.changeSetRevisionId = requireNonNull(
                     changeSetRevisionId, "changeSetRevisionId is null");
-            this.checkRunRefs = List.copyOf(checkRunRefs);
+            this.intendedGateKind = requireNonNull(
+                    intendedGateKind, "intendedGateKind is null");
         }
 
         public <T> T callTool(Supplier<T> effect)
@@ -173,13 +198,40 @@ public final class CiFixReviewCoordinator
             writer.runTool(effect);
         }
 
+        public List<LocalCheckRun> runChecks()
+        {
+            return writer.runChecks(localChecks, repositoryRoot, null);
+        }
+
+        public List<LocalCheckRun> runChecks(String profileName)
+        {
+            requireText(profileName, "profileName");
+            return writer.runChecks(
+                    localChecks, repositoryRoot, profileName);
+        }
+
         /** Terminal command over the exact program-owned review subject. */
         public ReviewerRequest spawnAdversarialReviewer()
         {
+            ReviewerRequest existing = runtime.reviewerRequestForParentRun(
+                    runId).orElse(null);
+            if (existing != null) {
+                return writer.replayAdversarialReviewer(
+                        repositoryRoot,
+                        changeSetRevisionId,
+                        existing.localCheckPolicyRevisionId(),
+                        existing.checkRunRefs());
+            }
+            ChangeSetRevision current = runtime.currentChangeSet(taskId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "review subject has no current change set"));
             return writer.spawnAdversarialReviewer(
                     repositoryRoot,
                     changeSetRevisionId,
-                    checkRunRefs);
+                    localChecks.reviewerEvidence(
+                            taskId,
+                            current.changeSetRevisionId(),
+                            intendedGateKind));
         }
 
         @Override
@@ -293,7 +345,8 @@ public final class CiFixReviewCoordinator
                                 completion.finalContent(),
                                 completion.errorRef()),
                 writer -> body.apply(
-                        new TaskInspectionToolCapability(writer, binding)));
+                        new TaskInspectionToolCapability(
+                                writer, binding, runtime, localChecks)));
     }
 
     public AgentResult awaitTaskInspection(
@@ -451,9 +504,13 @@ public final class CiFixReviewCoordinator
                                 completion.errorRef()),
                 writer -> body.apply(new TaskInspectionToolCapability(
                         writer,
+                        runtime,
+                        localChecks,
                         binding.repositoryRoot(),
+                        binding.request().taskId(),
+                        binding.run().runId(),
                         binding.run().inputChangeSetRevisionId(),
-                        List.of())));
+                        binding.run().intendedGateKind())));
     }
 
     public AgentResult awaitReviewerResultContinuation(
@@ -532,7 +589,6 @@ public final class CiFixReviewCoordinator
                 attempt.inputRemoteHead(),
                 result,
                 output,
-                List.of(),
                 GateIntent.CI_UPDATE);
     }
 
@@ -574,7 +630,6 @@ public final class CiFixReviewCoordinator
                 predecessor.inputRemoteHead(),
                 result,
                 output,
-                List.of(),
                 GateIntent.CI_UPDATE);
     }
 

@@ -550,9 +550,15 @@ reopen the pre-PR upstream range engine.
 
 ## Validation policy
 
+The current executable replacement does not yet expose `run_checks` on an
+Upstream Sync Task turn. That binding remains deferred until its finalizer can
+durably retain process-boundary uncertainty without releasing a successor
+writer; the policy below is the eventual component contract.
+
 The Task Agent discovers useful commands from repository instructions, build
 files, CI configuration, and Project Intelligence, then calls `run_checks`.
-The program records command, environment fingerprint, exit state, output
+The program records the policy/profile revision, allowlisted environment names
+and availability, exit state, bounded fail-closed output
 evidence, and exact head; it does not infer a semantic verdict.
 
 - Clean picks do not run full CI locally one by one.

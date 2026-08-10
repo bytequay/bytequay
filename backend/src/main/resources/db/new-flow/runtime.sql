@@ -447,6 +447,104 @@ CREATE TABLE flow_runtime_agent_process_attempt (
         REFERENCES flow_runtime_operation (operation_id)
 );
 
+CREATE TABLE flow_runtime_local_check_policy_revision (
+    policy_revision_id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    source_revision TEXT NOT NULL,
+    source_digest TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL,
+    UNIQUE (repository_id, sequence),
+    UNIQUE (repository_id, source_revision)
+);
+
+CREATE TABLE flow_runtime_local_check_policy_current (
+    repository_id TEXT PRIMARY KEY,
+    policy_revision_id TEXT NOT NULL UNIQUE,
+    FOREIGN KEY (policy_revision_id)
+        REFERENCES flow_runtime_local_check_policy_revision (
+            policy_revision_id
+        )
+);
+
+CREATE TABLE flow_runtime_local_check_profile (
+    profile_id TEXT PRIMARY KEY,
+    policy_revision_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    command_json TEXT NOT NULL,
+    working_directory TEXT NOT NULL,
+    environment_allowlist_json TEXT NOT NULL,
+    required_gate_kinds_json TEXT NOT NULL,
+    timeout_seconds INTEGER NOT NULL CHECK (
+        timeout_seconds > 0 AND timeout_seconds <= 600
+    ),
+    UNIQUE (policy_revision_id, name),
+    UNIQUE (policy_revision_id, profile_id),
+    FOREIGN KEY (policy_revision_id)
+        REFERENCES flow_runtime_local_check_policy_revision (
+            policy_revision_id
+        )
+);
+
+CREATE TABLE flow_runtime_local_check_run (
+    check_run_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    change_set_revision_id TEXT NOT NULL,
+    policy_revision_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    agent_run_id TEXT NOT NULL,
+    attempt_sequence INTEGER NOT NULL CHECK (attempt_sequence > 0),
+    observed_start_head TEXT NOT NULL,
+    observed_end_head TEXT,
+    started_at INTEGER NOT NULL,
+    completed_at INTEGER NOT NULL,
+    conclusion TEXT NOT NULL CHECK (
+        conclusion IN ('PASSED', 'FAILED', 'UNAVAILABLE')
+    ),
+    exit_code INTEGER,
+    unavailable_reason_code TEXT,
+    output_ref TEXT NOT NULL UNIQUE,
+    output_text TEXT NOT NULL,
+    output_truncated INTEGER NOT NULL CHECK (output_truncated IN (0, 1)),
+    tracked_tree_clean_before INTEGER NOT NULL CHECK (
+        tracked_tree_clean_before IN (0, 1)
+    ),
+    tracked_tree_clean_after INTEGER NOT NULL CHECK (
+        tracked_tree_clean_after IN (0, 1)
+    ),
+    CHECK (
+        (conclusion = 'UNAVAILABLE'
+            AND unavailable_reason_code IS NOT NULL)
+        OR (conclusion <> 'UNAVAILABLE'
+            AND unavailable_reason_code IS NULL)
+    ),
+    CHECK (
+        observed_end_head IS NOT NULL
+        OR conclusion = 'UNAVAILABLE'
+    ),
+    UNIQUE (
+        task_id,
+        change_set_revision_id,
+        policy_revision_id,
+        profile_id,
+        attempt_sequence
+    ),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (
+            change_set_revision_id
+        ),
+    FOREIGN KEY (policy_revision_id, profile_id)
+        REFERENCES flow_runtime_local_check_profile (
+            policy_revision_id, profile_id
+        ),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (agent_run_id)
+        REFERENCES flow_runtime_agent_run (run_id)
+);
+
 CREATE TABLE flow_runtime_reviewer_request (
     request_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
@@ -458,6 +556,7 @@ CREATE TABLE flow_runtime_reviewer_request (
     reviewed_head_sha TEXT NOT NULL,
     remote_head_sha TEXT NOT NULL,
     change_set_revision_id TEXT NOT NULL,
+    local_check_policy_revision_id TEXT NOT NULL,
     head_tree_digest TEXT NOT NULL,
     diff_digest TEXT NOT NULL,
     intended_gate_kind TEXT NOT NULL CHECK (
@@ -472,7 +571,11 @@ CREATE TABLE flow_runtime_reviewer_request (
     FOREIGN KEY (reviewer_operation_id)
         REFERENCES flow_runtime_operation (operation_id),
     FOREIGN KEY (change_set_revision_id)
-        REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
+    FOREIGN KEY (local_check_policy_revision_id)
+        REFERENCES flow_runtime_local_check_policy_revision (
+            policy_revision_id
+        )
 );
 
 CREATE TABLE flow_runtime_reviewer_check_ref (
@@ -482,5 +585,7 @@ CREATE TABLE flow_runtime_reviewer_check_ref (
     PRIMARY KEY (request_id, ordinal),
     UNIQUE (request_id, check_run_ref),
     FOREIGN KEY (request_id)
-        REFERENCES flow_runtime_reviewer_request (request_id)
+        REFERENCES flow_runtime_reviewer_request (request_id),
+    FOREIGN KEY (check_run_ref)
+        REFERENCES flow_runtime_local_check_run (check_run_id)
 );

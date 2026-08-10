@@ -426,7 +426,6 @@ read_file(path, range?)
 search_repository(query, paths?)
 run_command(argv, timeout?)
 edit_file(...)
-run_checks(profile?) -> LocalCheckRunRef[]  # ordinary repair only
 commit_changes(message) -> commitRef
 ```
 
@@ -520,7 +519,7 @@ Task Agent with:
 ```text
 CiFixReviewLaunch
   roundId, attemptId, inputHead=H1, candidateHead=H2?,
-  diffRef, localCheckRunRefs[], ciFixerResultRef,
+  diffRef, localCheckPolicyRevisionId, localCheckRunRefs[], ciFixerResultRef,
   pendingFeedbackContentRevisionRefs[], pendingFeedbackObservationRefs[]
 ```
 
@@ -536,9 +535,12 @@ The Task Agent:
 
 The reviewer request is a zero-argument terminal Task tool: the program freezes
 the current revision, exact head/tree/diff, the Task turn's frozen remote input,
-and an exact empty final-head check-reference list in the current integration.
-Final-head `LocalCheckRun` ownership and reviewer check-evidence reads remain
-deferred. An unchanged `AgentResultReady` continuation may
+and the complete ordered latest run refs for every profile required by the
+current local-check policy. Initial reservation atomically revalidates that exact
+policy/revision/head set; a subset or older attempt cannot be supplied. A durable
+request replays its frozen policy/refs even if policy later advances. Reviewer
+check-output reads and gate interpretation remain deferred. An unchanged
+`AgentResultReady` continuation may
 end without requesting another reviewer; that only records that the opaque child
 result was consumed and returns the persistent Task session to idle. It is not
 review approval, readiness, or permission to construct a gate. If that

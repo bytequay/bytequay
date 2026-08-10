@@ -34,6 +34,8 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckPolicyRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
@@ -53,6 +55,7 @@ import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
+import com.bytequay.app.flow.runtime.LocalChecks;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -94,6 +97,7 @@ class TestCiAutofixCoordinator
     private DataSource dataSource;
     private JdbcTemplate jdbc;
     private FlowRuntime runtime;
+    private LocalChecks localChecks;
     private CiAutofix autofix;
     private CiAutofixCoordinator coordinator;
     private Task task;
@@ -113,6 +117,21 @@ class TestCiAutofixCoordinator
         runtime = new FlowRuntime(
                 dataSource, Clock.fixed(NOW, ZoneOffset.UTC));
         task = publishedTask();
+        localChecks = new LocalChecks(
+                dataSource, runtime, Clock.fixed(NOW, ZoneOffset.UTC));
+        localChecks.recordPolicy(
+                task.repositoryId(),
+                null,
+                "test-policy:v1",
+                "test-policy-digest:v1",
+                List.of(new LocalChecks.ProfileDefinition(
+                        "true",
+                        List.of("/usr/bin/true"),
+                        ".",
+                        List.of(),
+                        Duration.ofSeconds(5),
+                        List.of(GateIntent.INITIAL_PUBLISH,
+                                GateIntent.CI_UPDATE))));
         autofix = new CiAutofix(
                 dataSource,
                 new ObjectMapper(),
@@ -2177,6 +2196,7 @@ class TestCiAutofixCoordinator
                 ready.binding(),
                 ready.claim(),
                 capability -> {
+                    capability.runChecks();
                     String movedDuringParent = "c".repeat(40);
                     runtime.advanceRemoteHead(
                             pr.prId(), publishedHead, movedDuringParent);
@@ -2205,7 +2225,7 @@ class TestCiAutofixCoordinator
                 .isEqualTo(ready.binding().run()
                         .inputChangeSetRevisionId());
         assertThat(storedRequest.remoteHeadSha()).isEqualTo(publishedHead);
-        assertThat(storedRequest.checkRunRefs()).isEmpty();
+        assertThat(storedRequest.checkRunRefs()).hasSize(1);
         assertThat(parentResult.finalContent())
                 .isEqualTo("{\"verdict\":\"ignore-parent-prose\"}");
         assertThat(runtime.session(task.taskId(), AgentRole.TASK_AGENT)
@@ -2290,6 +2310,177 @@ class TestCiAutofixCoordinator
     }
 
     @Test
+    void reviewerReservationRejectsAnOlderEvidenceAttempt()
+    {
+        ReviewReady ready = prepareCleanReview("latest-check-evidence");
+        AtomicReference<ReviewerRequest> request = new AtomicReference<>();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        String finalizerKey = "TEST_LATEST_CHECK:"
+                + ready.binding().run().runId();
+        var handle = supervisor.launch(
+                ready.binding().run().runId(),
+                ready.claim(),
+                ready.binding().fence(),
+                finalizerKey,
+                (runId, claim, fence, completion) ->
+                        runtime.finishTaskAgentReviewTurn(
+                                runId,
+                                claim,
+                                fence,
+                                completion.terminalOutcome(),
+                                completion.finalContent(),
+                                completion.errorRef()),
+                capability -> {
+                    capability.runChecks(localChecks, repositoryRoot, null);
+                    ChangeSetRevision current = runtime.currentChangeSet(
+                            task.taskId()).orElseThrow();
+                    LocalChecks.ReviewerEvidence old =
+                            localChecks.reviewerEvidence(
+                                    task.taskId(),
+                                    current.changeSetRevisionId(),
+                                    GateIntent.CI_UPDATE);
+                    capability.runChecks(localChecks, repositoryRoot, null);
+                    assertThatThrownBy(() ->
+                            capability.spawnAdversarialReviewer(
+                                    repositoryRoot,
+                                    ready.binding().run()
+                                            .inputChangeSetRevisionId(),
+                                    old))
+                            .isInstanceOf(
+                                    FlowRuntime.StaleOwnerRevisionException.class)
+                            .hasMessageContaining("complete/latest");
+                    request.set(capability.spawnAdversarialReviewer(
+                            repositoryRoot,
+                            ready.binding().run()
+                                    .inputChangeSetRevisionId(),
+                            localChecks.reviewerEvidence(
+                                    task.taskId(),
+                                    current.changeSetRevisionId(),
+                                    GateIntent.CI_UPDATE)));
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "opaque", null);
+                });
+        supervisor.awaitAndFinalize(handle, TTL, finalizerKey);
+
+        assertThat(request.get().checkRunRefs()).hasSize(1);
+        assertThat(jdbc.queryForObject(
+                """
+                SELECT attempt_sequence FROM flow_runtime_local_check_run
+                WHERE check_run_id = ?
+                """,
+                Long.class,
+                request.get().checkRunRefs().getFirst())).isEqualTo(2);
+    }
+
+    @Test
+    void durableReviewerRequestReplaysAfterPolicyAdvances()
+    {
+        ReviewReady ready = prepareCleanReview("frozen-policy-replay");
+        AtomicReference<ReviewerRequest> request = new AtomicReference<>();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.review().launchTaskInspection(
+                supervisor,
+                ready.binding(),
+                ready.claim(),
+                capability -> {
+                    capability.runChecks();
+                    request.set(capability.spawnAdversarialReviewer());
+                    LocalCheckPolicyRevision current = localChecks
+                            .currentPolicy(task.repositoryId()).orElseThrow();
+                    localChecks.recordPolicy(
+                            task.repositoryId(),
+                            current.policyRevisionId(),
+                            "test-policy:v2",
+                            "test-policy-digest:v2",
+                            List.of(new LocalChecks.ProfileDefinition(
+                                    "true",
+                                    List.of("/usr/bin/true"),
+                                    ".",
+                                    List.of(),
+                                    Duration.ofSeconds(5),
+                                    List.of(GateIntent.CI_UPDATE))));
+                    assertThat(capability.spawnAdversarialReviewer())
+                            .isEqualTo(request.get());
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "opaque", null);
+                });
+        ready.review().awaitTaskInspection(
+                supervisor, ready.binding(), handle, TTL);
+
+        assertThat(request.get().localCheckPolicyRevisionId())
+                .isNotEqualTo(localChecks.currentPolicy(task.repositoryId())
+                        .orElseThrow().policyRevisionId());
+    }
+
+    @Test
+    void timedOutLocalCheckSealsToolsAndLeavesTaskInAttention()
+    {
+        assertBoundaryUnprovenNeedsAttention(
+                "timeout", List.of("/bin/sleep", "8"),
+                Duration.ofSeconds(1));
+    }
+
+    @Test
+    void heldOpenCheckPipeSealsToolsAndLeavesTaskInAttention()
+    {
+        assertBoundaryUnprovenNeedsAttention(
+                "held-pipe",
+                List.of("/bin/sh", "-c", "(sleep 8) & exit 0"),
+                Duration.ofSeconds(5));
+    }
+
+    private void assertBoundaryUnprovenNeedsAttention(
+            String suffix, List<String> command, Duration timeout)
+    {
+        LocalCheckPolicyRevision current = localChecks.currentPolicy(
+                task.repositoryId()).orElseThrow();
+        localChecks.recordPolicy(
+                task.repositoryId(),
+                current.policyRevisionId(),
+                "test-policy:" + suffix,
+                "test-policy-digest:" + suffix,
+                List.of(new LocalChecks.ProfileDefinition(
+                        suffix,
+                        command,
+                        ".",
+                        List.of(),
+                        timeout,
+                        List.of(GateIntent.CI_UPDATE))));
+        ReviewReady ready = prepareCleanReview(suffix + "-attention");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.review().launchTaskInspection(
+                supervisor,
+                ready.binding(),
+                ready.claim(),
+                capability -> {
+                    assertThatThrownBy(capability::runChecks)
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining(
+                                    "PROCESS_BOUNDARY_UNPROVEN");
+                    assertThatThrownBy(capability::spawnAdversarialReviewer)
+                            .isInstanceOf(
+                                    FlowRuntime.StaleCapabilityException.class)
+                            .hasMessageContaining("boundary is unresolved");
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "opaque", null);
+                });
+        ready.review().awaitTaskInspection(
+                supervisor, ready.binding(), handle, TTL);
+
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_runtime_reviewer_request",
+                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_runtime_writer_lease",
+                Integer.class)).isZero();
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId()).isNull();
+        assertThat(runtime.claimNext("boundary-other", TTL)).isEmpty();
+    }
+
+    @Test
     void missingTerminalReviewerCommandConsumesInputAndReplaysAfterCancel()
     {
         ReviewReady ready = prepareCleanReview("missing-review-command");
@@ -2366,6 +2557,7 @@ class TestCiAutofixCoordinator
                                 ready.binding().run()
                                         .inputChangeSetRevisionId());
                     });
+                    capability.runChecks();
                     request.set(capability.spawnAdversarialReviewer());
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.COMPLETED, "opaque", null);
@@ -2472,6 +2664,7 @@ class TestCiAutofixCoordinator
                                         ready.binding().run()
                                                 .inputChangeSetRevisionId());
                             });
+                            capability.runChecks();
                             request.set(
                                     capability.spawnAdversarialReviewer());
                             return new InProcessWriterAgentSupervisor
@@ -2536,22 +2729,31 @@ class TestCiAutofixCoordinator
                                 completion.finalContent(),
                                 completion.errorRef()),
                 capability -> {
-                    ReviewerRequest request =
-                            capability.spawnAdversarialReviewer(
+                    capability.runChecks(
+                            localChecks, repositoryRoot, null);
+                    ChangeSetRevision current = runtime.currentChangeSet(
+                            task.taskId()).orElseThrow();
+                    ReviewerRequest request = capability
+                            .spawnAdversarialReviewer(
                                     repositoryRoot,
                                     ready.binding().run()
                                             .inputChangeSetRevisionId(),
-                                    List.of());
-                    assertThat(capability.spawnAdversarialReviewer(
+                                    localChecks.reviewerEvidence(
+                                            task.taskId(),
+                                            current.changeSetRevisionId(),
+                                            GateIntent.CI_UPDATE));
+                    assertThat(capability.replayAdversarialReviewer(
                             repositoryRoot,
                             ready.binding().run()
                                     .inputChangeSetRevisionId(),
-                            List.of())).isEqualTo(request);
+                            request.localCheckPolicyRevisionId(),
+                            request.checkRunRefs())).isEqualTo(request);
                     assertThatThrownBy(() ->
-                            capability.spawnAdversarialReviewer(
+                            capability.replayAdversarialReviewer(
                                     repositoryRoot,
                                     ready.binding().run()
                                             .inputChangeSetRevisionId(),
+                                    request.localCheckPolicyRevisionId(),
                                     List.of("conflicting-check")))
                             .isInstanceOf(IllegalStateException.class)
                             .hasMessageContaining("terminal arguments");
@@ -2758,6 +2960,7 @@ class TestCiAutofixCoordinator
                 ready.binding(),
                 ready.claim(),
                 capability -> {
+                    capability.runChecks();
                     request.set(capability.spawnAdversarialReviewer());
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             outcome,
@@ -2822,7 +3025,7 @@ class TestCiAutofixCoordinator
         assertThat(selected.kind()).isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
         CiFixReviewCoordinator review = new CiFixReviewCoordinator(
-                autofix, runtime);
+                autofix, runtime, localChecks);
         var binding = review.beginTaskInspection(
                 turn, repositoryRoot, TTL);
         return new ReviewReady(review, turn, binding);

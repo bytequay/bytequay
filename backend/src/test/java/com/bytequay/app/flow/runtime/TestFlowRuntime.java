@@ -40,14 +40,20 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
 
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -67,6 +73,7 @@ class TestFlowRuntime
     private DataSource dataSource;
     private JdbcTemplate jdbc;
     private FlowRuntime runtime;
+    private final Map<String, Path> repositoryRoots = new HashMap<>();
 
     @BeforeEach
     void setUp()
@@ -86,7 +93,7 @@ class TestFlowRuntime
         Task first = startAndProvision("one");
         Task duplicate = runtime.startTask(
                 "request-one", "repo-1", "Implement the task",
-                "task/one", "/worktrees/one");
+                "task/one", first.worktreePath());
         assertThat(duplicate.taskId()).isEqualTo(first.taskId());
 
         Operation initialTurn = selectFromReconciliation();
@@ -101,10 +108,16 @@ class TestFlowRuntime
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
         var handle = supervisor.launch(
                 writer.run().runId(), writer.claim(), writer.fence(),
-                capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
-                        TerminalOutcome.COMPLETED,
-                        "ordinary prose; not a protocol",
-                        null));
+                capability -> {
+                    commitTaskChange(first, "first task change");
+                    runtime.adoptChangeSet(
+                            writer.claim(), writer.fence(),
+                            repositoryRoots.get(first.taskId()), null);
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "ordinary prose; not a protocol",
+                            null);
+                });
         assertThat(supervisor.launch(
                 writer.run().runId(), writer.claim(), writer.fence(),
                 capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
@@ -114,17 +127,20 @@ class TestFlowRuntime
         assertThat(runtime.runForOperation(initialTurn.operationId())
                 .orElseThrow().startedAt()).isEqualTo(NOW);
 
+        Task adoptedTask = runtime.task(first.taskId()).orElseThrow();
         PullRequestSubject local = runtime.materializePullRequest(
-                first.taskId(), "H-one", "main", "main", "main");
+                first.taskId(), adoptedTask.currentChangeSetRevisionId(),
+                "main", "main", "main");
         PullRequestSubject published = runtime.bindRemoteIdentity(
-                local.prId(), "H-one", "GITHUB", "repo-external-1", 42,
+                local.prId(), adoptedTask.currentHeadSha(), "GITHUB", "repo-external-1", 42,
                 "PR_node", "https://example.test/pr/42", "receipt:publish");
         PullRequestSubject redelivery = runtime.bindRemoteIdentity(
-                local.prId(), "H-one", "GITHUB", "repo-external-1", 42,
+                local.prId(), adoptedTask.currentHeadSha(), "GITHUB", "repo-external-1", 42,
                 "PR_node", "https://example.test/pr/42", "receipt:publish");
 
         assertThatThrownBy(() -> runtime.materializePullRequest(
-                first.taskId(), "H-one", "main", "main", "other"))
+                first.taskId(), adoptedTask.currentChangeSetRevisionId(),
+                "main", "main", "other"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("different PR subject");
         assertThat(published.published()).isTrue();
@@ -419,13 +435,13 @@ class TestFlowRuntime
                     "round-" + suffix,
                     task.taskId(),
                     task.prId(),
-                    "H-" + suffix,
+                    task.currentHeadSha(),
                     "ci:" + suffix);
             var redelivery = runtime.registerFinalRed(
                     "round-" + suffix,
                     task.taskId(),
                     task.prId(),
-                    "H-" + suffix,
+                    task.currentHeadSha(),
                     "ci:" + suffix);
 
             assertThat(redelivery).isEqualTo(first);
@@ -459,22 +475,22 @@ class TestFlowRuntime
         Task admissionTask = publishedTask("ci-admission", 41);
         runtime.registerFinalRed(
                 "round-admission", admissionTask.taskId(), admissionTask.prId(),
-                "H-ci-admission", "ci:admission");
+                admissionTask.currentHeadSha(), "ci:admission");
         selectFromReconciliation();
         Claim admissionClaim = claim(OperationKind.RUN_CI_FIXER);
         runtime.advanceRemoteHead(
-                admissionTask.prId(), "H-ci-admission", "H-remote-new");
+                admissionTask.prId(), admissionTask.currentHeadSha(), "H-remote-new");
         assertThatThrownBy(() -> runtime.acquireWriterLease(
                 admissionClaim,
                 AgentRole.CI_FIXER,
-                snapshot("H-ci-admission"),
+                snapshot(admissionTask.currentHeadSha()),
                 TTL))
                 .isInstanceOf(MutationRejectedException.class);
 
         Task mutationTask = publishedTask("ci-mutation", 42);
         runtime.registerFinalRed(
                 "round-mutation", mutationTask.taskId(), mutationTask.prId(),
-                "H-ci-mutation", "ci:mutation");
+                mutationTask.currentHeadSha(), "ci:mutation");
         selectFromReconciliation();
         ActiveWriter writer = startWriter(
                 OperationKind.RUN_CI_FIXER, AgentRole.CI_FIXER);
@@ -500,14 +516,14 @@ class TestFlowRuntime
                 .isInstanceOf(MutationRejectedException.class)
                 .hasMessageContaining("writer is live");
         runtime.advanceRemoteHead(
-                mutationTask.prId(), "H-ci-mutation", "H-remote-new");
+                mutationTask.prId(), mutationTask.currentHeadSha(), "H-remote-new");
         assertThatThrownBy(() -> runtime.assertWriterFence(
                 writer.claim(), writer.fence()))
                 .isInstanceOf(MutationRejectedException.class);
 
         Task selectionTask = publishedTask("ci-selection", 43);
         runtime.advanceRemoteHead(
-                selectionTask.prId(), "H-ci-selection", "H-remote-new");
+                selectionTask.prId(), selectionTask.currentHeadSha(), "H-remote-new");
         runtime.registerFinalRed(
                 "round-selection", selectionTask.taskId(), selectionTask.prId(),
                 "H-remote-new", "ci:selection");
@@ -559,7 +575,7 @@ class TestFlowRuntime
                                 round,
                                 task.taskId(),
                                 task.prId(),
-                                "H-simultaneous",
+                                task.currentHeadSha(),
                                 "ci:" + round)))
                 .toList();
         ingest.forEach(CompletableFuture::join);
@@ -609,10 +625,12 @@ class TestFlowRuntime
     {
         Task task = startAndProvision(suffix);
         finishInitialTaskTurn();
+        task = runtime.task(task.taskId()).orElseThrow();
         PullRequestSubject local = runtime.materializePullRequest(
-                task.taskId(), "H-" + suffix, "main", "main", "main");
+                task.taskId(), task.currentChangeSetRevisionId(),
+                "main", "main", "main");
         PullRequestSubject published = runtime.bindRemoteIdentity(
-                local.prId(), "H-" + suffix, "GITHUB",
+                local.prId(), task.currentHeadSha(), "GITHUB",
                 "repo-external-" + suffix, prNumber, "PR_" + suffix,
                 "https://example.test/pr/" + prNumber,
                 "receipt:" + suffix);
@@ -621,14 +639,19 @@ class TestFlowRuntime
 
     private Task startAndProvision(String suffix)
     {
+        Path repository = temporaryDirectory.resolve("repository-" + suffix);
+        Path worktree = temporaryDirectory.resolve("worktree-" + suffix);
+        initializeRepository(repository, worktree, "task/" + suffix);
+        String base = gitOutput(repository, "rev-parse", "HEAD");
         Task task = runtime.startTask(
                 "request-" + suffix,
                 "repo-1",
                 "Implement the task",
                 "task/" + suffix,
-                "/worktrees/" + suffix);
+                worktree.toString());
         Claim provision = claim(OperationKind.PROVISION_TASK);
-        runtime.provisionTask(provision, "B0", "H-" + suffix);
+        runtime.provisionTask(provision, base, base);
+        repositoryRoots.put(task.taskId(), repository);
         return runtime.task(task.taskId()).orElseThrow();
     }
 
@@ -637,11 +660,23 @@ class TestFlowRuntime
         selectFromReconciliation();
         ActiveWriter writer = startWriter(
                 OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
-        runToCompletion(
-                writer,
-                TerminalOutcome.COMPLETED,
-                "task complete",
-                null);
+        Task task = runtime.task(writer.fence().taskId()).orElseThrow();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                capability -> {
+                    commitTaskChange(task, "initial task change");
+                    runtime.adoptChangeSet(
+                            writer.claim(),
+                            writer.fence(),
+                            repositoryRoots.get(task.taskId()),
+                            null);
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "task complete", null);
+                });
+        supervisor.awaitAndFinish(handle, TTL);
     }
 
     private ActiveWriter startWriter(OperationKind kind, AgentRole role)
@@ -714,6 +749,73 @@ class TestFlowRuntime
     private int count(String table)
     {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
+    }
+
+    private static void initializeRepository(
+            Path repository, Path worktree, String branch)
+    {
+        try {
+            Files.createDirectories(repository);
+            gitOutput(repository, "init", "-b", "main");
+            gitOutput(repository, "config", "user.name", "ByteQuay Test");
+            gitOutput(repository, "config", "user.email", "test@bytequay.invalid");
+            Files.writeString(
+                    repository.resolve("base.txt"), "base\n", StandardCharsets.UTF_8);
+            gitOutput(repository, "add", "base.txt");
+            gitOutput(repository, "commit", "-m", "base");
+            gitOutput(
+                    repository,
+                    "worktree",
+                    "add",
+                    "-b",
+                    branch,
+                    worktree.toString());
+        }
+        catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void commitTaskChange(Task task, String content)
+    {
+        try {
+            Path worktree = Path.of(task.worktreePath());
+            Files.writeString(
+                    worktree.resolve("task-change.txt"),
+                    content + "\n",
+                    StandardCharsets.UTF_8);
+            gitOutput(worktree, "add", "task-change.txt");
+            gitOutput(worktree, "commit", "-m", "task change");
+        }
+        catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String gitOutput(Path directory, String... arguments)
+    {
+        try {
+            List<String> command = new ArrayList<>();
+            command.add("/usr/bin/git");
+            command.addAll(List.of(arguments));
+            Process process = new ProcessBuilder(command)
+                    .directory(directory.toFile())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(
+                    process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (process.waitFor() != 0) {
+                throw new IllegalStateException(output);
+            }
+            return output.strip();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+        catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static WorktreeSnapshot snapshot(String head)

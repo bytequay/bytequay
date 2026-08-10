@@ -16,9 +16,11 @@ CREATE TABLE flow_runtime_task (
     epoch INTEGER NOT NULL DEFAULT 1,
     launch_base_sha TEXT,
     current_base_sha TEXT,
+    current_base_revision_id TEXT,
     branch_name TEXT NOT NULL UNIQUE,
     worktree_path TEXT NOT NULL UNIQUE,
     current_head_sha TEXT,
+    current_change_set_revision_id TEXT,
     task_session_id TEXT UNIQUE,
     ci_session_id TEXT UNIQUE,
     pr_id TEXT UNIQUE,
@@ -27,7 +29,78 @@ CREATE TABLE flow_runtime_task (
     last_reconciled_work_watermark INTEGER NOT NULL DEFAULT 0,
     reconciliation_sequence INTEGER NOT NULL DEFAULT 0,
     selected_writer_operation_id TEXT,
-    writer_fence_sequence INTEGER NOT NULL DEFAULT 0
+    writer_fence_sequence INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (current_base_revision_id)
+        REFERENCES flow_runtime_task_base_revision (base_revision_id),
+    FOREIGN KEY (current_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
+);
+
+CREATE TABLE flow_runtime_task_base_revision (
+    base_revision_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    previous_base_sha TEXT,
+    base_sha TEXT NOT NULL,
+    reason_code TEXT NOT NULL CHECK (
+        reason_code IN (
+            'INITIAL',
+            'UPSTREAM_TARGET_INTEGRATION',
+            'EXPLICIT_RECONCILIATION'
+        )
+    ),
+    evidence_ref TEXT NOT NULL,
+    source_operation_id TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL,
+    CHECK (
+        (reason_code = 'INITIAL' AND sequence = 1
+            AND previous_base_sha IS NULL)
+        OR (reason_code <> 'INITIAL' AND sequence > 1
+            AND previous_base_sha IS NOT NULL)
+    ),
+    UNIQUE (task_id, sequence),
+    UNIQUE (task_id, source_operation_id),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (source_operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
+);
+
+CREATE TABLE flow_runtime_change_set_revision (
+    change_set_revision_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    previous_change_set_revision_id TEXT,
+    previous_head_sha TEXT NOT NULL,
+    head_sha TEXT NOT NULL,
+    base_revision_id TEXT NOT NULL,
+    base_sha TEXT NOT NULL,
+    head_tree_digest TEXT NOT NULL,
+    diff_digest TEXT NOT NULL,
+    differs_from_base INTEGER NOT NULL CHECK (differs_from_base IN (0, 1)),
+    source TEXT NOT NULL CHECK (
+        source IN ('TASK_AGENT', 'CI_FIXER', 'UPSTREAM_SYNC')
+    ),
+    source_run_id TEXT,
+    source_operation_id TEXT NOT NULL,
+    adopted_at INTEGER NOT NULL,
+    UNIQUE (task_id, sequence),
+    UNIQUE (task_id, source_operation_id, head_sha),
+    CHECK (
+        (source = 'UPSTREAM_SYNC' AND source_run_id IS NULL)
+        OR (source <> 'UPSTREAM_SYNC' AND source_run_id IS NOT NULL)
+    ),
+    CHECK (
+        (sequence = 1 AND previous_change_set_revision_id IS NULL)
+        OR (sequence > 1 AND previous_change_set_revision_id IS NOT NULL)
+    ),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (previous_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
+    FOREIGN KEY (base_revision_id)
+        REFERENCES flow_runtime_task_base_revision (base_revision_id),
+    FOREIGN KEY (source_run_id) REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (source_operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
 );
 
 CREATE TABLE flow_runtime_task_lifecycle_revision (
@@ -65,11 +138,14 @@ CREATE TABLE flow_runtime_pr (
     target_base_ref TEXT NOT NULL,
     scope_key TEXT NOT NULL,
     branch_name TEXT NOT NULL,
+    created_from_change_set_revision_id TEXT NOT NULL,
     created_from_head_sha TEXT NOT NULL,
     remote_identity_id TEXT UNIQUE,
     current_remote_head TEXT,
     created_at INTEGER NOT NULL,
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (created_from_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
     FOREIGN KEY (remote_identity_id)
         REFERENCES flow_runtime_remote_identity (remote_identity_id)
 );

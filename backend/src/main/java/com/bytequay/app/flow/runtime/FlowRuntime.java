@@ -18,6 +18,8 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentSession;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.FinalRedRegistration;
@@ -33,11 +35,13 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.SessionState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskBaseRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskLifecycleRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.Inspection;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.TerminatedThreadWitness;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -46,6 +50,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import javax.sql.DataSource;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.ResultSet;
@@ -65,10 +70,11 @@ import static java.util.Objects.requireNonNull;
 /**
  * Small durable transaction boundary for the greenfield workflow runtime.
  *
- * <p>The local sidecar has one runtime instance, so synchronized command
- * methods serialize SQLite's write transactions. Database uniqueness and CAS
- * predicates remain the final guards. A multi-process deployment would need a
- * database owner lock instead.
+ * <p>The local sidecar has one runtime instance, so short synchronized command
+ * sections serialize SQLite transactions. Slow worktree inspection runs
+ * outside that monitor. Database uniqueness and CAS predicates remain the
+ * final guards. A multi-process deployment would need a database owner lock
+ * instead.
  */
 public final class FlowRuntime
 {
@@ -80,6 +86,7 @@ public final class FlowRuntime
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final FlowWorktreeInspector worktreeInspector = new FlowWorktreeInspector();
 
     public FlowRuntime(DataSource dataSource, Clock clock)
     {
@@ -177,8 +184,8 @@ public final class FlowRuntime
             Claim claim, String baseSha, String headSha)
     {
         requireNonNull(claim, "claim is null");
-        requireText(baseSha, "baseSha");
-        requireText(headSha, "headSha");
+        requireObjectId(baseSha, "baseSha");
+        requireObjectId(headSha, "headSha");
         return inTransaction(() -> {
             Operation operation = requireOperation(claim.operationId());
             if (operation.kind() != OperationKind.PROVISION_TASK) {
@@ -186,12 +193,22 @@ public final class FlowRuntime
                         "claim does not own Task provisioning");
             }
             Task task = requireTask(operation.taskId());
-            if (task.status() == TaskStatus.ACTIVE
-                    && operation.state() == OperationState.SUCCEEDED) {
+            if (operation.state() == OperationState.SUCCEEDED) {
+                assertFinalizedClaim(
+                        claim, "provisioned:" + task.taskId());
                 if (!Objects.equals(task.launchBaseSha(), baseSha)
-                        || !Objects.equals(task.currentHeadSha(), headSha)) {
+                        || !Objects.equals(initialTaskHead(task.taskId()), headSha)) {
                     throw new IllegalStateException(
                             "provisioning redelivery changed the frozen subject");
+                }
+                TaskBaseRevision base = baseRevisionForSource(
+                        operation.operationId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "provisioned Task has no initial base revision"));
+                if (!base.baseSha().equals(baseSha)
+                        || !base.sourceOperationId().equals(operation.operationId())) {
+                    throw new IllegalStateException(
+                            "provisioned base revision changed after completion");
                 }
                 return requireSession(task.taskSessionId());
             }
@@ -221,17 +238,35 @@ public final class FlowRuntime
                     "base:" + baseSha,
                     operation.operationId(),
                     now);
+            String baseRevisionId = stableId(
+                    "task-base-revision", task.taskId(), "1");
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_task_base_revision (
+                        base_revision_id, task_id, sequence, previous_base_sha,
+                        base_sha, reason_code, evidence_ref,
+                        source_operation_id, recorded_at
+                    ) VALUES (?, ?, 1, NULL, ?, 'INITIAL', ?, ?, ?)
+                    """,
+                    baseRevisionId,
+                    task.taskId(),
+                    baseSha,
+                    "provision-operation:" + operation.operationId(),
+                    operation.operationId(),
+                    now.toEpochMilli());
             int updated = jdbc.update(
                     """
                     UPDATE flow_runtime_task
                     SET launch_base_sha = ?, current_base_sha = ?,
-                        current_head_sha = ?, task_session_id = ?,
+                        current_base_revision_id = ?, current_head_sha = ?,
+                        task_session_id = ?,
                         status = 'ACTIVE', current_lifecycle_revision_id = ?
                     WHERE task_id = ? AND status = 'CREATED'
                         AND current_lifecycle_revision_id = ?
                     """,
                     baseSha,
                     baseSha,
+                    baseRevisionId,
                     headSha,
                     sessionId,
                     active.lifecycleRevisionId(),
@@ -329,30 +364,23 @@ public final class FlowRuntime
     /** Materializes the Task's one stable local PR at an exact adopted head. */
     public synchronized PullRequestSubject materializePullRequest(
             String taskId,
-            String expectedHead,
+            String expectedChangeSetRevisionId,
             String baseRef,
             String targetBaseRef,
             String scopeKey)
     {
         requireText(taskId, "taskId");
-        requireText(expectedHead, "expectedHead");
+        requireText(expectedChangeSetRevisionId,
+                "expectedChangeSetRevisionId");
         requireText(baseRef, "baseRef");
         requireText(targetBaseRef, "targetBaseRef");
         requireText(scopeKey, "scopeKey");
         return inTransaction(() -> {
             Task task = requireTask(taskId);
-            if (task.status() != TaskStatus.ACTIVE
-                    || !expectedHead.equals(task.currentHeadSha())) {
-                throw new IllegalStateException(
-                        "PR subject is not the current active Task head");
-            }
-            if (expectedHead.equals(task.currentBaseSha())) {
-                throw new IllegalStateException(
-                        "An empty Task cannot materialize a PR");
-            }
             if (task.prId() != null) {
                 PullRequestSubject current = requirePullRequest(task.prId());
-                if (!current.createdFromHeadSha().equals(expectedHead)
+                if (!current.createdFromChangeSetRevisionId().equals(
+                        expectedChangeSetRevisionId)
                         || !current.baseRef().equals(baseRef)
                         || !current.targetBaseRef().equals(targetBaseRef)
                         || !current.scopeKey().equals(scopeKey)) {
@@ -361,36 +389,55 @@ public final class FlowRuntime
                 }
                 return current;
             }
-
+            ChangeSetRevision changeSet = requireChangeSetRevision(
+                    expectedChangeSetRevisionId);
+            if (task.status() != TaskStatus.ACTIVE
+                    || !expectedChangeSetRevisionId.equals(
+                            changeSet.changeSetRevisionId())
+                    || !changeSet.changeSetRevisionId().equals(
+                            task.currentChangeSetRevisionId())
+                    || !changeSet.baseRevisionId().equals(
+                            task.currentBaseRevisionId())
+                    || !changeSet.headSha().equals(task.currentHeadSha())
+                    || !changeSet.baseSha().equals(task.currentBaseSha())) {
+                throw new IllegalStateException(
+                        "PR subject is not the current active Task head");
+            }
+            if (!changeSet.differsFromBase()) {
+                throw new IllegalStateException(
+                        "An empty Task cannot materialize a PR");
+            }
             String prId = stableId("pr", taskId);
             jdbc.update(
                     """
                     INSERT INTO flow_runtime_pr (
                         pr_id, task_id, repository_id, base_ref, base_sha,
                         target_base_ref, scope_key, branch_name,
+                        created_from_change_set_revision_id,
                         created_from_head_sha, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     prId,
                     taskId,
                     task.repositoryId(),
                     baseRef,
-                    task.currentBaseSha(),
+                    changeSet.baseSha(),
                     targetBaseRef,
                     scopeKey,
                     task.branchName(),
-                    expectedHead,
+                    changeSet.changeSetRevisionId(),
+                    changeSet.headSha(),
                     clock.instant().toEpochMilli());
             int updated = jdbc.update(
                     """
                     UPDATE flow_runtime_task
                     SET pr_id = ?
                     WHERE task_id = ? AND pr_id IS NULL
-                        AND current_head_sha = ?
+                        AND current_change_set_revision_id = ?
                     """,
                     prId,
                     taskId,
-                    expectedHead);
+                    changeSet.changeSetRevisionId());
             if (updated != 1) {
                 throw new StaleOwnerRevisionException(
                         "Task head changed while materializing its PR");
@@ -1056,7 +1103,7 @@ public final class FlowRuntime
                 throw new MutationRejectedException(
                         "worktree snapshot is not the current Task head");
             }
-            assertWriterSubjectCurrent(operation);
+            assertWriterSubjectCurrent(operation, snapshot.headSha());
 
             Optional<WriterFence> existing = writerFence(task.taskId());
             if (existing.isPresent()) {
@@ -1230,6 +1277,171 @@ public final class FlowRuntime
             assertFenceRow(claim, fence);
             return Boolean.TRUE;
         });
+    }
+
+    /**
+     * Mechanically adopts the current clean committed Task worktree head.
+     * Git inspection runs outside the database transaction; the append then
+     * revalidates every owner pointer and the original claim/fence.
+     */
+    public ChangeSetRevision adoptChangeSet(
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
+
+        AdoptionSnapshot snapshot;
+        synchronized (this) {
+            snapshot = inTransaction(() -> adoptionSnapshot(
+                    claim, fence, expectedChangeSetRevisionId));
+        }
+        Inspection inspection = worktreeInspector.inspect(
+                programOwnedRepositoryRoot,
+                snapshot.worktree(),
+                snapshot.branchName(),
+                snapshot.baseSha(),
+                snapshot.predecessorHeadSha());
+
+        synchronized (this) {
+            return inTransaction(() -> appendInspectedChangeSet(
+                    claim,
+                    fence,
+                    expectedChangeSetRevisionId,
+                    snapshot,
+                    inspection));
+        }
+    }
+
+    private ChangeSetRevision appendInspectedChangeSet(
+            Claim claim,
+            WriterFence fence,
+            String expectedChangeSetRevisionId,
+            AdoptionSnapshot snapshot,
+            Inspection inspection)
+    {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            assertFenceRow(claim, fence);
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(snapshot.taskId());
+            AgentRun run = requireRun(snapshot.sourceRunId());
+            if (!operation.operationId().equals(snapshot.operationId())
+                    || !operation.operationId().equals(run.operationId())
+                    || operation.kind() != snapshot.operationKind()
+                    || run.state() != RunState.RUNNING
+                    || run.role() != (snapshot.source() == ChangeSetSource.TASK_AGENT
+                            ? AgentRole.TASK_AGENT
+                            : AgentRole.CI_FIXER)
+                    || task.epoch() != snapshot.taskEpoch()
+                    || task.status() != TaskStatus.ACTIVE
+                    || !operation.operationId().equals(
+                            task.selectedWriterOperationId())
+                    || !Objects.equals(task.currentBaseRevisionId(),
+                            snapshot.baseRevisionId())
+                    || !Objects.equals(task.currentBaseSha(), snapshot.baseSha())) {
+                throw new StaleOwnerRevisionException(
+                        "Task adoption subject changed during Git inspection");
+            }
+            TaskBaseRevision base = currentBaseRevision(task.taskId())
+                    .orElseThrow(() -> new StaleOwnerRevisionException(
+                            "Task lost its current base revision"));
+            if (!base.baseRevisionId().equals(snapshot.baseRevisionId())
+                    || !base.baseSha().equals(snapshot.baseSha())) {
+                throw new StaleOwnerRevisionException(
+                        "Task base revision changed during Git inspection");
+            }
+
+            Optional<ChangeSetRevision> duplicate = changeSetForSource(
+                    task.taskId(), operation.operationId(), inspection.headSha());
+            if (duplicate.isPresent()) {
+                ChangeSetRevision existing = duplicate.get();
+                if (exactAdoptionRedelivery(
+                        existing,
+                        task,
+                        snapshot,
+                        inspection,
+                        expectedChangeSetRevisionId)) {
+                    return existing;
+                }
+                throw new StaleOwnerRevisionException(
+                        "change-set adoption was already superseded");
+            }
+            if (snapshot.redelivery() != null
+                    || !Objects.equals(task.currentHeadSha(),
+                            snapshot.predecessorHeadSha())
+                    || !Objects.equals(task.currentChangeSetRevisionId(),
+                            expectedChangeSetRevisionId)) {
+                throw new StaleOwnerRevisionException(
+                        "Task adoption subject changed during Git inspection");
+            }
+
+            ChangeSetRevision previous = expectedChangeSetRevisionId == null
+                    ? null
+                    : requireChangeSetRevision(expectedChangeSetRevisionId);
+            long sequence = previous == null ? 1 : previous.sequence() + 1;
+            String revisionId = stableId(
+                    "change-set-revision",
+                    task.taskId(),
+                    Long.toString(sequence),
+                    operation.operationId(),
+                    inspection.headSha());
+            Instant now = clock.instant();
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_change_set_revision (
+                        change_set_revision_id, task_id, sequence,
+                        previous_change_set_revision_id, previous_head_sha,
+                        head_sha, base_revision_id, base_sha,
+                        head_tree_digest, diff_digest, differs_from_base,
+                        source, source_run_id, source_operation_id, adopted_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    revisionId,
+                    task.taskId(),
+                    sequence,
+                    expectedChangeSetRevisionId,
+                    snapshot.predecessorHeadSha(),
+                    inspection.headSha(),
+                    base.baseRevisionId(),
+                    base.baseSha(),
+                    inspection.headTreeDigest(),
+                    inspection.baseToHeadDiffDigest(),
+                    inspection.differsFromBase() ? 1 : 0,
+                    snapshot.source().name(),
+                    run.runId(),
+                    operation.operationId(),
+                    now.toEpochMilli());
+            int advanced = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET current_head_sha = ?,
+                        current_change_set_revision_id = ?
+                    WHERE task_id = ? AND epoch = ? AND status = 'ACTIVE'
+                      AND selected_writer_operation_id = ?
+                      AND current_base_revision_id = ? AND current_base_sha = ?
+                      AND current_head_sha = ?
+                      AND ((? IS NULL AND current_change_set_revision_id IS NULL)
+                        OR current_change_set_revision_id = ?)
+                    """,
+                    inspection.headSha(),
+                    revisionId,
+                    task.taskId(),
+                    snapshot.taskEpoch(),
+                    operation.operationId(),
+                    base.baseRevisionId(),
+                    base.baseSha(),
+                    snapshot.predecessorHeadSha(),
+                    expectedChangeSetRevisionId,
+                    expectedChangeSetRevisionId);
+            if (advanced != 1) {
+                throw new StaleOwnerRevisionException(
+                        "Task changed while adopting inspected Git state");
+            }
+            return requireChangeSetRevision(revisionId);
     }
 
     /**
@@ -1780,7 +1992,7 @@ public final class FlowRuntime
                         runId,
                         "1",
                         PendingKind.AGENT_RESULT_READY,
-                        run.headSha(),
+                        task.currentHeadSha(),
                         "agent-result:" + resultId,
                         resultId,
                         now);
@@ -1829,6 +2041,46 @@ public final class FlowRuntime
         return jdbc.query(
                 "SELECT * FROM flow_runtime_task WHERE task_id = ?",
                 (result, row) -> readTask(result),
+                taskId).stream().findFirst();
+    }
+
+    public Optional<TaskBaseRevision> currentBaseRevision(String taskId)
+    {
+        requireText(taskId, "taskId");
+        return jdbc.query(
+                """
+                SELECT b.* FROM flow_runtime_task t
+                JOIN flow_runtime_task_base_revision b
+                  ON b.base_revision_id = t.current_base_revision_id
+                WHERE t.task_id = ?
+                """,
+                (result, row) -> readBaseRevision(result),
+                taskId).stream().findFirst();
+    }
+
+    private Optional<TaskBaseRevision> baseRevisionForSource(
+            String sourceOperationId)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_runtime_task_base_revision
+                WHERE source_operation_id = ?
+                """,
+                (result, row) -> readBaseRevision(result),
+                sourceOperationId).stream().findFirst();
+    }
+
+    public Optional<ChangeSetRevision> currentChangeSet(String taskId)
+    {
+        requireText(taskId, "taskId");
+        return jdbc.query(
+                """
+                SELECT c.* FROM flow_runtime_task t
+                JOIN flow_runtime_change_set_revision c
+                  ON c.change_set_revision_id = t.current_change_set_revision_id
+                WHERE t.task_id = ?
+                """,
+                (result, row) -> readChangeSetRevision(result),
                 taskId).stream().findFirst();
     }
 
@@ -2631,21 +2883,23 @@ public final class FlowRuntime
         if (requireNonNull(matches, "writer authority count is null") != 1) {
             throw new StaleWriterFenceException("writer fence is stale");
         }
-        assertWriterSubjectCurrent(requireOperation(fence.operationId()));
+        assertWriterSubjectCurrent(
+                requireOperation(fence.operationId()), fence.headSha());
     }
 
-    private void assertWriterSubjectCurrent(Operation operation)
+    private void assertWriterSubjectCurrent(
+            Operation operation, String admissionHead)
     {
         String condition = operation.kind() == OperationKind.RUN_CI_FIXER
                 ? """
                   i.kind = 'FINAL_RED'
                   AND i.pr_id = p.pr_id
                   AND i.subject_head = p.current_remote_head
-                  AND i.subject_head = t.current_head_sha
+                  AND i.subject_head = ?
                   """
                 : """
                   i.kind IN ('INITIAL_TASK', 'AGENT_RESULT_READY')
-                  AND i.subject_head = t.current_head_sha
+                  AND i.subject_head = ?
                   """;
         Integer matches = jdbc.queryForObject(
                 """
@@ -2661,10 +2915,11 @@ public final class FlowRuntime
                 """ + condition,
                 Integer.class,
                 operation.operationId(),
-                operation.taskId());
+                operation.taskId(),
+                admissionHead);
         if (requireNonNull(matches, "writer subject count is null") != 1) {
             throw new MutationRejectedException(
-                    "FINAL_RED is no longer the current remote PR subject");
+                    "writer input is no longer the exact admission subject");
         }
     }
 
@@ -3014,12 +3269,154 @@ public final class FlowRuntime
                                 "Unknown AgentResult: " + resultId));
     }
 
+    private AdoptionSnapshot adoptionSnapshot(
+            Claim claim,
+            WriterFence fence,
+            String expectedChangeSetRevisionId)
+    {
+        assertCurrentClaim(claim, OperationState.CLAIMED);
+        assertFenceRow(claim, fence);
+        Operation operation = requireOperation(claim.operationId());
+        ChangeSetSource source = switch (operation.kind()) {
+            case RUN_TASK_TURN -> ChangeSetSource.TASK_AGENT;
+            case RUN_CI_FIXER -> ChangeSetSource.CI_FIXER;
+            default -> throw new IllegalArgumentException(
+                    "operation cannot adopt an agent change set");
+        };
+        AgentRole role = source == ChangeSetSource.TASK_AGENT
+                ? AgentRole.TASK_AGENT
+                : AgentRole.CI_FIXER;
+        assertFenceOwnsOperation(fence, operation, role);
+        AgentRun run = runForOperation(operation.operationId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "writer operation has no exact AgentRun"));
+        if (run.role() != role || run.state() != RunState.RUNNING) {
+            throw new IllegalStateException(
+                    "writer operation has no running source AgentRun");
+        }
+        Task task = requireTask(operation.taskId());
+        TaskBaseRevision base = currentBaseRevision(task.taskId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Task has no current base revision"));
+        Optional<ChangeSetRevision> current = currentChangeSet(task.taskId());
+        if (current.isPresent()) {
+            ChangeSetRevision revision = current.get();
+            if (revision.sourceOperationId().equals(operation.operationId())
+                    && Objects.equals(revision.sourceRunId(), run.runId())
+                    && Objects.equals(revision.previousChangeSetRevisionId(),
+                            expectedChangeSetRevisionId)
+                    && Objects.equals(task.currentChangeSetRevisionId(),
+                            revision.changeSetRevisionId())
+                    && revision.headSha().equals(task.currentHeadSha())
+                    && revision.baseRevisionId().equals(base.baseRevisionId())) {
+                return new AdoptionSnapshot(
+                        task.taskId(),
+                        task.epoch(),
+                        operation.operationId(),
+                        operation.kind(),
+                        source,
+                        run.runId(),
+                        Path.of(task.worktreePath()),
+                        task.branchName(),
+                        base.baseRevisionId(),
+                        base.baseSha(),
+                        revision.previousHeadSha(),
+                        revision);
+            }
+        }
+        if (!Objects.equals(task.currentChangeSetRevisionId(),
+                expectedChangeSetRevisionId)) {
+            throw new StaleOwnerRevisionException(
+                    "expected change-set revision is stale");
+        }
+        return new AdoptionSnapshot(
+                task.taskId(),
+                task.epoch(),
+                operation.operationId(),
+                operation.kind(),
+                source,
+                run.runId(),
+                Path.of(task.worktreePath()),
+                task.branchName(),
+                base.baseRevisionId(),
+                base.baseSha(),
+                task.currentHeadSha(),
+                null);
+    }
+
+    private Optional<ChangeSetRevision> changeSetForSource(
+            String taskId, String operationId, String headSha)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_runtime_change_set_revision
+                WHERE task_id = ? AND source_operation_id = ? AND head_sha = ?
+                """,
+                (result, row) -> readChangeSetRevision(result),
+                taskId,
+                operationId,
+                headSha).stream().findFirst();
+    }
+
+    private static boolean exactAdoptionRedelivery(
+            ChangeSetRevision revision,
+            Task task,
+            AdoptionSnapshot snapshot,
+            Inspection inspection,
+            String expectedChangeSetRevisionId)
+    {
+        return Objects.equals(
+                        task.currentChangeSetRevisionId(),
+                        revision.changeSetRevisionId())
+                && task.currentHeadSha().equals(revision.headSha())
+                && Objects.equals(
+                        revision.previousChangeSetRevisionId(),
+                        expectedChangeSetRevisionId)
+                && revision.previousHeadSha().equals(
+                        snapshot.predecessorHeadSha())
+                && revision.headSha().equals(inspection.headSha())
+                && revision.baseRevisionId().equals(snapshot.baseRevisionId())
+                && revision.baseSha().equals(snapshot.baseSha())
+                && revision.headTreeDigest().equals(
+                        inspection.headTreeDigest())
+                && revision.diffDigest().equals(
+                        inspection.baseToHeadDiffDigest())
+                && revision.differsFromBase() == inspection.differsFromBase()
+                && revision.source() == snapshot.source()
+                && Objects.equals(revision.sourceRunId(), snapshot.sourceRunId())
+                && revision.sourceOperationId().equals(snapshot.operationId());
+    }
+
+    private ChangeSetRevision requireChangeSetRevision(String revisionId)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_runtime_change_set_revision
+                WHERE change_set_revision_id = ?
+                """,
+                (result, row) -> readChangeSetRevision(result),
+                revisionId).stream().findFirst().orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Unknown ChangeSetRevision: " + revisionId));
+    }
+
     private Optional<PendingWork> inbox(String inboxId)
     {
         return jdbc.query(
                 "SELECT * FROM flow_runtime_inbox WHERE inbox_id = ?",
                 (result, row) -> readInbox(result),
                 inboxId).stream().findFirst();
+    }
+
+    private String initialTaskHead(String taskId)
+    {
+        return jdbc.queryForObject(
+                """
+                SELECT subject_head FROM flow_runtime_inbox
+                WHERE task_id = ? AND kind = 'INITIAL_TASK'
+                """,
+                String.class,
+                taskId);
     }
 
     private <T> T inTransaction(Supplier<T> work)
@@ -3041,9 +3438,11 @@ public final class FlowRuntime
                 result.getLong("epoch"),
                 result.getString("launch_base_sha"),
                 result.getString("current_base_sha"),
+                result.getString("current_base_revision_id"),
                 result.getString("branch_name"),
                 result.getString("worktree_path"),
                 result.getString("current_head_sha"),
+                result.getString("current_change_set_revision_id"),
                 result.getString("task_session_id"),
                 result.getString("ci_session_id"),
                 result.getString("pr_id"),
@@ -3075,6 +3474,42 @@ public final class FlowRuntime
                 instant(result, "created_at"));
     }
 
+    private static TaskBaseRevision readBaseRevision(ResultSet result)
+            throws SQLException
+    {
+        return new TaskBaseRevision(
+                result.getString("base_revision_id"),
+                result.getString("task_id"),
+                result.getLong("sequence"),
+                result.getString("previous_base_sha"),
+                result.getString("base_sha"),
+                result.getString("reason_code"),
+                result.getString("evidence_ref"),
+                result.getString("source_operation_id"),
+                instant(result, "recorded_at"));
+    }
+
+    private static ChangeSetRevision readChangeSetRevision(ResultSet result)
+            throws SQLException
+    {
+        return new ChangeSetRevision(
+                result.getString("change_set_revision_id"),
+                result.getString("task_id"),
+                result.getLong("sequence"),
+                result.getString("previous_change_set_revision_id"),
+                result.getString("previous_head_sha"),
+                result.getString("head_sha"),
+                result.getString("base_revision_id"),
+                result.getString("base_sha"),
+                result.getString("head_tree_digest"),
+                result.getString("diff_digest"),
+                result.getInt("differs_from_base") == 1,
+                ChangeSetSource.valueOf(result.getString("source")),
+                result.getString("source_run_id"),
+                result.getString("source_operation_id"),
+                instant(result, "adopted_at"));
+    }
+
     private static PullRequestSubject readPullRequest(ResultSet result)
             throws SQLException
     {
@@ -3089,6 +3524,7 @@ public final class FlowRuntime
                 result.getString("target_base_ref"),
                 result.getString("scope_key"),
                 result.getString("branch_name"),
+                result.getString("created_from_change_set_revision_id"),
                 result.getString("created_from_head_sha"),
                 result.getString("remote_identity_id"),
                 result.getString("provider"),
@@ -3258,6 +3694,23 @@ public final class FlowRuntime
         }
     }
 
+    private static void requireObjectId(String value, String name)
+    {
+        requireText(value, name);
+        if (value.length() != 40 && value.length() != 64) {
+            throw new IllegalArgumentException(
+                    name + " must be a full lowercase object ID");
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (!((character >= '0' && character <= '9')
+                    || (character >= 'a' && character <= 'f'))) {
+                throw new IllegalArgumentException(
+                        name + " must be a full lowercase object ID");
+            }
+        }
+    }
+
     private static void requirePositive(Duration value, String name)
     {
         requireNonNull(value, name + " is null");
@@ -3271,6 +3724,20 @@ public final class FlowRuntime
             String taskId,
             OperationKind kind,
             long generation) {}
+
+    private record AdoptionSnapshot(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            OperationKind operationKind,
+            ChangeSetSource source,
+            String sourceRunId,
+            Path worktree,
+            String branchName,
+            String baseRevisionId,
+            String baseSha,
+            String predecessorHeadSha,
+            ChangeSetRevision redelivery) {}
 
     public static class StaleOwnerRevisionException
             extends IllegalStateException

@@ -64,6 +64,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestInProcessWriterAgentSupervisor
 {
+    private static final String BASE_SHA = "a".repeat(40);
+    private static final String HEAD_SHA = "b".repeat(40);
     private static final Instant NOW = Instant.parse("2026-08-10T10:15:30Z");
     private static final Duration TTL = Duration.ofMinutes(5);
     private static final Duration WAIT = Duration.ofSeconds(5);
@@ -703,7 +705,7 @@ class TestInProcessWriterAgentSupervisor
                 "task/" + suffix,
                 temporaryDirectory.resolve("worktree-" + suffix).toString());
         Claim provision = claim(OperationKind.PROVISION_TASK);
-        runtime.provisionTask(provision, "B0", "H-" + suffix);
+        runtime.provisionTask(provision, BASE_SHA, HEAD_SHA);
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
         assertThat(runtime.selectNext(reconciliation).orElseThrow().kind())
                 .isEqualTo(OperationKind.RUN_TASK_TURN);
@@ -712,9 +714,9 @@ class TestInProcessWriterAgentSupervisor
                 turn,
                 AgentRole.TASK_AGENT,
                 new WorktreeSnapshot(
-                        "H-" + suffix,
-                        "tree:H-" + suffix,
-                        "snapshot:H-" + suffix),
+                        HEAD_SHA,
+                        "tree:" + HEAD_SHA,
+                        "snapshot:" + HEAD_SHA),
                 TTL);
         AgentRun run = runtime.startWriterAgent(
                 turn, fence, "prompt:task", "capabilities:task");

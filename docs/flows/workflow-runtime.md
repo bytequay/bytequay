@@ -98,7 +98,7 @@ but their ownership and constraints must remain intact.
 | `ci_session_id` | Nullable persistent CI Fixer session. |
 | `pr_id` | Nullable until a reviewable committed diff exists; then immutable. |
 | `current_lifecycle_revision_id` | Pointer to the latest immutable lifecycle revision. |
-| `current_change_set_revision_id` | Pointer to the currently adopted immutable code revision. |
+| `current_change_set_revision_id` | Pointer to the currently adopted immutable code revision. It remains null after provisioning until the first inspector-backed adoption. |
 | `pending_work_watermark` | Monotonic value allocated when a new pending work fact is registered. |
 | `last_reconciled_work_watermark` | Highest pending-work watermark covered by a completed reconciliation pass; it is not proof that every older cause completed. |
 | `reconciliation_sequence` | Monotonic generation for successive reconciliation operations. |
@@ -192,8 +192,9 @@ writer-turn boundary:
 ```text
 ChangeSetRevision {
   changeSetRevisionId, taskId, sequence,
-  previousHeadSha, headSha, baseRevisionId, baseSha,
-  treeDigest, diffDigest,
+  previousChangeSetRevisionId?, previousHeadSha, headSha,
+  baseRevisionId, baseSha,
+  headTreeDigest, diffDigest, differsFromBase,
   source = TASK_AGENT | CI_FIXER | UPSTREAM_SYNC,
   sourceRunId?, sourceOperationId,
   adoptedAt
@@ -221,6 +222,23 @@ Task branch, clean worktree including untracked files, committed head, expected
 predecessor, live writer fence, and computed Git/tree/diff digests. Agent text
 or an agent-supplied SHA cannot adopt code. `baseSha` is derived from the current
 `TaskBaseRevision`; a caller cannot supply or silently mutate it.
+
+Provisioning creates no `ChangeSetRevision`: its base/head inputs are not a
+mechanical worktree observation. The first revision is appended only by
+`FlowWorktreeInspector` under a running Task/CI writer run. Task/CI revisions
+require that exact `AgentRun`; only the future deterministic `UPSTREAM_SYNC`
+source may omit `sourceRunId`.
+
+The present provisioning command accepts full lowercase 40/64-hex object IDs
+only, but still trusts its program-owned provisioning adapter to have resolved
+those IDs. Moving that resolution inside the provisioning owner is pending; the
+provisioning input is never treated as inspected change-set evidence.
+
+The current lease-admission API still accepts a program-side
+`WorktreeSnapshot` to freeze its admission head. That value is not change-set
+evidence and is never reused by adoption. Binding lease admission itself to an
+internal inspector is still pending; production wiring must not expose that
+input to a model or untrusted caller.
 
 ### `Operation`
 
@@ -466,8 +484,9 @@ shapes.
 | `DispatchQueue.claim(workerId, now)` | dispatcher | Atomically claim one eligible ticket and issue its expiring monotonic `claimToken`. A writer ticket is eligible only when its operation matches the Task's selected or reserved writer pointer. A `RUN_REVIEWER` ticket is eligible only when its exact parent has a durable `AgentResult`, that parent session is `PARKED_CHILD`, its selected-writer pointer is clear, and no writer lease remains; this predicate is the enforceable representation of “parent-blocked.” A reconciliation ticket waits while `selected_writer_operation_id` is live, but may run ahead of a reservation only when a terminal/effect/recovery cause outranks it. A reserved ticket's direct eligibility predicate—not `WorkSelector`—checks predecessor result/pointer/lease plus those higher blockers. A GitHub effect claim also locks its `prId` and permits only that PR's oldest eligible nonterminal `ExternalEffectPlan.prSequence`. An expired agent claim is not eligible for a new generation until `stopAndProve` records the prior generation dead. |
 | `TaskLifecycle.appendRevision(taskId, expectedLifecycleRevisionId, nextStatus, reasonCode, evidenceRef?, operationId?)` | Task owner commands | Append the immutable transition and advance Task pointers in one transaction; reject an unexpected current revision. |
 | `TaskBases.advance(taskId, expectedBaseRevisionId, newBaseSha, reason, evidenceRef, sourceOperationId, fence)` | fenced base-integration operation | Prove the resolved target/base integration, append `TaskBaseRevision`, and advance current-base pointers atomically; reject a ref name, stale fence, or unproven integration. |
-| `ChangeSets.adopt(taskId, expectedChangeSetRevisionId, sourceOperationId, fence)` | fenced writer operation, including its authenticated check tool | Mechanically inspect the bound worktree, derive the current base revision, prove predecessor/branch/clean committed head, compute digests, append the immutable revision, and advance `Task.current_head_sha`/pointer atomically. |
+| `FlowRuntime.adoptChangeSet(claim, fence, repositoryRoot, expectedChangeSetRevisionId)` | fenced Task/CI writer operation, including its authenticated check tool | Require the exact source `AgentRun` still `RUNNING`; mechanically inspect the bound worktree outside the database transaction; then revalidate claim, fence, Task epoch/status/selected operation, base pointer, predecessor and expected change-set pointer before appending and atomically advancing `Task.current_head_sha`/pointer. `expectedChangeSetRevisionId` is null only for the first adoption. Exact redelivery returns the same immutable row. |
 | `ChangeSets.current(taskId)` | launch/gate/check builders | Return the currently adopted immutable revision; never infer it from agent prose. |
+| `PullRequests.materialize(taskId, expectedChangeSetRevisionId, baseRef, targetBaseRef, scopeKey)` | exact local-review/publication command | On first creation, require the supplied immutable revision ID is still the Task's current nonempty change set, derive base/head only from that row, and store `created_from_change_set_revision_id`. Exact replay of that revision and parameters returns the stable local PR even after the Task advances; a different revision or parameters reject. A stale local-review action cannot silently publish a newer unseen revision. |
 | `MutationAdmission.evaluate(taskId, operationId)` | dispatcher before every writer claim | Require the Task's selected/reserved writer pointer, then return objective blockers from lifecycle/quarantine, any unhandled terminal-remote fact, `waiting_mutation_state_ref`, publication barrier, nonterminal exact-head reviewer barrier, and reserved successor. When a wait barrier exists no writer is eligible; when a mutation reservation exists, only that operation ID is eligible after terminal facts are reconciled. |
 | `WriterLeases.acquire(taskId, operationId, holderKind)` | writer operation | Call `MutationAdmission.evaluate`, then issue the next fencing token only for an allowed holder kind and when no live lease exists. No caller may bypass the canonical predicate. |
 | `WriterLeases.assertValid(fence)` | every mutating adapter | Fail closed before mutation if owner, epoch, token, or expiry differs. |

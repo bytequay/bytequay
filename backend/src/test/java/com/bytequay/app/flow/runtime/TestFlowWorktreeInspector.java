@@ -13,9 +13,13 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.AttachmentState;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.GitOperation;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.Inspection;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -50,6 +54,305 @@ final class TestFlowWorktreeInspector
         assertThat(first.headTreeDigest()).hasSize(64);
         assertThat(first.baseToHeadDiffDigest()).hasSize(64);
         assertThat(first.differsFromBase()).isTrue();
+    }
+
+    @Test
+    void rejectsCleanStateAndSealsStableTrackedContent(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        assertFailure(
+                FailureCode.CLEAN,
+                () -> inspectNonClean(fixture, fixture.base(), fixture.base()));
+
+        Files.writeString(
+                fixture.worktree().resolve("base.txt"),
+                "dirty-one\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection first = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        NonCleanInspection repeat = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        Files.writeString(
+                fixture.worktree().resolve("base.txt"),
+                "dirty-two\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection changed = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        git(fixture.repository(), "config", "core.autocrlf", "input");
+        NonCleanInspection configChanged = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+
+        assertThat(first).isEqualTo(repeat);
+        assertThat(first.kind()).isEqualTo(NonCleanKind.DIRTY);
+        assertThat(first.attachmentState()).isEqualTo(AttachmentState.ATTACHED);
+        assertThat(first.actualHeadSha()).isEqualTo(fixture.base());
+        assertThat(first.branchHeadSha()).isEqualTo(fixture.base());
+        assertThat(first.stateDigest()).hasSize(64);
+        assertThat(changed.stateDigest()).isNotEqualTo(first.stateDigest());
+        assertThat(configChanged.stateDigest())
+                .isNotEqualTo(changed.stateDigest());
+    }
+
+    @Test
+    void stagedAndUntrackedIdentityIsContentPathTypeAndModeSensitive(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Path staged = fixture.worktree().resolve("staged.txt");
+        Files.writeString(staged, "one\n", StandardCharsets.UTF_8);
+        git(fixture.worktree(), "add", "staged.txt");
+        NonCleanInspection stagedOne = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        Files.writeString(staged, "two\n", StandardCharsets.UTF_8);
+        git(fixture.worktree(), "add", "staged.txt");
+        NonCleanInspection stagedTwo = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        assertThat(stagedTwo.stateDigest())
+                .isNotEqualTo(stagedOne.stateDigest());
+
+        git(fixture.worktree(), "reset", "--hard", "HEAD");
+        Path untracked = fixture.worktree().resolve("loose.txt");
+        Files.writeString(untracked, "one\n", StandardCharsets.UTF_8);
+        NonCleanInspection looseOne = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        Files.writeString(untracked, "two\n", StandardCharsets.UTF_8);
+        NonCleanInspection looseTwo = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        Files.move(untracked, fixture.worktree().resolve("renamed.txt"));
+        NonCleanInspection renamed = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        Files.delete(fixture.worktree().resolve("renamed.txt"));
+        Files.createSymbolicLink(
+                fixture.worktree().resolve("loose.txt"), Path.of("../outside"));
+        NonCleanInspection symlink = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        Files.delete(fixture.worktree().resolve("loose.txt"));
+        Files.writeString(untracked, "two\n", StandardCharsets.UTF_8);
+        assertThat(untracked.toFile().setExecutable(true)).isTrue();
+        NonCleanInspection executable = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+
+        assertThat(List.of(
+                        looseOne.stateDigest(),
+                        looseTwo.stateDigest(),
+                        renamed.stateDigest(),
+                        symlink.stateDigest(),
+                        executable.stateDigest()))
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void rawTrackedBytesCannotCollideThroughTextNormalization(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Files.writeString(
+                fixture.worktree().resolve(".gitattributes"),
+                "normalized.txt text\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                fixture.worktree().resolve("normalized.txt"),
+                "one\ntwo\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                fixture.worktree().resolve("dirty.txt"),
+                "clean\n",
+                StandardCharsets.UTF_8);
+        git(fixture.worktree(), "add", ".gitattributes", "normalized.txt", "dirty.txt");
+        git(fixture.worktree(), "commit", "-m", "normalized files");
+        String predecessor = revParse(fixture.worktree(), "HEAD");
+        Files.writeString(
+                fixture.worktree().resolve("dirty.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        Files.write(
+                fixture.worktree().resolve("normalized.txt"),
+                "one\r\ntwo\r\n".getBytes(StandardCharsets.UTF_8));
+        NonCleanInspection crlf = inspectNonClean(
+                fixture, fixture.base(), predecessor);
+        Files.write(
+                fixture.worktree().resolve("normalized.txt"),
+                "one\r\ntwo\n".getBytes(StandardCharsets.UTF_8));
+        NonCleanInspection mixed = inspectNonClean(
+                fixture, fixture.base(), predecessor);
+
+        assertThat(mixed.stateDigest()).isNotEqualTo(crlf.stateDigest());
+    }
+
+    @Test
+    void ignoredFilesRemovedFromIndexRemainBoundByPredecessorAndCurrentHead(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture predecessor = fixture(temporaryDirectory.resolve("predecessor"));
+        Files.writeString(
+                predecessor.worktree().resolve(".gitignore"),
+                "generated.bin\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                predecessor.worktree().resolve("generated.bin"),
+                "one\n",
+                StandardCharsets.UTF_8);
+        git(predecessor.worktree(), "add", ".gitignore");
+        git(predecessor.worktree(), "add", "-f", "generated.bin");
+        git(predecessor.worktree(), "commit", "-m", "tracked generated file");
+        String predecessorHead = revParse(predecessor.worktree(), "HEAD");
+        git(predecessor.worktree(), "rm", "--cached", "--", "generated.bin");
+        NonCleanInspection predecessorOne = inspectNonClean(
+                predecessor, predecessor.base(), predecessorHead);
+        Files.writeString(
+                predecessor.worktree().resolve("generated.bin"),
+                "two\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection predecessorTwo = inspectNonClean(
+                predecessor, predecessor.base(), predecessorHead);
+        assertThat(predecessorTwo.stateDigest())
+                .isNotEqualTo(predecessorOne.stateDigest());
+
+        Fixture current = fixture(temporaryDirectory.resolve("current"));
+        Files.writeString(
+                current.worktree().resolve(".gitignore"),
+                "new-generated.bin\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                current.worktree().resolve("new-generated.bin"),
+                "one\n",
+                StandardCharsets.UTF_8);
+        git(current.worktree(), "add", ".gitignore");
+        git(current.worktree(), "add", "-f", "new-generated.bin");
+        git(current.worktree(), "commit", "-m", "new generated file");
+        git(current.worktree(), "rm", "--cached", "--", "new-generated.bin");
+        NonCleanInspection currentOne = inspectNonClean(
+                current, current.base(), current.base());
+        Files.writeString(
+                current.worktree().resolve("new-generated.bin"),
+                "two\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection currentTwo = inspectNonClean(
+                current, current.base(), current.base());
+        assertThat(currentTwo.stateDigest())
+                .isNotEqualTo(currentOne.stateDigest());
+
+        Fixture ignored = fixture(temporaryDirectory.resolve("ignored"));
+        Files.writeString(
+                ignored.worktree().resolve(".gitignore"),
+                "cache.bin\n",
+                StandardCharsets.UTF_8);
+        git(ignored.worktree(), "add", ".gitignore");
+        git(ignored.worktree(), "commit", "-m", "ignore cache");
+        String ignoredHead = revParse(ignored.worktree(), "HEAD");
+        Files.writeString(
+                ignored.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                ignored.worktree().resolve("cache.bin"),
+                "one\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection ignoredOne = inspectNonClean(
+                ignored, ignored.base(), ignoredHead);
+        Files.writeString(
+                ignored.worktree().resolve("cache.bin"),
+                "two\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection ignoredTwo = inspectNonClean(
+                ignored, ignored.base(), ignoredHead);
+        assertThat(ignoredTwo.stateDigest())
+                .isNotEqualTo(ignoredOne.stateDigest());
+    }
+
+    @Test
+    void nulDelimitedPathsPreserveSpacesDashNewlineAndUnicode(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        List<String> tracked = List.of(
+                "space name.txt", "-leading.txt", "line\nbreak.txt", "雪.txt");
+        for (String name : tracked) {
+            Files.writeString(
+                    fixture.worktree().resolve(name),
+                    "tracked\n",
+                    StandardCharsets.UTF_8);
+        }
+        List<String> add = new ArrayList<>(List.of("add", "--"));
+        add.addAll(tracked);
+        git(fixture.worktree(), add.toArray(String[]::new));
+        git(fixture.worktree(), "commit", "-m", "odd paths");
+        String predecessor = revParse(fixture.worktree(), "HEAD");
+        Files.writeString(
+                fixture.worktree().resolve("line\nbreak.txt"),
+                "changed\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(
+                fixture.worktree().resolve("untracked 雪\n.txt"),
+                "one\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection first = inspectNonClean(
+                fixture, fixture.base(), predecessor);
+        Files.writeString(
+                fixture.worktree().resolve("untracked 雪\n.txt"),
+                "two\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection second = inspectNonClean(
+                fixture, fixture.base(), predecessor);
+
+        assertThat(first.stateDigest()).hasSize(64);
+        assertThat(second.stateDigest()).isNotEqualTo(first.stateDigest());
+    }
+
+    @Test
+    void rejectsTrackedPathThroughSymlinkedParentWithoutReadingOutside(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        commit(fixture.worktree(), "dir/file.txt", "inside\n", "nested file");
+        String predecessor = revParse(fixture.worktree(), "HEAD");
+        Files.delete(fixture.worktree().resolve("dir/file.txt"));
+        Files.delete(fixture.worktree().resolve("dir"));
+        Path outside = temporaryDirectory.resolve("outside");
+        Files.createDirectories(outside);
+        Files.writeString(
+                outside.resolve("file.txt"),
+                "outside-secret\n",
+                StandardCharsets.UTF_8);
+        Files.createSymbolicLink(fixture.worktree().resolve("dir"), outside);
+
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        fixture, fixture.base(), predecessor));
+        Files.delete(outside.resolve("file.txt"));
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        fixture, fixture.base(), predecessor));
+    }
+
+    @Test
+    void commitThenDirtySealsActualNewHeadAgainstItsPredecessor(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        commit(fixture.worktree(), "task.txt", "committed\n", "task commit");
+        String committed = revParse(fixture.worktree(), "HEAD");
+        Files.writeString(
+                fixture.worktree().resolve("task.txt"),
+                "committed then dirty\n",
+                StandardCharsets.UTF_8);
+
+        NonCleanInspection inspection = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+
+        assertThat(inspection.actualHeadSha()).isEqualTo(committed);
+        assertThat(inspection.branchHeadSha()).isEqualTo(committed);
+        assertThat(inspection.kind()).isEqualTo(NonCleanKind.DIRTY);
     }
 
     @Test
@@ -112,6 +415,366 @@ final class TestFlowWorktreeInspector
         assertFailure(
                 FailureCode.GIT_OPERATION_IN_PROGRESS,
                 () -> inspect(fixture, fixture.base(), predecessor));
+    }
+
+    @Test
+    void sealsMergeAndControlMessageContent(@TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Files.writeString(
+                fixture.worktree().resolve("base.txt"),
+                "task\n",
+                StandardCharsets.UTF_8);
+        git(fixture.worktree(), "add", "base.txt");
+        git(fixture.worktree(), "commit", "-m", "task side");
+        String predecessor = revParse(fixture.worktree(), "HEAD");
+        Files.writeString(
+                fixture.repository().resolve("base.txt"),
+                "main\n",
+                StandardCharsets.UTF_8);
+        git(fixture.repository(), "add", "base.txt");
+        git(fixture.repository(), "commit", "-m", "main side");
+        assertThat(gitResult(fixture.worktree(), "merge", "main").exitCode())
+                .isNotZero();
+
+        NonCleanInspection first = inspectNonClean(
+                fixture, fixture.base(), predecessor);
+        Path mergeMessage = adminDirectory(fixture).resolve("MERGE_MSG");
+        Files.writeString(
+                mergeMessage,
+                Files.readString(mergeMessage, StandardCharsets.UTF_8)
+                        + "changed\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection changed = inspectNonClean(
+                fixture, fixture.base(), predecessor);
+
+        assertThat(first.kind())
+                .isEqualTo(NonCleanKind.GIT_OPERATION_IN_PROGRESS);
+        assertThat(first.operations()).contains(GitOperation.MERGE);
+        assertThat(changed.stateDigest()).isNotEqualTo(first.stateDigest());
+    }
+
+    @Test
+    void permitsDetachedHeadOnlyForRecognizedRebase(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Files.writeString(
+                fixture.worktree().resolve("base.txt"),
+                "task\n",
+                StandardCharsets.UTF_8);
+        git(fixture.worktree(), "add", "base.txt");
+        git(fixture.worktree(), "commit", "-m", "task side");
+        String predecessor = revParse(fixture.worktree(), "HEAD");
+        Files.writeString(
+                fixture.repository().resolve("base.txt"),
+                "main\n",
+                StandardCharsets.UTF_8);
+        git(fixture.repository(), "add", "base.txt");
+        git(fixture.repository(), "commit", "-m", "main side");
+        assertThat(gitResult(fixture.worktree(), "rebase", "main").exitCode())
+                .isNotZero();
+
+        NonCleanInspection inspection = inspectNonClean(
+                fixture, fixture.base(), predecessor);
+
+        assertThat(inspection.attachmentState())
+                .isEqualTo(AttachmentState.DETACHED);
+        assertThat(inspection.operations()).contains(GitOperation.REBASE);
+        assertThat(inspection.branchHeadSha()).isEqualTo(predecessor);
+        git(fixture.worktree(), "rebase", "--abort");
+        git(fixture.worktree(), "checkout", "--detach");
+        Files.writeString(
+                fixture.worktree().resolve("base.txt"),
+                "detached dirty\n",
+                StandardCharsets.UTF_8);
+        assertFailure(
+                FailureCode.DETACHED_HEAD,
+                () -> inspectNonClean(
+                        fixture, fixture.base(), fixture.base()));
+    }
+
+    @Test
+    void sealsCherryPickAndSequencerMarkerBytes(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture cherry = fixture(temporaryDirectory.resolve("cherry"));
+        Files.writeString(
+                cherry.worktree().resolve("base.txt"),
+                "task\n",
+                StandardCharsets.UTF_8);
+        git(cherry.worktree(), "add", "base.txt");
+        git(cherry.worktree(), "commit", "-m", "task side");
+        String predecessor = revParse(cherry.worktree(), "HEAD");
+        Files.writeString(
+                cherry.repository().resolve("base.txt"),
+                "main\n",
+                StandardCharsets.UTF_8);
+        git(cherry.repository(), "add", "base.txt");
+        git(cherry.repository(), "commit", "-m", "main side");
+        String mainCommit = revParse(cherry.repository(), "HEAD");
+        assertThat(gitResult(
+                cherry.worktree(), "cherry-pick", mainCommit).exitCode())
+                .isNotZero();
+        NonCleanInspection cherryInspection = inspectNonClean(
+                cherry, cherry.base(), predecessor);
+        assertThat(cherryInspection.operations())
+                .contains(GitOperation.CHERRY_PICK);
+
+        Fixture sequencer = fixture(temporaryDirectory.resolve("sequencer"));
+        Path sequencerDirectory = adminDirectory(sequencer).resolve("sequencer");
+        Files.createDirectories(sequencerDirectory);
+        Files.writeString(
+                sequencerDirectory.resolve("todo"),
+                "pick one\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection first = inspectNonClean(
+                sequencer, sequencer.base(), sequencer.base());
+        Files.writeString(
+                sequencerDirectory.resolve("todo"),
+                "pick two\n",
+                StandardCharsets.UTF_8);
+        NonCleanInspection second = inspectNonClean(
+                sequencer, sequencer.base(), sequencer.base());
+        assertThat(first.operations()).contains(GitOperation.SEQUENCER);
+        assertThat(second.stateDigest()).isNotEqualTo(first.stateDigest());
+    }
+
+    @Test
+    void sealsLinkedWorktreeBisectRefsAndRejectsUnsafeControlFiles(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Path admin = adminDirectory(fixture);
+        Path bisectRef = admin.resolve("refs/bisect/good-1");
+        Files.createDirectories(bisectRef.getParent());
+        Files.writeString(bisectRef, fixture.base() + "\n", StandardCharsets.UTF_8);
+        NonCleanInspection first = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        Files.writeString(bisectRef, "f".repeat(40) + "\n", StandardCharsets.UTF_8);
+        NonCleanInspection second = inspectNonClean(
+                fixture, fixture.base(), fixture.base());
+        assertThat(first.operations()).contains(GitOperation.BISECT);
+        assertThat(second.stateDigest()).isNotEqualTo(first.stateDigest());
+
+        Files.delete(bisectRef);
+        Files.delete(bisectRef.getParent());
+        Path sequencer = admin.resolve("sequencer");
+        Files.createDirectories(sequencer);
+        Files.write(sequencer.resolve("todo"), new byte[1024 * 1024 + 1]);
+        assertFailure(
+                FailureCode.OUTPUT_LIMIT,
+                () -> inspectNonClean(
+                        fixture, fixture.base(), fixture.base()));
+        Files.delete(sequencer.resolve("todo"));
+        ProcessResult fifo = process(sequencer, "/usr/bin/mkfifo", "todo");
+        assertThat(fifo.exitCode()).isZero();
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        fixture, fixture.base(), fixture.base()));
+    }
+
+    @Test
+    void rejectsSpecialWorktreeFilesIndexSymlinksAndSharedRerere(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture untracked = fixture(temporaryDirectory.resolve("untracked"));
+        ProcessResult fifo = process(
+                untracked.worktree(), "/usr/bin/mkfifo", "pipe");
+        assertThat(fifo.exitCode()).isZero();
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        untracked, untracked.base(), untracked.base()));
+
+        Fixture tracked = fixture(temporaryDirectory.resolve("tracked"));
+        Files.delete(tracked.worktree().resolve("base.txt"));
+        fifo = process(tracked.worktree(), "/usr/bin/mkfifo", "base.txt");
+        assertThat(fifo.exitCode()).isZero();
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        tracked, tracked.base(), tracked.base()));
+
+        Fixture index = fixture(temporaryDirectory.resolve("index"));
+        Path admin = adminDirectory(index);
+        Path outside = temporaryDirectory.resolve("outside-index");
+        Files.writeString(outside, "not-an-index\n", StandardCharsets.UTF_8);
+        Files.delete(admin.resolve("index"));
+        Files.createSymbolicLink(admin.resolve("index"), outside);
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(index, index.base(), index.base()));
+
+        Fixture rerere = fixture(temporaryDirectory.resolve("rerere"));
+        Files.writeString(
+                rerere.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        Path common = Path.of(gitResult(
+                rerere.worktree(),
+                "rev-parse",
+                "--git-common-dir").stdout().strip());
+        Files.createDirectories(common.resolve("rr-cache"));
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        rerere, rerere.base(), rerere.base()));
+
+        Fixture malformed = fixture(temporaryDirectory.resolve("malformed"));
+        Files.writeString(
+                malformed.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        ProcessResult invalidTarget = process(
+                malformed.worktree(),
+                "/usr/bin/perl",
+                "-e",
+                "symlink pack('C',255), 'badlink' or die $!");
+        assertThat(invalidTarget.exitCode()).isZero();
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        malformed, malformed.base(), malformed.base()));
+
+        Fixture objects = fixture(temporaryDirectory.resolve("objects"));
+        Files.writeString(
+                objects.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        Path pack = objects.repository().resolve(".git/objects/pack");
+        Path externalPack = temporaryDirectory.resolve("external-pack");
+        Files.move(pack, externalPack);
+        Files.createSymbolicLink(pack, externalPack);
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        objects, objects.base(), objects.base()));
+        Files.delete(malformed.worktree().resolve("badlink"));
+        Path malformedAdmin = adminDirectory(malformed);
+        Files.createDirectories(malformedAdmin.resolve("sequencer"));
+        ProcessResult invalidControl = process(
+                malformedAdmin,
+                "/usr/bin/perl",
+                "-e",
+                "my $n=pack('C',255); open(my $f,'>',\"sequencer/$n\")"
+                        + " or die $!; print $f 'x'; close $f");
+        if (invalidControl.exitCode() == 0) {
+            assertFailure(
+                    FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                    () -> inspectNonClean(
+                            malformed, malformed.base(), malformed.base()));
+        }
+
+        Fixture locked = fixture(temporaryDirectory.resolve("locked"));
+        Path lockedAdmin = adminDirectory(locked);
+        Files.createFile(lockedAdmin.resolve("index.lock"));
+        assertFailure(
+                FailureCode.GIT_OPERATION_IN_PROGRESS,
+                () -> inspect(locked, locked.base(), locked.base()));
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(
+                        locked, locked.base(), locked.base()));
+    }
+
+    @Test
+    void rejectsSplitIndexSparseStateAndWrongAttachedBranch(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture split = fixture(temporaryDirectory.resolve("split"));
+        Files.writeString(
+                split.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        git(split.worktree(), "update-index", "--split-index");
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(split, split.base(), split.base()));
+
+        Fixture sparse = fixture(temporaryDirectory.resolve("sparse"));
+        Files.writeString(
+                sparse.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        git(sparse.repository(), "config", "core.sparseCheckout", "true");
+        assertFailure(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE,
+                () -> inspectNonClean(sparse, sparse.base(), sparse.base()));
+
+        Fixture wrong = fixture(temporaryDirectory.resolve("wrong"));
+        git(wrong.worktree(), "switch", "-c", "task/wrong");
+        Files.writeString(
+                wrong.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        assertFailure(
+                FailureCode.WRONG_BRANCH,
+                () -> inspectNonClean(wrong, wrong.base(), wrong.base()));
+    }
+
+    @Test
+    void nonCleanInspectionDoesNotMutateGitState(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Path admin = adminDirectory(fixture);
+        Path index = admin.resolve("index");
+        Files.writeString(
+                fixture.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+        byte[] indexBefore = Files.readAllBytes(index);
+        var modifiedBefore = Files.getLastModifiedTime(index);
+        String headBefore = revParse(fixture.worktree(), "HEAD");
+        String branchBefore = revParse(
+                fixture.worktree(), "refs/heads/" + fixture.branch());
+
+        inspectNonClean(fixture, fixture.base(), fixture.base());
+
+        assertThat(Files.readAllBytes(index)).isEqualTo(indexBefore);
+        assertThat(Files.getLastModifiedTime(index)).isEqualTo(modifiedBefore);
+        assertThat(revParse(fixture.worktree(), "HEAD")).isEqualTo(headBefore);
+        assertThat(revParse(
+                fixture.worktree(), "refs/heads/" + fixture.branch()))
+                .isEqualTo(branchBefore);
+        assertThat(admin.resolve("index.lock")).doesNotExist();
+    }
+
+    @Test
+    void rejectsMovementBetweenItsTwoFullObservations(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Path tracked = fixture.worktree().resolve("base.txt");
+        Files.writeString(tracked, "first dirty\n", StandardCharsets.UTF_8);
+        FlowWorktreeInspector movingInspector = new FlowWorktreeInspector(() -> {
+            try {
+                Files.writeString(
+                        tracked, "second dirty\n", StandardCharsets.UTF_8);
+            }
+            catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        assertFailure(
+                FailureCode.MOVED_DURING_INSPECTION,
+                () -> movingInspector.inspectNonClean(
+                        fixture.repository(),
+                        fixture.worktree(),
+                        fixture.branch(),
+                        fixture.base(),
+                        fixture.base()));
     }
 
     @Test
@@ -387,6 +1050,27 @@ final class TestFlowWorktreeInspector
     }
 
     @Test
+    void rejectsSymlinkedLinkedWorktreeRegistrationRoot(
+            @TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        Fixture fixture = fixture(temporaryDirectory);
+        Path registrations = fixture.repository().resolve(".git/worktrees");
+        Path external = temporaryDirectory.resolve("external-registrations");
+        Files.move(registrations, external);
+        Files.createSymbolicLink(registrations, external);
+        Files.writeString(
+                fixture.worktree().resolve("base.txt"),
+                "dirty\n",
+                StandardCharsets.UTF_8);
+
+        assertFailure(
+                FailureCode.NOT_WORKTREE,
+                () -> inspectNonClean(
+                        fixture, fixture.base(), fixture.base()));
+    }
+
+    @Test
     void ignoresConfiguredSleepingFsmonitor(@TempDir Path temporaryDirectory)
             throws Exception
     {
@@ -416,6 +1100,26 @@ final class TestFlowWorktreeInspector
                 fixture.branch(),
                 base,
                 predecessor);
+    }
+
+    private NonCleanInspection inspectNonClean(
+            Fixture fixture, String base, String predecessor)
+    {
+        return inspector.inspectNonClean(
+                fixture.repository(),
+                fixture.worktree(),
+                fixture.branch(),
+                base,
+                predecessor);
+    }
+
+    private static Path adminDirectory(Fixture fixture)
+            throws Exception
+    {
+        return Path.of(gitResult(
+                fixture.worktree(),
+                "rev-parse",
+                "--absolute-git-dir").stdout().strip());
     }
 
     private static Fixture fixture(Path temporaryDirectory)
@@ -479,6 +1183,20 @@ final class TestFlowWorktreeInspector
         return new GitResult(exitCode, output);
     }
 
+    private static ProcessResult process(Path directory, String... arguments)
+            throws IOException, InterruptedException
+    {
+        Process process = new ProcessBuilder(arguments)
+                .directory(directory.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output;
+        try (var input = process.getInputStream()) {
+            output = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        return new ProcessResult(process.waitFor(), output);
+    }
+
     private static void assertFailure(FailureCode expected, Runnable action)
     {
         assertThatThrownBy(action::run)
@@ -490,4 +1208,6 @@ final class TestFlowWorktreeInspector
     private record Fixture(Path repository, Path worktree, String base, String branch) {}
 
     private record GitResult(int exitCode, String stdout) {}
+
+    private record ProcessResult(int exitCode, String stdout) {}
 }

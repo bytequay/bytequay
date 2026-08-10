@@ -200,11 +200,26 @@ ChangeSetRevision {
 }
 ```
 
+`FlowWorktreeInspector` is the stateless observation boundary used before
+adoption. Given the program-owned repository root, Task worktree, exact branch,
+base SHA, and predecessor SHA, it verifies a clean attached same-repository
+worktree in two agreeing Git observation passes. It returns the observed head
+plus versioned SHA-256 digests derived only from immutable base/head tree object IDs;
+it never reads an agent-supplied head or a textual diff. Inspection alone does
+not adopt the head or grant mutation authority: the later `ChangeSets.adopt`
+transaction must revalidate its fence and expected Task pointers before storing
+a revision. The initial safe boundary rejects primary checkouts, broken linked-
+worktree registration, external clean/process filters, assume-unchanged or
+skip-worktree index entries, partial/promisor object stores, alternate object
+commands, and any gitlink. The safety probe runs before object peeling, so
+inspection cannot lazily fetch a missing object. Recursive submodule inspection
+is deferred; the inspector never enters a submodule repository.
+
 `UNIQUE(task_id, sequence)` and `UNIQUE(task_id, head_sha, source_operation_id)`
 make adoption replay-safe. The row is appended only after the program proves the
-Task branch, clean tracked worktree, committed head, expected predecessor, live
-writer fence, and computed Git/tree/diff digests. Agent text or an agent-supplied
-SHA cannot adopt code. `baseSha` is derived from the current
+Task branch, clean worktree including untracked files, committed head, expected
+predecessor, live writer fence, and computed Git/tree/diff digests. Agent text
+or an agent-supplied SHA cannot adopt code. `baseSha` is derived from the current
 `TaskBaseRevision`; a caller cannot supply or silently mutate it.
 
 ### `Operation`

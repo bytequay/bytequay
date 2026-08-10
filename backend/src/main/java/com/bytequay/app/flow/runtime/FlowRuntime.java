@@ -1531,6 +1531,13 @@ public final class FlowRuntime
         return inTransaction(() -> {
             assertCurrentClaim(claim, OperationState.CLAIMED);
             assertFenceRow(claim, fence);
+            Operation operation = requireOperation(claim.operationId());
+            if (!Objects.equals(claim.taskId(), operation.taskId())
+                    || claim.kind() != operation.kind()
+                    || !Objects.equals(claim.taskId(), fence.taskId())) {
+                throw new StaleClaimException(
+                        "writer claim metadata does not match its operation");
+            }
             AgentRun run = requireRun(runId);
             if (!run.operationId().equals(claim.operationId())) {
                 throw new StaleClaimException(
@@ -2032,6 +2039,93 @@ public final class FlowRuntime
             rearmReconciliationAfterWriter(fence.taskId());
             ensureReconciliationIfPending(fence.taskId());
             return requireResult(resultId);
+        });
+    }
+
+    /**
+     * Verifies that a stopped program finalizer durably settled this exact
+     * writer authority. A callback return value is not itself a receipt.
+     */
+    synchronized AgentResult verifyFinalizedAgentResult(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            AgentResult returnedResult)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(returnedResult, "returnedResult is null");
+        return inTransaction(() -> {
+            AgentResult stored = resultForRun(runId).orElseThrow(() ->
+                    new IllegalStateException(
+                            "stopped finalizer did not store AgentResult"));
+            if (!stored.equals(returnedResult)) {
+                throw new IllegalStateException(
+                        "stopped finalizer returned a noncanonical AgentResult");
+            }
+            assertFinalizedClaim(claim, stored.resultId());
+
+            AgentRun run = requireRun(runId);
+            Operation operation = requireOperation(claim.operationId());
+            RunState expectedRunState = switch (stored.terminalOutcome()) {
+                case COMPLETED -> RunState.COMPLETED;
+                case FAILED -> RunState.FAILED;
+                case CANCELED -> RunState.CANCELED;
+            };
+            OperationState expectedOperationState = switch (
+                    stored.terminalOutcome()) {
+                case COMPLETED -> OperationState.SUCCEEDED;
+                case FAILED -> OperationState.FAILED;
+                case CANCELED -> OperationState.CANCELED;
+            };
+            if (!run.operationId().equals(claim.operationId())
+                    || run.state() != expectedRunState
+                    || operation.state() != expectedOperationState
+                    || !stored.resultId().equals(operation.resultRef())) {
+                throw new IllegalStateException(
+                        "agent run or operation is not durably finalized");
+            }
+            assertFenceOwnsOperation(fence, operation, run.role());
+
+            AgentSession session = requireSession(run.sessionId());
+            if (runId.equals(session.lastRunId())) {
+                if (session.state() == SessionState.NEW
+                        || session.state() == SessionState.RUNNING) {
+                    throw new IllegalStateException(
+                            "agent session still owns the finalized run");
+                }
+            }
+            else {
+                AgentRun successor = requireRun(session.lastRunId());
+                if (!successor.sessionId().equals(session.sessionId())) {
+                    throw new IllegalStateException(
+                            "agent session advanced without a durable run");
+                }
+            }
+
+            Task task = requireTask(fence.taskId());
+            if (claim.operationId().equals(
+                    task.selectedWriterOperationId())) {
+                throw new IllegalStateException(
+                        "finalized operation still owns the Task pointer");
+            }
+            Integer oldLease = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM flow_runtime_writer_lease
+                    WHERE task_id = ? AND operation_id = ?
+                      AND task_epoch = ? AND fencing_token = ?
+                    """,
+                    Integer.class,
+                    fence.taskId(),
+                    fence.operationId(),
+                    fence.taskEpoch(),
+                    fence.fencingToken());
+            if (requireNonNull(oldLease, "writer lease count is null") != 0) {
+                throw new IllegalStateException(
+                        "finalized operation still owns its writer lease");
+            }
+            return stored;
         });
     }
 

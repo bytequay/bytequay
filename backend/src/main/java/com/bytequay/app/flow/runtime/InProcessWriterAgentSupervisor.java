@@ -25,6 +25,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -50,15 +51,18 @@ public final class InProcessWriterAgentSupervisor
     private static final Instant JVM_STARTED_AT = Instant.ofEpochMilli(
             ManagementFactory.getRuntimeMXBean().getStartTime());
     private static final Object LAUNCH_LOCK = new Object();
+    private static final String RUNTIME_FINALIZER = "RUNTIME_AGENT_RESULT";
     private static final Duration DORMANT_START_TIMEOUT = Duration.ofSeconds(5);
     private static final ConcurrentMap<String, ManagedExecution> LIVE_EXECUTIONS =
             new ConcurrentHashMap<>();
 
     private final FlowRuntime runtime;
+    private final StoppedFinalizer runtimeFinalizer;
 
     public InProcessWriterAgentSupervisor(FlowRuntime runtime)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
+        this.runtimeFinalizer = this::finishWithRuntime;
     }
 
     /** Program-owned terminal data; finalContent remains opaque. */
@@ -76,6 +80,17 @@ public final class InProcessWriterAgentSupervisor
                         "non-completed execution requires errorRef");
             }
         }
+    }
+
+    /** Program-owned command invoked only after durable exact-thread stop. */
+    @FunctionalInterface
+    public interface StoppedFinalizer
+    {
+        AgentResult finish(
+                String runId,
+                Claim claim,
+                WriterFence fence,
+                AgentCompletion completion);
     }
 
     /** Non-secret identity used by dispatcher code to await or cancel. */
@@ -208,13 +223,39 @@ public final class InProcessWriterAgentSupervisor
             WriterFence fence,
             Function<WriterToolCapability, AgentCompletion> body)
     {
+        return launch(
+                runId,
+                claim,
+                fence,
+                RUNTIME_FINALIZER,
+                runtimeFinalizer,
+                body);
+    }
+
+    /** Launches with one finalizer route bound before the body is exposed. */
+    public ExecutionHandle launch(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            String finalizerKey,
+            StoppedFinalizer finalizer,
+            Function<WriterToolCapability, AgentCompletion> body)
+    {
         requireText(runId, "runId");
         requireNonNull(claim, "claim is null");
         requireNonNull(fence, "fence is null");
+        requireText(finalizerKey, "finalizerKey");
+        requireNonNull(finalizer, "finalizer is null");
         requireNonNull(body, "body is null");
 
         synchronized (LAUNCH_LOCK) {
-            return launchLocked(runId, claim, fence, body);
+            return launchLocked(
+                    runId,
+                    claim,
+                    fence,
+                    finalizerKey,
+                    finalizer,
+                    body);
         }
     }
 
@@ -222,13 +263,15 @@ public final class InProcessWriterAgentSupervisor
             String runId,
             Claim claim,
             WriterFence fence,
+            String finalizerKey,
+            StoppedFinalizer finalizer,
             Function<WriterToolCapability, AgentCompletion> body)
     {
         AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
                 runId, claim, fence);
         ManagedExecution live = LIVE_EXECUTIONS.get(attempt.executionId());
         if (live != null) {
-            live.adoptCurrentOwner(runId, claim, fence);
+            live.adoptCurrentOwner(runId, claim, fence, finalizerKey);
             return live.handle();
         }
         if (attempt.state() != ProcessAttemptState.RESERVED) {
@@ -246,7 +289,12 @@ public final class InProcessWriterAgentSupervisor
         }
 
         ManagedExecution created = new ManagedExecution(
-                runId, claim, fence, attempt);
+                runId,
+                claim,
+                fence,
+                attempt,
+                finalizerKey,
+                finalizer);
         Thread thread = new Thread(
                 () -> created.run(body),
                 "flow-writer-agent-" + attempt.executionId());
@@ -255,7 +303,7 @@ public final class InProcessWriterAgentSupervisor
         ManagedExecution raced = LIVE_EXECUTIONS.putIfAbsent(
                 attempt.executionId(), created);
         if (raced != null) {
-            raced.adoptCurrentOwner(runId, claim, fence);
+            raced.adoptCurrentOwner(runId, claim, fence, finalizerKey);
             return raced.handle();
         }
         try {
@@ -288,7 +336,24 @@ public final class InProcessWriterAgentSupervisor
     public AgentResult awaitAndFinish(
             ExecutionHandle handle, Duration timeout)
     {
+        return awaitAndFinalize(
+                handle,
+                timeout,
+                RUNTIME_FINALIZER);
+    }
+
+    /**
+     * Waits for exact-thread stop, then invokes one retryable program finalizer.
+     * A failed finalizer leaves the stopped execution registered for retry.
+     */
+    public AgentResult awaitAndFinalize(
+            ExecutionHandle handle,
+            Duration timeout,
+            String expectedFinalizerKey)
+    {
+        requireText(expectedFinalizerKey, "expectedFinalizerKey");
         ManagedExecution execution = requireLive(handle);
+        execution.assertFinalizerKey(expectedFinalizerKey);
         join(execution.thread, timeout);
         if (execution.thread.isAlive()) {
             throw new IllegalStateException(
@@ -304,40 +369,49 @@ public final class InProcessWriterAgentSupervisor
     public Cancellation cancel(ExecutionHandle handle, Duration timeout)
     {
         ManagedExecution execution = requireLive(handle);
+        boolean alreadyStopped;
         synchronized (execution) {
             if (execution.result != null) {
                 return new Cancellation(
                         CancellationDisposition.ALREADY_FINISHED,
                         execution.result);
             }
-            execution.cancellationRequested = true;
-            execution.revocationRequested = true;
-            runtime.revokeInProcessWriterCapability(
-                    execution.attempt.processAttemptId(),
-                    execution.claim,
-                    execution.fence);
-            execution.thread.interrupt();
+            alreadyStopped = execution.stoppedAttempt != null;
+            if (!alreadyStopped) {
+                execution.cancellationRequested = true;
+                execution.revocationRequested = true;
+                runtime.revokeInProcessWriterCapability(
+                        execution.attempt.processAttemptId(),
+                        execution.claim,
+                        execution.fence);
+                execution.thread.interrupt();
+            }
         }
 
-        join(execution.thread, timeout);
-        if (execution.thread.isAlive()) {
-            synchronized (execution) {
-                if (!execution.quarantined) {
-                    runtime.quarantineInProcessWriterAttempt(
-                            execution.attempt.processAttemptId(),
-                            execution.claim,
-                            execution.fence,
-                            ProcessQuarantineReason
-                                    .UNCOOPERATIVE_CANCELLATION);
-                    execution.quarantined = true;
+        if (!alreadyStopped) {
+            join(execution.thread, timeout);
+            if (execution.thread.isAlive()) {
+                synchronized (execution) {
+                    if (!execution.quarantined) {
+                        runtime.quarantineInProcessWriterAttempt(
+                                execution.attempt.processAttemptId(),
+                                execution.claim,
+                                execution.fence,
+                                ProcessQuarantineReason
+                                        .UNCOOPERATIVE_CANCELLATION);
+                        execution.quarantined = true;
+                    }
                 }
+                return new Cancellation(
+                        CancellationDisposition.QUARANTINED, null);
             }
-            return new Cancellation(
-                    CancellationDisposition.QUARANTINED, null);
         }
-        return new Cancellation(
-                CancellationDisposition.CANCELED,
-                finishEnded(execution, true));
+        AgentResult result = finishEnded(execution, true);
+        CancellationDisposition disposition = result.terminalOutcome()
+                == TerminalOutcome.CANCELED
+                ? CancellationDisposition.CANCELED
+                : CancellationDisposition.ALREADY_FINISHED;
+        return new Cancellation(disposition, result);
     }
 
     /** Visible for runtime health/recovery decisions, never for model context. */
@@ -350,7 +424,8 @@ public final class InProcessWriterAgentSupervisor
     }
 
     private AgentResult finishEnded(
-            ManagedExecution execution, boolean cancellation)
+            ManagedExecution execution,
+            boolean cancellation)
     {
         synchronized (execution) {
             if (execution.result != null) {
@@ -360,54 +435,89 @@ public final class InProcessWriterAgentSupervisor
                 throw new IllegalStateException(
                         "in-process execution has no terminal stop proof");
             }
-            execution.revocationRequested = true;
-            runtime.revokeInProcessWriterCapability(
-                    execution.attempt.processAttemptId(),
-                    execution.claim,
-                    execution.fence);
-            InProcessStopType stopType = cancellation
-                    || execution.cancellationRequested
-                    ? InProcessStopType.COOPERATIVE_CANCELLATION
-                    : InProcessStopType.NORMAL_RETURN;
-            if (execution.activeToolCalls != 0) {
-                throw new IllegalStateException(
-                        "writer stopped with an active tool effect");
+            execution.freezeFinalization(cancellation);
+            Claim finalizationClaim = execution.claim;
+            WriterFence finalizationFence = execution.fence;
+            if (execution.stoppedAttempt == null) {
+                execution.revocationRequested = true;
+                runtime.revokeInProcessWriterCapability(
+                        execution.attempt.processAttemptId(),
+                        finalizationClaim,
+                        finalizationFence);
+                if (execution.activeToolCalls != 0) {
+                    throw new IllegalStateException(
+                            "writer stopped with an active tool effect");
+                }
+                TerminatedThreadWitness witness =
+                        new TerminatedThreadWitness(execution.thread);
+                execution.stoppedAttempt =
+                        runtime.recordInProcessWriterStopped(
+                                execution.attempt.processAttemptId(),
+                                finalizationClaim,
+                                finalizationFence,
+                                witness,
+                                execution.stopType);
             }
-            TerminatedThreadWitness witness =
-                    new TerminatedThreadWitness(execution.thread);
-            runtime.recordInProcessWriterStopped(
-                    execution.attempt.processAttemptId(),
-                    execution.claim,
-                    execution.fence,
-                    witness,
-                    stopType);
-            AgentCompletion completion = stopType
-                    == InProcessStopType.COOPERATIVE_CANCELLATION
-                    ? new AgentCompletion(
-                            TerminalOutcome.CANCELED,
-                            execution.completion == null
-                                    ? null
-                                    : execution.completion.finalContent(),
-                            "IN_PROCESS_CANCELED")
-                    : execution.completion;
             try {
-                execution.result = runtime.finishAgentRun(
+                AgentResult callbackResult = requireNonNull(
+                        execution.finalizer.finish(
                         execution.runId,
-                        execution.claim,
-                        execution.fence,
-                        completion.terminalOutcome(),
-                        completion.finalContent(),
-                        completion.errorRef());
+                        finalizationClaim,
+                        finalizationFence,
+                        execution.finalizationCompletion),
+                        "stopped finalizer returned null");
+                assertExactFinalizationResult(
+                        callbackResult,
+                        execution.runId,
+                        execution.finalizationCompletion,
+                        execution.stoppedAttempt.stopProofRef());
+                execution.result = runtime.verifyFinalizedAgentResult(
+                        execution.runId,
+                        finalizationClaim,
+                        finalizationFence,
+                        callbackResult);
+                LIVE_EXECUTIONS.remove(
+                        execution.attempt.executionId(), execution);
                 return execution.result;
             }
             catch (FlowRuntime.StaleClaimException expired) {
+                LIVE_EXECUTIONS.remove(
+                        execution.attempt.executionId(), execution);
                 throw new StoppedAwaitingRecoveryException(
                         execution.handle(), expired);
             }
-            finally {
-                LIVE_EXECUTIONS.remove(
-                        execution.attempt.executionId(), execution);
-            }
+        }
+    }
+
+    private AgentResult finishWithRuntime(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            AgentCompletion completion)
+    {
+        return runtime.finishAgentRun(
+                runId,
+                claim,
+                fence,
+                completion.terminalOutcome(),
+                completion.finalContent(),
+                completion.errorRef());
+    }
+
+    private static void assertExactFinalizationResult(
+            AgentResult result,
+            String runId,
+            AgentCompletion completion,
+            String stopProofRef)
+    {
+        if (!result.runId().equals(runId)
+                || result.terminalOutcome() != completion.terminalOutcome()
+                || !Objects.equals(
+                        result.finalContent(), completion.finalContent())
+                || !Objects.equals(result.errorRef(), completion.errorRef())
+                || !result.stopProofRef().equals(stopProofRef)) {
+            throw new IllegalStateException(
+                    "stopped finalizer changed immutable completion identity");
         }
     }
 
@@ -472,6 +582,8 @@ public final class InProcessWriterAgentSupervisor
         private volatile Claim claim;
         private volatile WriterFence fence;
         private final AgentProcessAttempt attempt;
+        private final String finalizerKey;
+        private final StoppedFinalizer finalizer;
         private final CountDownLatch dormantReady = new CountDownLatch(1);
         private final CountDownLatch startGate = new CountDownLatch(1);
         private volatile Thread thread;
@@ -483,17 +595,24 @@ public final class InProcessWriterAgentSupervisor
         private boolean cancellationRequested;
         private boolean quarantined;
         private AgentResult result;
+        private AgentCompletion finalizationCompletion;
+        private InProcessStopType stopType;
+        private AgentProcessAttempt stoppedAttempt;
 
         private ManagedExecution(
                 String runId,
                 Claim claim,
                 WriterFence fence,
-                AgentProcessAttempt attempt)
+                AgentProcessAttempt attempt,
+                String finalizerKey,
+                StoppedFinalizer finalizer)
         {
             this.runId = runId;
             this.claim = claim;
             this.fence = fence;
             this.attempt = attempt;
+            this.finalizerKey = finalizerKey;
+            this.finalizer = finalizer;
         }
 
         private void run(
@@ -608,22 +727,52 @@ public final class InProcessWriterAgentSupervisor
         private synchronized void adoptCurrentOwner(
                 String expectedRunId,
                 Claim expectedClaim,
-                WriterFence expectedFence)
+                WriterFence expectedFence,
+                String expectedFinalizerKey)
         {
             if (!runId.equals(expectedRunId)
                     || !sameClaimAuthority(claim, expectedClaim)
-                    || !sameFenceAuthority(fence, expectedFence)) {
+                    || !sameFenceAuthority(fence, expectedFence)
+                    || !finalizerKey.equals(expectedFinalizerKey)) {
                 throw new IllegalStateException(
                         "live execution belongs to another owner");
             }
             claim = expectedClaim;
             fence = expectedFence;
         }
+
+        private synchronized void assertFinalizerKey(String expectedKey)
+        {
+            if (!finalizerKey.equals(expectedKey)) {
+                throw new IllegalStateException(
+                        "stopped execution belongs to another finalizer");
+            }
+        }
+
+        private void freezeFinalization(boolean cancellation)
+        {
+            if (finalizationCompletion != null) {
+                return;
+            }
+            stopType = cancellation || cancellationRequested
+                    ? InProcessStopType.COOPERATIVE_CANCELLATION
+                    : InProcessStopType.NORMAL_RETURN;
+            finalizationCompletion = stopType
+                    == InProcessStopType.COOPERATIVE_CANCELLATION
+                    ? new AgentCompletion(
+                            TerminalOutcome.CANCELED,
+                            completion == null ? null : completion.finalContent(),
+                            "IN_PROCESS_CANCELED")
+                    : requireNonNull(
+                            completion, "writer ended without a completion");
+        }
     }
 
     private static boolean sameClaimAuthority(Claim first, Claim second)
     {
         return first.operationId().equals(second.operationId())
+                && Objects.equals(first.taskId(), second.taskId())
+                && first.kind() == second.kind()
                 && first.generation() == second.generation()
                 && first.claimToken().equals(second.claimToken())
                 && first.workerId().equals(second.workerId());

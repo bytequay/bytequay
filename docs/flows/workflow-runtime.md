@@ -354,10 +354,23 @@ witness accepted by the runtime and store a program-derived `NORMAL_RETURN`
 proof. Raw JVM/thread IDs and caller strings cannot mint `STOPPED`. Cancellation
 revokes first, interrupts, and waits for a bounded deadline. A cooperative end
 gets a `COOPERATIVE_CANCELLATION` proof. An execution or admitted tool that does
-not end remains quarantined with its writer pointer and lease retained. If the
-claim expired while a writer ended, revocation and `STOPPED` are still stored,
-the live registry entry is removed, and the typed outcome is
-`STOPPED_AWAITING_RECOVERY`; no `AgentResult`, pointer, or lease is released.
+not end remains quarantined with its writer pointer and lease retained. Launch
+binds one program-owned finalizer key and executable before exposing the handle
+or body. After `STOPPED`, the supervisor passes that stored finalizer only the
+exact run, current same-authority claim/fence snapshot, and immutable completion.
+A failure before durable settlement retains the stopped live-JVM entry,
+pointer, lease, session, and frozen completion. If settlement committed but its
+response was lost, the entry remains and exact retry reads the canonical stored
+result. Retry may use a safely renewed expiry snapshot but cannot rerun the
+body, switch finalizer routes, or change completion identity. The entry is
+removed only after runtime postconditions prove the returned `AgentResult`, run,
+claim, operation, session, pointer, and old lease were durably settled. If the
+claim expired while a writer ended, revocation and `STOPPED` are still stored and
+the typed outcome is
+`STOPPED_AWAITING_RECOVERY`; the supervisor removes the ended live-JVM entry
+because that expired authority can neither renew nor finalize. No `AgentResult`,
+pointer, or lease is released; durable runtime recovery remains the only owner
+of settlement.
 Recovery may mark that exact expired attempt `FAILED/DONE` first. Only
 termination commands may then use the retained exact claim generation/token,
 recovery result reference, selected pointer, and writer lease to revoke, capture
@@ -496,7 +509,8 @@ shapes.
 | `AgentSessions.createIdle(role, sessionManifest)` | provisioning only | Create one persistent `IDLE` session without an `AgentRun` or model call. This is the only Task-Agent provisioning path. |
 | `AgentSessions.startFresh(operationId, claimToken, role, promptManifest, capabilities)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise create a fresh session plus its first run before process start and bind the owning request once. Use this for a reviewer and for a CI Fixer only when that Task has no CI session yet. Claim redelivery or a crash after commit must reuse the same session/run. |
 | `AgentSessions.resume(sessionId, operationId, claimToken, inputRef)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise compare-and-set `IDLE`/eligible `PARKED_CHILD` to `RUNNING`, append stored input and one run, and reserve that session for this operation in the claim transaction. Start/recover the model process only after commit and always against that same run. |
-| `InProcessWriterAgentSupervisor.launch(runId, claim, writerFence, body)` | Task/CI dispatcher after run transaction | Reuse the one live-JVM execution when present. Otherwise persist `RESERVED`; start an owned writer thread behind a closed gate; durably activate its exact JVM/thread identity and logical run; then open the gate. The body receives only a synchronous whole-effect capability. CLI launch is unsupported. |
+| `InProcessWriterAgentSupervisor.launch(runId, claim, writerFence, finalizerKey, stoppedFinalizer, body)` | Task/CI dispatcher after run transaction | Bind the immutable program finalizer route before exposing the handle/body. Reuse the one live-JVM execution when present without replacing its finalizer. Otherwise persist `RESERVED`; start an owned writer thread behind a closed gate; durably activate its exact JVM/thread identity and logical run; then open the gate. The ordinary overload binds runtime AgentResult finalization. CLI launch is unsupported. |
+| `InProcessWriterAgentSupervisor.awaitAndFinalize(handle, deadline, expectedFinalizerKey)` | Task/CI dispatcher after launch | Join the exact thread, revoke capability, require no admitted tool remains, and durably store the private-witness `STOPPED` fact before invoking the launch-bound finalizer. A failed finalizer retains exact stopped ownership for retry; success removes the live entry only after a matching `AgentResult` is returned. Neither await nor cancel accepts a replacement callback. `awaitAndFinish` expects the ordinary runtime-result key. |
 | `InProcessWriterAgentSupervisor.cancel(handle, deadline)` | authenticated Task/CI cancellation owner | Close local tool admission and durably revoke before interrupting, then wait for the exact thread and any admitted synchronous tool. Store a cooperative stop proof and finish only when both ended. Otherwise quarantine while retaining pointer/lease. An expired claim yields `STOPPED_AWAITING_RECOVERY` after truthful stop capture. |
 | `ProgramRunnerSupervisor.stopAndProve(operationId, writerFence)` | non-agent writer recovery | Terminate and prove a deterministic `UPSTREAM_SYNC`/other program runner dead before inspecting its worktree or transferring its fence; it has no `AgentRun` or model capability. |
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | terminal `spawn_agent` Task tool | Validate and create the frozen reviewer request plus one initially parent-blocked `RUN_REVIEWER` operation/ticket; seal the parent run against more tools and return `reviewRequestId`, but create no reviewer session/run. Parent finalization below parks the session and makes the ticket eligible only after its result/state and writer release are durable. |

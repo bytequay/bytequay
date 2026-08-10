@@ -17,6 +17,7 @@ import com.bytequay.app.flow.runtime.FlowRuntime.StaleCapabilityException;
 import com.bytequay.app.flow.runtime.FlowRuntime.StaleClaimException;
 import com.bytequay.app.flow.runtime.FlowRuntime.StaleWriterFenceException;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
@@ -34,6 +35,7 @@ import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.AgentComplet
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.CancellationDisposition;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.ExecutionHandle;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.StoppedAwaitingRecoveryException;
+import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.StoppedFinalizer;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.WriterToolCapability;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -144,6 +146,385 @@ class TestInProcessWriterAgentSupervisor
                 writer.claim().taskId(), AgentRole.TASK_AGENT)
                 .orElseThrow().state()).isEqualTo(SessionState.IDLE);
         assertThat(count("flow_runtime_writer_lease")).isZero();
+    }
+
+    @Test
+    void stoppedFinalizerFailureRetriesWithoutRerunningBody()
+    {
+        ActiveWriter writer = startWriter("finalizer-retry");
+        AtomicInteger bodyStarts = new AtomicInteger();
+        AtomicInteger toolCalls = new AtomicInteger();
+        AtomicInteger finalizerCalls = new AtomicInteger();
+        AtomicReference<AgentCompletion> firstCompletion =
+                new AtomicReference<>();
+        AtomicReference<Claim> renewedClaim = new AtomicReference<>();
+        AtomicReference<WriterFence> renewedFence = new AtomicReference<>();
+        StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
+            AgentProcessAttempt stopped = attempt(writer);
+            assertThat(stopped.state()).isEqualTo(ProcessAttemptState.STOPPED);
+            assertThat(stopped.capabilityRevokedAt()).isNotNull();
+            assertThat(runId).isEqualTo(writer.run().runId());
+            int call = finalizerCalls.incrementAndGet();
+            if (call == 1) {
+                assertThat(claim).isSameAs(writer.claim());
+                assertThat(fence).isSameAs(writer.fence());
+                firstCompletion.set(completion);
+                throw new IllegalStateException("injected finalizer failure");
+            }
+            assertThat(claim).isSameAs(renewedClaim.get());
+            assertThat(fence).isSameAs(renewedFence.get());
+            assertThat(completion).isSameAs(firstCompletion.get());
+            return runtime.finishAgentRun(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef());
+        };
+        ExecutionHandle handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                "TEST_DOMAIN_FINALIZER",
+                finalizer,
+                capability -> {
+                    bodyStarts.incrementAndGet();
+                    capability.runTool(toolCalls::incrementAndGet);
+                    return new AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "opaque completion",
+                            null);
+                });
+
+        assertThatThrownBy(() -> supervisor.awaitAndFinalize(
+                handle,
+                WAIT,
+                "TEST_DOMAIN_FINALIZER"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("injected finalizer failure");
+
+        assertThat(bodyStarts).hasValue(1);
+        assertThat(toolCalls).hasValue(1);
+        assertThat(supervisor.liveExecution(handle.executionId()))
+                .contains(handle);
+        assertThat(runtime.runForOperation(writer.claim().operationId())
+                .orElseThrow().state()).isEqualTo(RunState.RUNNING);
+        assertThat(count("flow_runtime_agent_result")).isZero();
+        assertThat(count("flow_runtime_writer_lease")).isOne();
+        assertThat(runtime.task(writer.claim().taskId()).orElseThrow()
+                .selectedWriterOperationId())
+                .isEqualTo(writer.claim().operationId());
+
+        clock.advance(Duration.ofMinutes(1));
+        renewedClaim.set(runtime.renewClaim(writer.claim(), TTL));
+        renewedFence.set(runtime.renewWriterLease(
+                renewedClaim.get(), writer.fence(), TTL));
+        Claim wrongTask = new Claim(
+                renewedClaim.get().operationId(),
+                "forged-task",
+                renewedClaim.get().kind(),
+                renewedClaim.get().generation(),
+                renewedClaim.get().claimToken(),
+                renewedClaim.get().workerId(),
+                renewedClaim.get().expiresAt());
+        Claim wrongKind = new Claim(
+                renewedClaim.get().operationId(),
+                renewedClaim.get().taskId(),
+                OperationKind.RUN_CI_FIXER,
+                renewedClaim.get().generation(),
+                renewedClaim.get().claimToken(),
+                renewedClaim.get().workerId(),
+                renewedClaim.get().expiresAt());
+        assertThatThrownBy(() -> supervisor.launch(
+                writer.run().runId(),
+                wrongTask,
+                renewedFence.get(),
+                "TEST_DOMAIN_FINALIZER",
+                finalizer,
+                capability -> completed()))
+                .isInstanceOf(FlowRuntime.StaleClaimException.class)
+                .hasMessageContaining("metadata");
+        assertThatThrownBy(() -> supervisor.launch(
+                writer.run().runId(),
+                wrongKind,
+                renewedFence.get(),
+                "TEST_DOMAIN_FINALIZER",
+                finalizer,
+                capability -> completed()))
+                .isInstanceOf(FlowRuntime.StaleClaimException.class)
+                .hasMessageContaining("metadata");
+        ExecutionHandle retry = supervisor.launch(
+                writer.run().runId(),
+                renewedClaim.get(),
+                renewedFence.get(),
+                "TEST_DOMAIN_FINALIZER",
+                (runId, claim, fence, completion) -> {
+                    throw new AssertionError("replacement finalizer ran");
+                },
+                capability -> {
+                    bodyStarts.incrementAndGet();
+                    return completed();
+                });
+        assertThat(retry).isEqualTo(handle);
+        AgentResult result = supervisor.awaitAndFinalize(
+                retry,
+                WAIT,
+                "TEST_DOMAIN_FINALIZER");
+
+        assertThat(bodyStarts).hasValue(1);
+        assertThat(toolCalls).hasValue(1);
+        assertThat(finalizerCalls).hasValue(2);
+        assertThat(result.finalContent()).isEqualTo("opaque completion");
+        assertThat(supervisor.liveExecution(handle.executionId())).isEmpty();
+        assertThat(count("flow_runtime_agent_result")).isOne();
+        assertThat(count("flow_runtime_writer_lease")).isZero();
+    }
+
+    @Test
+    void exactShapedUnstoredResultCannotReleaseOwnership()
+    {
+        ActiveWriter writer = startWriter("finalizer-fake-receipt");
+        AtomicBoolean returnFake = new AtomicBoolean(true);
+        StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
+            if (returnFake.getAndSet(false)) {
+                return new AgentResult(
+                        "not-stored",
+                        runId,
+                        completion.terminalOutcome(),
+                        completion.finalContent(),
+                        completion.errorRef(),
+                        attempt(writer).stopProofRef(),
+                        NOW);
+            }
+            return runtime.finishAgentRun(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef());
+        };
+        ExecutionHandle handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                "TEST_DURABLE_FINALIZER",
+                finalizer,
+                capability -> completed());
+
+        assertThatThrownBy(() -> supervisor.awaitAndFinalize(
+                handle,
+                WAIT,
+                "TEST_DURABLE_FINALIZER"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("did not store AgentResult");
+        assertThat(supervisor.liveExecution(handle.executionId()))
+                .contains(handle);
+        assertThat(runtime.runForOperation(writer.claim().operationId())
+                .orElseThrow().state()).isEqualTo(RunState.RUNNING);
+        assertThat(count("flow_runtime_agent_result")).isZero();
+        assertThat(count("flow_runtime_writer_lease")).isOne();
+        assertThat(runtime.task(writer.claim().taskId()).orElseThrow()
+                .selectedWriterOperationId())
+                .isEqualTo(writer.claim().operationId());
+
+        AgentResult result = supervisor.awaitAndFinalize(
+                handle,
+                WAIT,
+                "TEST_DURABLE_FINALIZER");
+        assertThat(result.finalContent()).isEqualTo("done");
+        assertThat(supervisor.liveExecution(handle.executionId())).isEmpty();
+        assertThat(count("flow_runtime_writer_lease")).isZero();
+    }
+
+    @Test
+    void retryAfterFinalizerCommittedReusesDurableStopAndResult()
+    {
+        ActiveWriter writer = startWriter("finalizer-after-commit");
+        AtomicInteger calls = new AtomicInteger();
+        StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
+            AgentResult result = runtime.finishAgentRun(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef());
+            if (calls.incrementAndGet() == 1) {
+                throw new IllegalStateException("failure after commit");
+            }
+            return result;
+        };
+        ExecutionHandle handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                "TEST_AFTER_COMMIT_FINALIZER",
+                finalizer,
+                capability -> completed());
+
+        assertThatThrownBy(() -> supervisor.awaitAndFinalize(
+                handle,
+                WAIT,
+                "TEST_AFTER_COMMIT_FINALIZER"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("failure after commit");
+        assertThat(supervisor.liveExecution(handle.executionId()))
+                .contains(handle);
+        assertThat(count("flow_runtime_agent_result")).isOne();
+        assertThat(count("flow_runtime_writer_lease")).isZero();
+
+        var cancellation = supervisor.cancel(handle, WAIT);
+        assertThat(cancellation.disposition())
+                .isEqualTo(CancellationDisposition.ALREADY_FINISHED);
+        assertThat(cancellation.result().finalContent()).isEqualTo("done");
+        assertThat(calls).hasValue(2);
+        assertThat(supervisor.liveExecution(handle.executionId())).isEmpty();
+    }
+
+    @Test
+    void domainFinalizerMayParkASettledSession()
+    {
+        ActiveWriter writer = startWriter("finalizer-parked-session");
+        StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
+            AgentResult result = runtime.finishAgentRun(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef());
+            assertThat(jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = 'PARKED_CHILD'
+                    WHERE session_id = ? AND state = 'IDLE'
+                      AND last_run_id = ?
+                    """,
+                    writer.run().sessionId(),
+                    runId)).isOne();
+            return result;
+        };
+        ExecutionHandle handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                "TEST_PARKED_FINALIZER",
+                finalizer,
+                capability -> completed());
+
+        assertThat(supervisor.awaitAndFinalize(
+                handle,
+                WAIT,
+                "TEST_PARKED_FINALIZER").finalContent()).isEqualTo("done");
+        assertThat(runtime.session(
+                writer.claim().taskId(), AgentRole.TASK_AGENT)
+                .orElseThrow().state()).isEqualTo(SessionState.PARKED_CHILD);
+        assertThat(supervisor.liveExecution(handle.executionId())).isEmpty();
+    }
+
+    @Test
+    void stoppedFinalizerCannotChangeRouteOrCompletion()
+    {
+        ActiveWriter writer = startWriter("finalizer-identity");
+        AtomicBoolean substituteCompletion = new AtomicBoolean(true);
+        StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
+            if (substituteCompletion.getAndSet(false)) {
+                return new AgentResult(
+                        "not-stored",
+                        runId,
+                        TerminalOutcome.FAILED,
+                        "different",
+                        "DIFFERENT",
+                        attempt(writer).stopProofRef(),
+                        NOW);
+            }
+            return runtime.finishAgentRun(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef());
+        };
+        ExecutionHandle handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                "TEST_DOMAIN_FINALIZER",
+                finalizer,
+                capability -> completed());
+
+        assertThatThrownBy(() -> supervisor.awaitAndFinalize(
+                handle,
+                WAIT,
+                "TEST_DOMAIN_FINALIZER"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("immutable completion identity");
+        assertThatThrownBy(() -> supervisor.awaitAndFinish(handle, WAIT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("another finalizer");
+        assertThat(supervisor.liveExecution(handle.executionId()))
+                .contains(handle);
+        assertThat(count("flow_runtime_agent_result")).isZero();
+        assertThat(count("flow_runtime_writer_lease")).isOne();
+
+        var cancellation = supervisor.cancel(handle, WAIT);
+        assertThat(cancellation.disposition())
+                .isEqualTo(CancellationDisposition.ALREADY_FINISHED);
+        assertThat(cancellation.result().terminalOutcome())
+                .isEqualTo(TerminalOutcome.COMPLETED);
+        assertThat(supervisor.liveExecution(handle.executionId())).isEmpty();
+        assertThat(count("flow_runtime_agent_result")).isOne();
+        assertThat(count("flow_runtime_writer_lease")).isZero();
+    }
+
+    @Test
+    void cancellationBeforeAwaitUsesTheLaunchBoundFinalizer()
+            throws Exception
+    {
+        ActiveWriter writer = startWriter("finalizer-cancel-first");
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch waitForever = new CountDownLatch(1);
+        AtomicInteger finalizerCalls = new AtomicInteger();
+        AtomicReference<AgentCompletion> seenCompletion =
+                new AtomicReference<>();
+        StoppedFinalizer finalizer = (runId, claim, fence, completion) -> {
+            finalizerCalls.incrementAndGet();
+            seenCompletion.set(completion);
+            return runtime.finishAgentRun(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef());
+        };
+        ExecutionHandle handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                "TEST_CANCEL_FINALIZER",
+                finalizer,
+                capability -> {
+                    entered.countDown();
+                    await(waitForever);
+                    return completed();
+                });
+        assertThat(entered.await(WAIT.toMillis(), TimeUnit.MILLISECONDS))
+                .isTrue();
+
+        var cancellation = supervisor.cancel(handle, WAIT);
+
+        assertThat(cancellation.disposition())
+                .isEqualTo(CancellationDisposition.CANCELED);
+        assertThat(finalizerCalls).hasValue(1);
+        assertThat(seenCompletion.get().terminalOutcome())
+                .isEqualTo(TerminalOutcome.CANCELED);
+        assertThat(cancellation.result().terminalOutcome())
+                .isEqualTo(TerminalOutcome.CANCELED);
+        assertThat(supervisor.liveExecution(handle.executionId())).isEmpty();
     }
 
     @Test
@@ -412,6 +793,9 @@ class TestInProcessWriterAgentSupervisor
         assertStoppedAwaitingRecovery(writer, handle);
         assertThat(attempt(writer).stopType())
                 .isEqualTo(InProcessStopType.COOPERATIVE_CANCELLATION);
+        assertThat(runtime.recoverExpiredClaim(
+                writer.claim().operationId(), writer.claim().generation()))
+                .isFalse();
     }
 
     @Test

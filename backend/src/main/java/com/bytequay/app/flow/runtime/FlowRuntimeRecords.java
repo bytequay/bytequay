@@ -14,6 +14,7 @@
 package com.bytequay.app.flow.runtime;
 
 import java.time.Instant;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -37,6 +38,7 @@ public final class FlowRuntimeRecords
         PROVISION_TASK,
         RECONCILE_TASK,
         RUN_TASK_TURN,
+        RUN_REVIEWER,
         RUN_CI_FIXER
     }
 
@@ -54,7 +56,21 @@ public final class FlowRuntimeRecords
     public enum AgentRole
     {
         TASK_AGENT,
+        ADVERSARIAL_REVIEWER,
         CI_FIXER
+    }
+
+    public enum GateIntent
+    {
+        INITIAL_PUBLISH,
+        CI_UPDATE
+    }
+
+    public enum WakeKind
+    {
+        INITIAL_TASK,
+        CI_FIX_READY,
+        AGENT_RESULT_READY
     }
 
     public enum SessionState
@@ -428,6 +444,10 @@ public final class FlowRuntimeRecords
             String promptManifestRef,
             String capabilitySetRef,
             String inputRef,
+            String inputChangeSetRevisionId,
+            String inputRemoteHeadSha,
+            WakeKind wakeKind,
+            GateIntent intendedGateKind,
             RunState state,
             String failureReasonCode,
             Instant createdAt,
@@ -446,6 +466,22 @@ public final class FlowRuntimeRecords
             requireNonNull(capabilitySetRef,
                     "capabilitySetRef is null");
             requireNonNull(inputRef, "inputRef is null");
+            boolean completeTaskInput = wakeKind != null
+                    && intendedGateKind != null
+                    && ((intendedGateKind == GateIntent.INITIAL_PUBLISH
+                            && inputChangeSetRevisionId == null)
+                        || (intendedGateKind == GateIntent.CI_UPDATE
+                            && inputChangeSetRevisionId != null
+                            && inputRemoteHeadSha != null));
+            boolean anyTaskInput = wakeKind != null
+                    || intendedGateKind != null
+                    || inputChangeSetRevisionId != null
+                    || inputRemoteHeadSha != null;
+            if ((role == AgentRole.TASK_AGENT && !completeTaskInput)
+                    || (role != AgentRole.TASK_AGENT && anyTaskInput)) {
+                throw new IllegalArgumentException(
+                        "only Task Agent runs carry input change set, wake, and gate intent");
+            }
             requireNonNull(state, "state is null");
             requireNonNull(createdAt, "createdAt is null");
         }
@@ -554,6 +590,7 @@ public final class FlowRuntimeRecords
             String subjectHead,
             String payloadRef,
             String agentResultId,
+            GateIntent intendedGateKind,
             long workWatermark,
             String selectedByOperationId,
             String handledByOperationId,
@@ -567,6 +604,53 @@ public final class FlowRuntimeRecords
             requireNonNull(externalKey, "externalKey is null");
             requireNonNull(subjectHead, "subjectHead is null");
             requireNonNull(payloadRef, "payloadRef is null");
+            if ((kind != PendingKind.FINAL_RED)
+                    != (intendedGateKind != null)) {
+                throw new IllegalArgumentException(
+                        "only Task-turn pending work carries gate intent");
+            }
+        }
+    }
+
+    /** Immutable program-owned subject for one fresh adversarial review. */
+    public record ReviewerRequest(
+            String requestId,
+            String taskId,
+            String parentOperationId,
+            String parentRunId,
+            String reviewerOperationId,
+            String repositoryRoot,
+            String baseHeadSha,
+            String reviewedHeadSha,
+            String remoteHeadSha,
+            String changeSetRevisionId,
+            String headTreeDigest,
+            String diffDigest,
+            List<String> checkRunRefs,
+            GateIntent intendedGateKind,
+            Instant createdAt)
+    {
+        public ReviewerRequest
+        {
+            requireNonNull(requestId, "requestId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(parentOperationId,
+                    "parentOperationId is null");
+            requireNonNull(parentRunId, "parentRunId is null");
+            requireNonNull(reviewerOperationId,
+                    "reviewerOperationId is null");
+            requireNonNull(repositoryRoot, "repositoryRoot is null");
+            requireNonNull(baseHeadSha, "baseHeadSha is null");
+            requireNonNull(reviewedHeadSha, "reviewedHeadSha is null");
+            requireNonNull(remoteHeadSha, "remoteHeadSha is null");
+            requireNonNull(changeSetRevisionId,
+                    "changeSetRevisionId is null");
+            requireNonNull(headTreeDigest, "headTreeDigest is null");
+            requireNonNull(diffDigest, "diffDigest is null");
+            checkRunRefs = List.copyOf(checkRunRefs);
+            requireNonNull(intendedGateKind,
+                    "intendedGateKind is null");
+            requireNonNull(createdAt, "createdAt is null");
         }
     }
 }

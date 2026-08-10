@@ -534,10 +534,27 @@ The Task Agent:
 6. calls `ready_for_review()`, which returns `ACCEPTED_SEALED` or an actionable
    tool error.
 
+The reviewer request is a zero-argument terminal Task tool: the program freezes
+the current revision, exact head/tree/diff, the Task turn's frozen remote input,
+and an exact empty final-head check-reference list in the current integration.
+Final-head `LocalCheckRun` ownership and reviewer check-evidence reads remain
+deferred. An unchanged `AgentResultReady` continuation may
+end without requesting another reviewer; that only records that the opaque child
+result was consumed and returns the persistent Task session to idle. It is not
+review approval, readiness, or permission to construct a gate. If that
+continuation adopts any Task-owned descendant revision, it must request a fresh
+reviewer before stopping. A changed turn without that request consumes its input
+and enters typed `NEEDS_ATTENTION`; ordinary lifecycle resume is forbidden until
+the future recovery owner resolves that exact reason.
+
 `ACCEPTED_SEALED` only seals the candidate against more model mutation. After
 the opaque result, exact head, and lease release are durable, the program checks
 exact-head evidence and opens/revises the gate; it does not return a `gateId` to
 the model or parse semantic approval text.
+
+The CI-fix/reviewer authority round trip ends before this gate step. Gate
+construction and typed recovery from its attention outcomes remain owned by the
+User Gates/runtime integration; neither is inferred from a no-child Task result.
 
 ### 4. Authorize and push
 

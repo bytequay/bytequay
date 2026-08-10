@@ -27,7 +27,7 @@ The value of adversarial review is independent attention, not another approval t
 The minimum useful contract is:
 
 1. freeze the subject at commit `H`;
-2. supply the goal, diff, current source, project rules, and check evidence;
+2. supply the goal, diff, current source, project rules, and available check evidence;
 3. prevent the reviewer from changing the subject;
 4. retain exactly what it reports;
 5. let the persistent Task Agent and user decide what to do about the report.
@@ -84,7 +84,7 @@ manifest, not a second reviewer-run table.
 | `goalRef` | Immutable confirmed Task-goal reference |
 | `userAnswerRefs` | Exact resolved Task-scoped question/answer records created after launch |
 | `ruleRefs` | Repository instruction/source references exposed to the reviewer |
-| `checkRunRefs` | Exact-head check evidence available at launch |
+| `checkRunRefs` | Exact-head check evidence available at launch; the current CI-candidate integration freezes this as an empty list until the Local Checks owner is connected |
 | `status` | Shared runtime state: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, or `CANCELED`; timeout is `FAILED` with `errorRef`/reason `TIMEOUT` |
 | `resultRef` | Opaque reviewer completion prose, when produced |
 | `startedAt`, `completedAt` | Program timestamps |
@@ -113,7 +113,7 @@ following launch input from durable Task state:
 - immutable source snapshot at `reviewedHead`;
 - repository instruction files applicable to the snapshot;
 - source-cited Project Intelligence query capability;
-- exact-head check-run references and outputs;
+- an exact empty check-run reference list for the current CI-candidate path;
 - the review policy and read-only tool capabilities.
 
 The program excludes:
@@ -123,6 +123,13 @@ The program excludes:
 - previous reviewer prose by default, which could anchor the new review;
 - uncommitted worktree contents;
 - remote mutation credentials and write tools.
+
+The current CI-candidate integration implements the authority and immutable-Git
+slice of this envelope. Its durable request carries exact Task/parent,
+base/reviewed head, tree/diff, remote-input, revision, and repository-root
+bindings plus an empty check-reference list. Goal/user-answer/rule prompt
+assembly and check-evidence projection remain deferred rather than being
+silently synthesized.
 
 If a product-specific review needs previous concerns verified, that is a separate
 explicit review input policy; it must not silently become the default.
@@ -143,18 +150,27 @@ This guidance improves usefulness but is not a storage protocol.
 ## 6. Read-only source model
 
 There is still one worktree per Task, not one worktree per agent. The reviewer reads
-the committed Git tree through `RepositorySnapshotReader`:
+the committed Git tree through the current immutable reader:
 
-- `list_files` walks the tree at `reviewedHead`;
-- `read_file` reads a blob from that tree;
-- `search_text` searches only blobs in that tree;
-- `read_diff` reads the frozen `baseHead..reviewedHead` comparison;
-- `read_check_evidence` reads program-captured check output.
+- `list_tree` walks the tree at `reviewedHead`;
+- `read_base_blob` reads raw bytes from `baseHead`;
+- `read_reviewed_blob` reads raw bytes from `reviewedHead`;
+- `read_diff` reads the bounded raw `baseHead..reviewedHead` object-change
+  manifest.
 
 This avoids a second worktree while ensuring later filesystem changes cannot alter
 what was reviewed. Task/CI mutation events are queued while the parent waits. Even if
 an out-of-band change occurs, the review remains bound to the immutable Git object and
 will be stale for current readiness.
+
+The local object reader accepts only full lowercase object IDs and a complete
+local object store. It rejects alternates, partial-clone/promisor configuration
+and markers, gitlinks, unsafe relative paths, and bounded-output overflow. Reads
+clear ambient Git configuration, disable lazy fetch and replacement objects, and
+use raw object/tree comparison that invokes no external diff, text conversion,
+attributes, or worktree filters. Base and reviewed blobs therefore come from the
+two named commits even when the checkout, replace refs, or filter configuration
+changes later.
 
 ## 7. Lifecycle: start to stop
 
@@ -203,13 +219,14 @@ will be stale for current readiness.
 
 | Tool | Contract |
 |---|---|
-| `read_review_subject()` | Returns goal, explicit Task user-answer refs, base/head, diff metadata, rule refs, and check refs |
-| `list_files(path?, depth?)` | Lists paths in the immutable reviewed Git tree |
-| `read_file(path, start_line?, end_line?)` | Reads the exact reviewed blob with line numbers |
-| `search_text(query, path_hints?)` | Searches the immutable reviewed tree |
-| `read_diff(path?, context_lines?)` | Reads the frozen exact-head diff |
-| `read_check_evidence(check_run_ref)` | Reads captured command/result/output for the reviewed head |
-| `search_project_context(query, path_hints?)` | Returns advisory source-cited repository knowledge |
+| `list_tree()` | Lists the immutable reviewed Git tree |
+| `read_base_blob(path)` | Reads raw bytes from the exact base commit |
+| `read_reviewed_blob(path)` | Reads raw bytes from the exact reviewed commit |
+| `read_diff()` | Reads the bounded raw immutable object-change manifest |
+
+Semantic subject projection, text search, Project Intelligence, and
+`read_check_evidence` remain deferred. The current supervisor does not expose
+shell, filesystem, worktree, or remote access.
 
 There are no filesystem-write, shell-execution, Git-write, test-execution, parent
 message, user-input, subagent, timeline, gate, or GitHub tools.
@@ -278,7 +295,8 @@ Task Agent only for recovery/history, not as a required polling loop.
 
 | Failure | Required behavior |
 |---|---|
-| Reviewer crashes/times out | `AgentRuns.finish` stores one `FAILED` result, settles/closes the reviewer operation/session, releases the exact barrier/wait, and persists the result-ready fact; when selected, Task receives the failure reference and requests a fresh review before readiness |
+| Reviewer returns failure, is cooperatively canceled, or times out with exact `STOPPED` proof | The reviewer finalizer stores one opaque `FAILED`/`CANCELED` result, settles/closes the operation/session, releases the exact barrier/wait, and persists the result-ready fact; Task requests a fresh review before readiness |
+| An `ACTIVATED` reviewer claim expires without owned-thread stop proof | Quarantine the Task as typed `NEEDS_ATTENTION`, retain the run/attempt truth, and create no invented `AgentResult` or parent continuation |
 | Program stops after result persistence but before parent delivery | On restart, reuse the result-ready fact and deduplicated reconciliation ticket; selection delivers it once |
 | Program stops before result persistence | Mark/recover live run according to process evidence; never invent a result |
 | Duplicate spawn call | Return the existing request and its bound run, if started, for the same parent/head |
@@ -342,7 +360,8 @@ Task Agent only for recovery/history, not as a required polling loop.
 
 ### F. Reviewer failure releases the parent
 
-1. Start a reviewer and observe a timeout with no final prose.
+1. Start a reviewer and observe a timeout with no final prose, then obtain exact
+   cooperative `STOPPED` proof.
 2. `AgentRuns.finish(runId, claimToken, FAILED(errorRef=timeout), ...)` stores one failed
    result, closes the fresh session, settles the operation, and releases the
    exact-head barrier.

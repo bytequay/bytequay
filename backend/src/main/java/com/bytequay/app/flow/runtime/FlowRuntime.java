@@ -24,6 +24,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.FinalRedRegistration;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
@@ -33,6 +34,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.SessionState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
@@ -40,6 +42,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskBaseRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskLifecycleRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WakeKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
@@ -107,6 +110,80 @@ public final class FlowRuntime
             this.expectedChangeSetRevisionId = expectedChangeSetRevisionId;
             this.snapshot = snapshot;
             this.inspection = inspection;
+        }
+    }
+
+    /** Private-construction proof of one exact inspected Task turn input. */
+    public static final class PreparedTaskWriterAdmission
+    {
+        private final Claim claim;
+        private final TaskAdmissionSnapshot snapshot;
+        private final Inspection inspection;
+
+        private PreparedTaskWriterAdmission(
+                Claim claim,
+                TaskAdmissionSnapshot snapshot,
+                Inspection inspection)
+        {
+            this.claim = claim;
+            this.snapshot = snapshot;
+            this.inspection = inspection;
+        }
+    }
+
+    /** Private-construction subject for the terminal reviewer request tool. */
+    public static final class PreparedReviewerRequest
+    {
+        private final Claim claim;
+        private final WriterFence fence;
+        private final ReviewRequestSnapshot snapshot;
+        private final Inspection inspection;
+        private final String repositoryRoot;
+        private final List<String> checkRunRefs;
+
+        private PreparedReviewerRequest(
+                Claim claim,
+                WriterFence fence,
+                ReviewRequestSnapshot snapshot,
+                Inspection inspection,
+                String repositoryRoot,
+                List<String> checkRunRefs)
+        {
+            this.claim = claim;
+            this.fence = fence;
+            this.snapshot = snapshot;
+            this.inspection = inspection;
+            this.repositoryRoot = repositoryRoot;
+            this.checkRunRefs = List.copyOf(checkRunRefs);
+        }
+    }
+
+    /** Private proof for a stopped, unchanged reviewer-result Task turn. */
+    private static final class PreparedTaskResultConsumption
+    {
+        private final Claim claim;
+        private final WriterFence fence;
+        private final TaskResultConsumptionSnapshot snapshot;
+        private final Inspection inspection;
+        private final String blockerCode;
+
+        private PreparedTaskResultConsumption(
+                Claim claim,
+                WriterFence fence,
+                TaskResultConsumptionSnapshot snapshot,
+                Inspection inspection,
+                String blockerCode)
+        {
+            this.claim = claim;
+            this.fence = fence;
+            this.snapshot = snapshot;
+            this.inspection = inspection;
+            this.blockerCode = blockerCode;
+        }
+
+        private boolean accepted()
+        {
+            return inspection != null && blockerCode == null;
         }
     }
 
@@ -446,6 +523,28 @@ public final class FlowRuntime
         }
     }
 
+    /** Runtime-owned fence and persistent-session run for an inspected turn. */
+    public record TaskWriterStart(WriterFence fence, AgentRun run)
+    {
+        public TaskWriterStart
+        {
+            requireNonNull(fence, "fence is null");
+            requireNonNull(run, "run is null");
+        }
+    }
+
+    /** Fresh request-bound read-only reviewer session and run. */
+    public record ReviewerStart(
+            ReviewerRequest request, AgentSession session, AgentRun run)
+    {
+        public ReviewerStart
+        {
+            requireNonNull(request, "request is null");
+            requireNonNull(session, "session is null");
+            requireNonNull(run, "run is null");
+        }
+    }
+
     public FlowRuntime(DataSource dataSource, Clock clock)
     {
         requireNonNull(dataSource, "dataSource is null");
@@ -646,6 +745,7 @@ public final class FlowRuntime
                     headSha,
                     "task-goal:" + task.taskId(),
                     null,
+                    GateIntent.INITIAL_PUBLISH,
                     now);
             ensureReconciliation(task.taskId());
             settleDispatch(operation.operationId(), OperationState.SUCCEEDED,
@@ -679,6 +779,11 @@ public final class FlowRuntime
                         "Invalid Task transition: " + task.status()
                                 + " -> " + nextStatus);
             }
+            if (task.status() == TaskStatus.NEEDS_ATTENTION
+                    && nextStatus == TaskStatus.ACTIVE) {
+                throw new MutationRejectedException(
+                        "Task attention requires a typed recovery cause");
+            }
             if (task.waitingMutationStateRef() != null) {
                 throw new MutationRejectedException(
                         "Task has unresolved local mutation state");
@@ -687,6 +792,10 @@ public final class FlowRuntime
                     || writerFence(taskId).isPresent()) {
                 throw new MutationRejectedException(
                         "Task lifecycle cannot change while a writer is live");
+            }
+            if (hasNonterminalReviewer(taskId)) {
+                throw new MutationRejectedException(
+                        "Task lifecycle cannot change while review is live");
             }
             if (isTerminal(nextStatus) && hasClaimedOperation(taskId)) {
                 throw new MutationRejectedException(
@@ -953,6 +1062,7 @@ public final class FlowRuntime
                     remoteHead,
                     payloadRef,
                     null,
+                    null,
                     clock.instant());
             if (isTerminal(task.status())
                     && pending.selectedByOperationId() == null
@@ -1018,10 +1128,10 @@ public final class FlowRuntime
                       AND selected_by_operation_id IS NULL
                       AND terminal_reason IS NULL
                     ORDER BY CASE kind
-                        WHEN 'CI_FIX_READY' THEN 1
                         WHEN 'AGENT_RESULT_READY' THEN 1
-                        WHEN 'FINAL_RED' THEN 2
-                        WHEN 'INITIAL_TASK' THEN 3
+                        WHEN 'CI_FIX_READY' THEN 2
+                        WHEN 'FINAL_RED' THEN 3
+                        WHEN 'INITIAL_TASK' THEN 4
                     END, work_watermark
                     LIMIT 1
                     """,
@@ -1102,6 +1212,8 @@ public final class FlowRuntime
                     JOIN flow_runtime_dispatch_ticket d
                       ON d.operation_id = o.operation_id
                     LEFT JOIN flow_runtime_task t ON t.task_id = o.task_id
+                    LEFT JOIN flow_runtime_agent_session ts
+                      ON ts.session_id = t.task_session_id
                     WHERE o.state = 'READY'
                       AND d.delivery_state = 'AVAILABLE'
                       AND d.not_before <= ?
@@ -1110,11 +1222,43 @@ public final class FlowRuntime
                           OR (o.kind = 'RECONCILE_TASK'
                               AND t.status = 'ACTIVE'
                               AND t.waiting_mutation_state_ref IS NULL
-                              AND t.selected_writer_operation_id IS NULL)
+                              AND t.selected_writer_operation_id IS NULL
+                              AND ts.state <> 'PARKED_CHILD'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM flow_runtime_operation ro
+                                  WHERE ro.task_id = t.task_id
+                                    AND ro.kind = 'RUN_REVIEWER'
+                                    AND ro.state IN (
+                                        'READY', 'CLAIMED', 'WAITING',
+                                        'RETRYABLE'
+                                    )
+                              ))
                           OR (o.kind IN ('RUN_TASK_TURN', 'RUN_CI_FIXER')
                               AND t.status = 'ACTIVE'
                               AND t.waiting_mutation_state_ref IS NULL
                               AND t.selected_writer_operation_id = o.operation_id)
+                          OR (o.kind = 'RUN_REVIEWER'
+                              AND o.owner_kind = 'REVIEW_REQUEST'
+                              AND t.status = 'ACTIVE'
+                              AND t.waiting_mutation_state_ref IS NULL
+                              AND t.selected_writer_operation_id IS NULL
+                              AND ts.state = 'PARKED_CHILD'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM flow_runtime_writer_lease l
+                                  WHERE l.task_id = t.task_id
+                              )
+                              AND EXISTS (
+                                  SELECT 1
+                                  FROM flow_runtime_reviewer_request q
+                                  JOIN flow_runtime_operation p
+                                    ON p.operation_id = q.parent_operation_id
+                                  WHERE q.reviewer_operation_id = o.operation_id
+                                    AND q.request_id = o.owner_id
+                                    AND p.state IN (
+                                        'SUCCEEDED', 'FAILED', 'CANCELED'
+                                    )
+                                    AND p.result_ref IS NOT NULL
+                              ))
                       )
                     ORDER BY d.priority DESC, d.not_before, o.operation_id
                     LIMIT 32
@@ -1226,7 +1370,18 @@ public final class FlowRuntime
             }
             ExpiredClaim expired = requireExpiredClaim(operationId, generation);
             if (expired.processAttemptId() != null) {
-                quarantineExpiredProcessAttempt(expired);
+                if (expired.kind() == OperationKind.RUN_REVIEWER
+                        && expired.processAttemptState()
+                                == ProcessAttemptState.RESERVED) {
+                    recoverNeverLaunchedClaim(expired);
+                    return true;
+                }
+                if (expired.kind() == OperationKind.RUN_REVIEWER) {
+                    quarantineExpiredReviewerProcessAttempt(expired);
+                }
+                else {
+                    quarantineExpiredProcessAttempt(expired);
+                }
                 return false;
             }
             recoverNeverLaunchedClaim(expired);
@@ -1323,6 +1478,21 @@ public final class FlowRuntime
                         task.taskId());
                 return Optional.empty();
             }
+            AgentSession taskSession = requireSession(task.taskSessionId());
+            Integer liveReviewer = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM flow_runtime_operation
+                    WHERE task_id = ? AND kind = 'RUN_REVIEWER'
+                      AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
+                    """,
+                    Integer.class,
+                    task.taskId());
+            if (taskSession.state() == SessionState.PARKED_CHILD
+                    || requireNonNull(
+                            liveReviewer, "live reviewer count is null") > 0) {
+                parkReconciliation(reconciliation.operationId());
+                return Optional.empty();
+            }
 
             Optional<Operation> selected = Optional.empty();
             List<PendingWork> pending = jdbc.query(
@@ -1334,10 +1504,10 @@ public final class FlowRuntime
                       AND selected_by_operation_id IS NULL
                       AND terminal_reason IS NULL
                     ORDER BY CASE kind
-                        WHEN 'CI_FIX_READY' THEN 1
                         WHEN 'AGENT_RESULT_READY' THEN 1
-                        WHEN 'FINAL_RED' THEN 2
-                        WHEN 'INITIAL_TASK' THEN 3
+                        WHEN 'CI_FIX_READY' THEN 2
+                        WHEN 'FINAL_RED' THEN 3
+                        WHEN 'INITIAL_TASK' THEN 4
                     END, work_watermark
                     """,
                     (result, row) -> readInbox(result),
@@ -1438,12 +1608,363 @@ public final class FlowRuntime
         });
     }
 
+    /**
+     * Mechanically inspects one selected Task-turn input outside the owner
+     * transaction. The returned token is private-construction authority; the
+     * public {@link WorktreeSnapshot} is deliberately not accepted here.
+     */
+    public PreparedTaskWriterAdmission prepareTaskWriterAdmission(
+            Claim claim,
+            Path programOwnedRepositoryRoot,
+            String expectedPendingId,
+            String expectedChangeSetRevisionId,
+            String expectedRemoteHead)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
+        requireText(expectedPendingId, "expectedPendingId");
+        requireText(expectedChangeSetRevisionId,
+                "expectedChangeSetRevisionId");
+        requireObjectId(expectedRemoteHead, "expectedRemoteHead");
+        TaskAdmissionSnapshot snapshot;
+        synchronized (this) {
+            snapshot = inTransaction(() -> taskAdmissionSnapshot(
+                    claim,
+                    expectedPendingId,
+                    expectedChangeSetRevisionId,
+                    expectedRemoteHead));
+        }
+        Inspection inspection = worktreeInspector.inspect(
+                programOwnedRepositoryRoot,
+                snapshot.worktree(),
+                snapshot.branchName(),
+                snapshot.baseSha(),
+                snapshot.headSha());
+        if (!inspection.headSha().equals(snapshot.headSha())
+                || !inspection.headTreeDigest().equals(
+                        snapshot.headTreeDigest())
+                || !inspection.baseToHeadDiffDigest().equals(
+                        snapshot.diffDigest())) {
+            throw new MutationRejectedException(
+                    "inspected Task input differs from its immutable change set");
+        }
+        return new PreparedTaskWriterAdmission(claim, snapshot, inspection);
+    }
+
+    /** Atomically consumes one inspected admission into a fence and run. */
+    public synchronized TaskWriterStart startInspectedTaskWriter(
+            Claim claim,
+            PreparedTaskWriterAdmission prepared,
+            Duration leaseTtl,
+            String promptManifestRef,
+            String capabilitySetRef)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(prepared, "prepared is null");
+        requirePositive(leaseTtl, "leaseTtl");
+        requireText(promptManifestRef, "promptManifestRef");
+        requireText(capabilitySetRef, "capabilitySetRef");
+        return inTransaction(() -> {
+            if (!sameClaimAuthority(prepared.claim, claim)) {
+                throw new StaleClaimException(
+                        "Task admission claim authority changed");
+            }
+            TaskAdmissionSnapshot current = taskAdmissionSnapshot(
+                    claim,
+                    prepared.snapshot.pendingId(),
+                    prepared.snapshot.changeSetRevisionId(),
+                    prepared.snapshot.remoteHead());
+            if (!current.equals(prepared.snapshot)) {
+                throw new StaleOwnerRevisionException(
+                        "Task admission subject changed after inspection");
+            }
+            WorktreeSnapshot snapshot = new WorktreeSnapshot(
+                    prepared.inspection.headSha(),
+                    prepared.inspection.headTreeDigest(),
+                    "task-change-set:" + current.changeSetRevisionId());
+            WriterFence fence = acquireWriterLease(
+                    claim,
+                    AgentRole.TASK_AGENT,
+                    snapshot,
+                    leaseTtl,
+                    true);
+            AgentRun run = startWriterAgent(
+                    claim, fence, promptManifestRef, capabilitySetRef);
+            return new TaskWriterStart(fence, run);
+        });
+    }
+
+    /**
+     * Re-inspects the exact current immutable Task change set for the terminal
+     * reviewer request. This slow Git read occurs before the request CAS.
+     */
+    public PreparedReviewerRequest prepareReviewerRequest(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId,
+            List<String> checkRunRefs)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
+        requireText(expectedChangeSetRevisionId,
+                "expectedChangeSetRevisionId");
+        List<String> boundedCheckRunRefs = validateReviewerCheckRunRefs(
+                checkRunRefs);
+        ReviewRequestSnapshot snapshot;
+        synchronized (this) {
+            snapshot = inTransaction(() -> reviewRequestSnapshot(
+                    runId,
+                    claim,
+                    fence,
+                    expectedChangeSetRevisionId));
+        }
+        Inspection inspection = worktreeInspector.inspect(
+                programOwnedRepositoryRoot,
+                snapshot.worktree(),
+                snapshot.branchName(),
+                snapshot.baseHeadSha(),
+                snapshot.reviewedHeadSha());
+        if (!inspection.headSha().equals(snapshot.reviewedHeadSha())
+                || !inspection.headTreeDigest().equals(
+                        snapshot.headTreeDigest())
+                || !inspection.baseToHeadDiffDigest().equals(
+                        snapshot.diffDigest())) {
+            throw new MutationRejectedException(
+                    "review subject differs from its immutable change set");
+        }
+        return new PreparedReviewerRequest(
+                claim,
+                fence,
+                snapshot,
+                inspection,
+                programOwnedRepositoryRoot.toAbsolutePath()
+                        .normalize().toString(),
+                boundedCheckRunRefs);
+    }
+
+    /**
+     * Atomically persists the immutable request and makes it the durable
+     * terminal seal for the parent process capability. The reviewer operation
+     * remains WAITING until the exact parent thread is durably stopped.
+     */
+    synchronized ReviewerRequest reserveReviewerRequest(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            String processAttemptId,
+            String capabilityId,
+            PreparedReviewerRequest prepared)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireText(processAttemptId, "processAttemptId");
+        requireText(capabilityId, "capabilityId");
+        requireNonNull(prepared, "prepared is null");
+        return inTransaction(() -> {
+            if (!sameClaimAuthority(prepared.claim, claim)
+                    || !sameFenceAuthority(prepared.fence, fence)) {
+                throw new StaleCapabilityException(
+                        "review request authority changed after inspection");
+            }
+            assertInProcessWriterToolCapability(
+                    runId, claim, fence, capabilityId);
+            AgentProcessAttempt process = requireProcessAttempt(
+                    processAttemptId);
+            if (!process.runId().equals(runId)
+                    || !process.capabilityId().equals(capabilityId)) {
+                throw new StaleCapabilityException(
+                        "review request used another process capability");
+            }
+            ReviewRequestSnapshot current = reviewRequestSnapshot(
+                    runId,
+                    claim,
+                    fence,
+                    requireRun(runId).inputChangeSetRevisionId());
+            if (!current.equals(prepared.snapshot)
+                    || !prepared.inspection.headSha().equals(
+                            current.reviewedHeadSha())
+                    || !prepared.inspection.headTreeDigest().equals(
+                            current.headTreeDigest())
+                    || !prepared.inspection.baseToHeadDiffDigest().equals(
+                            current.diffDigest())) {
+                throw new StaleOwnerRevisionException(
+                        "review request subject changed after inspection");
+            }
+            Optional<ReviewerRequest> existing = reviewerRequestForParentRun(
+                    runId);
+            String requestId = stableId(
+                    "reviewer-request",
+                    current.taskId(),
+                    runId,
+                    current.changeSetRevisionId());
+            String reviewerSubject = stableId(
+                    "reviewer-subject",
+                    requestId,
+                    current.taskId(),
+                    Long.toString(current.taskEpoch()),
+                    current.baseHeadSha(),
+                    current.reviewedHeadSha(),
+                    current.remoteHeadSha(),
+                    current.changeSetRevisionId(),
+                    current.headTreeDigest(),
+                    current.diffDigest(),
+                    prepared.repositoryRoot,
+                    String.join("\u0000", prepared.checkRunRefs));
+            String reviewerOperationId = stableId(
+                    "operation",
+                    "REVIEW_REQUEST",
+                    requestId,
+                    OperationKind.RUN_REVIEWER.name(),
+                    reviewerSubject);
+            ReviewerRequest requested = new ReviewerRequest(
+                    requestId,
+                    current.taskId(),
+                    current.operationId(),
+                    runId,
+                    reviewerOperationId,
+                    prepared.repositoryRoot,
+                    current.baseHeadSha(),
+                    current.reviewedHeadSha(),
+                    current.remoteHeadSha(),
+                    current.changeSetRevisionId(),
+                    current.headTreeDigest(),
+                    current.diffDigest(),
+                    prepared.checkRunRefs,
+                    current.intendedGateKind(),
+                    clock.instant());
+            if (existing.isPresent()) {
+                assertExactReviewerRequest(existing.get(), requested);
+                return existing.get();
+            }
+            insertOperationAndTicket(
+                    reviewerOperationId,
+                    "REVIEW_REQUEST",
+                    requestId,
+                    current.taskId(),
+                    OperationKind.RUN_REVIEWER,
+                    reviewerSubject,
+                    "review-request:" + requestId,
+                    null,
+                    TASK_TURN_PRIORITY,
+                    requested.createdAt());
+            int waiting = jdbc.update(
+                    """
+                    UPDATE flow_runtime_operation SET state = 'WAITING'
+                    WHERE operation_id = ? AND state = 'READY'
+                    """,
+                    reviewerOperationId);
+            int inserted = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_reviewer_request (
+                        request_id, task_id, parent_operation_id,
+                        parent_run_id, reviewer_operation_id, repository_root,
+                        base_head_sha, reviewed_head_sha, remote_head_sha,
+                        change_set_revision_id, head_tree_digest, diff_digest,
+                        intended_gate_kind, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    requestId,
+                    current.taskId(),
+                    current.operationId(),
+                    runId,
+                    reviewerOperationId,
+                    prepared.repositoryRoot,
+                    current.baseHeadSha(),
+                    current.reviewedHeadSha(),
+                    current.remoteHeadSha(),
+                    current.changeSetRevisionId(),
+                    current.headTreeDigest(),
+                    current.diffDigest(),
+                    current.intendedGateKind().name(),
+                    requested.createdAt().toEpochMilli());
+            for (int index = 0; index < prepared.checkRunRefs.size(); index++) {
+                jdbc.update(
+                        """
+                        INSERT INTO flow_runtime_reviewer_check_ref (
+                            request_id, ordinal, check_run_ref
+                        ) VALUES (?, ?, ?)
+                        """,
+                        requestId,
+                        index,
+                        prepared.checkRunRefs.get(index));
+            }
+            if (waiting != 1 || inserted != 1) {
+                throw new StaleOwnerRevisionException(
+                        "reviewer request changed during reservation");
+            }
+            return requireReviewerRequest(requestId);
+        });
+    }
+
+    synchronized ReviewerRequest replayReviewerRequest(
+            String runId,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId,
+            List<String> checkRunRefs)
+    {
+        requireText(runId, "runId");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
+        requireText(expectedChangeSetRevisionId,
+                "expectedChangeSetRevisionId");
+        List<String> boundedCheckRunRefs = validateReviewerCheckRunRefs(
+                checkRunRefs);
+        ReviewerRequest request = reviewerRequestForParentRun(runId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "reviewer request is not durable"));
+        String normalizedRoot = programOwnedRepositoryRoot.toAbsolutePath()
+                .normalize().toString();
+        AgentRun run = requireRun(runId);
+        if (!request.repositoryRoot().equals(normalizedRoot)
+                || !Objects.equals(run.inputChangeSetRevisionId(),
+                        expectedChangeSetRevisionId)
+                || !request.checkRunRefs().equals(boundedCheckRunRefs)) {
+            throw new IllegalStateException(
+                    "reviewer request replay changed terminal arguments");
+        }
+        return request;
+    }
+
+    private static List<String> validateReviewerCheckRunRefs(
+            List<String> checkRunRefs)
+    {
+        requireNonNull(checkRunRefs, "checkRunRefs is null");
+        if (checkRunRefs.size() > 64
+                || checkRunRefs.stream().anyMatch(
+                        value -> value == null || value.isBlank()
+                                || value.length() > 1024)
+                || checkRunRefs.stream().distinct().count()
+                        != checkRunRefs.size()) {
+            throw new IllegalArgumentException(
+                    "review check refs must be unique bounded text");
+        }
+        return List.copyOf(checkRunRefs);
+    }
+
     /** Acquires or idempotently returns the Task's sole live writer fence. */
     public synchronized WriterFence acquireWriterLease(
             Claim claim,
             AgentRole holderKind,
             WorktreeSnapshot snapshot,
             Duration leaseTtl)
+    {
+        return acquireWriterLease(
+                claim, holderKind, snapshot, leaseTtl, false);
+    }
+
+    private WriterFence acquireWriterLease(
+            Claim claim,
+            AgentRole holderKind,
+            WorktreeSnapshot snapshot,
+            Duration leaseTtl,
+            boolean inspectedTaskAdmission)
     {
         requireNonNull(claim, "claim is null");
         requireNonNull(holderKind, "holderKind is null");
@@ -1462,6 +1983,13 @@ public final class FlowRuntime
             if (holderKind != requiredRole) {
                 throw new IllegalArgumentException(
                         "writer holder does not match operation kind");
+            }
+            if (operation.kind() == OperationKind.RUN_TASK_TURN
+                    && selectedInput(operation).kind()
+                            != PendingKind.INITIAL_TASK
+                    && !inspectedTaskAdmission) {
+                throw new MutationRejectedException(
+                        "continuation Task turns require inspected admission");
             }
             Task task = requireTask(operation.taskId());
             if (task.status() != TaskStatus.ACTIVE
@@ -2524,14 +3052,30 @@ public final class FlowRuntime
             }
             String runId = stableId(
                     "agent-run", operation.operationId());
+            PendingWork taskInput = role == AgentRole.TASK_AGENT
+                    ? selectedInput(operation)
+                    : null;
+            String inputRemoteHead = taskInput != null
+                            && taskInput.intendedGateKind()
+                                == GateIntent.CI_UPDATE
+                    ? requirePullRequest(task.prId()).currentRemoteHead()
+                    : null;
+            if (taskInput != null
+                    && taskInput.intendedGateKind() == GateIntent.CI_UPDATE
+                    && inputRemoteHead == null) {
+                throw new MutationRejectedException(
+                        "CI-update Task run has no current remote head");
+            }
             Instant now = clock.instant();
             jdbc.update(
                     """
                     INSERT INTO flow_runtime_agent_run (
                         run_id, operation_id, session_id, role, head_sha,
                         prompt_manifest_ref, capability_set_ref, input_ref,
-                        state, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?)
+                        input_change_set_revision_id, input_remote_head_sha,
+                        wake_kind,
+                        intended_gate_kind, state, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', ?)
                     """,
                     runId,
                     operation.operationId(),
@@ -2541,6 +3085,12 @@ public final class FlowRuntime
                     promptManifestRef,
                     capabilitySetRef,
                     operation.inputRef(),
+                    role == AgentRole.TASK_AGENT
+                            ? task.currentChangeSetRevisionId() : null,
+                    inputRemoteHead,
+                    taskInput == null ? null : taskInput.kind().name(),
+                    taskInput == null ? null
+                            : taskInput.intendedGateKind().name(),
                     now.toEpochMilli());
             int reserved = jdbc.update(
                     """
@@ -2556,6 +3106,614 @@ public final class FlowRuntime
                         "persistent agent session changed concurrently");
             }
             return requireRun(runId);
+        });
+    }
+
+    /** Starts or idempotently returns the fresh session for one reviewer. */
+    public synchronized ReviewerStart startReviewerAgent(
+            String requestId,
+            Claim claim,
+            String promptManifestRef,
+            String capabilitySetRef)
+    {
+        requireText(requestId, "requestId");
+        requireNonNull(claim, "claim is null");
+        requireText(promptManifestRef, "promptManifestRef");
+        requireText(capabilitySetRef, "capabilitySetRef");
+        return inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            ReviewerRequest request = requireReviewerRequest(requestId);
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(request.taskId());
+            AgentSession taskSession = requireSession(task.taskSessionId());
+            if (operation.kind() != OperationKind.RUN_REVIEWER
+                    || !operation.ownerKind().equals("REVIEW_REQUEST")
+                    || !operation.ownerId().equals(requestId)
+                    || !operation.operationId().equals(
+                            request.reviewerOperationId())
+                    || !Objects.equals(claim.taskId(), task.taskId())
+                    || task.status() != TaskStatus.ACTIVE
+                    || task.waitingMutationStateRef() != null
+                    || task.selectedWriterOperationId() != null
+                    || taskSession.state() != SessionState.PARKED_CHILD
+                    || !task.currentHeadSha().equals(
+                            request.reviewedHeadSha())
+                    || !task.currentChangeSetRevisionId().equals(
+                            request.changeSetRevisionId())
+                    || writerFence(task.taskId()).isPresent()) {
+                throw new MutationRejectedException(
+                        "reviewer request is not the current parked Task child");
+            }
+            Optional<AgentRun> existing = runForOperation(
+                    operation.operationId());
+            if (existing.isPresent()) {
+                AgentRun run = existing.get();
+                AgentSession session = requireSession(run.sessionId());
+                if (run.role() != AgentRole.ADVERSARIAL_REVIEWER
+                        || !run.headSha().equals(request.reviewedHeadSha())
+                        || !run.promptManifestRef().equals(promptManifestRef)
+                        || !run.capabilitySetRef().equals(capabilitySetRef)
+                        || !run.inputRef().equals(
+                                "review-request:" + requestId)
+                        || (run.state() != RunState.QUEUED
+                            && run.state() != RunState.RUNNING)
+                        || session.role()
+                                != AgentRole.ADVERSARIAL_REVIEWER
+                        || session.state() != SessionState.RUNNING
+                        || !run.runId().equals(session.lastRunId())) {
+                    throw new IllegalStateException(
+                            "reviewer start redelivery changed identity");
+                }
+                return new ReviewerStart(request, session, run);
+            }
+            Instant now = clock.instant();
+            String sessionId = stableId(
+                    "reviewer-session", requestId);
+            String runId = stableId(
+                    "agent-run", operation.operationId());
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_session (
+                        session_id, task_id, role, state, last_run_id,
+                        created_at, updated_at
+                    ) VALUES (?, ?, 'ADVERSARIAL_REVIEWER', 'RUNNING', ?, ?, ?)
+                    """,
+                    sessionId,
+                    task.taskId(),
+                    runId,
+                    now.toEpochMilli(),
+                    now.toEpochMilli());
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_run (
+                        run_id, operation_id, session_id, role, head_sha,
+                        prompt_manifest_ref, capability_set_ref, input_ref,
+                        state, created_at
+                    ) VALUES (?, ?, ?, 'ADVERSARIAL_REVIEWER', ?, ?, ?, ?,
+                        'QUEUED', ?)
+                    """,
+                    runId,
+                    operation.operationId(),
+                    sessionId,
+                    request.reviewedHeadSha(),
+                    promptManifestRef,
+                    capabilitySetRef,
+                    "review-request:" + requestId,
+                    now.toEpochMilli());
+            return new ReviewerStart(
+                    request, requireSession(sessionId), requireRun(runId));
+        });
+    }
+
+    synchronized AgentProcessAttempt reserveInProcessReviewerAttempt(
+            String runId, Claim claim, String requestId)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireText(requestId, "requestId");
+        return inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            ReviewerRequest request = requireReviewerRequest(requestId);
+            Operation operation = requireOperation(claim.operationId());
+            AgentRun run = requireRun(runId);
+            if (operation.kind() != OperationKind.RUN_REVIEWER
+                    || !operation.ownerKind().equals("REVIEW_REQUEST")
+                    || !operation.ownerId().equals(requestId)
+                    || !request.reviewerOperationId().equals(
+                            operation.operationId())
+                    || !run.operationId().equals(operation.operationId())
+                    || run.role() != AgentRole.ADVERSARIAL_REVIEWER) {
+                throw new StaleClaimException(
+                        "review process claim changed identity");
+            }
+            String attemptId = stableId(
+                    "process-attempt",
+                    runId,
+                    Long.toString(claim.generation()));
+            Optional<AgentProcessAttempt> existing = processAttempt(attemptId);
+            if (existing.isPresent()) {
+                AgentProcessAttempt attempt = existing.get();
+                if (!attempt.runId().equals(runId)
+                        || !attempt.operationId().equals(
+                                claim.operationId())
+                        || attempt.claimGeneration() != claim.generation()
+                        || !attempt.claimTokenDigest().equals(
+                                claimTokenDigest(claim))) {
+                    throw new IllegalStateException(
+                            "review process redelivery changed identity");
+                }
+                return attempt;
+            }
+            if (run.state() != RunState.QUEUED) {
+                throw new StaleClaimException(
+                        "reviewer run is not queued");
+            }
+            Instant now = clock.instant();
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_process_attempt (
+                        process_attempt_id, run_id, operation_id,
+                        claim_generation, claim_token_digest, execution_id,
+                        capability_id, state, reserved_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?)
+                    """,
+                    attemptId,
+                    runId,
+                    claim.operationId(),
+                    claim.generation(),
+                    claimTokenDigest(claim),
+                    stableId("reviewer-execution", runId,
+                            Long.toString(claim.generation())),
+                    stableId("reviewer-capability", runId,
+                            Long.toString(claim.generation())),
+                    now.toEpochMilli());
+            return requireProcessAttempt(attemptId);
+        });
+    }
+
+    synchronized AgentRun activateInProcessReviewerAttempt(
+            String processAttemptId,
+            Claim claim,
+            long jvmPid,
+            Instant jvmStartedAt,
+            long threadId,
+            String threadName)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(jvmStartedAt, "jvmStartedAt is null");
+        requireText(threadName, "threadName");
+        if (jvmPid <= 0 || threadId <= 0) {
+            throw new IllegalArgumentException(
+                    "review process identity must be positive");
+        }
+        return inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            AgentRun run = requireRun(attempt.runId());
+            if (!attempt.operationId().equals(claim.operationId())
+                    || attempt.claimGeneration() != claim.generation()
+                    || run.role() != AgentRole.ADVERSARIAL_REVIEWER) {
+                throw new StaleClaimException(
+                        "review process belongs to another claim");
+            }
+            if (attempt.state() == ProcessAttemptState.ACTIVATED) {
+                if (!Long.valueOf(jvmPid).equals(attempt.jvmPid())
+                        || !jvmStartedAt.equals(attempt.jvmStartedAt())
+                        || !Long.valueOf(threadId).equals(attempt.threadId())
+                        || !threadName.equals(attempt.threadName())
+                        || run.state() != RunState.RUNNING) {
+                    throw new IllegalStateException(
+                            "review activation redelivery changed identity");
+                }
+                return run;
+            }
+            if (attempt.state() != ProcessAttemptState.RESERVED
+                    || run.state() != RunState.QUEUED) {
+                throw new IllegalStateException(
+                        "review process cannot be activated");
+            }
+            Instant now = clock.instant();
+            int processUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET state = 'ACTIVATED', jvm_pid = ?, jvm_started_at = ?,
+                        thread_id = ?, thread_name = ?, activated_at = ?
+                    WHERE process_attempt_id = ? AND state = 'RESERVED'
+                    """,
+                    jvmPid,
+                    jvmStartedAt.toEpochMilli(),
+                    threadId,
+                    threadName,
+                    now.toEpochMilli(),
+                    processAttemptId);
+            int runUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_run
+                    SET state = 'RUNNING', started_at = COALESCE(started_at, ?)
+                    WHERE run_id = ? AND state = 'QUEUED'
+                    """,
+                    now.toEpochMilli(),
+                    run.runId());
+            if (processUpdated != 1 || runUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "review process changed during activation");
+            }
+            return requireRun(run.runId());
+        });
+    }
+
+    synchronized void assertInProcessReviewerToolCapability(
+            String runId,
+            Claim claim,
+            String capabilityId,
+            String requestId)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireText(capabilityId, "capabilityId");
+        requireText(requestId, "requestId");
+        inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            Integer matches = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_agent_process_attempt a
+                    JOIN flow_runtime_agent_run r ON r.run_id = a.run_id
+                    JOIN flow_runtime_reviewer_request q
+                      ON q.reviewer_operation_id = r.operation_id
+                    WHERE a.run_id = ? AND a.operation_id = ?
+                      AND a.claim_generation = ?
+                      AND a.claim_token_digest = ?
+                      AND a.capability_id = ? AND a.state = 'ACTIVATED'
+                      AND a.capability_revoked_at IS NULL
+                      AND a.quarantine_reason IS NULL
+                      AND r.role = 'ADVERSARIAL_REVIEWER'
+                      AND r.state = 'RUNNING'
+                      AND q.request_id = ?
+                    """,
+                    Integer.class,
+                    runId,
+                    claim.operationId(),
+                    claim.generation(),
+                    claimTokenDigest(claim),
+                    capabilityId,
+                    requestId);
+            if (requireNonNull(
+                    matches, "review capability count is null") != 1) {
+                throw new StaleCapabilityException(
+                        "reviewer capability is stale or revoked");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
+    synchronized AgentProcessAttempt revokeInProcessReviewerCapability(
+            String processAttemptId, Claim claim)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        return inTransaction(() -> {
+            assertReviewerTerminationAuthority(processAttemptId, claim);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            if (attempt.capabilityRevokedAt() != null) {
+                return attempt;
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET capability_revoked_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NULL
+                    """,
+                    clock.instant().toEpochMilli(),
+                    processAttemptId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "review capability changed during revocation");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
+    synchronized AgentProcessAttempt recordInProcessReviewerStopped(
+            String processAttemptId,
+            Claim claim,
+            InProcessReviewerAgentSupervisor.TerminatedThreadWitness witness,
+            InProcessStopType stopType)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(witness, "witness is null");
+        requireNonNull(stopType, "stopType is null");
+        return inTransaction(() -> {
+            assertReviewerTerminationAuthority(processAttemptId, claim);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            assertReviewerProcessIdentity(attempt, witness);
+            if (attempt.state() == ProcessAttemptState.STOPPED) {
+                if (attempt.stopType() != stopType) {
+                    throw new IllegalStateException(
+                            "review stop redelivery changed type");
+                }
+                return attempt;
+            }
+            if (attempt.state() != ProcessAttemptState.ACTIVATED
+                    || attempt.capabilityRevokedAt() == null
+                    || attempt.quarantineReason() != null) {
+                throw new IllegalStateException(
+                        "review execution is not safely stoppable");
+            }
+            Instant now = clock.instant();
+            String proofRef = stableId(
+                    "in-process-reviewer-stop",
+                    attempt.executionId(),
+                    stopType.name(),
+                    Long.toString(witness.jvmPid()),
+                    Long.toString(witness.jvmStartedAt().toEpochMilli()),
+                    Long.toString(witness.thread().threadId()),
+                    Long.toString(attempt.capabilityRevokedAt()
+                            .toEpochMilli()));
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET state = 'STOPPED', stop_type = ?,
+                        stop_proof_ref = ?, stopped_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NOT NULL
+                      AND quarantine_reason IS NULL
+                    """,
+                    stopType.name(),
+                    proofRef,
+                    now.toEpochMilli(),
+                    processAttemptId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "review stop proof changed concurrently");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
+    synchronized AgentProcessAttempt quarantineInProcessReviewerAttempt(
+            String processAttemptId,
+            Claim claim,
+            ProcessQuarantineReason reason)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(reason, "reason is null");
+        return inTransaction(() -> {
+            assertReviewerTerminationAuthority(processAttemptId, claim);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            if (attempt.quarantineReason() != null) {
+                if (attempt.quarantineReason() != reason) {
+                    throw new IllegalStateException(
+                            "review quarantine redelivery changed reason");
+                }
+                return attempt;
+            }
+            if (attempt.state() != ProcessAttemptState.ACTIVATED
+                    || attempt.capabilityRevokedAt() == null) {
+                throw new IllegalStateException(
+                        "only a revoked active reviewer can be quarantined");
+            }
+            Instant now = clock.instant();
+            int quarantined = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET quarantine_reason = ?, quarantined_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NOT NULL
+                      AND quarantine_reason IS NULL
+                    """,
+                    reason.name(),
+                    now.toEpochMilli(),
+                    processAttemptId);
+            Task task = requireTask(claim.taskId());
+            TaskLifecycleRevision attention = appendLifecycle(
+                    task,
+                    TaskStatus.NEEDS_ATTENTION,
+                    reason.name(),
+                    "process-attempt:" + processAttemptId,
+                    claim.operationId(),
+                    now);
+            int taskUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET status = 'NEEDS_ATTENTION',
+                        current_lifecycle_revision_id = ?,
+                        waiting_mutation_state_ref = ?
+                    WHERE task_id = ? AND status = 'ACTIVE'
+                      AND selected_writer_operation_id IS NULL
+                      AND waiting_mutation_state_ref IS NULL
+                      AND current_lifecycle_revision_id = ?
+                    """,
+                    attention.lifecycleRevisionId(),
+                    reviewerRecoveryRef(processAttemptId),
+                    task.taskId(),
+                    task.currentLifecycleRevisionId());
+            if (quarantined != 1 || taskUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "review quarantine lost its Task owner");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
+    /** Atomically stores one opaque reviewer result and resumes its parent. */
+    public synchronized AgentResult finishReviewerAgentRun(
+            String runId,
+            Claim claim,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(terminalOutcome, "terminalOutcome is null");
+        if (terminalOutcome != TerminalOutcome.COMPLETED) {
+            requireText(errorRef, "errorRef");
+        }
+        return inTransaction(() -> {
+            AgentRun run = requireRun(runId);
+            ReviewerRequest request = reviewerRequestForOperation(
+                    run.operationId());
+            Optional<AgentResult> existing = resultForRun(runId);
+            if (existing.isPresent()) {
+                AgentResult result = existing.get();
+                assertFinalizedClaim(claim, result.resultId());
+                if (result.terminalOutcome() != terminalOutcome
+                        || !Objects.equals(
+                                result.finalContent(), finalContent)
+                        || !Objects.equals(result.errorRef(), errorRef)) {
+                    throw new IllegalStateException(
+                            "reviewer result replay changed terminal content");
+                }
+                requireReviewerResultReady(request, result);
+                return result;
+            }
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(request.taskId());
+            AgentSession reviewerSession = requireSession(run.sessionId());
+            AgentSession parentSession = requireSession(task.taskSessionId());
+            if (!run.operationId().equals(operation.operationId())
+                    || run.role() != AgentRole.ADVERSARIAL_REVIEWER
+                    || run.state() != RunState.RUNNING
+                    || !run.headSha().equals(request.reviewedHeadSha())
+                    || reviewerSession.role()
+                            != AgentRole.ADVERSARIAL_REVIEWER
+                    || reviewerSession.state() != SessionState.RUNNING
+                    || !runId.equals(reviewerSession.lastRunId())
+                    || parentSession.state() != SessionState.PARKED_CHILD
+                    || task.status() != TaskStatus.ACTIVE
+                    || task.waitingMutationStateRef() != null
+                    || task.selectedWriterOperationId() != null
+                    || !task.currentHeadSha().equals(
+                            request.reviewedHeadSha())
+                    || !task.currentChangeSetRevisionId().equals(
+                            request.changeSetRevisionId())) {
+                throw new StaleOwnerRevisionException(
+                        "reviewer finalization subject is no longer current");
+            }
+            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                    runId, claim.generation());
+            Instant now = clock.instant();
+            String resultId = stableId("agent-result", runId);
+            int resultStored = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_result (
+                        result_id, run_id, terminal_outcome, final_content,
+                        error_ref, stop_proof_ref, stored_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    resultId,
+                    runId,
+                    terminalOutcome.name(),
+                    finalContent,
+                    errorRef,
+                    stopped.stopProofRef(),
+                    now.toEpochMilli());
+            RunState runState = switch (terminalOutcome) {
+                case COMPLETED -> RunState.COMPLETED;
+                case FAILED -> RunState.FAILED;
+                case CANCELED -> RunState.CANCELED;
+            };
+            int runFinished = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_run
+                    SET state = ?, failure_reason_code = ?, completed_at = ?
+                    WHERE run_id = ? AND state = 'RUNNING'
+                    """,
+                    runState.name(),
+                    errorRef,
+                    now.toEpochMilli(),
+                    runId);
+            int reviewerClosed = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = 'CLOSED', close_reason = ?, updated_at = ?
+                    WHERE session_id = ? AND state = 'RUNNING'
+                      AND last_run_id = ?
+                    """,
+                    "REVIEWER_" + terminalOutcome.name(),
+                    now.toEpochMilli(),
+                    reviewerSession.sessionId(),
+                    runId);
+            OperationState operationState = switch (terminalOutcome) {
+                case COMPLETED -> OperationState.SUCCEEDED;
+                case FAILED -> OperationState.FAILED;
+                case CANCELED -> OperationState.CANCELED;
+            };
+            if (resultStored != 1 || runFinished != 1
+                    || reviewerClosed != 1) {
+                throw new StaleOwnerRevisionException(
+                        "reviewer run changed during finalization");
+            }
+            settleDispatch(operation.operationId(), operationState, resultId);
+            AgentResult result = requireResult(resultId);
+            appendPendingWork(
+                    stableId("inbox", "AGENT_RESULT_READY", runId, "1"),
+                    task,
+                    task.prId(),
+                    "REVIEWER",
+                    runId,
+                    "1",
+                    PendingKind.AGENT_RESULT_READY,
+                    request.reviewedHeadSha(),
+                    reviewerResultPayload(request.requestId(), resultId),
+                    resultId,
+                    request.intendedGateKind(),
+                    now);
+            int parentResumed = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = 'IDLE', updated_at = ?
+                    WHERE session_id = ? AND state = 'PARKED_CHILD'
+                      AND last_run_id = ?
+                    """,
+                    now.toEpochMilli(),
+                    parentSession.sessionId(),
+                    request.parentRunId());
+            if (parentResumed != 1) {
+                throw new StaleOwnerRevisionException(
+                        "reviewer lost its parked parent session");
+            }
+            cancelReviewerBlockedReconciliation(task.taskId());
+            ensureReconciliationIfPending(task.taskId());
+            return result;
+        });
+    }
+
+    synchronized AgentResult verifyFinalizedReviewerResult(
+            String runId, Claim claim, AgentResult returnedResult)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(returnedResult, "returnedResult is null");
+        return inTransaction(() -> {
+            AgentResult stored = resultForRun(runId).orElseThrow(() ->
+                    new IllegalStateException(
+                            "reviewer finalizer stored no AgentResult"));
+            if (!stored.equals(returnedResult)) {
+                throw new IllegalStateException(
+                        "reviewer finalizer returned a noncanonical result");
+            }
+            assertFinalizedClaim(claim, stored.resultId());
+            AgentRun run = requireRun(runId);
+            ReviewerRequest request = reviewerRequestForOperation(
+                    run.operationId());
+            AgentSession session = requireSession(run.sessionId());
+            if (run.role() != AgentRole.ADVERSARIAL_REVIEWER
+                    || session.state() != SessionState.CLOSED
+                    || !runId.equals(session.lastRunId())) {
+                throw new IllegalStateException(
+                        "reviewer session did not close durably");
+            }
+            requireReviewerResultReady(request, stored);
+            return stored;
         });
     }
 
@@ -2731,6 +3889,10 @@ public final class FlowRuntime
                       AND a.capability_revoked_at IS NULL
                       AND a.quarantine_reason IS NULL
                       AND r.state = 'RUNNING'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM flow_runtime_reviewer_request q
+                          WHERE q.parent_run_id = r.run_id
+                      )
                     """,
                     Integer.class,
                     runId,
@@ -2926,6 +4088,12 @@ public final class FlowRuntime
             String finalContent,
             String errorRef)
     {
+        AgentRun run = requireRun(runId);
+        if (run.role() == AgentRole.TASK_AGENT
+                && run.intendedGateKind() == GateIntent.CI_UPDATE) {
+            throw new MutationRejectedException(
+                    "CI-update Task turns require the reviewer finalizer");
+        }
         return finishWriterAgentRun(
                 runId,
                 claim,
@@ -2938,6 +4106,397 @@ public final class FlowRuntime
                 null,
                 null,
                 null);
+    }
+
+    private PreparedTaskResultConsumption prepareTaskResultConsumption(
+            String runId, Claim claim, WriterFence fence)
+    {
+        TaskResultConsumptionSnapshot snapshot;
+        synchronized (this) {
+            snapshot = inTransaction(() ->
+                    taskResultConsumptionSnapshot(runId, claim, fence));
+        }
+        if (!snapshot.currentChangeSet().changeSetRevisionId().equals(
+                    snapshot.request().changeSetRevisionId())
+                || !snapshot.currentChangeSet().headSha().equals(
+                    snapshot.request().reviewedHeadSha())) {
+            return new PreparedTaskResultConsumption(
+                    claim,
+                    fence,
+                    snapshot,
+                    null,
+                    "CHANGED_WITHOUT_FRESH_REVIEW");
+        }
+        try {
+            Inspection inspection = worktreeInspector.inspect(
+                    Path.of(snapshot.request().repositoryRoot()),
+                    snapshot.worktree(),
+                    snapshot.branchName(),
+                    snapshot.base().baseSha(),
+                    snapshot.currentChangeSet().headSha());
+            if (!inspection.headSha().equals(
+                        snapshot.currentChangeSet().headSha())
+                    || !inspection.headTreeDigest().equals(
+                        snapshot.currentChangeSet().headTreeDigest())
+                    || !inspection.baseToHeadDiffDigest().equals(
+                        snapshot.currentChangeSet().diffDigest())) {
+                return new PreparedTaskResultConsumption(
+                        claim,
+                        fence,
+                        snapshot,
+                        null,
+                        "WORKTREE_CHANGED_WITHOUT_FRESH_REVIEW");
+            }
+            return new PreparedTaskResultConsumption(
+                    claim, fence, snapshot, inspection, null);
+        }
+        catch (InspectionFailure failure) {
+            if (transientInspectionFailure(failure.code())) {
+                throw failure;
+            }
+            return new PreparedTaskResultConsumption(
+                    claim,
+                    fence,
+                    snapshot,
+                    null,
+                    "RESULT_CONSUMPTION_" + failure.code().name());
+        }
+    }
+
+    private TaskResultConsumptionSnapshot taskResultConsumptionSnapshot(
+            String runId, Claim claim, WriterFence fence)
+    {
+        assertCurrentClaim(claim, OperationState.CLAIMED);
+        assertFenceRow(claim, fence);
+        AgentRun run = requireRun(runId);
+        Operation operation = requireOperation(claim.operationId());
+        Task task = requireTask(operation.taskId());
+        PendingWork input = selectedInput(operation);
+        if (!run.operationId().equals(operation.operationId())
+                || run.role() != AgentRole.TASK_AGENT
+                || run.state() != RunState.RUNNING
+                || run.wakeKind() != WakeKind.AGENT_RESULT_READY
+                || input.kind() != PendingKind.AGENT_RESULT_READY
+                || !input.pendingId().equals(
+                        requireTextResult(run.inputRef(), "inbox:"))
+                || !operation.operationId().equals(
+                        task.selectedWriterOperationId())) {
+            throw new MutationRejectedException(
+                    "result consumption requires the exact active Task turn");
+        }
+        ReviewerRequest request = reviewerRequestForReviewerRun(
+                input.externalKey()).orElseThrow(() ->
+                        new MutationRejectedException(
+                                "result consumption has no reviewer request"));
+        AgentResult reviewerResult = resultForRun(input.externalKey())
+                .orElseThrow(() -> new MutationRejectedException(
+                        "result consumption has no reviewer result"));
+        if (!Objects.equals(input.agentResultId(), reviewerResult.resultId())
+                || !input.subjectHead().equals(request.reviewedHeadSha())
+                || input.intendedGateKind() != request.intendedGateKind()
+                || !input.payloadRef().equals(reviewerResultPayload(
+                        request.requestId(), reviewerResult.resultId()))
+                || !request.taskId().equals(task.taskId())) {
+            throw new MutationRejectedException(
+                    "result consumption input changed identity");
+        }
+        requireStoppedProcessAttempt(runId, claim.generation());
+        ChangeSetRevision current = requireChangeSetRevision(
+                task.currentChangeSetRevisionId());
+        TaskBaseRevision base = currentBaseRevision(task.taskId())
+                .orElseThrow(() -> new MutationRejectedException(
+                        "result consumption has no immutable base"));
+        return new TaskResultConsumptionSnapshot(
+                task.taskId(),
+                task.epoch(),
+                operation.operationId(),
+                operation.subjectDigest(),
+                runId,
+                input.pendingId(),
+                request,
+                reviewerResult.resultId(),
+                Path.of(task.worktreePath()),
+                task.branchName(),
+                base,
+                current);
+    }
+
+    private static String requireTextResult(String inputRef, String prefix)
+    {
+        if (!inputRef.startsWith(prefix)) {
+            throw new MutationRejectedException(
+                    "Task run input reference is malformed");
+        }
+        return inputRef.substring(prefix.length());
+    }
+
+    private static String missingReviewerReason(
+            PreparedTaskResultConsumption prepared,
+            TerminalOutcome terminalOutcome)
+    {
+        if (prepared == null) {
+            return "MISSING_TERMINAL_REVIEW_REQUEST";
+        }
+        if (prepared.blockerCode != null) {
+            return prepared.blockerCode;
+        }
+        return "RESULT_TURN_" + terminalOutcome.name();
+    }
+
+    /**
+     * Finalizes one stopped CI-update Task turn. A durable reviewer request
+     * parks the parent. An unchanged result-delivery turn may consume its input
+     * only after fresh mechanical inspection; all other missing-request turns
+     * release authority into typed attention.
+     */
+    public AgentResult finishTaskAgentReviewTurn(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(terminalOutcome, "terminalOutcome is null");
+        if (terminalOutcome != TerminalOutcome.COMPLETED) {
+            requireText(errorRef, "errorRef");
+        }
+        boolean prepareResultConsumption;
+        synchronized (this) {
+            AgentRun candidate = requireRun(runId);
+            prepareResultConsumption = resultForRun(runId).isEmpty()
+                    && candidate.wakeKind() == WakeKind.AGENT_RESULT_READY
+                    && reviewerRequestForParentRun(runId).isEmpty();
+        }
+        PreparedTaskResultConsumption resultConsumption =
+                prepareResultConsumption
+                        ? prepareTaskResultConsumption(runId, claim, fence)
+                        : null;
+        PreparedTaskResultConsumption preparedResultConsumption =
+                resultConsumption;
+        synchronized (this) {
+            return inTransaction(() -> {
+            AgentRun run = requireRun(runId);
+            Optional<ReviewerRequest> request =
+                    reviewerRequestForParentRun(runId);
+            Optional<AgentResult> existing = resultForRun(runId);
+            if (existing.isPresent()) {
+                AgentResult result = existing.get();
+                assertFinalizedClaim(claim, result.resultId());
+                if (result.terminalOutcome() != terminalOutcome
+                        || !Objects.equals(
+                                result.finalContent(), finalContent)
+                        || !Objects.equals(result.errorRef(), errorRef)) {
+                    throw new IllegalStateException(
+                            "Task review finalization changed terminal content");
+                }
+                assertTaskReviewFinalState(run, request);
+                return result;
+            }
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            assertFenceRow(claim, fence);
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(fence.taskId());
+            if (!run.operationId().equals(operation.operationId())
+                    || run.role() != AgentRole.TASK_AGENT
+                    || run.state() != RunState.RUNNING
+                    || run.intendedGateKind() != GateIntent.CI_UPDATE
+                    || !operation.operationId().equals(
+                            task.selectedWriterOperationId())) {
+                throw new StaleOwnerRevisionException(
+                        "Task review parent is no longer current");
+            }
+            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                    runId, claim.generation());
+            boolean consumeReviewedResult = request.isEmpty()
+                    && run.wakeKind() == WakeKind.AGENT_RESULT_READY
+                    && terminalOutcome == TerminalOutcome.COMPLETED
+                    && preparedResultConsumption != null
+                    && preparedResultConsumption.accepted();
+            if (preparedResultConsumption != null) {
+                if (!sameClaimAuthority(
+                            preparedResultConsumption.claim, claim)
+                        || !sameFenceAuthority(
+                            preparedResultConsumption.fence, fence)
+                        || !preparedResultConsumption.snapshot.equals(
+                            taskResultConsumptionSnapshot(
+                                    runId, claim, fence))) {
+                    throw new StaleOwnerRevisionException(
+                            "result consumption changed after inspection");
+                }
+            }
+            Instant now = clock.instant();
+            String resultId = stableId("agent-result", runId);
+            int resultStored = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_result (
+                        result_id, run_id, terminal_outcome, final_content,
+                        error_ref, stop_proof_ref, stored_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    resultId,
+                    runId,
+                    terminalOutcome.name(),
+                    finalContent,
+                    errorRef,
+                    stopped.stopProofRef(),
+                    now.toEpochMilli());
+            RunState runState = switch (terminalOutcome) {
+                case COMPLETED -> RunState.COMPLETED;
+                case FAILED -> RunState.FAILED;
+                case CANCELED -> RunState.CANCELED;
+            };
+            int runFinished = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_run
+                    SET state = ?, failure_reason_code = ?, completed_at = ?
+                    WHERE run_id = ? AND state = 'RUNNING'
+                    """,
+                    runState.name(),
+                    errorRef,
+                    now.toEpochMilli(),
+                    runId);
+            SessionState sessionTarget = request.isPresent()
+                    ? SessionState.PARKED_CHILD
+                    : SessionState.IDLE;
+            int sessionFinished = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = ?, updated_at = ?
+                    WHERE session_id = ? AND state = 'RUNNING'
+                      AND last_run_id = ?
+                    """,
+                    sessionTarget.name(),
+                    now.toEpochMilli(),
+                    run.sessionId(),
+                    runId);
+            if (resultStored != 1 || runFinished != 1
+                    || sessionFinished != 1) {
+                throw new StaleOwnerRevisionException(
+                        "Task review run changed during finalization");
+            }
+            OperationState terminalState = switch (terminalOutcome) {
+                case COMPLETED -> OperationState.SUCCEEDED;
+                case FAILED -> OperationState.FAILED;
+                case CANCELED -> OperationState.CANCELED;
+            };
+            settleDispatch(operation.operationId(), terminalState, resultId);
+            if (request.isPresent()) {
+                ReviewerRequest reviewer = request.orElseThrow();
+                if (!reviewer.parentOperationId().equals(
+                            operation.operationId())
+                        || !reviewer.taskId().equals(task.taskId())
+                        || !reviewer.reviewedHeadSha().equals(
+                                task.currentHeadSha())
+                        || !reviewer.changeSetRevisionId().equals(
+                                task.currentChangeSetRevisionId())) {
+                    throw new StaleOwnerRevisionException(
+                            "reviewer request changed before parent stop");
+                }
+                int inputHandled = jdbc.update(
+                        """
+                        UPDATE flow_runtime_inbox
+                        SET handled_by_operation_id = ?
+                        WHERE selected_by_operation_id = ?
+                          AND handled_by_operation_id IS NULL
+                        """,
+                        operation.operationId(),
+                        operation.operationId());
+                int reviewerReady = jdbc.update(
+                        """
+                        UPDATE flow_runtime_operation SET state = 'READY'
+                        WHERE operation_id = ? AND state = 'WAITING'
+                        """,
+                        reviewer.reviewerOperationId());
+                if (inputHandled != 1 || reviewerReady != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "reviewer eligibility changed before parent stop");
+                }
+            }
+            else if (consumeReviewedResult) {
+                int inputHandled = jdbc.update(
+                        """
+                        UPDATE flow_runtime_inbox
+                        SET handled_by_operation_id = ?
+                        WHERE selected_by_operation_id = ?
+                          AND handled_by_operation_id IS NULL
+                        """,
+                        operation.operationId(),
+                        operation.operationId());
+                if (inputHandled != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "reviewer result consumption lost its input");
+                }
+            }
+            else {
+                int inputHandled = jdbc.update(
+                        """
+                        UPDATE flow_runtime_inbox
+                        SET handled_by_operation_id = ?
+                        WHERE selected_by_operation_id = ?
+                          AND handled_by_operation_id IS NULL
+                        """,
+                        operation.operationId(),
+                        operation.operationId());
+                if (inputHandled != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "failed Task review did not consume its input");
+                }
+                TaskLifecycleRevision attention = appendLifecycle(
+                        task,
+                        TaskStatus.NEEDS_ATTENTION,
+                        missingReviewerReason(
+                                preparedResultConsumption,
+                                terminalOutcome),
+                        "agent-result:" + resultId,
+                        operation.operationId(),
+                        now);
+                int attentionSet = jdbc.update(
+                        """
+                        UPDATE flow_runtime_task
+                        SET status = 'NEEDS_ATTENTION',
+                            current_lifecycle_revision_id = ?
+                        WHERE task_id = ? AND status = 'ACTIVE'
+                          AND current_lifecycle_revision_id = ?
+                        """,
+                        attention.lifecycleRevisionId(),
+                        task.taskId(),
+                        task.currentLifecycleRevisionId());
+                if (attentionSet != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "failed Task review lost its lifecycle owner");
+                }
+            }
+            int pointerCleared = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET selected_writer_operation_id = NULL
+                    WHERE task_id = ? AND selected_writer_operation_id = ?
+                    """,
+                    task.taskId(),
+                    operation.operationId());
+            int leaseReleased = jdbc.update(
+                    """
+                    DELETE FROM flow_runtime_writer_lease
+                    WHERE task_id = ? AND operation_id = ?
+                      AND task_epoch = ? AND fencing_token = ?
+                    """,
+                    fence.taskId(),
+                    fence.operationId(),
+                    fence.taskEpoch(),
+                    fence.fencingToken());
+            if (pointerCleared != 1 || leaseReleased != 1) {
+                throw new StaleOwnerRevisionException(
+                        "Task review finalization lost its writer authority");
+            }
+            rearmReconciliationAfterWriter(task.taskId());
+            ensureReconciliationIfPending(task.taskId());
+            return requireResult(resultId);
+            });
+        }
     }
 
     /** Proves the exact claimed writer thread stopped before domain inspection. */
@@ -3922,8 +5481,9 @@ public final class FlowRuntime
                         attemptId,
                         ownerKind,
                         outcome,
-                        outputChangeSetRevisionId),
+                outputChangeSetRevisionId),
                 result.resultId(),
+                GateIntent.CI_UPDATE,
                 clock.instant());
     }
 
@@ -4251,6 +5811,15 @@ public final class FlowRuntime
                 operationId).stream().findFirst();
     }
 
+    public Optional<AgentRun> run(String runId)
+    {
+        requireText(runId, "runId");
+        return jdbc.query(
+                "SELECT * FROM flow_runtime_agent_run WHERE run_id = ?",
+                (result, row) -> readRun(result),
+                runId).stream().findFirst();
+    }
+
     public Optional<AgentResult> resultForRun(String runId)
     {
         requireText(runId, "runId");
@@ -4273,6 +5842,58 @@ public final class FlowRuntime
                 taskId);
     }
 
+    public Optional<ReviewerRequest> reviewerRequest(String requestId)
+    {
+        requireText(requestId, "requestId");
+        return jdbc.query(
+                """
+                SELECT * FROM flow_runtime_reviewer_request
+                WHERE request_id = ?
+                """,
+                (result, row) -> readReviewerRequest(result),
+                requestId).stream().findFirst();
+    }
+
+    public Optional<ReviewerRequest> reviewerRequestForParentRun(String runId)
+    {
+        requireText(runId, "runId");
+        return jdbc.query(
+                """
+                SELECT * FROM flow_runtime_reviewer_request
+                WHERE parent_run_id = ?
+                """,
+                (result, row) -> readReviewerRequest(result),
+                runId).stream().findFirst();
+    }
+
+    public Optional<ReviewerRequest> reviewerRequestForReviewerRun(
+            String runId)
+    {
+        requireText(runId, "runId");
+        return jdbc.query(
+                """
+                SELECT q.* FROM flow_runtime_reviewer_request q
+                JOIN flow_runtime_agent_run r
+                  ON r.operation_id = q.reviewer_operation_id
+                WHERE r.run_id = ?
+                """,
+                (result, row) -> readReviewerRequest(result),
+                runId).stream().findFirst();
+    }
+
+    private ReviewerRequest reviewerRequestForOperation(String operationId)
+    {
+        return jdbc.query(
+                """
+                SELECT * FROM flow_runtime_reviewer_request
+                WHERE reviewer_operation_id = ?
+                """,
+                (result, row) -> readReviewerRequest(result),
+                operationId).stream().findFirst().orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "operation has no ReviewerRequest"));
+    }
+
     private PendingWork appendPendingWork(
             String pendingId,
             Task task,
@@ -4284,6 +5905,7 @@ public final class FlowRuntime
             String subjectHead,
             String payloadRef,
             String agentResultId,
+            GateIntent intendedGateKind,
             Instant now)
     {
         Optional<PendingWork> existing = inbox(pendingId);
@@ -4295,7 +5917,8 @@ public final class FlowRuntime
                     || !pending.externalKey().equals(externalKey)
                     || !pending.subjectHead().equals(subjectHead)
                     || !pending.payloadRef().equals(payloadRef)
-                    || !Objects.equals(pending.agentResultId(), agentResultId)) {
+                    || !Objects.equals(pending.agentResultId(), agentResultId)
+                    || pending.intendedGateKind() != intendedGateKind) {
                 throw new IllegalStateException(
                         "pending-work identity has conflicting content");
             }
@@ -4307,8 +5930,9 @@ public final class FlowRuntime
                 INSERT INTO flow_runtime_inbox (
                     inbox_id, task_id, pr_id, source, external_key,
                     revision, kind, subject_head, payload_ref,
-                    agent_result_id, work_watermark, observed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    agent_result_id, intended_gate_kind,
+                    work_watermark, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 pendingId,
                 task.taskId(),
@@ -4320,6 +5944,7 @@ public final class FlowRuntime
                 subjectHead,
                 payloadRef,
                 agentResultId,
+                intendedGateKind == null ? null : intendedGateKind.name(),
                 watermark,
                 now.toEpochMilli());
         int advanced = jdbc.update(
@@ -4476,6 +6101,58 @@ public final class FlowRuntime
             if (operationUpdated != 1 || ticketUpdated != 1) {
                 throw new StaleOwnerRevisionException(
                         "waiting reconciliation changed during Task resume");
+            }
+        }
+    }
+
+    private void cancelReviewerBlockedReconciliation(String taskId)
+    {
+        List<BlockedReconciliation> blocked = jdbc.query(
+                """
+                SELECT o.operation_id, o.state, d.delivery_state
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                WHERE o.task_id = ? AND o.kind = 'RECONCILE_TASK'
+                  AND o.state IN ('READY', 'WAITING')
+                """,
+                (result, row) -> new BlockedReconciliation(
+                        result.getString("operation_id"),
+                        OperationState.valueOf(result.getString("state")),
+                        result.getString("delivery_state")),
+                taskId);
+        for (BlockedReconciliation reconciliation : blocked) {
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_operation
+                    SET state = 'CANCELED',
+                        result_ref = 'REVIEWER_RESULT_ADVANCED'
+                    WHERE operation_id = ? AND state = ?
+                    """,
+                    reconciliation.operationId(),
+                    reconciliation.state().name());
+            int ticketUpdated;
+            if (reconciliation.state() == OperationState.READY
+                    && reconciliation.deliveryState().equals("AVAILABLE")) {
+                ticketUpdated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_dispatch_ticket
+                        SET delivery_state = 'DONE'
+                        WHERE operation_id = ?
+                          AND delivery_state = 'AVAILABLE'
+                        """,
+                        reconciliation.operationId());
+            }
+            else if (reconciliation.state() == OperationState.WAITING
+                    && reconciliation.deliveryState().equals("DONE")) {
+                ticketUpdated = 1;
+            }
+            else {
+                ticketUpdated = 0;
+            }
+            if (updated != 1 || ticketUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "reviewer-blocked reconciliation changed concurrently");
             }
         }
     }
@@ -4799,6 +6476,68 @@ public final class FlowRuntime
         }
     }
 
+    private void assertReviewerTerminationAuthority(
+            String processAttemptId, Claim claim)
+    {
+        Integer matches = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_agent_process_attempt a
+                JOIN flow_runtime_agent_run r ON r.run_id = a.run_id
+                JOIN flow_runtime_operation o
+                  ON o.operation_id = a.operation_id
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = a.operation_id
+                JOIN flow_runtime_reviewer_request q
+                  ON q.reviewer_operation_id = a.operation_id
+                JOIN flow_runtime_agent_session s
+                  ON s.session_id = r.session_id
+                WHERE a.process_attempt_id = ?
+                  AND a.operation_id = ?
+                  AND a.claim_generation = ?
+                  AND a.claim_token_digest = ?
+                  AND d.claim_generation = a.claim_generation
+                  AND d.claim_token = ? AND d.claim_owner = ?
+                  AND d.delivery_state = 'CLAIMED'
+                  AND o.state = 'CLAIMED'
+                  AND o.kind = 'RUN_REVIEWER'
+                  AND o.owner_kind = 'REVIEW_REQUEST'
+                  AND o.owner_id = q.request_id
+                  AND r.role = 'ADVERSARIAL_REVIEWER'
+                  AND r.state = 'RUNNING'
+                  AND s.role = 'ADVERSARIAL_REVIEWER'
+                  AND s.state = 'RUNNING'
+                  AND s.last_run_id = r.run_id
+                """,
+                Integer.class,
+                processAttemptId,
+                claim.operationId(),
+                claim.generation(),
+                claimTokenDigest(claim),
+                claim.claimToken(),
+                claim.workerId());
+        if (requireNonNull(
+                matches, "review process owner count is null") != 1) {
+            throw new StaleCapabilityException(
+                    "review termination authority is stale");
+        }
+    }
+
+    private static void assertReviewerProcessIdentity(
+            AgentProcessAttempt attempt,
+            InProcessReviewerAgentSupervisor.TerminatedThreadWitness witness)
+    {
+        Thread thread = witness.thread();
+        if (thread.getState() != Thread.State.TERMINATED
+                || !Long.valueOf(witness.jvmPid()).equals(attempt.jvmPid())
+                || !witness.jvmStartedAt().equals(attempt.jvmStartedAt())
+                || !Long.valueOf(thread.threadId())
+                        .equals(attempt.threadId())) {
+            throw new StaleCapabilityException(
+                    "terminated reviewer execution identity is stale");
+        }
+    }
+
     private boolean ticketMatches(
             String operationId, long generation, String deliveryState)
     {
@@ -4891,6 +6630,58 @@ public final class FlowRuntime
             throw new StaleOwnerRevisionException(
                     "process-attempt quarantine lost its Task owner revision");
         }
+    }
+
+    private void quarantineExpiredReviewerProcessAttempt(ExpiredClaim expired)
+    {
+        String reason = "REVIEWER_PROCESS_RECOVERY_REQUIRED";
+        settleDispatch(
+                expired.operationId(),
+                OperationState.FAILED,
+                reason + ":" + expired.processAttemptId());
+        Task task = requireTask(expired.taskId());
+        if (task.status() == TaskStatus.NEEDS_ATTENTION
+                && reviewerRecoveryRef(expired.processAttemptId()).equals(
+                        task.waitingMutationStateRef())) {
+            return;
+        }
+        if (task.status() != TaskStatus.ACTIVE
+                || task.selectedWriterOperationId() != null
+                || writerFence(task.taskId()).isPresent()) {
+            throw new StaleOwnerRevisionException(
+                    "expired reviewer cannot quarantine this Task state");
+        }
+        TaskLifecycleRevision attention = appendLifecycle(
+                task,
+                TaskStatus.NEEDS_ATTENTION,
+                reason,
+                "process-attempt:" + expired.processAttemptId(),
+                expired.operationId(),
+                clock.instant());
+        int taskUpdated = jdbc.update(
+                """
+                UPDATE flow_runtime_task
+                SET status = 'NEEDS_ATTENTION',
+                    current_lifecycle_revision_id = ?,
+                    waiting_mutation_state_ref = ?
+                WHERE task_id = ? AND status = 'ACTIVE'
+                  AND selected_writer_operation_id IS NULL
+                  AND waiting_mutation_state_ref IS NULL
+                  AND current_lifecycle_revision_id = ?
+                """,
+                attention.lifecycleRevisionId(),
+                reviewerRecoveryRef(expired.processAttemptId()),
+                task.taskId(),
+                task.currentLifecycleRevisionId());
+        if (taskUpdated != 1) {
+            throw new StaleOwnerRevisionException(
+                    "expired reviewer lost its Task owner revision");
+        }
+    }
+
+    private static String reviewerRecoveryRef(String processAttemptId)
+    {
+        return "REVIEWER_PROCESS_RECOVERY_REQUIRED:" + processAttemptId;
     }
 
     private void assertClaimGeneration(
@@ -5132,6 +6923,8 @@ public final class FlowRuntime
         String sessionId = switch (role) {
             case TASK_AGENT -> task.taskSessionId();
             case CI_FIXER -> task.ciSessionId();
+            case ADVERSARIAL_REVIEWER -> throw new IllegalArgumentException(
+                    "reviewers require a fresh request-bound session");
         };
         if (sessionId == null) {
             return Optional.empty();
@@ -5271,6 +7064,19 @@ public final class FlowRuntime
             default -> throw new IllegalArgumentException(
                     "operation is not an agent writer: " + kind);
         };
+    }
+
+    private boolean hasNonterminalReviewer(String taskId)
+    {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_operation
+                WHERE task_id = ? AND kind = 'RUN_REVIEWER'
+                  AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
+                """,
+                Integer.class,
+                taskId);
+        return requireNonNull(count, "reviewer count is null") > 0;
     }
 
     private boolean hasClaimedOperation(String taskId)
@@ -5689,6 +7495,313 @@ public final class FlowRuntime
                 inboxId).stream().findFirst();
     }
 
+    private PendingWork selectedInput(Operation operation)
+    {
+        List<PendingWork> selected = jdbc.query(
+                """
+                SELECT * FROM flow_runtime_inbox
+                WHERE selected_by_operation_id = ?
+                  AND handled_by_operation_id IS NULL
+                  AND terminal_reason IS NULL
+                """,
+                (result, row) -> readInbox(result),
+                operation.operationId());
+        if (selected.size() != 1) {
+            throw new MutationRejectedException(
+                    "Task Agent operation must own one current input");
+        }
+        PendingWork pending = selected.get(0);
+        if (!operation.inputRef().equals("inbox:" + pending.pendingId())
+                || pending.kind() == PendingKind.FINAL_RED) {
+            throw new MutationRejectedException(
+                    "Task Agent input does not match its selected operation");
+        }
+        return pending;
+    }
+
+    private ReviewRequestSnapshot reviewRequestSnapshot(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            String expectedInputChangeSetRevisionId)
+    {
+        assertCurrentClaim(claim, OperationState.CLAIMED);
+        assertFenceRow(claim, fence);
+        AgentRun run = requireRun(runId);
+        Operation operation = requireOperation(claim.operationId());
+        Task task = requireTask(operation.taskId());
+        PendingWork input = selectedInput(operation);
+        if (!run.operationId().equals(operation.operationId())
+                || run.role() != AgentRole.TASK_AGENT
+                || run.state() != RunState.RUNNING
+                || run.intendedGateKind() != GateIntent.CI_UPDATE
+                || (run.wakeKind() != WakeKind.CI_FIX_READY
+                    && run.wakeKind() != WakeKind.AGENT_RESULT_READY)
+                || input.intendedGateKind() != GateIntent.CI_UPDATE
+                || task.status() != TaskStatus.ACTIVE
+                || task.waitingMutationStateRef() != null
+                || !operation.operationId().equals(
+                        task.selectedWriterOperationId())) {
+            throw new MutationRejectedException(
+                    "review request requires the exact active CI-update turn");
+        }
+        if (!Objects.equals(run.inputChangeSetRevisionId(),
+                expectedInputChangeSetRevisionId)) {
+            throw new MutationRejectedException(
+                    "review request changed the program-owned input change set");
+        }
+        ChangeSetRevision initial = requireChangeSetRevision(
+                run.inputChangeSetRevisionId());
+        ChangeSetRevision changeSet = requireChangeSetRevision(
+                task.currentChangeSetRevisionId());
+        if (!initial.taskId().equals(task.taskId())
+                || !initial.headSha().equals(run.headSha())
+                || !changeSet.taskId().equals(task.taskId())
+                || !changeSet.headSha().equals(task.currentHeadSha())) {
+            throw new MutationRejectedException(
+                    "review request change set is no longer current");
+        }
+        requireTaskTurnDescendant(initial, changeSet, operation, run);
+        PullRequestSubject pr = requirePullRequest(task.prId());
+        if (!pr.published()
+                || !pr.taskId().equals(task.taskId())
+                || run.inputRemoteHeadSha() == null) {
+            throw new MutationRejectedException(
+                    "review request requires the exact published PR head");
+        }
+        TaskBaseRevision base = currentBaseRevision(task.taskId())
+                .orElseThrow(() -> new MutationRejectedException(
+                        "review request has no immutable base"));
+        return new ReviewRequestSnapshot(
+                task.taskId(),
+                task.epoch(),
+                operation.operationId(),
+                operation.subjectDigest(),
+                runId,
+                input.pendingId(),
+                input.externalKey(),
+                Path.of(task.worktreePath()),
+                task.branchName(),
+                base.baseSha(),
+                changeSet.headSha(),
+                run.inputRemoteHeadSha(),
+                changeSet.changeSetRevisionId(),
+                changeSet.headTreeDigest(),
+                changeSet.diffDigest(),
+                run.intendedGateKind());
+    }
+
+    private void requireTaskTurnDescendant(
+            ChangeSetRevision initial,
+            ChangeSetRevision current,
+            Operation operation,
+            AgentRun run)
+    {
+        ChangeSetRevision cursor = current;
+        int traversed = 0;
+        while (!cursor.changeSetRevisionId().equals(
+                initial.changeSetRevisionId())) {
+            if (++traversed > 256
+                    || cursor.sequence() <= initial.sequence()
+                    || cursor.source() != ChangeSetSource.TASK_AGENT
+                    || !cursor.sourceOperationId().equals(
+                            operation.operationId())
+                    || !Objects.equals(cursor.sourceRunId(), run.runId())
+                    || cursor.previousChangeSetRevisionId() == null) {
+                throw new MutationRejectedException(
+                        "review request current revision is not an exact Task-turn descendant");
+            }
+            cursor = requireChangeSetRevision(
+                    cursor.previousChangeSetRevisionId());
+        }
+    }
+
+    private void assertExactReviewerRequest(
+            ReviewerRequest existing, ReviewerRequest requested)
+    {
+        if (!existing.requestId().equals(requested.requestId())
+                || !existing.taskId().equals(requested.taskId())
+                || !existing.parentOperationId().equals(
+                        requested.parentOperationId())
+                || !existing.parentRunId().equals(requested.parentRunId())
+                || !existing.reviewerOperationId().equals(
+                        requested.reviewerOperationId())
+                || !existing.repositoryRoot().equals(
+                        requested.repositoryRoot())
+                || !existing.baseHeadSha().equals(requested.baseHeadSha())
+                || !existing.reviewedHeadSha().equals(
+                        requested.reviewedHeadSha())
+                || !existing.remoteHeadSha().equals(
+                        requested.remoteHeadSha())
+                || !existing.changeSetRevisionId().equals(
+                        requested.changeSetRevisionId())
+                || !existing.headTreeDigest().equals(
+                        requested.headTreeDigest())
+                || !existing.diffDigest().equals(requested.diffDigest())
+                || !existing.checkRunRefs().equals(requested.checkRunRefs())
+                || existing.intendedGateKind()
+                        != requested.intendedGateKind()) {
+            throw new IllegalStateException(
+                    "reviewer request redelivery changed identity");
+        }
+    }
+
+    private void assertTaskReviewFinalState(
+            AgentRun run, Optional<ReviewerRequest> request)
+    {
+        Task task = requireTask(
+                requireOperation(run.operationId()).taskId());
+        if (request.isPresent()) {
+            ReviewerRequest reviewer = request.orElseThrow();
+            Operation reviewerOperation = requireOperation(
+                    reviewer.reviewerOperationId());
+            if (!reviewer.parentRunId().equals(run.runId())
+                    || reviewerOperation.kind()
+                            != OperationKind.RUN_REVIEWER
+                    || reviewerOperation.state() == OperationState.WAITING) {
+                throw new IllegalStateException(
+                        "completed parent did not make its reviewer eligible");
+            }
+        }
+        else {
+            PendingWork input = inbox(requireTextResult(
+                    run.inputRef(), "inbox:")).orElseThrow();
+            AgentResult result = resultForRun(run.runId()).orElseThrow();
+            boolean consumedReviewerResult =
+                    run.wakeKind() == WakeKind.AGENT_RESULT_READY
+                    && result.terminalOutcome() == TerminalOutcome.COMPLETED
+                    && run.operationId().equals(
+                            input.handledByOperationId());
+            Integer attention = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_task_lifecycle_revision
+                    WHERE task_id = ? AND to_status = 'NEEDS_ATTENTION'
+                      AND operation_id = ? AND evidence_ref = ?
+                    """,
+                    Integer.class,
+                    task.taskId(),
+                    run.operationId(),
+                    "agent-result:" + result.resultId());
+            if (!run.operationId().equals(input.handledByOperationId())
+                    || (!consumedReviewerResult
+                        && requireNonNull(
+                                attention, "attention count is null") != 1)) {
+                throw new IllegalStateException(
+                        "missing reviewer command did not settle its Task");
+            }
+        }
+    }
+
+    private PendingWork requireReviewerResultReady(
+            ReviewerRequest request, AgentResult result)
+    {
+        PendingWork ready = jdbc.query(
+                """
+                SELECT * FROM flow_runtime_inbox
+                WHERE agent_result_id = ? AND kind = 'AGENT_RESULT_READY'
+                """,
+                (row, number) -> readInbox(row),
+                result.resultId()).stream().findFirst().orElseThrow(() ->
+                        new IllegalStateException(
+                                "reviewer result has no durable continuation"));
+        if (!ready.taskId().equals(request.taskId())
+                || !ready.externalKey().equals(result.runId())
+                || !ready.subjectHead().equals(request.reviewedHeadSha())
+                || !ready.payloadRef().equals(reviewerResultPayload(
+                        request.requestId(), result.resultId()))
+                || ready.intendedGateKind()
+                        != request.intendedGateKind()) {
+            throw new IllegalStateException(
+                    "reviewer continuation changed identity");
+        }
+        return ready;
+    }
+
+    private static String reviewerResultPayload(
+            String requestId, String resultId)
+    {
+        return "reviewer-request:" + requestId + ":result:" + resultId;
+    }
+
+    private ReviewerRequest requireReviewerRequest(String requestId)
+    {
+        return reviewerRequest(requestId).orElseThrow(() ->
+                new IllegalArgumentException(
+                        "Unknown ReviewerRequest: " + requestId));
+    }
+
+    private TaskAdmissionSnapshot taskAdmissionSnapshot(
+            Claim claim,
+            String expectedPendingId,
+            String expectedChangeSetRevisionId,
+            String expectedRemoteHead)
+    {
+        assertCurrentClaim(claim, OperationState.CLAIMED);
+        Operation operation = requireOperation(claim.operationId());
+        if (operation.kind() != OperationKind.RUN_TASK_TURN
+                || !Objects.equals(operation.taskId(), claim.taskId())) {
+            throw new MutationRejectedException(
+                    "claim does not own a Task Agent turn");
+        }
+        Task task = requireTask(operation.taskId());
+        if (task.status() != TaskStatus.ACTIVE
+                || task.waitingMutationStateRef() != null
+                || !operation.operationId().equals(
+                        task.selectedWriterOperationId())) {
+            throw new MutationRejectedException(
+                    "Task turn is not the selected active writer");
+        }
+        PendingWork pending = selectedInput(operation);
+        if (!pending.pendingId().equals(expectedPendingId)
+                || !pending.subjectHead().equals(task.currentHeadSha())
+                || pending.intendedGateKind() == null
+                || !pendingSubjectIsCurrent(task, pending)) {
+            throw new MutationRejectedException(
+                    "Task turn input is no longer current");
+        }
+        PullRequestSubject pr = requirePullRequest(task.prId());
+        if (!Objects.equals(pending.prId(), pr.prId())
+                || !pr.taskId().equals(task.taskId())
+                || !pr.published()
+                || !pr.currentRemoteHead().equals(expectedRemoteHead)) {
+            throw new MutationRejectedException(
+                    "Task turn remote PR subject is no longer current");
+        }
+        ChangeSetRevision changeSet = requireChangeSetRevision(
+                expectedChangeSetRevisionId);
+        if (!changeSet.taskId().equals(task.taskId())
+                || !changeSet.changeSetRevisionId().equals(
+                        task.currentChangeSetRevisionId())
+                || !changeSet.headSha().equals(task.currentHeadSha())) {
+            throw new MutationRejectedException(
+                    "Task turn change set is no longer current");
+        }
+        TaskBaseRevision base = currentBaseRevision(task.taskId())
+                .orElseThrow(() -> new MutationRejectedException(
+                        "Task turn has no immutable base revision"));
+        return new TaskAdmissionSnapshot(
+                task.taskId(),
+                task.epoch(),
+                operation.operationId(),
+                operation.subjectDigest(),
+                pending.pendingId(),
+                pending.kind(),
+                pending.externalKey(),
+                pending.agentResultId(),
+                pending.intendedGateKind(),
+                pr.prId(),
+                pr.currentRemoteHead(),
+                Path.of(task.worktreePath()),
+                task.branchName(),
+                base.baseRevisionId(),
+                base.baseSha(),
+                changeSet.changeSetRevisionId(),
+                changeSet.headSha(),
+                changeSet.headTreeDigest(),
+                changeSet.diffDigest());
+    }
+
     private String initialTaskHead(String taskId)
     {
         return jdbc.queryForObject(
@@ -5840,6 +7953,10 @@ public final class FlowRuntime
                 result.getString("prompt_manifest_ref"),
                 result.getString("capability_set_ref"),
                 result.getString("input_ref"),
+                result.getString("input_change_set_revision_id"),
+                result.getString("input_remote_head_sha"),
+                nullableEnum(result, "wake_kind", WakeKind.class),
+                nullableEnum(result, "intended_gate_kind", GateIntent.class),
                 RunState.valueOf(result.getString("state")),
                 result.getString("failure_reason_code"),
                 instant(result, "created_at"),
@@ -5902,10 +8019,41 @@ public final class FlowRuntime
                 result.getString("subject_head"),
                 result.getString("payload_ref"),
                 result.getString("agent_result_id"),
+                nullableEnum(
+                        result, "intended_gate_kind", GateIntent.class),
                 result.getLong("work_watermark"),
                 result.getString("selected_by_operation_id"),
                 result.getString("handled_by_operation_id"),
                 result.getString("terminal_reason"));
+    }
+
+    private ReviewerRequest readReviewerRequest(ResultSet result)
+            throws SQLException
+    {
+        String requestId = result.getString("request_id");
+        List<String> checkRefs = jdbc.queryForList(
+                """
+                SELECT check_run_ref FROM flow_runtime_reviewer_check_ref
+                WHERE request_id = ? ORDER BY ordinal
+                """,
+                String.class,
+                requestId);
+        return new ReviewerRequest(
+                requestId,
+                result.getString("task_id"),
+                result.getString("parent_operation_id"),
+                result.getString("parent_run_id"),
+                result.getString("reviewer_operation_id"),
+                result.getString("repository_root"),
+                result.getString("base_head_sha"),
+                result.getString("reviewed_head_sha"),
+                result.getString("remote_head_sha"),
+                result.getString("change_set_revision_id"),
+                result.getString("head_tree_digest"),
+                result.getString("diff_digest"),
+                checkRefs,
+                GateIntent.valueOf(result.getString("intended_gate_kind")),
+                instant(result, "created_at"));
     }
 
     private static String prSubjectSql()
@@ -6006,6 +8154,64 @@ public final class FlowRuntime
             String taskId,
             OperationKind kind,
             long generation) {}
+
+    private record TaskAdmissionSnapshot(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            String operationSubjectDigest,
+            String pendingId,
+            PendingKind pendingKind,
+            String pendingExternalKey,
+            String agentResultId,
+            GateIntent intendedGateKind,
+            String prId,
+            String remoteHead,
+            Path worktree,
+            String branchName,
+            String baseRevisionId,
+            String baseSha,
+            String changeSetRevisionId,
+            String headSha,
+            String headTreeDigest,
+            String diffDigest) {}
+
+    private record ReviewRequestSnapshot(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            String operationSubjectDigest,
+            String runId,
+            String pendingId,
+            String pendingExternalKey,
+            Path worktree,
+            String branchName,
+            String baseHeadSha,
+            String reviewedHeadSha,
+            String remoteHeadSha,
+            String changeSetRevisionId,
+            String headTreeDigest,
+            String diffDigest,
+            GateIntent intendedGateKind) {}
+
+    private record TaskResultConsumptionSnapshot(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            String operationSubjectDigest,
+            String runId,
+            String pendingId,
+            ReviewerRequest request,
+            String reviewerResultId,
+            Path worktree,
+            String branchName,
+            TaskBaseRevision base,
+            ChangeSetRevision currentChangeSet) {}
+
+    private record BlockedReconciliation(
+            String operationId,
+            OperationState state,
+            String deliveryState) {}
 
     private record AdoptionSnapshot(
             String taskId,

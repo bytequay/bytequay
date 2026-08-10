@@ -321,9 +321,11 @@ AgentTerminalOutcome =
 `finalContent`/`partialContent` is stored verbatim when present. `errorRef` and
 `reasonCode` are program-owned observations, not model output fields.
 
-The current new-flow transport is deliberately **in-process Task/CI writer
-execution only**. Read-only reviewer and learning execution remains pending for
-the adversarial-reviewer component; this writer supervisor does not claim it.
+The current new-flow transport is deliberately **in-process Task/CI writer and
+adversarial-reviewer execution only**. Task/CI writers use
+`InProcessWriterAgentSupervisor` with the Task writer fence. A fresh reviewer
+uses the separate `InProcessReviewerAgentSupervisor`, no writer fence, and only
+bounded immutable Git-object reads. CI-learning execution remains pending.
 `AgentProcessAttempt` records `{runId, claimGeneration, claimTokenDigest,
 executionId, capabilityId, state = RESERVED | ACTIVATED | STOPPED, jvmPid?,
 jvmStartedAt?, threadId?, threadName?, capabilityRevokedAt?, stopType?,
@@ -515,11 +517,12 @@ shapes.
 | `AgentSessions.resume(sessionId, operationId, claimToken, inputRef)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise compare-and-set `IDLE`/eligible `PARKED_CHILD` to `RUNNING`, append stored input and one run, and reserve that session for this operation in the claim transaction. Start/recover the model process only after commit and always against that same run. |
 | `InProcessWriterAgentSupervisor.launch(runId, claim, writerFence, finalizerKey, stoppedFinalizer, body)` | Task/CI dispatcher after run transaction | Bind the immutable program finalizer route before exposing the handle/body. Reuse the one live-JVM execution when present without replacing its finalizer. Otherwise persist `RESERVED`; start an owned writer thread behind a closed gate; durably activate its exact JVM/thread identity and logical run; then open the gate. The ordinary overload binds runtime AgentResult finalization. CLI launch is unsupported. |
 | `InProcessWriterAgentSupervisor.awaitAndFinalize(handle, deadline, expectedFinalizerKey)` | Task/CI dispatcher after launch | Join the exact thread, revoke capability, require no admitted tool remains, and durably store the private-witness `STOPPED` fact before invoking the launch-bound finalizer. A failed finalizer retains exact stopped ownership for retry; success removes the live entry only after a matching `AgentResult` is returned. Neither await nor cancel accepts a replacement callback. `awaitAndFinish` expects the ordinary runtime-result key. |
+| `InProcessReviewerAgentSupervisor.launch(...)` / `awaitAndFinish(...)` | claimed reviewer dispatcher | Reserve and activate one request-bound fresh in-process reviewer thread behind a dormant gate. Expose only immutable tree/base-blob/reviewed-blob/raw-diff reads, revoke and drain them at stop, then call the separate reviewer finalizer without a writer fence. Exact live-JVM redelivery reuses the execution. |
 | `InProcessWriterAgentSupervisor.cancel(handle, deadline)` | authenticated Task/CI cancellation owner | Close local tool admission and durably revoke before interrupting, then wait for the exact thread and any admitted synchronous tool. Store a cooperative stop proof and finish only when both ended. Otherwise quarantine while retaining pointer/lease. An expired claim yields `STOPPED_AWAITING_RECOVERY` after truthful stop capture. |
 | `ProgramRunnerSupervisor.stopAndProve(operationId, writerFence)` | non-agent writer recovery | Terminate and prove a deterministic `UPSTREAM_SYNC`/other program runner dead before inspecting its worktree or transferring its fence; it has no `AgentRun` or model capability. |
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | terminal `spawn_agent` Task tool | Validate and create the frozen reviewer request plus one initially parent-blocked `RUN_REVIEWER` operation/ticket; seal the parent run against more tools and return `reviewRequestId`, but create no reviewer session/run. Parent finalization below parks the session and makes the ticket eligible only after its result/state and writer release are durable. |
 | `AgentRuns.sealForReview(runId)` | accepted `ready_for_review()` tool | Revoke further mutating tools for this run, request terminal completion, and defer gate construction until result/head evidence is stored and the writer lease is released. |
-| `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery. A CI Fixer must use its role-specific `CiAutofix` finalizer, which atomically stores its clean outcome or dirty cleanup handoff before releasing ownership; this generic method rejects `CI_FIXER`. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewer/learning finalization requires its own later read-only supervisor contract and is not implemented by this API. |
+| `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery. A CI Fixer must use its role-specific `CiAutofix` finalizer, which atomically stores its clean outcome or dirty cleanup handoff before releasing ownership; this generic method rejects `CI_FIXER`. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewers instead use the implemented no-fence `finishReviewerAgentRun` path; CI-learning finalization remains deferred. |
 | `TaskQuestions.ask(taskId, runId, question)` | authenticated terminal agent tool | Store the question and measured sealed state, set the waiting barrier, move the Task to `WAITING_USER`, seal the current run against more tools, and request finalization. It does not persist the run result, release the fence/pointer, or change session state; only `AgentRuns.finish` does so and then exposes the question as answerable. |
 | `TaskQuestions.answer(userId, questionId, body)` | authenticated user command | Require the predecessor `AgentResult` durable/question answerable, append the exact answer, release any exact reconciliation wait on this question, reconcile a pending terminal-remote fact first, and if still active atomically create/reserve the one `USER_ANSWER` successor bound to the sealed state; never resume a generic latest turn. |
 | `LocalCheckPolicies.current(repositoryId)` | check/gate builders | Return the current immutable policy revision and allowed profiles. |
@@ -632,6 +635,21 @@ Only the Task Agent creates an adversarial reviewer child:
 6. Under the Task lock, `WorkSelector` re-evaluates CI/feedback/user facts and
    selects at most one next writer. When it selects the parent resume, the input
    contains `result_ref=R`; the parent then judges which findings are actionable.
+
+A committed reviewer request survives a parent `COMPLETED`, `FAILED`, or
+`CANCELED` process outcome: the stopped parent is still parked and its exact
+child becomes eligible because request persistence, not parent prose or outcome,
+is the authority. The terminal request is replayable only with identical frozen
+arguments, and all generic parent tools remain sealed afterward.
+
+Reviewer finish replaces either stale reconciliation representation allowed at
+that boundary: `READY`/`AVAILABLE` or already parked `WAITING`/`DONE`. It cancels
+that exact pass with `REVIEWER_RESULT_ADVANCED`, then creates one fresh generation
+through the current work watermark. `AGENT_RESULT_READY` is selected before an
+older CI cause. A reviewer process attempt that expired while only `RESERVED`
+may redrive the same operation-bound run under a new claim generation; an
+`ACTIVATED` attempt without owned-thread stop proof is quarantined as typed
+attention and cannot redrive.
 
 There is no direct child-to-parent message, shared context mutation, or program
 parser. `read_agent_result(R)` may exist for recovery/history, but normal delivery

@@ -86,6 +86,7 @@ public final class FlowRuntimeRecords
     {
         INITIAL_TASK,
         FINAL_RED,
+        CI_FIX_READY,
         AGENT_RESULT_READY
     }
 
@@ -113,6 +114,12 @@ public final class FlowRuntimeRecords
         TASK_AGENT,
         CI_FIXER,
         UPSTREAM_SYNC
+    }
+
+    public enum CiFixOutcome
+    {
+        FIX_PREPARED,
+        NO_HEAD_CHANGE
     }
 
     public record Task(

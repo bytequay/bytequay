@@ -20,6 +20,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentSession;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.FinalRedRegistration;
@@ -87,6 +88,24 @@ public final class FlowRuntime
     private final TransactionTemplate transactions;
     private final Clock clock;
     private final FlowWorktreeInspector worktreeInspector = new FlowWorktreeInspector();
+
+    /** Unforgeable result of mechanical Git inspection awaiting owner CAS. */
+    public static final class PreparedChangeSet
+    {
+        private final String expectedChangeSetRevisionId;
+        private final AdoptionSnapshot snapshot;
+        private final Inspection inspection;
+
+        private PreparedChangeSet(
+                String expectedChangeSetRevisionId,
+                AdoptionSnapshot snapshot,
+                Inspection inspection)
+        {
+            this.expectedChangeSetRevisionId = expectedChangeSetRevisionId;
+            this.snapshot = snapshot;
+            this.inspection = inspection;
+        }
+    }
 
     public FlowRuntime(DataSource dataSource, Clock clock)
     {
@@ -656,6 +675,7 @@ public final class FlowRuntime
                       AND selected_by_operation_id IS NULL
                       AND terminal_reason IS NULL
                     ORDER BY CASE kind
+                        WHEN 'CI_FIX_READY' THEN 1
                         WHEN 'AGENT_RESULT_READY' THEN 1
                         WHEN 'FINAL_RED' THEN 2
                         WHEN 'INITIAL_TASK' THEN 3
@@ -969,6 +989,7 @@ public final class FlowRuntime
                       AND selected_by_operation_id IS NULL
                       AND terminal_reason IS NULL
                     ORDER BY CASE kind
+                        WHEN 'CI_FIX_READY' THEN 1
                         WHEN 'AGENT_RESULT_READY' THEN 1
                         WHEN 'FINAL_RED' THEN 2
                         WHEN 'INITIAL_TASK' THEN 3
@@ -996,6 +1017,7 @@ public final class FlowRuntime
                         : OperationKind.RUN_TASK_TURN;
                 String ownerKind = switch (item.kind()) {
                     case FINAL_RED -> "CI_ROUND";
+                    case CI_FIX_READY -> "CI_ATTEMPT";
                     case AGENT_RESULT_READY -> "AGENT_RUN";
                     case INITIAL_TASK -> "TASK";
                 };
@@ -1295,6 +1317,25 @@ public final class FlowRuntime
         requireNonNull(programOwnedRepositoryRoot,
                 "programOwnedRepositoryRoot is null");
 
+        PreparedChangeSet prepared = prepareChangeSet(
+                claim,
+                fence,
+                programOwnedRepositoryRoot,
+                expectedChangeSetRevisionId);
+        return adoptPreparedChangeSet(claim, fence, prepared);
+    }
+
+    /** Inspects Git outside the final owner transaction. */
+    public PreparedChangeSet prepareChangeSet(
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
         AdoptionSnapshot snapshot;
         synchronized (this) {
             snapshot = inTransaction(() -> adoptionSnapshot(
@@ -1306,15 +1347,23 @@ public final class FlowRuntime
                 snapshot.branchName(),
                 snapshot.baseSha(),
                 snapshot.predecessorHeadSha());
+        return new PreparedChangeSet(
+                expectedChangeSetRevisionId, snapshot, inspection);
+    }
 
-        synchronized (this) {
-            return inTransaction(() -> appendInspectedChangeSet(
-                    claim,
-                    fence,
-                    expectedChangeSetRevisionId,
-                    snapshot,
-                    inspection));
-        }
+    /** Appends only an inspection token minted by this runtime. */
+    public synchronized ChangeSetRevision adoptPreparedChangeSet(
+            Claim claim, WriterFence fence, PreparedChangeSet prepared)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(prepared, "prepared is null");
+        return inTransaction(() -> appendInspectedChangeSet(
+                claim,
+                fence,
+                prepared.expectedChangeSetRevisionId,
+                prepared.snapshot,
+                prepared.inspection));
     }
 
     private ChangeSetRevision appendInspectedChangeSet(
@@ -1888,6 +1937,80 @@ public final class FlowRuntime
             String finalContent,
             String errorRef)
     {
+        return finishWriterAgentRun(
+                runId,
+                claim,
+                fence,
+                terminalOutcome,
+                finalContent,
+                errorRef,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    /** Proves the exact claimed writer thread stopped before domain inspection. */
+    public synchronized void assertWriterRunStopped(String runId, Claim claim)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            AgentRun run = requireRun(runId);
+            if (!run.operationId().equals(claim.operationId())
+                    || run.state() != RunState.RUNNING) {
+                throw new StaleClaimException(
+                        "writer run is not active under the claim");
+            }
+            requireStoppedProcessAttempt(runId, claim.generation());
+            return Boolean.TRUE;
+        });
+    }
+
+    /** Finishes the CI writer with its exact inspected Task continuation. */
+    public synchronized AgentResult finishCiAgentRun(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String attemptId,
+            CiFixOutcome outcome,
+            String outputHead,
+            String outputChangeSetRevisionId)
+    {
+        requireText(attemptId, "attemptId");
+        requireNonNull(outcome, "outcome is null");
+        requireText(outputHead, "outputHead");
+        requireText(outputChangeSetRevisionId,
+                "outputChangeSetRevisionId");
+        return finishWriterAgentRun(
+                runId,
+                claim,
+                fence,
+                terminalOutcome,
+                finalContent,
+                errorRef,
+                attemptId,
+                outcome,
+                outputHead,
+                outputChangeSetRevisionId);
+    }
+
+    private AgentResult finishWriterAgentRun(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String ciAttemptId,
+            CiFixOutcome ciOutcome,
+            String outputHead,
+            String outputChangeSetRevisionId)
+    {
         requireText(runId, "runId");
         requireNonNull(claim, "claim is null");
         requireNonNull(fence, "fence is null");
@@ -1896,6 +2019,13 @@ public final class FlowRuntime
             requireText(errorRef, "errorRef");
         }
         return inTransaction(() -> {
+            AgentRun run = requireRun(runId);
+            boolean ciFinalization = ciAttemptId != null;
+            if ((run.role() == AgentRole.CI_FIXER) != ciFinalization) {
+                throw new MutationRejectedException(ciFinalization
+                        ? "CI finalization requires a CI Fixer run"
+                        : "CI Fixer requires its domain finalizer");
+            }
             Optional<AgentResult> existing = resultForRun(runId);
             if (existing.isPresent()) {
                 AgentResult result = existing.get();
@@ -1912,12 +2042,20 @@ public final class FlowRuntime
                     throw new IllegalStateException(
                             "AgentResult stop proof changed after finalization");
                 }
+                if (ciFinalization) {
+                    requireCiFixReady(
+                            run,
+                            result,
+                            ciAttemptId,
+                            ciOutcome,
+                            outputHead,
+                            outputChangeSetRevisionId);
+                }
                 return result;
             }
 
             assertCurrentClaim(claim, OperationState.CLAIMED);
             assertFenceRow(claim, fence);
-            AgentRun run = requireRun(runId);
             if (!run.operationId().equals(claim.operationId())
                     || run.state() != RunState.RUNNING) {
                 throw new StaleClaimException(
@@ -1925,6 +2063,23 @@ public final class FlowRuntime
             }
             assertFenceOwnsOperation(
                     fence, requireOperation(run.operationId()), run.role());
+            if (ciFinalization) {
+                Task task = requireTask(fence.taskId());
+                ChangeSetRevision output = requireChangeSetRevision(
+                        outputChangeSetRevisionId);
+                if (!Objects.equals(task.currentHeadSha(), outputHead)
+                        || !Objects.equals(task.currentChangeSetRevisionId(),
+                                outputChangeSetRevisionId)
+                        || !output.taskId().equals(task.taskId())
+                        || !output.headSha().equals(outputHead)
+                        || output.source() != ChangeSetSource.CI_FIXER
+                        || !Objects.equals(output.sourceRunId(), runId)
+                        || !output.sourceOperationId().equals(
+                                run.operationId())) {
+                    throw new MutationRejectedException(
+                            "CI output is not the current inspected change set");
+                }
+            }
 
             Instant now = clock.instant();
             AgentProcessAttempt processAttempt = requireStoppedProcessAttempt(
@@ -1989,20 +2144,14 @@ public final class FlowRuntime
                     """,
                     claim.operationId(),
                     claim.operationId());
-            if (run.role() == AgentRole.CI_FIXER) {
-                Task task = requireTask(fence.taskId());
-                appendPendingWork(
-                        stableId("inbox", "AGENT_RESULT", runId, "1"),
-                        task,
-                        task.prId(),
-                        "AGENT_RESULT",
-                        runId,
-                        "1",
-                        PendingKind.AGENT_RESULT_READY,
-                        task.currentHeadSha(),
-                        "agent-result:" + resultId,
-                        resultId,
-                        now);
+            if (ciFinalization) {
+                appendCiFixReady(
+                        run,
+                        requireResult(resultId),
+                        ciAttemptId,
+                        ciOutcome,
+                        outputHead,
+                        outputChangeSetRevisionId);
             }
             int pointerCleared = jdbc.update(
                     """
@@ -2040,6 +2189,68 @@ public final class FlowRuntime
             ensureReconciliationIfPending(fence.taskId());
             return requireResult(resultId);
         });
+    }
+
+    private PendingWork appendCiFixReady(
+            AgentRun run,
+            AgentResult result,
+            String attemptId,
+            CiFixOutcome outcome,
+            String outputHead,
+            String outputChangeSetRevisionId)
+    {
+        Operation operation = requireOperation(run.operationId());
+        Task task = requireTask(operation.taskId());
+        return appendPendingWork(
+                stableId("inbox", "CI_FIX_READY", attemptId, "1"),
+                task,
+                task.prId(),
+                "CI",
+                attemptId,
+                "1",
+                PendingKind.CI_FIX_READY,
+                outputHead,
+                ciFixReadyPayload(
+                        attemptId, outcome, outputChangeSetRevisionId),
+                result.resultId(),
+                clock.instant());
+    }
+
+    private PendingWork requireCiFixReady(
+            AgentRun run,
+            AgentResult result,
+            String attemptId,
+            CiFixOutcome outcome,
+            String outputHead,
+            String outputChangeSetRevisionId)
+    {
+        Operation operation = requireOperation(run.operationId());
+        Task task = requireTask(operation.taskId());
+        PendingWork ready = jdbc.query(
+                "SELECT * FROM flow_runtime_inbox WHERE agent_result_id = ?",
+                (row, number) -> readInbox(row),
+                result.resultId()).stream().findFirst().orElseThrow(() ->
+                        new IllegalStateException(
+                                "CI finalization has no durable continuation"));
+        if (!ready.taskId().equals(task.taskId())
+                || ready.kind() != PendingKind.CI_FIX_READY
+                || !ready.externalKey().equals(attemptId)
+                || !ready.subjectHead().equals(outputHead)
+                || !ready.payloadRef().equals(ciFixReadyPayload(
+                        attemptId, outcome, outputChangeSetRevisionId))) {
+            throw new IllegalStateException(
+                    "CI finalization redelivery changed continuation identity");
+        }
+        return ready;
+    }
+
+    private static String ciFixReadyPayload(
+            String attemptId,
+            CiFixOutcome outcome,
+            String outputChangeSetRevisionId)
+    {
+        return "ci-attempt:" + attemptId + ":outcome:" + outcome.name()
+                + ":change-set:" + outputChangeSetRevisionId;
     }
 
     /**
@@ -2326,7 +2537,7 @@ public final class FlowRuntime
                         && pending.subjectHead().equals(pr.currentRemoteHead())
                         && pending.subjectHead().equals(task.currentHeadSha());
             }
-            case AGENT_RESULT_READY -> {
+            case CI_FIX_READY, AGENT_RESULT_READY -> {
                 Integer resultExists = jdbc.queryForObject(
                         """
                         SELECT COUNT(*) FROM flow_runtime_agent_result
@@ -2992,7 +3203,9 @@ public final class FlowRuntime
                   AND i.subject_head = ?
                   """
                 : """
-                  i.kind IN ('INITIAL_TASK', 'AGENT_RESULT_READY')
+                  i.kind IN (
+                      'INITIAL_TASK', 'CI_FIX_READY', 'AGENT_RESULT_READY'
+                  )
                   AND i.subject_head = ?
                   """;
         Integer matches = jdbc.queryForObject(

@@ -41,6 +41,15 @@ public final class CiAutofixRecords
         NEEDS_ATTENTION
     }
 
+    public enum AttemptState
+    {
+        PENDING,
+        ACTIVE,
+        FIX_PREPARED,
+        NO_HEAD_CHANGE,
+        NEEDS_ATTENTION
+    }
+
     public enum FinalizeBlocker
     {
         CI_POLICY_MISSING,
@@ -164,6 +173,61 @@ public final class CiAutofixRecords
             checkObservationIds = List.copyOf(checkObservationIds);
             failedLogRefs = List.copyOf(failedLogRefs);
             requireNonNull(state, "state is null");
+            requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    public record CiRepairAttempt(
+            String attemptId,
+            String roundId,
+            String operationId,
+            String agentRunId,
+            String inputLocalHead,
+            String inputRemoteHead,
+            String inputChangeSetRevisionId,
+            String outputLocalHead,
+            String outputChangeSetRevisionId,
+            List<String> localCheckRunIds,
+            String resultRef,
+            AttemptState state,
+            String retryOfAttemptId,
+            long retryOrdinal,
+            Instant createdAt)
+    {
+        public CiRepairAttempt
+        {
+            requireNonNull(attemptId, "attemptId is null");
+            requireNonNull(roundId, "roundId is null");
+            requireNonNull(state, "state is null");
+            boolean pending = state == AttemptState.PENDING;
+            boolean hasOperation = operationId != null;
+            boolean hasRun = agentRunId != null;
+            if ((pending && (hasOperation || hasRun))
+                    || (!pending && (!hasOperation || !hasRun))) {
+                throw new IllegalArgumentException(
+                        "only a pending attempt lacks operation and run");
+            }
+            requireNonNull(inputLocalHead, "inputLocalHead is null");
+            requireNonNull(inputRemoteHead, "inputRemoteHead is null");
+            requireNonNull(inputChangeSetRevisionId,
+                    "inputChangeSetRevisionId is null");
+            boolean cleanTerminal = state == AttemptState.FIX_PREPARED
+                    || state == AttemptState.NO_HEAD_CHANGE;
+            boolean hasCleanOutput = outputLocalHead != null
+                    && outputChangeSetRevisionId != null
+                    && resultRef != null;
+            if (cleanTerminal != hasCleanOutput) {
+                throw new IllegalArgumentException(
+                        "only a clean terminal attempt has output and result");
+            }
+            if ((state == AttemptState.NO_HEAD_CHANGE
+                        && !outputLocalHead.equals(inputLocalHead))
+                    || (state == AttemptState.FIX_PREPARED
+                        && outputLocalHead.equals(inputLocalHead))) {
+                throw new IllegalArgumentException(
+                        "CI repair outcome contradicts its objective head");
+            }
+            localCheckRunIds = List.copyOf(localCheckRunIds);
             requireNonNull(createdAt, "createdAt is null");
         }
     }

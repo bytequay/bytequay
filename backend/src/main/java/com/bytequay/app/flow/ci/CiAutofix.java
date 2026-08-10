@@ -14,9 +14,11 @@
 package com.bytequay.app.flow.ci;
 
 import com.bytequay.app.flow.ci.CiAutofixRecords.AcceptedCiSnapshot;
+import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCheckObservation;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogEvidence;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogWindow;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocked;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocker;
@@ -915,6 +917,209 @@ public final class CiAutofix
                 roundId).stream().findFirst();
     }
 
+    Optional<CiRepairAttempt> repairAttempt(String attemptId)
+    {
+        requireText(attemptId, "attemptId");
+        return jdbc.query(
+                "SELECT * FROM flow_ci_repair_attempt WHERE attempt_id = ?",
+                (result, row) -> readRepairAttempt(result),
+                attemptId).stream().findFirst();
+    }
+
+    Optional<CiRepairAttempt> repairAttemptForRound(
+            String roundId, long retryOrdinal)
+    {
+        requireText(roundId, "roundId");
+        return jdbc.query(
+                """
+                SELECT * FROM flow_ci_repair_attempt
+                WHERE round_id = ? AND retry_ordinal = ?
+                """,
+                (result, row) -> readRepairAttempt(result),
+                roundId,
+                retryOrdinal).stream().findFirst();
+    }
+
+    CiRepairAttempt bindRepairAttempt(
+            CiRound round,
+            String operationId,
+            String runId,
+            String inputLocalHead,
+            String inputChangeSetRevisionId)
+    {
+        requireNonNull(round, "round is null");
+        requireText(operationId, "operationId");
+        requireText(runId, "runId");
+        requireText(inputLocalHead, "inputLocalHead");
+        requireText(inputChangeSetRevisionId,
+                "inputChangeSetRevisionId");
+        return requireNonNull(transactions.execute(ignored -> {
+            String attemptId = stableId(
+                    "ci-repair-attempt", round.roundId(), "0");
+            Optional<CiRepairAttempt> existing = repairAttempt(attemptId);
+            if (existing.isPresent()) {
+                CiRepairAttempt attempt = existing.get();
+                if (!attempt.roundId().equals(round.roundId())
+                        || !attempt.operationId().equals(operationId)
+                        || !attempt.agentRunId().equals(runId)
+                        || !attempt.inputLocalHead().equals(inputLocalHead)
+                        || !attempt.inputRemoteHead().equals(
+                                round.remoteHead())
+                        || !attempt.inputChangeSetRevisionId().equals(
+                                inputChangeSetRevisionId)
+                        || attempt.retryOrdinal() != 0) {
+                    throw new IllegalStateException(
+                            "CI repair attempt redelivery changed identity");
+                }
+                if (attempt.state() != AttemptState.ACTIVE
+                        || roundById(round.roundId()).orElseThrow().state()
+                                != RoundState.ACTIVE) {
+                    throw new IllegalStateException(
+                            "CI repair attempt is no longer active");
+                }
+                return attempt;
+            }
+            if (round.state() != RoundState.QUEUED) {
+                throw new IllegalStateException(
+                        "CI repair round is not queued");
+            }
+            Instant now = clock.instant();
+            jdbc.update(
+                    """
+                    INSERT INTO flow_ci_repair_attempt (
+                        attempt_id, round_id, operation_id, agent_run_id,
+                        input_local_head, input_remote_head,
+                        input_change_set_revision_id, local_check_run_ids_json,
+                        state, retry_ordinal, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 'ACTIVE', 0, ?)
+                    """,
+                    attemptId,
+                    round.roundId(),
+                    operationId,
+                    runId,
+                    inputLocalHead,
+                    round.remoteHead(),
+                    inputChangeSetRevisionId,
+                    now.toEpochMilli());
+            int activated = jdbc.update(
+                    """
+                    UPDATE flow_ci_round SET state = 'ACTIVE'
+                    WHERE round_id = ? AND state = 'QUEUED'
+                    """,
+                    round.roundId());
+            if (activated != 1) {
+                throw new IllegalStateException(
+                        "CI round changed during repair binding");
+            }
+            return repairAttempt(attemptId).orElseThrow();
+        }), "repair binding transaction returned null");
+    }
+
+    CiRepairAttempt completeRepairAttempt(
+            String attemptId,
+            String outputLocalHead,
+            String outputChangeSetRevisionId,
+            String resultRef,
+            AttemptState outcome)
+    {
+        requireText(attemptId, "attemptId");
+        requireText(outputLocalHead, "outputLocalHead");
+        requireText(outputChangeSetRevisionId,
+                "outputChangeSetRevisionId");
+        requireText(resultRef, "resultRef");
+        requireNonNull(outcome, "outcome is null");
+        if (outcome != AttemptState.FIX_PREPARED
+                && outcome != AttemptState.NO_HEAD_CHANGE) {
+            throw new IllegalArgumentException(
+                    "CI repair completion requires a clean outcome");
+        }
+        return requireNonNull(transactions.execute(ignored -> {
+            CiRepairAttempt attempt = repairAttempt(attemptId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Unknown CI repair attempt: " + attemptId));
+            if (attempt.state() == AttemptState.FIX_PREPARED
+                    || attempt.state() == AttemptState.NO_HEAD_CHANGE) {
+                if (!Objects.equals(
+                                attempt.outputLocalHead(), outputLocalHead)
+                        || !Objects.equals(
+                                attempt.outputChangeSetRevisionId(),
+                                outputChangeSetRevisionId)
+                        || !Objects.equals(attempt.resultRef(), resultRef)
+                        || attempt.state() != outcome) {
+                    throw new IllegalStateException(
+                            "CI repair finalization changed identity");
+                }
+                return attempt;
+            }
+            if (attempt.state() != AttemptState.ACTIVE) {
+                throw new IllegalStateException(
+                        "CI repair attempt is not finalizable");
+            }
+            int attemptUpdated = jdbc.update(
+                    """
+                    UPDATE flow_ci_repair_attempt
+                    SET output_local_head = ?,
+                        output_change_set_revision_id = ?, result_ref = ?,
+                        state = ?
+                    WHERE attempt_id = ? AND state = 'ACTIVE'
+                    """,
+                    outputLocalHead,
+                    outputChangeSetRevisionId,
+                    resultRef,
+                    outcome.name(),
+                    attemptId);
+            int roundUpdated = jdbc.update(
+                    """
+                    UPDATE flow_ci_round SET state = 'FIX_PREPARED'
+                    WHERE round_id = ? AND state = 'ACTIVE'
+                    """,
+                    attempt.roundId());
+            RoundState roundState = roundById(
+                    attempt.roundId()).orElseThrow().state();
+            if (attemptUpdated != 1
+                    || (roundUpdated != 1
+                    && roundState != RoundState.SUPERSEDED)) {
+                throw new IllegalStateException(
+                        "CI repair owner changed during finalization");
+            }
+            return repairAttempt(attemptId).orElseThrow();
+        }), "repair completion transaction returned null");
+    }
+
+    CiRepairAttempt blockDirtyRepairAttempt(String attemptId)
+    {
+        requireText(attemptId, "attemptId");
+        return requireNonNull(transactions.execute(ignored -> {
+            CiRepairAttempt attempt = repairAttempt(attemptId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Unknown CI repair attempt: " + attemptId));
+            if (attempt.state() == AttemptState.NEEDS_ATTENTION) {
+                return attempt;
+            }
+            if (attempt.state() != AttemptState.ACTIVE) {
+                throw new IllegalStateException(
+                        "CI repair attempt is not dirty-blockable");
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_ci_repair_attempt SET state = 'NEEDS_ATTENTION'
+                    WHERE attempt_id = ? AND state = 'ACTIVE'
+                    """,
+                    attemptId);
+            jdbc.update(
+                    """
+                    UPDATE flow_ci_round SET state = 'NEEDS_ATTENTION'
+                    WHERE round_id = ? AND state = 'ACTIVE'
+                    """,
+                    attempt.roundId());
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "CI dirty repair owner changed");
+            }
+            return repairAttempt(attemptId).orElseThrow();
+        }), "dirty repair transaction returned null");
+    }
+
     private Optional<CiLogEvidence> logForObservation(String observationId)
     {
         return jdbc.query(
@@ -985,6 +1190,27 @@ public final class CiAutofix
                 RoundState.valueOf(result.getString("state")),
                 instant(result.getLong("created_at")),
                 result.getString("superseded_by"));
+    }
+
+    private CiRepairAttempt readRepairAttempt(ResultSet result)
+            throws SQLException
+    {
+        return new CiRepairAttempt(
+                result.getString("attempt_id"),
+                result.getString("round_id"),
+                result.getString("operation_id"),
+                result.getString("agent_run_id"),
+                result.getString("input_local_head"),
+                result.getString("input_remote_head"),
+                result.getString("input_change_set_revision_id"),
+                result.getString("output_local_head"),
+                result.getString("output_change_set_revision_id"),
+                readStringList(result.getString("local_check_run_ids_json")),
+                result.getString("result_ref"),
+                AttemptState.valueOf(result.getString("state")),
+                result.getString("retry_of_attempt_id"),
+                result.getLong("retry_ordinal"),
+                instant(result.getLong("created_at")));
     }
 
     private PublishedPrSubject requireSubject(String prId)

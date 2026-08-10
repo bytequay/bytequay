@@ -220,7 +220,9 @@ CREATE TABLE flow_runtime_inbox (
     external_key TEXT NOT NULL,
     revision TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (
-        kind IN ('INITIAL_TASK', 'FINAL_RED', 'AGENT_RESULT_READY')
+        kind IN (
+            'INITIAL_TASK', 'FINAL_RED', 'CI_FIX_READY', 'AGENT_RESULT_READY'
+        )
     ),
     subject_head TEXT NOT NULL,
     payload_ref TEXT NOT NULL,
@@ -233,8 +235,10 @@ CREATE TABLE flow_runtime_inbox (
         terminal_reason IN ('TASK_COMPLETED', 'TASK_CANCELED')
     ),
     CHECK (
-        (kind = 'AGENT_RESULT_READY' AND agent_result_id IS NOT NULL)
-        OR (kind <> 'AGENT_RESULT_READY' AND agent_result_id IS NULL)
+        (kind IN ('CI_FIX_READY', 'AGENT_RESULT_READY')
+            AND agent_result_id IS NOT NULL)
+        OR (kind NOT IN ('CI_FIX_READY', 'AGENT_RESULT_READY')
+            AND agent_result_id IS NULL)
     ),
     UNIQUE (source, external_key, revision),
     UNIQUE (task_id, work_watermark),
@@ -242,6 +246,7 @@ CREATE TABLE flow_runtime_inbox (
     FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
     FOREIGN KEY (agent_result_id)
         REFERENCES flow_runtime_agent_result (result_id),
+    UNIQUE (agent_result_id),
     FOREIGN KEY (selected_by_operation_id)
         REFERENCES flow_runtime_operation (operation_id),
     FOREIGN KEY (handled_by_operation_id)

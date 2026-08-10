@@ -565,7 +565,7 @@ class TestFlowRuntime
     }
 
     @Test
-    void simultaneousCiCausesSelectOneWriterAndResultReadyRearms()
+    void simultaneousCiCausesSelectOneWriterAndGenericFinishIsRejected()
     {
         Task task = publishedTask("simultaneous", 44);
         List<CompletableFuture<Void>> ingest = List.of("round-1", "round-2")
@@ -589,36 +589,17 @@ class TestFlowRuntime
 
         ActiveWriter writer = startWriter(
                 OperationKind.RUN_CI_FIXER, AgentRole.CI_FIXER);
-        var result = runToCompletion(
-                writer,
+        assertThatThrownBy(() -> runtime.finishAgentRun(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
                 TerminalOutcome.FAILED,
                 "not-json and no verdict",
-                "process-exit:1");
-
-        assertThat(runtime.resultForRun(writer.run().runId()).orElseThrow()
-                .finalContent()).isEqualTo("not-json and no verdict");
-        assertThat(runtime.pendingWork(task.taskId()))
-                .filteredOn(work -> work.kind()
-                        == PendingKind.AGENT_RESULT_READY)
-                .singleElement()
-                .satisfies(ready -> {
-                    assertThat(ready.agentResultId()).isEqualTo(result.resultId());
-                    assertThat(ready.selectedByOperationId()).isNull();
-                });
-        assertThat(jdbc.queryForObject(
-                """
-                SELECT COUNT(*) FROM flow_runtime_inbox i
-                JOIN flow_runtime_agent_result r
-                  ON r.result_id = i.agent_result_id
-                WHERE i.kind = 'AGENT_RESULT_READY'
-                """,
-                Integer.class)).isEqualTo(1);
-
-        Operation continuation = selectFromReconciliation();
-        assertThat(continuation.kind())
-                .isEqualTo(OperationKind.RUN_TASK_TURN);
-        assertThat(continuation.ownerKind()).isEqualTo("AGENT_RUN");
-        assertThat(count("flow_runtime_writer_lease")).isZero();
+                "process-exit:1"))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class)
+                .hasMessageContaining("domain finalizer");
+        assertThat(runtime.resultForRun(writer.run().runId())).isEmpty();
+        assertThat(count("flow_runtime_writer_lease")).isOne();
     }
 
     private Task publishedTask(String suffix, long prNumber)

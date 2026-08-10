@@ -20,6 +20,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
@@ -275,17 +276,44 @@ final class TestFlowRuntimeChangeSets
         ActiveWriter ciWriter = writer(
                 OperationKind.RUN_CI_FIXER, AgentRole.CI_FIXER);
         AtomicReference<ChangeSetRevision> fixed = new AtomicReference<>();
-        run(ciWriter, () -> {
-            commit("ci.txt", "fixed\n", "ci fix");
-            fixed.set(runtime.adoptChangeSet(
-                    ciWriter.claim(), ciWriter.fence(), repository,
-                    initial.get().changeSetRevisionId()));
-        });
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = supervisor.launch(
+                ciWriter.run().runId(),
+                ciWriter.claim(),
+                ciWriter.fence(),
+                "TEST_CI_FINALIZER",
+                (runId, claim, fence, completion) -> {
+                    var prepared = runtime.prepareChangeSet(
+                            claim,
+                            fence,
+                            repository,
+                            initial.get().changeSetRevisionId());
+                    ChangeSetRevision output = runtime.adoptPreparedChangeSet(
+                            claim, fence, prepared);
+                    fixed.set(output);
+                    return runtime.finishCiAgentRun(
+                            runId,
+                            claim,
+                            fence,
+                            completion.terminalOutcome(),
+                            completion.finalContent(),
+                            completion.errorRef(),
+                            "attempt-1",
+                            CiFixOutcome.FIX_PREPARED,
+                            output.headSha(),
+                            output.changeSetRevisionId());
+                },
+                capability -> {
+                    commit("ci.txt", "fixed\n", "ci fix");
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "done", null);
+                });
+        supervisor.awaitAndFinalize(handle, TTL, "TEST_CI_FINALIZER");
 
         assertThat(fixed.get().source()).isEqualTo(ChangeSetSource.CI_FIXER);
         assertThat(fixed.get().sourceRunId()).isEqualTo(ciWriter.run().runId());
         assertThat(runtime.pendingWork(task.taskId()))
-                .filteredOn(work -> work.kind() == PendingKind.AGENT_RESULT_READY)
+                .filteredOn(work -> work.kind() == PendingKind.CI_FIX_READY)
                 .singleElement()
                 .satisfies(ready -> assertThat(ready.subjectHead())
                         .isEqualTo(fixed.get().headSha()));

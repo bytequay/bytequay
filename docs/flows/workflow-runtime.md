@@ -639,7 +639,8 @@ this order:
    `reserved_mutation_operation_id`; its existing ticket—not `WorkSelector`—runs
    when eligible, and lower ordinary work cannot pass it;
 5. deliver an exact in-progress continuation such as `AgentResultReady` or
-   `CI_FIX_READY` to the Task Agent; compatible current feedback may be included
+   `CI_FIX_READY` to the Task Agent; its program-owned payload records
+   `FIX_PREPARED` or `NO_HEAD_CHANGE`, and compatible current feedback may be included
    in that same bounded envelope;
 6. handle final failing CI for the current remote head with the CI Fixer;
 7. handle frozen review feedback with the Task Agent against the resulting head;

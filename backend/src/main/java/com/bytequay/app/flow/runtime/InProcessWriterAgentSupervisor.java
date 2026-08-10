@@ -1,0 +1,647 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.flow.runtime;
+
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+
+import java.lang.management.ManagementFactory;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+import static java.util.Objects.requireNonNull;
+
+/**
+ * Concrete owner of new-flow Task/CI writer execution inside this JVM.
+ *
+ * <p>This class deliberately has no CLI path. A body cannot begin until its
+ * dormant Java thread identity is durably activated. Tool handlers receive the
+ * opaque capability object and run every synchronous tool effect through
+ * {@link WriterToolCapability#callTool(Supplier)}; it exposes neither the
+ * dispatch claim token nor the writer fence.
+ */
+public final class InProcessWriterAgentSupervisor
+{
+    private static final long JVM_PID = ProcessHandle.current().pid();
+    private static final Instant JVM_STARTED_AT = Instant.ofEpochMilli(
+            ManagementFactory.getRuntimeMXBean().getStartTime());
+    private static final Object LAUNCH_LOCK = new Object();
+    private static final Duration DORMANT_START_TIMEOUT = Duration.ofSeconds(5);
+    private static final ConcurrentMap<String, ManagedExecution> LIVE_EXECUTIONS =
+            new ConcurrentHashMap<>();
+
+    private final FlowRuntime runtime;
+
+    public InProcessWriterAgentSupervisor(FlowRuntime runtime)
+    {
+        this.runtime = requireNonNull(runtime, "runtime is null");
+    }
+
+    /** Program-owned terminal data; finalContent remains opaque. */
+    public record AgentCompletion(
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef)
+    {
+        public AgentCompletion
+        {
+            requireNonNull(terminalOutcome, "terminalOutcome is null");
+            if (terminalOutcome != TerminalOutcome.COMPLETED
+                    && (errorRef == null || errorRef.isBlank())) {
+                throw new IllegalArgumentException(
+                        "non-completed execution requires errorRef");
+            }
+        }
+    }
+
+    /** Non-secret identity used by dispatcher code to await or cancel. */
+    public record ExecutionHandle(
+            String runId, String processAttemptId, String executionId)
+    {
+        public ExecutionHandle
+        {
+            requireText(runId, "runId");
+            requireText(processAttemptId, "processAttemptId");
+            requireText(executionId, "executionId");
+        }
+    }
+
+    public enum CancellationDisposition
+    {
+        CANCELED,
+        ALREADY_FINISHED,
+        QUARANTINED
+    }
+
+    public record Cancellation(
+            CancellationDisposition disposition, AgentResult result)
+    {
+        public Cancellation
+        {
+            requireNonNull(disposition, "disposition is null");
+            if ((disposition != CancellationDisposition.QUARANTINED)
+                    != (result != null)) {
+                throw new IllegalArgumentException(
+                        "only terminal cancellation outcomes have a result");
+            }
+        }
+    }
+
+    /**
+     * Capability passed only to program tool wrappers. Its default identity
+     * string contains no claim token or fence material.
+     */
+    public static final class WriterToolCapability
+    {
+        private final ManagedExecution execution;
+
+        private WriterToolCapability(ManagedExecution execution)
+        {
+            this.execution = execution;
+        }
+
+        public <T> T callTool(Supplier<T> effect)
+        {
+            return execution.callTool(effect);
+        }
+
+        public void runTool(Runnable effect)
+        {
+            requireNonNull(effect, "effect is null");
+            callTool(() -> {
+                effect.run();
+                return null;
+            });
+        }
+
+        @Override
+        public String toString()
+        {
+            return "WriterToolCapability[opaque]";
+        }
+    }
+
+    /** Exact terminated-thread witness; only this supervisor can construct it. */
+    static final class TerminatedThreadWitness
+    {
+        private final Thread thread;
+        private final long jvmPid;
+        private final Instant jvmStartedAt;
+
+        private TerminatedThreadWitness(Thread thread)
+        {
+            this.thread = requireNonNull(thread, "thread is null");
+            if (thread.getState() != Thread.State.TERMINATED) {
+                throw new IllegalStateException(
+                        "writer thread is not terminated");
+            }
+            this.jvmPid = JVM_PID;
+            this.jvmStartedAt = JVM_STARTED_AT;
+        }
+
+        Thread thread()
+        {
+            return thread;
+        }
+
+        long jvmPid()
+        {
+            return jvmPid;
+        }
+
+        Instant jvmStartedAt()
+        {
+            return jvmStartedAt;
+        }
+    }
+
+    public static final class StoppedAwaitingRecoveryException
+            extends IllegalStateException
+    {
+        private final ExecutionHandle handle;
+
+        private StoppedAwaitingRecoveryException(
+                ExecutionHandle handle, Throwable cause)
+        {
+            super("writer stopped after its dispatch claim expired", cause);
+            this.handle = handle;
+        }
+
+        public ExecutionHandle handle()
+        {
+            return handle;
+        }
+    }
+
+    /**
+     * Starts one owned Java thread behind a closed dormant gate, durably
+     * activates its identity, then opens the gate for the writer body. Repeated
+     * launch in this live JVM returns the same execution.
+     */
+    public ExecutionHandle launch(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            Function<WriterToolCapability, AgentCompletion> body)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(body, "body is null");
+
+        synchronized (LAUNCH_LOCK) {
+            return launchLocked(runId, claim, fence, body);
+        }
+    }
+
+    private ExecutionHandle launchLocked(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            Function<WriterToolCapability, AgentCompletion> body)
+    {
+        AgentProcessAttempt attempt = runtime.reserveInProcessWriterAttempt(
+                runId, claim, fence);
+        ManagedExecution live = LIVE_EXECUTIONS.get(attempt.executionId());
+        if (live != null) {
+            live.adoptCurrentOwner(runId, claim, fence);
+            return live.handle();
+        }
+        if (attempt.state() != ProcessAttemptState.RESERVED) {
+            if (attempt.state() == ProcessAttemptState.ACTIVATED) {
+                runtime.revokeInProcessWriterCapability(
+                        attempt.processAttemptId(), claim, fence);
+                runtime.quarantineInProcessWriterAttempt(
+                        attempt.processAttemptId(),
+                        claim,
+                        fence,
+                        ProcessQuarantineReason
+                                .IN_PROCESS_OWNER_UNAVAILABLE);
+            }
+            throw unavailableExecution(attempt);
+        }
+
+        ManagedExecution created = new ManagedExecution(
+                runId, claim, fence, attempt);
+        Thread thread = new Thread(
+                () -> created.run(body),
+                "flow-writer-agent-" + attempt.executionId());
+        thread.setDaemon(true);
+        created.thread = thread;
+        ManagedExecution raced = LIVE_EXECUTIONS.putIfAbsent(
+                attempt.executionId(), created);
+        if (raced != null) {
+            raced.adoptCurrentOwner(runId, claim, fence);
+            return raced.handle();
+        }
+        try {
+            thread.start();
+            created.awaitDormant();
+            runtime.activateInProcessWriterAttempt(
+                    attempt.processAttemptId(),
+                    claim,
+                    fence,
+                    JVM_PID,
+                    JVM_STARTED_AT,
+                    thread.threadId(),
+                    thread.getName());
+            created.activateBody();
+            return created.handle();
+        }
+        catch (RuntimeException | Error failure) {
+            created.abortDormant();
+            try {
+                join(thread, DORMANT_START_TIMEOUT);
+            }
+            finally {
+                LIVE_EXECUTIONS.remove(attempt.executionId(), created);
+            }
+            throw failure;
+        }
+    }
+
+    /** Waits for normal return, then revokes, proves stop, and finishes. */
+    public AgentResult awaitAndFinish(
+            ExecutionHandle handle, Duration timeout)
+    {
+        ManagedExecution execution = requireLive(handle);
+        join(execution.thread, timeout);
+        if (execution.thread.isAlive()) {
+            throw new IllegalStateException(
+                    "in-process agent did not finish before the deadline");
+        }
+        return finishEnded(execution, false);
+    }
+
+    /**
+     * Revokes tools first, then interrupts and waits. An execution that ignores
+     * the deadline remains activated and owns its writer lease.
+     */
+    public Cancellation cancel(ExecutionHandle handle, Duration timeout)
+    {
+        ManagedExecution execution = requireLive(handle);
+        synchronized (execution) {
+            if (execution.result != null) {
+                return new Cancellation(
+                        CancellationDisposition.ALREADY_FINISHED,
+                        execution.result);
+            }
+            execution.cancellationRequested = true;
+            execution.revocationRequested = true;
+            runtime.revokeInProcessWriterCapability(
+                    execution.attempt.processAttemptId(),
+                    execution.claim,
+                    execution.fence);
+            execution.thread.interrupt();
+        }
+
+        join(execution.thread, timeout);
+        if (execution.thread.isAlive()) {
+            synchronized (execution) {
+                if (!execution.quarantined) {
+                    runtime.quarantineInProcessWriterAttempt(
+                            execution.attempt.processAttemptId(),
+                            execution.claim,
+                            execution.fence,
+                            ProcessQuarantineReason
+                                    .UNCOOPERATIVE_CANCELLATION);
+                    execution.quarantined = true;
+                }
+            }
+            return new Cancellation(
+                    CancellationDisposition.QUARANTINED, null);
+        }
+        return new Cancellation(
+                CancellationDisposition.CANCELED,
+                finishEnded(execution, true));
+    }
+
+    /** Visible for runtime health/recovery decisions, never for model context. */
+    public Optional<ExecutionHandle> liveExecution(String executionId)
+    {
+        requireText(executionId, "executionId");
+        return Optional.ofNullable(LIVE_EXECUTIONS.get(executionId))
+                .filter(execution -> execution.activated)
+                .map(ManagedExecution::handle);
+    }
+
+    private AgentResult finishEnded(
+            ManagedExecution execution, boolean cancellation)
+    {
+        synchronized (execution) {
+            if (execution.result != null) {
+                return execution.result;
+            }
+            if (execution.quarantined || execution.thread.isAlive()) {
+                throw new IllegalStateException(
+                        "in-process execution has no terminal stop proof");
+            }
+            execution.revocationRequested = true;
+            runtime.revokeInProcessWriterCapability(
+                    execution.attempt.processAttemptId(),
+                    execution.claim,
+                    execution.fence);
+            InProcessStopType stopType = cancellation
+                    || execution.cancellationRequested
+                    ? InProcessStopType.COOPERATIVE_CANCELLATION
+                    : InProcessStopType.NORMAL_RETURN;
+            if (execution.activeToolCalls != 0) {
+                throw new IllegalStateException(
+                        "writer stopped with an active tool effect");
+            }
+            TerminatedThreadWitness witness =
+                    new TerminatedThreadWitness(execution.thread);
+            runtime.recordInProcessWriterStopped(
+                    execution.attempt.processAttemptId(),
+                    execution.claim,
+                    execution.fence,
+                    witness,
+                    stopType);
+            AgentCompletion completion = stopType
+                    == InProcessStopType.COOPERATIVE_CANCELLATION
+                    ? new AgentCompletion(
+                            TerminalOutcome.CANCELED,
+                            execution.completion == null
+                                    ? null
+                                    : execution.completion.finalContent(),
+                            "IN_PROCESS_CANCELED")
+                    : execution.completion;
+            try {
+                execution.result = runtime.finishAgentRun(
+                        execution.runId,
+                        execution.claim,
+                        execution.fence,
+                        completion.terminalOutcome(),
+                        completion.finalContent(),
+                        completion.errorRef());
+                return execution.result;
+            }
+            catch (FlowRuntime.StaleClaimException expired) {
+                throw new StoppedAwaitingRecoveryException(
+                        execution.handle(), expired);
+            }
+            finally {
+                LIVE_EXECUTIONS.remove(
+                        execution.attempt.executionId(), execution);
+            }
+        }
+    }
+
+    private static ManagedExecution requireLive(ExecutionHandle handle)
+    {
+        requireNonNull(handle, "handle is null");
+        ManagedExecution execution = LIVE_EXECUTIONS.get(handle.executionId());
+        if (execution == null
+                || !execution.activated
+                || !execution.runId.equals(handle.runId())
+                || !execution.attempt.processAttemptId()
+                        .equals(handle.processAttemptId())) {
+            throw new IllegalStateException(
+                    "in-process execution is not owned by this live JVM");
+        }
+        return execution;
+    }
+
+    private static IllegalStateException unavailableExecution(
+            AgentProcessAttempt attempt)
+    {
+        if (Long.valueOf(JVM_PID).equals(attempt.jvmPid())
+                && JVM_STARTED_AT.equals(attempt.jvmStartedAt())) {
+            return new IllegalStateException(
+                    "live-JVM execution is not present in the supervisor registry");
+        }
+        return new IllegalStateException(
+                "prior-JVM in-process execution cannot be proven stopped");
+    }
+
+    private static void join(Thread thread, Duration timeout)
+    {
+        requirePositive(timeout, "timeout");
+        try {
+            thread.join(timeout);
+        }
+        catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "interrupted while waiting for in-process agent", exception);
+        }
+    }
+
+    private static void requireText(String value, String name)
+    {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
+    private static void requirePositive(Duration value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        if (value.isZero() || value.isNegative()) {
+            throw new IllegalArgumentException(name + " must be positive");
+        }
+    }
+
+    private final class ManagedExecution
+    {
+        private final String runId;
+        private volatile Claim claim;
+        private volatile WriterFence fence;
+        private final AgentProcessAttempt attempt;
+        private final CountDownLatch dormantReady = new CountDownLatch(1);
+        private final CountDownLatch startGate = new CountDownLatch(1);
+        private volatile Thread thread;
+        private volatile AgentCompletion completion;
+        private volatile boolean activated;
+        private volatile boolean abortBeforeActivation;
+        private boolean revocationRequested;
+        private int activeToolCalls;
+        private boolean cancellationRequested;
+        private boolean quarantined;
+        private AgentResult result;
+
+        private ManagedExecution(
+                String runId,
+                Claim claim,
+                WriterFence fence,
+                AgentProcessAttempt attempt)
+        {
+            this.runId = runId;
+            this.claim = claim;
+            this.fence = fence;
+            this.attempt = attempt;
+        }
+
+        private void run(
+                Function<WriterToolCapability, AgentCompletion> body)
+        {
+            dormantReady.countDown();
+            awaitStartGate();
+            if (abortBeforeActivation) {
+                return;
+            }
+            if (!activated) {
+                throw new IllegalStateException(
+                        "writer body gate opened before durable activation");
+            }
+            try {
+                completion = requireNonNull(
+                        body.apply(new WriterToolCapability(this)),
+                        "agent body returned null");
+            }
+            catch (RuntimeException | Error ignored) {
+                completion = new AgentCompletion(
+                        TerminalOutcome.FAILED,
+                        null,
+                        "IN_PROCESS_EXECUTION_FAILED");
+            }
+        }
+
+        private void awaitDormant()
+        {
+            try {
+                if (!dormantReady.await(
+                        DORMANT_START_TIMEOUT.toMillis(),
+                        TimeUnit.MILLISECONDS)) {
+                    throw new IllegalStateException(
+                            "writer thread did not reach its dormant gate");
+                }
+            }
+            catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(
+                        "interrupted before writer activation", exception);
+            }
+        }
+
+        private void activateBody()
+        {
+            activated = true;
+            startGate.countDown();
+        }
+
+        private void abortDormant()
+        {
+            abortBeforeActivation = true;
+            startGate.countDown();
+        }
+
+        private void awaitStartGate()
+        {
+            boolean interrupted = false;
+            while (true) {
+                try {
+                    startGate.await();
+                    break;
+                }
+                catch (InterruptedException ignored) {
+                    interrupted = true;
+                }
+            }
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        private ExecutionHandle handle()
+        {
+            return new ExecutionHandle(
+                    runId,
+                    attempt.processAttemptId(),
+                    attempt.executionId());
+        }
+
+        private <T> T callTool(Supplier<T> effect)
+        {
+            requireNonNull(effect, "effect is null");
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "writer tools require the owned writer thread");
+                }
+                if (revocationRequested) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "writer tool capability is revoked");
+                }
+                runtime.assertInProcessWriterToolCapability(
+                        runId,
+                        claim,
+                        fence,
+                        attempt.capabilityId());
+                activeToolCalls++;
+            }
+            try {
+                return effect.get();
+            }
+            finally {
+                synchronized (this) {
+                    activeToolCalls--;
+                    notifyAll();
+                }
+            }
+        }
+
+        private synchronized void adoptCurrentOwner(
+                String expectedRunId,
+                Claim expectedClaim,
+                WriterFence expectedFence)
+        {
+            if (!runId.equals(expectedRunId)
+                    || !sameClaimAuthority(claim, expectedClaim)
+                    || !sameFenceAuthority(fence, expectedFence)) {
+                throw new IllegalStateException(
+                        "live execution belongs to another owner");
+            }
+            claim = expectedClaim;
+            fence = expectedFence;
+        }
+    }
+
+    private static boolean sameClaimAuthority(Claim first, Claim second)
+    {
+        return first.operationId().equals(second.operationId())
+                && first.generation() == second.generation()
+                && first.claimToken().equals(second.claimToken())
+                && first.workerId().equals(second.workerId());
+    }
+
+    private static boolean sameFenceAuthority(
+            WriterFence first, WriterFence second)
+    {
+        return first.taskId().equals(second.taskId())
+                && first.operationId().equals(second.operationId())
+                && first.taskEpoch() == second.taskEpoch()
+                && first.holderKind() == second.holderKind()
+                && first.fencingToken() == second.fencingToken()
+                && first.claimGeneration() == second.claimGeneration()
+                && first.claimTokenDigest().equals(second.claimTokenDigest())
+                && first.headSha().equals(second.headSha())
+                && first.treeDigest().equals(second.treeDigest())
+                && first.snapshotEvidenceRef()
+                        .equals(second.snapshotEvidenceRef());
+    }
+}

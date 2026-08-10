@@ -273,7 +273,7 @@ start and resume replay-safe. A timeout is `FAILED` with
 
 `AgentResult` has a unique `runId`, `terminalOutcome = COMPLETED | FAILED |
 CANCELED`, optional opaque `finalContent`, optional program-owned `errorRef`,
-process metadata, and storage timestamp. Every terminal run gets one result, so
+program-owned `stopProofRef`, and storage timestamp. Every terminal run gets one result, so
 a consumer can receive a durable failure/cancellation without invented agent
 prose. The process supervisor derives `terminalOutcome` from process/tool state;
 the model never authors or formats that enum.
@@ -288,20 +288,61 @@ AgentTerminalOutcome =
 `finalContent`/`partialContent` is stored verbatim when present. `errorRef` and
 `reasonCode` are program-owned observations, not model output fields.
 
-`AgentProcessAttempt` records `{runId, claimToken, executionId, state = STARTING |
-RUNNING | STOPPED | FAILED, processIdentity?, startedAt?, capabilityRevokedAt?,
-stoppedAt?, stopProofRef?}` for each dispatch generation. `executionId` and its
-launcher-control reference are allocated before spawning anything.
+The current new-flow transport is deliberately **in-process Task/CI writer
+execution only**. Read-only reviewer and learning execution remains pending for
+the adversarial-reviewer component; this writer supervisor does not claim it.
+`AgentProcessAttempt` records `{runId, claimGeneration, claimTokenDigest,
+executionId, capabilityId, state = RESERVED | ACTIVATED | STOPPED, jvmPid?,
+jvmStartedAt?, threadId?, threadName?, capabilityRevokedAt?, stopType?,
+stoppedAt?, stopProofRef?, quarantineReason?}`. The secret claim token is never
+placed in a prompt, result, capability object string, or process metadata.
+`threadName` is diagnostic only; the witness binds the exact terminated
+`Thread`, its ID, and its JVM PID/start identity.
 
-No code starts a model process directly. The supervised launcher first persists
-`STARTING`, creates a dormant discoverable process group for `executionId` with
-all tools/model execution disabled, records its concrete identity, commits
-`RUNNING`, and only then sends an idempotent activation signal. If the program
-dies at any boundary, recovery probes the predetermined `executionId`; an
-unactivated group cannot execute, and an activated group is fully identified.
-An expired agent claim is not directly redelivered: recovery first revokes that
-generation and proves its group/in-process runner can no longer act, then a new
-generation may start or resume the same operation-bound run.
+`InProcessWriterAgentSupervisor` is the one concrete launcher for `TASK_AGENT`
+and `CI_FIXER`. It persists `RESERVED`, creates, registers, and starts one owned
+Java thread behind a closed dormant gate, then durably records the exact
+JVM-start/thread identity and advances the run to `RUNNING`. Only after that
+transaction commits does it open the gate and permit the writer body to run.
+
+Every tool effect runs wholly inside the opaque capability's synchronous
+`callTool`/`runTool` scope on that exact writer thread. Admission atomically
+revalidates the run, claim generation/token digest, capability ID, revocation
+state, and writer fence, then tracks the invocation until the supplied effect
+returns. Cancellation closes local admission and durably revokes first. A tool
+already admitted may drain, but no later tool starts and ownership cannot be
+released until both the invocation and writer thread end. The body and tools may
+not detach child work. A transport that needs child work must first own and join
+that complete execution set.
+
+On normal return the supervisor revokes the capability and verifies the exact
+thread is `TERMINATED`. Only then can it privately construct the in-memory stop
+witness accepted by the runtime and store a program-derived `NORMAL_RETURN`
+proof. Raw JVM/thread IDs and caller strings cannot mint `STOPPED`. Cancellation
+revokes first, interrupts, and waits for a bounded deadline. A cooperative end
+gets a `COOPERATIVE_CANCELLATION` proof. An execution or admitted tool that does
+not end remains quarantined with its writer pointer and lease retained. If the
+claim expired while a writer ended, revocation and `STOPPED` are still stored,
+the live registry entry is removed, and the typed outcome is
+`STOPPED_AWAITING_RECOVERY`; no `AgentResult`, pointer, or lease is released.
+Recovery may mark that exact expired attempt `FAILED/DONE` first. Only
+termination commands may then use the retained exact claim generation/token,
+recovery result reference, selected pointer, and writer lease to revoke, capture
+STOPPED, or quarantine. Tool admission and `AgentRuns.finish` still require the
+current unexpired `CLAIMED` authority, so this narrow path cannot mutate or
+publish a result after recovery won the race.
+
+CLI/shell agent transport is unsupported in the new flow. A future OS-process
+transport must own a complete process group and mechanical death receipt before
+it can be admitted. Cross-JVM recovery of an activated in-process Java thread is
+also deferred: a restarted JVM cannot safely join or revoke that old thread.
+After its claim expires, recovery settles the exact operation/ticket
+`FAILED/DONE` with `PROCESS_ATTEMPT_RECOVERY_REQUIRED`, moves the Task to
+`NEEDS_ATTENTION`, and retains its selected pointer and writer lease. It leaves
+the attempt's capability-revocation and quarantine fields unchanged because no
+stop was proven, and it issues no successor generation. A second supervisor in
+the same live JVM reuses the shared live registry; it never calls the execution
+dead merely because it has a new runtime object.
 
 The runtime may expose a result to a model as text, but it never reads that text
 to choose a transition. Objective evidence such as changed head, check run, or
@@ -421,12 +462,12 @@ shapes.
 | `AgentSessions.createIdle(role, sessionManifest)` | provisioning only | Create one persistent `IDLE` session without an `AgentRun` or model call. This is the only Task-Agent provisioning path. |
 | `AgentSessions.startFresh(operationId, claimToken, role, promptManifest, capabilities)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise create a fresh session plus its first run before process start and bind the owning request once. Use this for a reviewer and for a CI Fixer only when that Task has no CI session yet. Claim redelivery or a crash after commit must reuse the same session/run. |
 | `AgentSessions.resume(sessionId, operationId, claimToken, inputRef)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise compare-and-set `IDLE`/eligible `PARKED_CHILD` to `RUNNING`, append stored input and one run, and reserve that session for this operation in the claim transaction. Start/recover the model process only after commit and always against that same run. |
-| `ProcessSupervisor.launch(runId, claimToken, launchSpec)` | dispatcher after run transaction | Idempotently allocate/persist `STARTING` with predetermined `executionId`, create a dormant discoverable process group with tools/model disabled, record its concrete identity and `RUNNING`, then activate only after that commit. Recovery probes by `executionId`; no raw caller may spawn a model process. |
-| `ProcessSupervisor.stopAndProve(runId, priorClaimToken, writerFence?)` | expired-claim/cancel recovery | Revoke that claim generation's tools, terminate its complete process group or in-process runner, and store durable proof that it can no longer call tools or finish. This is mandatory for reviewer/learning processes too; `writerFence` is additionally required only before inspecting or handing off a writer worktree. |
+| `InProcessWriterAgentSupervisor.launch(runId, claim, writerFence, body)` | Task/CI dispatcher after run transaction | Reuse the one live-JVM execution when present. Otherwise persist `RESERVED`; start an owned writer thread behind a closed gate; durably activate its exact JVM/thread identity and logical run; then open the gate. The body receives only a synchronous whole-effect capability. CLI launch is unsupported. |
+| `InProcessWriterAgentSupervisor.cancel(handle, deadline)` | authenticated Task/CI cancellation owner | Close local tool admission and durably revoke before interrupting, then wait for the exact thread and any admitted synchronous tool. Store a cooperative stop proof and finish only when both ended. Otherwise quarantine while retaining pointer/lease. An expired claim yields `STOPPED_AWAITING_RECOVERY` after truthful stop capture. |
 | `ProgramRunnerSupervisor.stopAndProve(operationId, writerFence)` | non-agent writer recovery | Terminate and prove a deterministic `UPSTREAM_SYNC`/other program runner dead before inspecting its worktree or transferring its fence; it has no `AgentRun` or model capability. |
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | terminal `spawn_agent` Task tool | Validate and create the frozen reviewer request plus one initially parent-blocked `RUN_REVIEWER` operation/ticket; seal the parent run against more tools and return `reviewRequestId`, but create no reviewer session/run. Parent finalization below parks the session and makes the ticket eligible only after its result/state and writer release are durable. |
 | `AgentRuns.sealForReview(runId)` | accepted `ready_for_review()` tool | Revoke further mutating tools for this run, request terminal completion, and defer gate construction until result/head evidence is stored and the writer lease is released. |
-| `AgentRuns.finish(runId, claimToken, terminalOutcome, processMetadata, writerFence?)` | process supervisor for the current proven generation | Validate the tagged outcome payload/current claim and idempotently store the one terminal `AgentResult`. Dispatch exactly one operation-kind finalizer in the same transaction before settling the operation: reviewer closes fresh session/releases barrier/appends `AgentResultReady`; spawn-parent captures/adopts fenced state/releases lease+pointer/parks session; question-parent releases lease+pointer/leaves session `IDLE` and makes the stored question answerable; an upstream-history parent preserves its exact reserved successor while releasing lease+pointer and returning `IDLE`; sealed-ready parent creates post-run readiness; CI Fixer calls `CiAutofix.finalizeAttempt` to inspect fenced Git and store attempt/change-set/continuation before lease release; CI learning returns the persistent session to `IDLE`; ordinary Task completion stores measured state and returns to `IDLE` or durable recovery. Every persistent session ends `IDLE` or `PARKED_CHILD`; every fresh reviewer session ends `CLOSED`. Release exact waits and ensure reconciliation only after the owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. |
+| `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task/CI generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery; CI Fixer finalization will call `CiAutofix.finalizeAttempt` before lease release when that checkpoint is connected. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewer/learning finalization requires its own later read-only supervisor contract and is not implemented by this API. |
 | `TaskQuestions.ask(taskId, runId, question)` | authenticated terminal agent tool | Store the question and measured sealed state, set the waiting barrier, move the Task to `WAITING_USER`, seal the current run against more tools, and request finalization. It does not persist the run result, release the fence/pointer, or change session state; only `AgentRuns.finish` does so and then exposes the question as answerable. |
 | `TaskQuestions.answer(userId, questionId, body)` | authenticated user command | Require the predecessor `AgentResult` durable/question answerable, append the exact answer, release any exact reconciliation wait on this question, reconcile a pending terminal-remote fact first, and if still active atomically create/reserve the one `USER_ANSWER` successor bound to the sealed state; never resume a generic latest turn. |
 | `LocalCheckPolicies.current(repositoryId)` | check/gate builders | Return the current immutable policy revision and allowed profiles. |
@@ -680,11 +721,13 @@ remote-wait transition.
 ### Recovery
 
 - Expired non-agent ticket claim: requeue the same ticket after its adapter's
-  effect/recovery rule. Expired agent claim: do not requeue to a new generation
-  until the prior `{runId, claimToken}` process is revoked and proven dead.
+  effect/recovery rule. Expired agent claim: do not requeue to a new generation.
+  The current in-process transport has no cross-JVM death proof, so an activated
+  attempt discovered after restart remains quarantined.
 - Expired writer lease: immediately quarantine admission. Lease time alone does
-  not prove a shell/model/Git process stopped. Call `ProcessSupervisor` for an
-  agent or `ProgramRunnerSupervisor` for deterministic program work and prove
+  not prove a shell/model/Git process stopped. The live-JVM
+  `InProcessWriterAgentSupervisor` must revoke and join a Task/CI writer, or
+  `ProgramRunnerSupervisor` must stop deterministic program work and prove
   the complete runner/process group dead **before** inspecting the worktree or
   releasing/admitting another fence. If death or a clean committed exact state
   cannot be proven, keep the Task `NEEDS_ATTENTION`; never race inspection,
@@ -746,31 +789,32 @@ inserted at every numbered boundary.
    no recovery path creates a replacement run merely because process start was
    interrupted.
 
-### A3. Expired live process generation
+### A3. Expired live in-process generation
 
-1. Start a read-only reviewer process under claim token `C1`, then let its claim
+1. Start a Task or CI writer under claim token `C1`, then let its claim
    expire while the process remains alive.
 2. Assert the ticket cannot issue `C2` or start another process yet.
-3. `stopAndProve(runId, C1)` revokes tools, kills/proves the old process, and
-   stores proof; calls or `finish` using `C1` now fail closed.
-4. Issue `C2`, reuse the same operation-bound run, and finish once.
-5. Repeat for a CI writer using both claim token and writer fence; inspect the
-   worktree only after old-process proof. Assert no two generations can mutate or
-   finish concurrently.
+3. In the same live JVM, cancel through the shared supervisor registry: revoke
+   tools first, interrupt, and join the exact thread. A cooperative end stores
+   proof; an uncooperative end retains the lease/pointer and quarantines.
+4. Restart the runtime object in that same JVM and assert it reuses the live
+   registry rather than launching a replacement or declaring death.
+5. Restart in a new JVM and assert the activated attempt remains quarantined;
+   this in-process transport does not issue `C2` or inspect the worktree.
 
 ### A4. Crash-safe process launch
 
-Run the same reviewer launch with a crash after each boundary:
+Run the same writer launch with a crash after each implemented boundary:
 
-1. after `STARTING(executionId)` commits but before dormant spawn;
-2. after the dormant group registers but before concrete identity/state commits;
-3. after `RUNNING`/identity commits but before activation; and
-4. after activation is sent but before acknowledgement.
+1. after `RESERVED(executionId)` commits but before Java thread construction;
+2. after the thread starts behind its closed gate but before identity activation;
+3. after identity activation commits but before the gate opens; and
+4. after the gate opens while the body is live.
 
-At every restart, probe the predetermined `executionId`. Assert there is either
-no process, one disabled process that is stopped/recovered, or one fully recorded
-current-generation process. No unregistered process executes the model or tools,
-and recovery never launches a second live group.
+At every same-JVM boundary assert no body runs before durable activation and the
+shared registry starts at most one thread. At every new-JVM boundary assert an
+activated attempt remains quarantined because the old Java thread cannot be
+joined; recovery never manufactures a stop proof or launches a replacement.
 
 ### B. Child result before parent resume
 
@@ -904,8 +948,10 @@ and recovery never launches a second live group.
 - All acceptance traces are automated integration tests.
 - No code path starts work without one committed `Operation`/`DispatchTicket`;
   no second durable notification record exists.
-- No model process starts outside `ProcessSupervisor.launch`; restart tests at
-  every STARTING/identity/activation boundary prove no untracked live process.
+- No Task/CI writer body starts outside
+  `InProcessWriterAgentSupervisor.launch`; tests at every reserve/gate/identity
+  boundary prove activation precedes body execution.
+  CLI/shell agent launch is rejected until a real process-group supervisor exists.
 - Every Task lifecycle transition and adopted clean code candidate has one
   immutable owner revision with optimistic append/adopt checks.
 - Local check commands, policy/profiles, conclusions, exact heads, and freshness

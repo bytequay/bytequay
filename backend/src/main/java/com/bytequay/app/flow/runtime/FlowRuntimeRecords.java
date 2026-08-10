@@ -96,6 +96,18 @@ public final class FlowRuntimeRecords
         STOPPED
     }
 
+    public enum InProcessStopType
+    {
+        NORMAL_RETURN,
+        COOPERATIVE_CANCELLATION
+    }
+
+    public enum ProcessQuarantineReason
+    {
+        UNCOOPERATIVE_CANCELLATION,
+        IN_PROCESS_OWNER_UNAVAILABLE
+    }
+
     public record Task(
             String taskId,
             String requestKey,
@@ -338,7 +350,7 @@ public final class FlowRuntimeRecords
             TerminalOutcome terminalOutcome,
             String finalContent,
             String errorRef,
-            String processMetadataRef,
+            String stopProofRef,
             Instant storedAt)
     {
         public AgentResult
@@ -347,8 +359,7 @@ public final class FlowRuntimeRecords
             requireNonNull(runId, "runId is null");
             requireNonNull(terminalOutcome,
                     "terminalOutcome is null");
-            requireNonNull(processMetadataRef,
-                    "processMetadataRef is null");
+            requireNonNull(stopProofRef, "stopProofRef is null");
             requireNonNull(storedAt, "storedAt is null");
         }
     }
@@ -358,14 +369,22 @@ public final class FlowRuntimeRecords
             String runId,
             String operationId,
             long claimGeneration,
+            String claimTokenDigest,
             String executionId,
             String capabilityId,
             ProcessAttemptState state,
-            String processIdentity,
+            Long jvmPid,
+            Instant jvmStartedAt,
+            Long threadId,
+            String threadName,
             Instant reservedAt,
             Instant activatedAt,
-            String processMetadataRef,
-            Instant stoppedAt)
+            Instant capabilityRevokedAt,
+            InProcessStopType stopType,
+            String stopProofRef,
+            Instant stoppedAt,
+            ProcessQuarantineReason quarantineReason,
+            Instant quarantinedAt)
     {
         public AgentProcessAttempt
         {
@@ -373,6 +392,8 @@ public final class FlowRuntimeRecords
                     "processAttemptId is null");
             requireNonNull(runId, "runId is null");
             requireNonNull(operationId, "operationId is null");
+            requireNonNull(claimTokenDigest,
+                    "claimTokenDigest is null");
             requireNonNull(executionId, "executionId is null");
             requireNonNull(capabilityId, "capabilityId is null");
             requireNonNull(state, "state is null");

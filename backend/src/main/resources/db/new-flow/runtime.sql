@@ -244,7 +244,7 @@ CREATE TABLE flow_runtime_agent_result (
     ),
     final_content TEXT,
     error_ref TEXT,
-    process_metadata_ref TEXT NOT NULL,
+    stop_proof_ref TEXT NOT NULL,
     stored_at INTEGER NOT NULL,
     FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id)
 );
@@ -254,16 +254,63 @@ CREATE TABLE flow_runtime_agent_process_attempt (
     run_id TEXT NOT NULL,
     operation_id TEXT NOT NULL,
     claim_generation INTEGER NOT NULL,
+    claim_token_digest TEXT NOT NULL,
     execution_id TEXT NOT NULL UNIQUE,
     capability_id TEXT NOT NULL UNIQUE,
     state TEXT NOT NULL CHECK (
         state IN ('RESERVED', 'ACTIVATED', 'STOPPED')
     ),
-    process_identity TEXT,
+    jvm_pid INTEGER,
+    jvm_started_at INTEGER,
+    thread_id INTEGER,
+    thread_name TEXT,
     reserved_at INTEGER NOT NULL,
     activated_at INTEGER,
-    process_metadata_ref TEXT,
+    capability_revoked_at INTEGER,
+    stop_type TEXT CHECK (
+        stop_type IN ('NORMAL_RETURN', 'COOPERATIVE_CANCELLATION')
+    ),
+    stop_proof_ref TEXT,
     stopped_at INTEGER,
+    quarantine_reason TEXT CHECK (
+        quarantine_reason IN (
+            'UNCOOPERATIVE_CANCELLATION',
+            'IN_PROCESS_OWNER_UNAVAILABLE'
+        )
+    ),
+    quarantined_at INTEGER,
+    CHECK (
+        (state = 'RESERVED'
+            AND jvm_pid IS NULL
+            AND jvm_started_at IS NULL
+            AND thread_id IS NULL
+            AND thread_name IS NULL
+            AND activated_at IS NULL)
+        OR (state IN ('ACTIVATED', 'STOPPED')
+            AND jvm_pid IS NOT NULL
+            AND jvm_started_at IS NOT NULL
+            AND thread_id IS NOT NULL
+            AND thread_name IS NOT NULL
+            AND activated_at IS NOT NULL)
+    ),
+    CHECK (
+        (state <> 'STOPPED'
+            AND stop_type IS NULL
+            AND stop_proof_ref IS NULL
+            AND stopped_at IS NULL)
+        OR (state = 'STOPPED'
+            AND capability_revoked_at IS NOT NULL
+            AND stop_type IS NOT NULL
+            AND stop_proof_ref IS NOT NULL
+            AND stopped_at IS NOT NULL)
+    ),
+    CHECK (
+        (quarantine_reason IS NULL AND quarantined_at IS NULL)
+        OR (quarantine_reason IS NOT NULL
+            AND quarantined_at IS NOT NULL
+            AND state = 'ACTIVATED'
+            AND capability_revoked_at IS NOT NULL)
+    ),
     UNIQUE (run_id, claim_generation),
     FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id),
     FOREIGN KEY (operation_id)

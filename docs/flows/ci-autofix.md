@@ -250,6 +250,10 @@ committed change set, and persists exactly one `CI_FIX_READY`, `NO_HEAD_CHANGE`,
 or typed recovery/attention continuation. Only after those facts are durable may
 the outer finalizer release the lease/selected pointer and return the persistent
 CI session to `IDLE`. It never interprets `resultRef` prose.
+`InProcessWriterAgentSupervisor.launch` binds this CI finalizer before exposing
+the handle or fixer body. `awaitAndFinalize` invokes that stored route only after
+durable exact-thread `STOPPED` proof; cancellation and retry cannot replace it
+with ordinary Task finalization or rerun the fixer body.
 
 The two retry commands are bounded, CI-owned semantic retries. They require the
 prior run/result terminal. A repair retry idempotently appends or returns the

@@ -581,6 +581,98 @@ public final class FlowRuntime
         });
     }
 
+    /**
+     * Lets a concrete owner validate the next inbox subject before the generic
+     * selector grants a writer. This is read-only and claim-generation bound.
+     */
+    public synchronized Optional<PendingWork> nextPendingForReconciliation(
+            Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        return inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            Operation reconciliation = requireOperation(claim.operationId());
+            if (reconciliation.kind() != OperationKind.RECONCILE_TASK
+                    || reconciliation.workWatermark() == null) {
+                throw new IllegalArgumentException(
+                        "claim does not own reconciliation");
+            }
+            return jdbc.query(
+                    """
+                    SELECT * FROM flow_runtime_inbox
+                    WHERE task_id = ?
+                      AND work_watermark <= ?
+                      AND handled_by_operation_id IS NULL
+                      AND selected_by_operation_id IS NULL
+                      AND terminal_reason IS NULL
+                    ORDER BY CASE kind
+                        WHEN 'AGENT_RESULT_READY' THEN 1
+                        WHEN 'FINAL_RED' THEN 2
+                        WHEN 'INITIAL_TASK' THEN 3
+                    END, work_watermark
+                    LIMIT 1
+                    """,
+                    (result, row) -> readInbox(result),
+                    reconciliation.taskId(),
+                    reconciliation.workWatermark()).stream().findFirst();
+        });
+    }
+
+    /**
+     * Marks one stale CI owner fact consumed by this exact reconciliation. It
+     * cannot select, terminate, or mutate any writer operation.
+     */
+    public synchronized void discardPendingFinalRed(
+            Claim claim, String pendingId)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(pendingId, "pendingId");
+        inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            Operation reconciliation = requireOperation(claim.operationId());
+            if (reconciliation.kind() != OperationKind.RECONCILE_TASK
+                    || reconciliation.workWatermark() == null) {
+                throw new IllegalArgumentException(
+                        "claim does not own reconciliation");
+            }
+            PendingWork pending = inbox(pendingId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Unknown pending work: " + pendingId));
+            if (!pending.taskId().equals(reconciliation.taskId())
+                    || pending.kind() != PendingKind.FINAL_RED
+                    || pending.workWatermark() > reconciliation.workWatermark()
+                    || pending.selectedByOperationId() != null
+                    || pending.terminalReason() != null) {
+                throw new IllegalStateException(
+                        "pending FINAL_RED is outside this reconciliation");
+            }
+            if (reconciliation.operationId().equals(
+                    pending.handledByOperationId())) {
+                return Boolean.TRUE;
+            }
+            if (pending.handledByOperationId() != null) {
+                throw new StaleOwnerRevisionException(
+                        "pending FINAL_RED was handled by another operation");
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_inbox
+                    SET handled_by_operation_id = ?
+                    WHERE inbox_id = ?
+                      AND selected_by_operation_id IS NULL
+                      AND handled_by_operation_id IS NULL
+                      AND terminal_reason IS NULL
+                    """,
+                    reconciliation.operationId(),
+                    pendingId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "pending FINAL_RED changed during disposition");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
     /** Claims one eligible durable ticket and increments its claim generation. */
     public synchronized Optional<Claim> claimNext(
             String workerId, Duration claimTtl)

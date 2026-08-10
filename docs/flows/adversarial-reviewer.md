@@ -113,7 +113,8 @@ following launch input from durable Task state:
 - immutable source snapshot at `reviewedHead`;
 - repository instruction files applicable to the snapshot;
 - source-cited Project Intelligence query capability;
-- an exact empty check-run reference list for the current CI-candidate path;
+- the frozen local-check policy revision and complete ordered latest required
+  check-run reference list for the exact reviewed revision;
 - the review policy and read-only tool capabilities.
 
 The program excludes:
@@ -127,9 +128,10 @@ The program excludes:
 The current CI-candidate integration implements the authority and immutable-Git
 slice of this envelope. Its durable request carries exact Task/parent,
 base/reviewed head, tree/diff, remote-input, revision, and repository-root
-bindings plus an empty check-reference list. Goal/user-answer/rule prompt
-assembly and check-evidence projection remain deferred rather than being
-silently synthesized.
+bindings plus the atomically revalidated current policy and exact run refs.
+The current reviewer capability can inspect immutable tree, base/reviewed blobs,
+and raw diff; reading check output and goal/user-answer/rule prompt assembly
+remain deferred rather than being silently synthesized.
 
 If a product-specific review needs previous concerns verified, that is a separate
 explicit review input policy; it must not silently become the default.

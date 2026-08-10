@@ -393,6 +393,12 @@ merge. A missing or unavailable `RequiredCiPolicyRevision` for the PR's exact
 target-base/ruleset scope is a hard blocker and is never treated as an explicit
 empty required-check set.
 
+The current Local Checks owner stops before this gate policy: it freezes
+`FAILED` and genuine tool/environment `UNAVAILABLE` attempts as reviewer
+evidence and blocks reviewer reservation only for missing/stale evidence or an
+unproven process boundary. This section's green/manual-only interpretation and
+gate construction remain owned by the later User Gates implementation.
+
 | Gate | Required objective facts |
 |---|---|
 | `INITIAL_PUBLISH` | Current clean committed `ChangeSetRevision`; non-empty diff; title/body revision; complete local-review binding with no open thread; current-policy exact-head local check profiles are `PASSED` or manual-only `UNAVAILABLE`; adversarial review completed on exact head; required upstream verification is current when applicable; no conflicting publication except the exact branch-only or bound-draft state frozen from proven partial initial-publication receipts and a fresh observation. |

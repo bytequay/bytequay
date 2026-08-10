@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -136,6 +137,139 @@ public final class FlowRuntimeRecords
     {
         FIX_PREPARED,
         NO_HEAD_CHANGE
+    }
+
+    public enum LocalCheckConclusion
+    {
+        PASSED,
+        FAILED,
+        UNAVAILABLE
+    }
+
+    public record LocalCheckPolicyRevision(
+            String policyRevisionId,
+            String repositoryId,
+            long sequence,
+            String sourceRevision,
+            String sourceDigest,
+            Instant recordedAt)
+    {
+        public LocalCheckPolicyRevision
+        {
+            requireNonNull(policyRevisionId, "policyRevisionId is null");
+            requireNonNull(repositoryId, "repositoryId is null");
+            if (sequence < 1) {
+                throw new IllegalArgumentException(
+                        "sequence must be positive");
+            }
+            requireNonNull(sourceRevision, "sourceRevision is null");
+            requireNonNull(sourceDigest, "sourceDigest is null");
+            requireNonNull(recordedAt, "recordedAt is null");
+        }
+    }
+
+    public record LocalCheckProfile(
+            String profileId,
+            String policyRevisionId,
+            String name,
+            List<String> command,
+            String workingDirectory,
+            List<String> environmentAllowlist,
+            Duration timeout,
+            List<GateIntent> requiredForGateKinds)
+    {
+        public LocalCheckProfile
+        {
+            requireNonNull(profileId, "profileId is null");
+            requireNonNull(policyRevisionId, "policyRevisionId is null");
+            requireNonNull(name, "name is null");
+            command = List.copyOf(command);
+            requireNonNull(workingDirectory, "workingDirectory is null");
+            environmentAllowlist = List.copyOf(environmentAllowlist);
+            requireNonNull(timeout, "timeout is null");
+            requiredForGateKinds = List.copyOf(requiredForGateKinds);
+        }
+    }
+
+    public record LocalCheckRun(
+            String checkRunId,
+            String taskId,
+            String changeSetRevisionId,
+            String policyRevisionId,
+            String profileId,
+            String operationId,
+            String agentRunId,
+            long attemptSequence,
+            String observedStartHead,
+            String observedEndHead,
+            Instant startedAt,
+            Instant completedAt,
+            LocalCheckConclusion conclusion,
+            Integer exitCode,
+            String unavailableReasonCode,
+            String outputRef,
+            String outputText,
+            boolean outputTruncated,
+            boolean trackedTreeCleanBefore,
+            boolean trackedTreeCleanAfter)
+    {
+        public LocalCheckRun
+        {
+            requireNonNull(checkRunId, "checkRunId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(changeSetRevisionId,
+                    "changeSetRevisionId is null");
+            requireNonNull(policyRevisionId,
+                    "policyRevisionId is null");
+            requireNonNull(profileId, "profileId is null");
+            requireNonNull(operationId, "operationId is null");
+            requireNonNull(agentRunId, "agentRunId is null");
+            if (attemptSequence < 1) {
+                throw new IllegalArgumentException(
+                        "attemptSequence must be positive");
+            }
+            requireNonNull(observedStartHead,
+                    "observedStartHead is null");
+            if (observedEndHead == null
+                    && conclusion != LocalCheckConclusion.UNAVAILABLE) {
+                throw new IllegalArgumentException(
+                        "only unavailable checks may lack an observed end head");
+            }
+            requireNonNull(startedAt, "startedAt is null");
+            requireNonNull(completedAt, "completedAt is null");
+            requireNonNull(conclusion, "conclusion is null");
+            if ((conclusion == LocalCheckConclusion.UNAVAILABLE)
+                    != (unavailableReasonCode != null)) {
+                throw new IllegalArgumentException(
+                        "only unavailable checks have a reason code");
+            }
+            requireNonNull(outputRef, "outputRef is null");
+            requireNonNull(outputText, "outputText is null");
+        }
+    }
+
+    public record LocalCheckEvidence(
+            String taskId,
+            String changeSetRevisionId,
+            String policyRevisionId,
+            GateIntent gateKind,
+            List<LocalCheckRun> runs,
+            List<String> blockerCodes)
+    {
+        public LocalCheckEvidence
+        {
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(changeSetRevisionId,
+                    "changeSetRevisionId is null");
+            requireNonNull(gateKind, "gateKind is null");
+            runs = List.copyOf(runs);
+            blockerCodes = List.copyOf(blockerCodes);
+        }
+
+        public List<String> checkRunRefs()
+        {
+            return runs.stream().map(LocalCheckRun::checkRunId).toList();
+        }
     }
 
     public record Task(
@@ -624,6 +758,7 @@ public final class FlowRuntimeRecords
             String reviewedHeadSha,
             String remoteHeadSha,
             String changeSetRevisionId,
+            String localCheckPolicyRevisionId,
             String headTreeDigest,
             String diffDigest,
             List<String> checkRunRefs,
@@ -645,6 +780,8 @@ public final class FlowRuntimeRecords
             requireNonNull(remoteHeadSha, "remoteHeadSha is null");
             requireNonNull(changeSetRevisionId,
                     "changeSetRevisionId is null");
+            requireNonNull(localCheckPolicyRevisionId,
+                    "localCheckPolicyRevisionId is null");
             requireNonNull(headTreeDigest, "headTreeDigest is null");
             requireNonNull(diffDigest, "diffDigest is null");
             checkRunRefs = List.copyOf(checkRunRefs);

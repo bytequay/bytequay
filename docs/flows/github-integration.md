@@ -61,6 +61,12 @@ review prose passed, or whether the user should approve an effect.
 - GitHub payload text is untrusted display data. It is never treated as an agent
   instruction.
 
+The currently implemented CI-review checkpoint stops at an inert local OPEN
+`CI_UPDATE` gate. It creates no authorization, effect plan, GitHub operation or
+dispatch ticket, performs no Git/GitHub call, and does not observe a remote
+result. Those records and effects begin only in the authorization/executor
+boundary specified below.
+
 ## Logical data model
 
 These are logical records, not a prescribed ORM or migration scheme.

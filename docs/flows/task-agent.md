@@ -279,7 +279,7 @@ cannot bypass it.
 | `draft_feedback_reply(content_revision_id, body)` | Stores a private draft bound programmatically to the current observation; never posts to GitHub |
 | `propose_thread_resolution(content_revision_id, rationale?)` | Stores intent bound to the current observation for the next exact user gate; never resolves remotely |
 | `propose_keep_open(content_revision_id, rationale)` | Makes a deliberate non-resolution proposal visible to the user |
-| `ready_for_review()` | Successful call is terminal: declares a reviewable candidate, ends mutation, and lets the program derive the active workset/gate subject from authenticated durable state |
+| `ready_for_review()` | Zero-argument terminal declaration. Currently bound only to the CI-fix `AGENT_RESULT_READY` continuation: success freezes program-derived exact evidence, revokes tools, and lets the stopped finalizer open/revise a local `CI_UPDATE` gate. Rejection leaves tools live. It never authorizes an effect. |
 | `request_user_input(question)` | Successful call is terminal: stores the question plus a program-measured sealed worktree/sequencer state and blocks all writers until the exact user-answer successor resumes it |
 
 There is no timeline, push, mark-ready, GitHub-comment, GitHub-resolve, merge,
@@ -393,6 +393,10 @@ The Task Agent's standing instruction is short and explicit:
   `list/read/reply/resolve_local_thread` tools; Remote Feedback owns only GitHub
   feedback records.
 - `ready_for_review()` requests a gate; it does not authorize an effect.
+- The implemented CI binding freezes a canonical explicit empty local-review
+  binding and empty CI-memory reference list because neither greenfield owner
+  exists yet. Initial/upstream/feedback/local-review ready bindings remain
+  deferred rather than consulting legacy state.
 - The initial gate freezes `KEEP_DRAFT` or `MARK_READY_ON_EXACT_GREEN`; only the
   program applies that policy after publication and exact-head CI observation. It
   may carry only across program-authorized `CI_UPDATE` heads.

@@ -86,6 +86,14 @@ transitions, and authorizations.
 One aggregate per `(pr_id, kind)` is enough. Repeated CI or feedback rounds append
 revisions instead of inventing another gate framework.
 
+Current executable scope is narrower than this full contract. The implemented
+owner constructs only local `CI_UPDATE` gates from the sealed CI-review Task
+continuation. It creates one stable `(pr_id, CI_UPDATE)` aggregate, immutable
+subjects/actions/revisions/transitions, and no authorization or external-effect
+record. A different later ready run may atomically transition only the current
+OPEN revision to `STALE/SUPERSEDED_BY_READY` and append a new OPEN revision;
+historical replay returns the revision created by that run.
+
 ### `GateRevision`
 
 | Field | Meaning |
@@ -296,7 +304,8 @@ Freeze:
 - exact-proposed-head local check policy/profile/run IDs;
 - exact-proposed-head adversarial reviewer run/result reference;
 - push refspec and force-push flag;
-- CI repair run/result and memory references;
+- exact CI repair result, optional cleanup result, and current memory references
+  when a memory owner exists;
 - current `RequiredCiPolicyRevision` for post-push CI/ready evaluation;
 - current consent revision, if automatic authorization is considered;
 - current ready-policy revision, so any permitted carry-forward is exact and
@@ -304,6 +313,16 @@ Freeze:
 
 Action manifest: push only the proposed exact head. It cannot contain a GitHub
 comment, review, title/body edit, thread resolution, ready action, or merge.
+
+The current CI implementation freezes the exact repair attempt/result and, for
+a cleanup-produced candidate, the cleanup ID/result as separate causal facts.
+It also freezes the full ordered failed observation/log lists. Because no
+greenfield local-review or CI-memory owner exists yet, it stores canonical
+explicit empty bindings for both; it never reads legacy data. This makes the
+local OPEN gate reviewable as a bounded snapshot but not sufficient for the
+full readiness policy above. The later authorization/freshness owner must
+revalidate those deferred bindings and transition an obsolete OPEN snapshot;
+OPEN alone is neither authorization nor executable work.
 
 ### 6.3 `REMOTE_FEEDBACK`
 
@@ -393,11 +412,13 @@ merge. A missing or unavailable `RequiredCiPolicyRevision` for the PR's exact
 target-base/ruleset scope is a hard blocker and is never treated as an explicit
 empty required-check set.
 
-The current Local Checks owner stops before this gate policy: it freezes
-`FAILED` and genuine tool/environment `UNAVAILABLE` attempts as reviewer
-evidence and blocks reviewer reservation only for missing/stale evidence or an
-unproven process boundary. This section's green/manual-only interpretation and
-gate construction remain owned by the later User Gates implementation.
+The current Local Checks owner freezes `FAILED` and genuine tool/environment
+`UNAVAILABLE` attempts as reviewer evidence and blocks reviewer reservation
+only for missing/stale evidence or an unproven process boundary. The implemented
+local `CI_UPDATE` gate then blocks `FAILED`, records genuine `UNAVAILABLE` as a
+manual-only warning, and rejects missing/stale/process-boundary evidence. Other
+gate kinds, full local-review readiness, authorization, and effects remain
+deferred.
 
 | Gate | Required objective facts |
 |---|---|

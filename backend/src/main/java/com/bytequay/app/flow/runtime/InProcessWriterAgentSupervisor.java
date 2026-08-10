@@ -13,8 +13,12 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.gate.UserGateRecords.ReadyForReviewAcceptance;
+import com.bytequay.app.flow.gate.UserGates;
+import com.bytequay.app.flow.gate.UserGates.PreparedReadyRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
@@ -171,25 +175,45 @@ public final class InProcessWriterAgentSupervisor
         public ReviewerRequest spawnAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
                 String expectedChangeSetRevisionId,
+                CiFixReviewOrigin origin,
                 LocalChecks.ReviewerEvidence reviewerEvidence)
         {
             return execution.spawnAdversarialReviewer(
                     programOwnedRepositoryRoot,
                     expectedChangeSetRevisionId,
+                    origin,
                     reviewerEvidence);
         }
 
         public ReviewerRequest replayAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
                 String expectedChangeSetRevisionId,
+                CiFixReviewOrigin origin,
                 String localCheckPolicyRevisionId,
                 List<String> checkRunRefs)
         {
             return execution.replayAdversarialReviewer(
                     programOwnedRepositoryRoot,
                     expectedChangeSetRevisionId,
+                    origin,
                     localCheckPolicyRevisionId,
                     checkRunRefs);
+        }
+
+        /** Terminal ready command over one program-derived immutable subject. */
+        public ReadyForReviewAcceptance readyForReview(
+                UserGates userGates,
+                Path repositoryRoot,
+                ReviewerRequest reviewerRequest,
+                AgentResult reviewerResult,
+                CiFixReviewOrigin origin)
+        {
+            return execution.readyForReview(
+                    userGates,
+                    repositoryRoot,
+                    reviewerRequest,
+                    reviewerResult,
+                    origin);
         }
 
         @Override
@@ -827,6 +851,7 @@ public final class InProcessWriterAgentSupervisor
         private ReviewerRequest spawnAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
                 String expectedChangeSetRevisionId,
+                CiFixReviewOrigin origin,
                 LocalChecks.ReviewerEvidence reviewerEvidence)
         {
             synchronized (this) {
@@ -843,6 +868,7 @@ public final class InProcessWriterAgentSupervisor
                                 fence,
                                 programOwnedRepositoryRoot,
                                 expectedChangeSetRevisionId,
+                                origin,
                                 reviewerEvidence);
                 return runtime.reserveReviewerRequest(
                         runId,
@@ -861,6 +887,7 @@ public final class InProcessWriterAgentSupervisor
         private ReviewerRequest replayAdversarialReviewer(
                 Path programOwnedRepositoryRoot,
                 String expectedChangeSetRevisionId,
+                CiFixReviewOrigin origin,
                 String localCheckPolicyRevisionId,
                 List<String> checkRunRefs)
         {
@@ -874,12 +901,58 @@ public final class InProcessWriterAgentSupervisor
                     runId,
                     programOwnedRepositoryRoot,
                     expectedChangeSetRevisionId,
+                    origin,
                     localCheckPolicyRevisionId,
                     checkRunRefs);
             synchronized (this) {
                 revocationRequested = true;
             }
             return replayed;
+        }
+
+        private ReadyForReviewAcceptance readyForReview(
+                UserGates userGates,
+                Path repositoryRoot,
+                ReviewerRequest reviewerRequest,
+                AgentResult reviewerResult,
+                CiFixReviewOrigin origin)
+        {
+            requireNonNull(userGates, "userGates is null");
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "terminal tool requires the owned writer thread");
+                }
+            }
+            if (runtime.readyForReviewRequestForRun(runId).isPresent()) {
+                ReadyForReviewAcceptance replay =
+                        userGates.replayReadyRequest(runId);
+                synchronized (this) {
+                    revocationRequested = true;
+                }
+                return replay;
+            }
+            ReadyForReviewAcceptance accepted = callTool(() -> {
+                PreparedReadyRequest prepared = userGates.prepareReadyRequest(
+                        runId,
+                        claim,
+                        fence,
+                        repositoryRoot,
+                        reviewerRequest,
+                        reviewerResult,
+                        origin);
+                return userGates.reserveReadyRequest(
+                        runId,
+                        claim,
+                        fence,
+                        attempt.processAttemptId(),
+                        attempt.capabilityId(),
+                        prepared);
+            });
+            synchronized (this) {
+                revocationRequested = true;
+            }
+            return accepted;
         }
 
         private synchronized void adoptCurrentOwner(

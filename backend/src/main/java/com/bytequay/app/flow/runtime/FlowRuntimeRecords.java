@@ -107,6 +107,12 @@ public final class FlowRuntimeRecords
         AGENT_RESULT_READY
     }
 
+    public enum TaskTerminalRequestKind
+    {
+        REVIEWER,
+        READY_FOR_REVIEW
+    }
+
     public enum ProcessAttemptState
     {
         RESERVED,
@@ -137,6 +143,26 @@ public final class FlowRuntimeRecords
     {
         FIX_PREPARED,
         NO_HEAD_CHANGE
+    }
+
+    public enum CiFixSourceKind
+    {
+        REPAIR_ATTEMPT,
+        CLEANUP
+    }
+
+    /** Program-owned CI source inherited through every reviewer cycle. */
+    public record CiFixReviewOrigin(
+            String pendingId,
+            CiFixSourceKind sourceKind,
+            String sourceId)
+    {
+        public CiFixReviewOrigin
+        {
+            requireNonNull(pendingId, "pendingId is null");
+            requireNonNull(sourceKind, "sourceKind is null");
+            requireNonNull(sourceId, "sourceId is null");
+        }
     }
 
     public enum LocalCheckConclusion
@@ -757,6 +783,9 @@ public final class FlowRuntimeRecords
             String baseHeadSha,
             String reviewedHeadSha,
             String remoteHeadSha,
+            String originCiFixPendingId,
+            String originCiFixSourceKind,
+            String originCiFixSourceId,
             String changeSetRevisionId,
             String localCheckPolicyRevisionId,
             String headTreeDigest,
@@ -778,6 +807,12 @@ public final class FlowRuntimeRecords
             requireNonNull(baseHeadSha, "baseHeadSha is null");
             requireNonNull(reviewedHeadSha, "reviewedHeadSha is null");
             requireNonNull(remoteHeadSha, "remoteHeadSha is null");
+            requireNonNull(originCiFixPendingId,
+                    "originCiFixPendingId is null");
+            requireNonNull(originCiFixSourceKind,
+                    "originCiFixSourceKind is null");
+            requireNonNull(originCiFixSourceId,
+                    "originCiFixSourceId is null");
             requireNonNull(changeSetRevisionId,
                     "changeSetRevisionId is null");
             requireNonNull(localCheckPolicyRevisionId,
@@ -787,6 +822,50 @@ public final class FlowRuntimeRecords
             checkRunRefs = List.copyOf(checkRunRefs);
             requireNonNull(intendedGateKind,
                     "intendedGateKind is null");
+            requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    /** One durable mutually exclusive terminal command for a Task run. */
+    public record TaskTerminalRequest(
+            String runId,
+            TaskTerminalRequestKind kind,
+            String requestId,
+            Instant createdAt)
+    {
+        public TaskTerminalRequest
+        {
+            requireNonNull(runId, "runId is null");
+            requireNonNull(kind, "kind is null");
+            requireNonNull(requestId, "requestId is null");
+            requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    /** Runtime-owned terminal request pointing at one frozen gate subject. */
+    public record ReadyForReviewRequest(
+            String requestId,
+            String runId,
+            String operationId,
+            String taskId,
+            String prId,
+            String subjectRef,
+            String subjectDigest,
+            String actionRef,
+            String actionDigest,
+            Instant createdAt)
+    {
+        public ReadyForReviewRequest
+        {
+            requireNonNull(requestId, "requestId is null");
+            requireNonNull(runId, "runId is null");
+            requireNonNull(operationId, "operationId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(subjectRef, "subjectRef is null");
+            requireNonNull(subjectDigest, "subjectDigest is null");
+            requireNonNull(actionRef, "actionRef is null");
+            requireNonNull(actionDigest, "actionDigest is null");
             requireNonNull(createdAt, "createdAt is null");
         }
     }

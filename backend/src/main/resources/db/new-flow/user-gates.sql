@@ -1,0 +1,191 @@
+CREATE TABLE flow_user_gate_subject (
+    subject_id TEXT PRIMARY KEY,
+    subject_digest TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    pr_id TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    branch_ref TEXT NOT NULL,
+    expected_remote_head TEXT NOT NULL,
+    change_set_revision_id TEXT NOT NULL,
+    base_revision_id TEXT NOT NULL,
+    base_sha TEXT NOT NULL,
+    proposed_head TEXT NOT NULL,
+    head_tree_digest TEXT NOT NULL,
+    diff_digest TEXT NOT NULL,
+    local_check_policy_revision_id TEXT NOT NULL,
+    reviewer_request_id TEXT NOT NULL,
+    reviewer_run_id TEXT NOT NULL,
+    reviewer_result_id TEXT NOT NULL,
+    origin_ci_fix_pending_id TEXT NOT NULL,
+    origin_ci_fix_source_kind TEXT NOT NULL CHECK (
+        origin_ci_fix_source_kind IN ('REPAIR_ATTEMPT', 'CLEANUP')
+    ),
+    origin_ci_fix_source_id TEXT NOT NULL,
+    ci_round_id TEXT NOT NULL,
+    required_ci_policy_revision_id TEXT NOT NULL,
+    ci_evidence_revision INTEGER NOT NULL CHECK (ci_evidence_revision >= 0),
+    repair_attempt_id TEXT NOT NULL,
+    repair_result_id TEXT NOT NULL,
+    cleanup_id TEXT,
+    cleanup_result_id TEXT,
+    local_review_owner_present INTEGER NOT NULL CHECK (
+        local_review_owner_present = 0
+    ),
+    local_review_batch_refs_json TEXT NOT NULL CHECK (
+        local_review_batch_refs_json = '[]'
+    ),
+    local_review_revision_refs_json TEXT NOT NULL CHECK (
+        local_review_revision_refs_json = '[]'
+    ),
+    local_review_digest TEXT NOT NULL,
+    ci_memory_refs_json TEXT NOT NULL CHECK (ci_memory_refs_json = '[]'),
+    manual_only INTEGER NOT NULL CHECK (manual_only IN (0, 1)),
+    created_by_run_id TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
+    FOREIGN KEY (base_revision_id)
+        REFERENCES flow_runtime_task_base_revision (base_revision_id),
+    FOREIGN KEY (local_check_policy_revision_id)
+        REFERENCES flow_runtime_local_check_policy_revision (
+            policy_revision_id
+        ),
+    FOREIGN KEY (reviewer_request_id)
+        REFERENCES flow_runtime_reviewer_request (request_id),
+    FOREIGN KEY (reviewer_run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (reviewer_result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (origin_ci_fix_pending_id)
+        REFERENCES flow_runtime_inbox (inbox_id),
+    FOREIGN KEY (ci_round_id) REFERENCES flow_ci_round (round_id),
+    FOREIGN KEY (required_ci_policy_revision_id)
+        REFERENCES flow_ci_policy_revision (policy_revision_id),
+    FOREIGN KEY (repair_result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (repair_attempt_id)
+        REFERENCES flow_ci_repair_attempt (attempt_id),
+    FOREIGN KEY (cleanup_id)
+        REFERENCES flow_ci_cleanup_seal (cleanup_id),
+    FOREIGN KEY (cleanup_result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    CHECK ((cleanup_id IS NULL) = (cleanup_result_id IS NULL)),
+    FOREIGN KEY (created_by_run_id)
+        REFERENCES flow_runtime_agent_run (run_id)
+);
+
+CREATE TABLE flow_user_gate_subject_local_check (
+    subject_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    check_run_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    conclusion TEXT NOT NULL CHECK (
+        conclusion IN ('PASSED', 'FAILED', 'UNAVAILABLE')
+    ),
+    PRIMARY KEY (subject_id, ordinal),
+    UNIQUE (subject_id, check_run_id),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_user_gate_subject (subject_id),
+    FOREIGN KEY (check_run_id)
+        REFERENCES flow_runtime_local_check_run (check_run_id)
+);
+
+CREATE TABLE flow_user_gate_subject_ci_observation (
+    subject_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    observation_id TEXT NOT NULL,
+    PRIMARY KEY (subject_id, ordinal),
+    UNIQUE (subject_id, observation_id),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_user_gate_subject (subject_id),
+    FOREIGN KEY (observation_id)
+        REFERENCES flow_ci_check_observation (observation_id)
+);
+
+CREATE TABLE flow_user_gate_subject_failed_log (
+    subject_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    log_ref TEXT NOT NULL,
+    PRIMARY KEY (subject_id, ordinal),
+    UNIQUE (subject_id, log_ref),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_user_gate_subject (subject_id),
+    FOREIGN KEY (log_ref) REFERENCES flow_ci_log_evidence (log_ref)
+);
+
+CREATE TABLE flow_user_gate_subject_warning (
+    subject_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    warning_code TEXT NOT NULL,
+    PRIMARY KEY (subject_id, ordinal),
+    UNIQUE (subject_id, warning_code),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_user_gate_subject (subject_id)
+);
+
+CREATE TABLE flow_user_gate_ci_update_action (
+    action_ref TEXT PRIMARY KEY,
+    branch_ref TEXT NOT NULL,
+    expected_remote_head TEXT NOT NULL,
+    proposed_head TEXT NOT NULL,
+    force_push INTEGER NOT NULL CHECK (force_push = 0),
+    action_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE flow_user_gate (
+    gate_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    pr_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind = 'CI_UPDATE'),
+    current_revision INTEGER NOT NULL CHECK (current_revision > 0),
+    created_at INTEGER NOT NULL,
+    UNIQUE (pr_id, kind),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id)
+);
+
+CREATE TABLE flow_user_gate_revision (
+    gate_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    subject_manifest_ref TEXT NOT NULL,
+    subject_digest TEXT NOT NULL,
+    action_manifest_ref TEXT NOT NULL,
+    action_digest TEXT NOT NULL,
+    readiness_evidence_ref TEXT NOT NULL,
+    created_by_run_id TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (gate_id, revision),
+    FOREIGN KEY (gate_id) REFERENCES flow_user_gate (gate_id),
+    FOREIGN KEY (subject_manifest_ref)
+        REFERENCES flow_user_gate_subject (subject_id),
+    FOREIGN KEY (action_manifest_ref)
+        REFERENCES flow_user_gate_ci_update_action (action_ref),
+    FOREIGN KEY (readiness_evidence_ref)
+        REFERENCES flow_runtime_ready_for_review_request (request_id),
+    FOREIGN KEY (created_by_run_id)
+        REFERENCES flow_runtime_agent_run (run_id)
+);
+
+CREATE TABLE flow_user_gate_transition (
+    gate_id TEXT NOT NULL,
+    gate_revision INTEGER NOT NULL,
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    from_state TEXT CHECK (from_state IN ('OPEN', 'STALE')),
+    to_state TEXT NOT NULL CHECK (to_state IN ('OPEN', 'STALE')),
+    actor_type TEXT NOT NULL CHECK (actor_type = 'PROGRAM'),
+    actor_id TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    detail_ref TEXT,
+    recorded_at INTEGER NOT NULL,
+    PRIMARY KEY (gate_id, sequence),
+    FOREIGN KEY (gate_id, gate_revision)
+        REFERENCES flow_user_gate_revision (gate_id, revision),
+    CHECK (
+        (from_state IS NULL AND to_state = 'OPEN' AND reason_code = 'READY')
+        OR (from_state = 'OPEN' AND to_state = 'STALE'
+            AND reason_code = 'SUPERSEDED_BY_READY')
+    )
+);

@@ -555,6 +555,11 @@ CREATE TABLE flow_runtime_reviewer_request (
     base_head_sha TEXT NOT NULL,
     reviewed_head_sha TEXT NOT NULL,
     remote_head_sha TEXT NOT NULL,
+    origin_ci_fix_pending_id TEXT NOT NULL,
+    origin_ci_fix_source_kind TEXT NOT NULL CHECK (
+        origin_ci_fix_source_kind IN ('REPAIR_ATTEMPT', 'CLEANUP')
+    ),
+    origin_ci_fix_source_id TEXT NOT NULL,
     change_set_revision_id TEXT NOT NULL,
     local_check_policy_revision_id TEXT NOT NULL,
     head_tree_digest TEXT NOT NULL,
@@ -576,6 +581,34 @@ CREATE TABLE flow_runtime_reviewer_request (
         REFERENCES flow_runtime_local_check_policy_revision (
             policy_revision_id
         )
+);
+
+CREATE TABLE flow_runtime_task_terminal_request (
+    run_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (
+        kind IN ('REVIEWER', 'READY_FOR_REVIEW')
+    ),
+    request_id TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id)
+);
+
+CREATE TABLE flow_runtime_ready_for_review_request (
+    request_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE,
+    operation_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    pr_id TEXT NOT NULL,
+    subject_ref TEXT NOT NULL UNIQUE,
+    subject_digest TEXT NOT NULL,
+    action_ref TEXT NOT NULL UNIQUE,
+    action_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id)
 );
 
 CREATE TABLE flow_runtime_reviewer_check_ref (

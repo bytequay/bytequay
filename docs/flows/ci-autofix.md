@@ -539,7 +539,9 @@ and the complete ordered latest run refs for every profile required by the
 current local-check policy. Initial reservation atomically revalidates that exact
 policy/revision/head set; a subset or older attempt cannot be supplied. A durable
 request replays its frozen policy/refs even if policy later advances. Reviewer
-check-output reads and gate interpretation remain deferred. An unchanged
+check-output reads remain deferred. The implemented local `CI_UPDATE` gate
+blocks `FAILED`, treats genuine `UNAVAILABLE` as manual-only, and rejects
+missing/stale/process-boundary evidence. An unchanged
 `AgentResultReady` continuation may
 end without requesting another reviewer; that only records that the opaque child
 result was consumed and returns the persistent Task session to idle. It is not
@@ -549,14 +551,19 @@ reviewer before stopping. A changed turn without that request consumes its input
 and enters typed `NEEDS_ATTENTION`; ordinary lifecycle resume is forbidden until
 the future recovery owner resolves that exact reason.
 
-`ACCEPTED_SEALED` only seals the candidate against more model mutation. After
-the opaque result, exact head, and lease release are durable, the program checks
-exact-head evidence and opens/revises the gate; it does not return a `gateId` to
-the model or parse semantic approval text.
+`ACCEPTED_SEALED` only seals the candidate against more model mutation. The
+implemented stopped finalizer locks and revalidates the exact PR remote,
+current Local Checks policy/latest runs, current required-CI policy/actionable
+round, clean current Task change set, and completed same-head reviewer. It then
+opens or revises one local `CI_UPDATE` gate and settles the Task result/session/
+input/pointer/lease atomically. Parent `FAILED` or `CANCELED` prose/outcome does
+not undo an already accepted command. Stable post-seal drift records typed
+attention and no gate; a transaction failure retries the stopped finalizer and
+does not rerun the agent body.
 
-The CI-fix/reviewer authority round trip ends before this gate step. Gate
-construction and typed recovery from its attention outcomes remain owned by the
-User Gates/runtime integration; neither is inferred from a no-child Task result.
+This checkpoint creates no authorization, effect plan, dispatch ticket, push,
+provider call, or timeline event. The OPEN gate is inert until the separately
+specified authorization/effect owners are implemented.
 
 ### 4. Authorize and push
 

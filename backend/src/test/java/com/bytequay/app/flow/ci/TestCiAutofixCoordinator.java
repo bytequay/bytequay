@@ -26,6 +26,9 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
+import com.bytequay.app.flow.gate.UserGates;
+import com.bytequay.app.flow.gate.UserGatesSchema;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
@@ -33,8 +36,11 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixSourceKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckConclusion;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckPolicyRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
@@ -99,20 +105,24 @@ class TestCiAutofixCoordinator
     private FlowRuntime runtime;
     private LocalChecks localChecks;
     private CiAutofix autofix;
+    private UserGates userGates;
     private CiAutofixCoordinator coordinator;
     private Task task;
     private PullRequestSubject pr;
     private Path repositoryRoot;
     private String publishedHead;
+    private final AtomicReference<Runnable> publishedSubjectHook =
+            new AtomicReference<>();
 
     @BeforeEach
     void setUp()
     {
         dataSource = new DriverManagerDataSource(
                 "jdbc:sqlite:" + temporaryDirectory.resolve("flow.db")
-                        + "?foreign_keys=ON");
+                        + "?foreign_keys=ON&busy_timeout=5000");
         FlowRuntimeSchema.install(dataSource);
         CiAutofixSchema.install(dataSource);
+        UserGatesSchema.install(dataSource);
         jdbc = new JdbcTemplate(dataSource);
         runtime = new FlowRuntime(
                 dataSource, Clock.fixed(NOW, ZoneOffset.UTC));
@@ -137,6 +147,12 @@ class TestCiAutofixCoordinator
                 new ObjectMapper(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 this::publishedSubject);
+        userGates = new UserGates(
+                dataSource,
+                runtime,
+                localChecks,
+                autofix,
+                Clock.fixed(NOW, ZoneOffset.UTC));
         coordinator = new CiAutofixCoordinator(dataSource, autofix, runtime);
     }
 
@@ -2310,6 +2326,617 @@ class TestCiAutofixCoordinator
     }
 
     @Test
+    void terminalReadyOpensExactLocalGateAndWinsOverParentFailure()
+    {
+        ReviewerResultReady ready = prepareReviewerResult("ready-gate");
+        int operationCount = count("flow_runtime_operation", "1 = 1");
+        int ticketCount = count("flow_runtime_dispatch_ticket", "1 = 1");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        AtomicReference<String> acceptance = new AtomicReference<>();
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            acceptance.set(
+                                    capability.readyForReview().status());
+                            assertThatThrownBy(
+                                    capability::spawnAdversarialReviewer)
+                                    .isInstanceOf(FlowRuntime
+                                            .StaleCapabilityException.class);
+                            assertThatThrownBy(capability::runChecks)
+                                    .isInstanceOf(FlowRuntime
+                                            .StaleCapabilityException.class);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.FAILED,
+                                            "opaque failure after seal",
+                                            "PARENT_FAILED_AFTER_READY");
+                        });
+
+        AgentResult result = ready.ready().review()
+                .awaitReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        handle,
+                        TTL);
+
+        assertThat(acceptance).hasValue("ACCEPTED_SEALED");
+        assertThat(result.terminalOutcome()).isEqualTo(TerminalOutcome.FAILED);
+        var gate = userGates.gate(pr.prId()).orElseThrow();
+        var revision = userGates.revisionForRun(
+                ready.binding().run().runId()).orElseThrow();
+        var subject = userGates.subject(
+                revision.subjectManifestRef()).orElseThrow();
+        assertThat(gate.currentRevision()).isEqualTo(revision.revision());
+        assertThat(subject.taskId()).isEqualTo(task.taskId());
+        assertThat(subject.prId()).isEqualTo(pr.prId());
+        assertThat(subject.proposedHead())
+                .isEqualTo(runtime.currentChangeSet(task.taskId())
+                        .orElseThrow().headSha());
+        assertThat(subject.expectedRemoteHead()).isEqualTo(publishedHead);
+        assertThat(subject.localChecks()).hasSize(1);
+        assertThat(subject.localReview().ownerPresent()).isFalse();
+        assertThat(subject.localReview().batchIds()).isEmpty();
+        assertThat(subject.localReview().latestRevisionIds()).isEmpty();
+        assertThat(subject.ciMemoryRefs()).isEmpty();
+        assertThat(subject.ciObservationIds()).isNotEmpty();
+        assertThat(subject.failedLogRefs()).isNotEmpty();
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.ACTIVE);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_user_gate_transition "
+                        + "WHERE gate_id = ? AND from_state IS NULL "
+                        + "AND to_state = 'OPEN'",
+                Integer.class,
+                gate.gateId())).isEqualTo(1);
+        var replay = userGates.prepareFinalization(
+                ready.binding().run().runId(),
+                ready.claim(),
+                ready.binding().fence());
+        assertThat(userGates.finalizeReady(
+                ready.binding().run().runId(),
+                ready.claim(),
+                ready.binding().fence(),
+                TerminalOutcome.FAILED,
+                "opaque failure after seal",
+                "PARENT_FAILED_AFTER_READY",
+                replay)).isEqualTo(result);
+        assertThat(userGates.revisionForRun(
+                ready.binding().run().runId())).contains(revision);
+        assertThat(count("flow_runtime_operation", "1 = 1"))
+                .isEqualTo(operationCount);
+        assertThat(count("flow_runtime_dispatch_ticket", "1 = 1"))
+                .isEqualTo(ticketCount);
+        assertThat(jdbc.queryForList(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                        + "AND (name LIKE '%authorization%' "
+                        + "OR name LIKE '%effect_plan%')",
+                String.class)).isEmpty();
+    }
+
+    @Test
+    void terminalReadyGateWinsOverParentCancellation()
+    {
+        ReviewerResultReady ready = prepareReviewerResult("canceled-ready");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.CANCELED,
+                                            "opaque canceled after seal",
+                                            "PARENT_CANCELED_AFTER_READY");
+                        });
+        AgentResult result = ready.ready().review()
+                .awaitReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        handle,
+                        TTL);
+
+        assertThat(result.terminalOutcome())
+                .isEqualTo(TerminalOutcome.CANCELED);
+        assertThat(userGates.revisionForRun(
+                ready.binding().run().runId())).isPresent();
+        assertThat(userGates.gate(pr.prId())).isPresent();
+    }
+
+    @Test
+    void cleanupReadyGateFreezesRepairAndCleanupResults()
+    {
+        ReviewReady cleanupReview = prepareCleanCleanupReview(
+                "cleanup-ready");
+        ReviewerResultReady ready = prepareReviewerResult(
+                cleanupReview, "cleanup-ready");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque cleanup ready",
+                                            null);
+                        });
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor, ready.binding(), handle, TTL);
+
+        var revision = userGates.revisionForRun(
+                ready.binding().run().runId()).orElseThrow();
+        var subject = userGates.subject(
+                revision.subjectManifestRef()).orElseThrow();
+        assertThat(subject.originCiFixSourceKind()).isEqualTo("CLEANUP");
+        assertThat(subject.cleanupId())
+                .isEqualTo(subject.originCiFixSourceId());
+        assertThat(subject.cleanupResultId()).isNotBlank();
+        assertThat(subject.repairAttemptId()).isNotBlank();
+        assertThat(subject.repairResultId()).isNotBlank();
+        assertThat(subject.cleanupResultId())
+                .isNotEqualTo(subject.repairResultId());
+    }
+
+    @Test
+    void initialCiFixTurnCannotSealReadyWithoutACompletedReviewer()
+    {
+        ReviewReady ready = prepareCleanReview("ready-before-review");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.review().launchTaskInspection(
+                supervisor,
+                ready.binding(),
+                ready.claim(),
+                capability -> {
+                    capability.runChecks();
+                    assertThatThrownBy(capability::readyForReview)
+                            .isInstanceOf(UserGates
+                                    .ReadyRejectedException.class)
+                            .hasMessageContaining(
+                                    "EXACT_HEAD_REVIEW_MISSING");
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "opaque premature ready",
+                            null);
+                });
+
+        ready.review().awaitTaskInspection(
+                supervisor, ready.binding(), handle, TTL);
+
+        assertThat(runtime.readyForReviewRequestForRun(
+                ready.binding().run().runId())).isEmpty();
+        assertThat(userGates.gate(pr.prId())).isEmpty();
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+    }
+
+    @Test
+    void remoteAdvanceAfterReadySealSettlesTypedAttentionWithoutGate()
+    {
+        ReviewerResultReady ready = prepareReviewerResult(
+                "ready-remote-drift");
+        CountDownLatch sealed = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            assertThat(capability.readyForReview().status())
+                                    .isEqualTo("ACCEPTED_SEALED");
+                            sealed.countDown();
+                            awaitLatch(release);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque ready",
+                                            null);
+                        });
+        awaitLatch(sealed);
+        runtime.advanceRemoteHead(
+                pr.prId(), publishedHead, "d".repeat(40));
+        release.countDown();
+
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor,
+                ready.binding(),
+                handle,
+                TTL);
+
+        assertThat(userGates.gate(pr.prId())).isEmpty();
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        assertThat(runtime.readyAttentionReasonForRun(
+                ready.binding().run().runId()))
+                .contains("REVIEW_READINESS_STALE");
+    }
+
+    @Test
+    void localCheckPolicyAdvanceAfterReadySealPreventsStaleGate()
+    {
+        assertPostSealDriftNeedsAttention(
+                "local-policy-after-ready",
+                () -> publishCheckPolicy(
+                        "advanced-after-ready", List.of("/usr/bin/true")));
+    }
+
+    @Test
+    void requiredCiPolicyAdvanceAfterReadySealPreventsStaleGate()
+    {
+        assertPostSealDriftNeedsAttention(
+                "ci-policy-after-ready",
+                () -> autofix.recordPolicy(
+                        "repo-1",
+                        "main",
+                        "main",
+                        "ruleset:after-ready",
+                        "digest:after-ready",
+                        PolicyResolution.RESOLVED,
+                        null,
+                        List.of("build"),
+                        List.of("SUCCESS")));
+    }
+
+    @Test
+    void targetBaseAdvanceAfterReadySealPreventsStaleGate()
+    {
+        assertPostSealDriftNeedsAttention(
+                "target-base-after-ready",
+                () -> jdbc.update(
+                        "UPDATE flow_runtime_pr SET target_base_ref = ? "
+                                + "WHERE pr_id = ?",
+                        "release",
+                        pr.prId()));
+    }
+
+    @Test
+    void overlappingRemoteAdvanceWaitsForGateOwnerLocks()
+    {
+        ReviewerResultReady ready = prepareReviewerResult(
+                "locked-remote-ready");
+        CountDownLatch sealed = new CountDownLatch(1);
+        CountDownLatch finishBody = new CountDownLatch(1);
+        CountDownLatch finalRead = new CountDownLatch(1);
+        CountDownLatch releaseFinalRead = new CountDownLatch(1);
+        CountDownLatch remoteStarted = new CountDownLatch(1);
+        CountDownLatch remoteAdvanced = new CountDownLatch(1);
+        AtomicReference<Throwable> finalizerFailure = new AtomicReference<>();
+        AtomicReference<Throwable> remoteFailure = new AtomicReference<>();
+        AtomicInteger finalReads = new AtomicInteger();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            sealed.countDown();
+                            awaitLatch(finishBody);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque locked ready",
+                                            null);
+                        });
+        awaitLatch(sealed);
+        publishedSubjectHook.set(() -> {
+            if (finalReads.incrementAndGet() == 2) {
+                publishedSubjectHook.set(null);
+                finalRead.countDown();
+                awaitLatch(releaseFinalRead);
+            }
+        });
+        finishBody.countDown();
+        Thread finalizer = new Thread(() -> {
+            try {
+                ready.ready().review().awaitReviewerResultContinuation(
+                        supervisor, ready.binding(), handle, TTL);
+            }
+            catch (Throwable failure) {
+                finalizerFailure.set(failure);
+            }
+        });
+        finalizer.start();
+        awaitLatch(finalRead);
+        String advancedHead = "e".repeat(40);
+        Thread remote = new Thread(() -> {
+            try {
+                remoteStarted.countDown();
+                runtime.advanceRemoteHead(
+                        pr.prId(), publishedHead, advancedHead);
+            }
+            catch (Throwable failure) {
+                remoteFailure.set(failure);
+            }
+            finally {
+                remoteAdvanced.countDown();
+            }
+        });
+        remote.start();
+        awaitLatch(remoteStarted);
+        assertThat(awaitLatch(remoteAdvanced, Duration.ofMillis(200)))
+                .isFalse();
+        releaseFinalRead.countDown();
+        joinThread(finalizer);
+        awaitLatch(remoteAdvanced);
+        joinThread(remote);
+
+        assertThat(finalizerFailure.get()).isNull();
+        assertThat(userGates.gate(pr.prId())).isPresent();
+        assertThat(userGates.subject(userGates.revisionForRun(
+                ready.binding().run().runId()).orElseThrow()
+                .subjectManifestRef()).orElseThrow().expectedRemoteHead())
+                .isEqualTo(publishedHead);
+        if (remoteFailure.get() != null) {
+            runtime.advanceRemoteHead(
+                    pr.prId(), publishedHead, advancedHead);
+        }
+        assertThat(runtime.pullRequest(pr.prId()).orElseThrow()
+                .currentRemoteHead()).isEqualTo(advancedHead);
+    }
+
+    @Test
+    void failedRequiredLocalCheckBlocksReadyBeforeTerminalSeal()
+    {
+        publishCheckPolicy("failed-ready", List.of("/usr/bin/false"));
+        ReviewerResultReady ready = prepareReviewerResult(
+                "failed-ready");
+        AtomicInteger permittedAfterRejection = new AtomicInteger();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            assertThatThrownBy(capability::readyForReview)
+                                    .isInstanceOf(UserGates
+                                            .ReadyRejectedException.class)
+                                    .hasMessageContaining(
+                                            "LOCAL_CHECK_FAILED");
+                            capability.runTool(
+                                    permittedAfterRejection::incrementAndGet);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque blocked ready",
+                                            null);
+                        });
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor, ready.binding(), handle, TTL);
+
+        assertThat(runtime.readyForReviewRequestForRun(
+                ready.binding().run().runId())).isEmpty();
+        assertThat(userGates.gate(pr.prId())).isEmpty();
+        assertThat(permittedAfterRejection).hasValue(1);
+    }
+
+    @Test
+    void unavailableRequiredLocalCheckOpensManualOnlyGate()
+    {
+        publishCheckPolicy(
+                "unavailable-ready",
+                List.of("/definitely-missing-bytequay-check"));
+        ReviewerResultReady ready = prepareReviewerResult(
+                "unavailable-ready");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque manual ready",
+                                            null);
+                        });
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor, ready.binding(), handle, TTL);
+
+        var revision = userGates.revisionForRun(
+                ready.binding().run().runId()).orElseThrow();
+        var subject = userGates.subject(
+                revision.subjectManifestRef()).orElseThrow();
+        assertThat(subject.manualOnly()).isTrue();
+        var unavailable = subject.localChecks().getFirst();
+        assertThat(subject.warningCodes())
+                .containsExactly(
+                        "LOCAL_CHECK_UNAVAILABLE:" + unavailable.profileId());
+        assertThat(subject.localChecks()).singleElement()
+                .satisfies(check -> assertThat(check.conclusion())
+                        .isEqualTo(LocalCheckConclusion.UNAVAILABLE));
+    }
+
+    @Test
+    void freshReviewerTerminalSealExcludesReadyInTheSameTaskTurn()
+    {
+        ReviewerResultReady ready = prepareReviewerResult(
+                "reviewer-before-ready");
+        AtomicReference<ReviewerRequest> successor = new AtomicReference<>();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            successor.set(
+                                    capability.spawnAdversarialReviewer());
+                            assertThatThrownBy(capability::readyForReview)
+                                    .isInstanceOf(FlowRuntime
+                                            .StaleCapabilityException.class);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque successor review",
+                                            null);
+                        });
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor, ready.binding(), handle, TTL);
+
+        assertThat(successor.get()).isNotNull();
+        assertThat(runtime.taskTerminalRequest(
+                ready.binding().run().runId()).orElseThrow().kind().name())
+                .isEqualTo("REVIEWER");
+        assertThat(runtime.readyForReviewRequestForRun(
+                ready.binding().run().runId())).isEmpty();
+        assertThat(userGates.gate(pr.prId())).isEmpty();
+    }
+
+    @Test
+    void laterReadySupersedesOnlyOpenRevisionAndHistoricalReplayIsStable()
+    {
+        CompletedReady first = openReadyGate("first-ready-revision");
+        String firstCandidate = runtime.currentChangeSet(task.taskId())
+                .orElseThrow().headSha();
+        runtime.advanceRemoteHead(
+                pr.prId(), publishedHead, firstCandidate);
+        publishedHead = firstCandidate;
+        CompletedReady second = openReadyGate(
+                "second-ready-revision", "failure-second-ready");
+
+        var gate = userGates.gate(pr.prId()).orElseThrow();
+        assertThat(first.revision().gateId()).isEqualTo(gate.gateId());
+        assertThat(first.revision().revision()).isEqualTo(1);
+        assertThat(second.revision().gateId()).isEqualTo(gate.gateId());
+        assertThat(second.revision().revision()).isEqualTo(2);
+        assertThat(gate.currentRevision()).isEqualTo(2);
+        assertThat(userGates.transitions(gate.gateId()))
+                .extracting(transition -> transition.fromState() + "->"
+                        + transition.toState() + ":"
+                        + transition.reasonCode())
+                .containsExactly(
+                        "null->OPEN:READY",
+                        "OPEN->STALE:SUPERSEDED_BY_READY",
+                        "null->OPEN:READY");
+
+        var replay = userGates.prepareFinalization(
+                first.ready().binding().run().runId(),
+                first.ready().claim(),
+                first.ready().binding().fence());
+        assertThat(userGates.finalizeReady(
+                first.ready().binding().run().runId(),
+                first.ready().claim(),
+                first.ready().binding().fence(),
+                TerminalOutcome.COMPLETED,
+                first.finalContent(),
+                null,
+                replay)).isEqualTo(first.result());
+        assertThat(userGates.gate(pr.prId()).orElseThrow().currentRevision())
+                .isEqualTo(2);
+        assertThat(userGates.revisionForRun(
+                first.ready().binding().run().runId()))
+                .contains(first.revision());
+    }
+
+    @Test
+    void lateSecondRevisionFailureRollsBackAndStoppedRetryDoesNotRerunBody()
+    {
+        CompletedReady first = openReadyGate("rollback-first-ready");
+        String firstCandidate = runtime.currentChangeSet(task.taskId())
+                .orElseThrow().headSha();
+        runtime.advanceRemoteHead(
+                pr.prId(), publishedHead, firstCandidate);
+        publishedHead = firstCandidate;
+        ReviewerResultReady second = prepareReviewerResult(
+                "rollback-second-ready", "failure-rollback-second");
+        AtomicInteger bodies = new AtomicInteger();
+        CountDownLatch sealed = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = second.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        second.binding(),
+                        second.claim(),
+                        capability -> {
+                            bodies.incrementAndGet();
+                            capability.readyForReview();
+                            sealed.countDown();
+                            awaitLatch(release);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque retryable ready",
+                                            null);
+                        });
+        awaitLatch(sealed);
+        jdbc.execute("""
+                CREATE TRIGGER fail_ready_result
+                BEFORE INSERT ON flow_runtime_agent_result
+                WHEN NEW.run_id = '%s'
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced ready result failure');
+                END
+                """.formatted(second.binding().run().runId()));
+        release.countDown();
+
+        assertThatThrownBy(() -> second.ready().review()
+                .awaitReviewerResultContinuation(
+                        supervisor,
+                        second.binding(),
+                        handle,
+                        TTL)).isInstanceOf(RuntimeException.class);
+
+        var gateAfterFailure = userGates.gate(pr.prId()).orElseThrow();
+        assertThat(gateAfterFailure.currentRevision()).isEqualTo(1);
+        assertThat(userGates.transitions(gateAfterFailure.gateId()))
+                .extracting(transition -> transition.reasonCode())
+                .containsExactly("READY");
+        assertThat(userGates.revisionForRun(
+                second.binding().run().runId())).isEmpty();
+        assertThat(runtime.resultForRun(second.binding().run().runId()))
+                .isEmpty();
+        var readyRequest = runtime.readyForReviewRequestForRun(
+                second.binding().run().runId()).orElseThrow();
+        assertThat(userGates.subject(readyRequest.subjectRef())).isPresent();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_user_gate_ci_update_action "
+                        + "WHERE action_ref = ?",
+                Integer.class,
+                readyRequest.actionRef())).isEqualTo(1);
+        assertThat(runtime.session(task.taskId(), AgentRole.TASK_AGENT)
+                .orElseThrow().state()).isEqualTo(SessionState.RUNNING);
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId())
+                .isEqualTo(second.claim().operationId());
+        assertThat(bodies).hasValue(1);
+
+        jdbc.execute("DROP TRIGGER fail_ready_result");
+        AgentResult retried = second.ready().review()
+                .awaitReviewerResultContinuation(
+                        supervisor,
+                        second.binding(),
+                        handle,
+                        TTL);
+        assertThat(retried.runId()).isEqualTo(second.binding().run().runId());
+        assertThat(bodies).hasValue(1);
+        var gate = userGates.gate(pr.prId()).orElseThrow();
+        assertThat(gate.currentRevision()).isEqualTo(2);
+        assertThat(userGates.transitions(gate.gateId()))
+                .extracting(transition -> transition.reasonCode())
+                .containsExactly(
+                        "READY", "SUPERSEDED_BY_READY", "READY");
+        assertThat(userGates.revisionForRun(
+                first.ready().binding().run().runId()))
+                .contains(first.revision());
+    }
+
+    @Test
     void reviewerReservationRejectsAnOlderEvidenceAttempt()
     {
         ReviewReady ready = prepareCleanReview("latest-check-evidence");
@@ -2345,6 +2972,7 @@ class TestCiAutofixCoordinator
                                     repositoryRoot,
                                     ready.binding().run()
                                             .inputChangeSetRevisionId(),
+                                    reviewOrigin(ready),
                                     old))
                             .isInstanceOf(
                                     FlowRuntime.StaleOwnerRevisionException.class)
@@ -2353,6 +2981,7 @@ class TestCiAutofixCoordinator
                             repositoryRoot,
                             ready.binding().run()
                                     .inputChangeSetRevisionId(),
+                            reviewOrigin(ready),
                             localChecks.reviewerEvidence(
                                     task.taskId(),
                                     current.changeSetRevisionId(),
@@ -2576,6 +3205,60 @@ class TestCiAutofixCoordinator
                 .isEqualTo(current.changeSetRevisionId());
         assertThat(request.get().reviewedHeadSha())
                 .isEqualTo(current.headSha());
+
+        Claim reviewerClaim = claim(OperationKind.RUN_REVIEWER);
+        var reviewerStart = ready.review().beginReviewer(
+                request.get().requestId(), reviewerClaim);
+        var reviewerSupervisor = new InProcessReviewerAgentSupervisor(runtime);
+        var reviewerHandle = ready.review().launchReviewer(
+                reviewerSupervisor,
+                reviewerStart,
+                reviewerClaim,
+                capability -> new InProcessReviewerAgentSupervisor
+                        .AgentCompletion(
+                                TerminalOutcome.COMPLETED,
+                                "opaque corrected review",
+                                null));
+        ready.review().awaitReviewer(
+                reviewerSupervisor, reviewerHandle, TTL);
+        Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
+        assertThat(runtime.selectNext(reconciliation).orElseThrow().kind())
+                .isEqualTo(OperationKind.RUN_TASK_TURN);
+        Claim continuation = claim(OperationKind.RUN_TASK_TURN);
+        var continuationBinding = ready.review()
+                .beginReviewerResultContinuation(continuation, TTL);
+        var continuationHandle = ready.review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        continuationBinding,
+                        continuation,
+                        capability -> {
+                            capability.readyForReview();
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque corrected ready",
+                                            null);
+                        });
+        ready.review().awaitReviewerResultContinuation(
+                supervisor,
+                continuationBinding,
+                continuationHandle,
+                TTL);
+
+        var revision = userGates.revisionForRun(
+                continuationBinding.run().runId()).orElseThrow();
+        var subject = userGates.subject(
+                revision.subjectManifestRef()).orElseThrow();
+        assertThat(subject.changeSetRevisionId())
+                .isEqualTo(current.changeSetRevisionId());
+        assertThat(subject.proposedHead()).isEqualTo(current.headSha());
+        assertThat(subject.originCiFixPendingId())
+                .isEqualTo(request.get().originCiFixPendingId());
+        assertThat(subject.originCiFixSourceKind())
+                .isEqualTo(request.get().originCiFixSourceKind());
+        assertThat(subject.originCiFixSourceId())
+                .isEqualTo(request.get().originCiFixSourceId());
     }
 
     @Test
@@ -2738,6 +3421,7 @@ class TestCiAutofixCoordinator
                                     repositoryRoot,
                                     ready.binding().run()
                                             .inputChangeSetRevisionId(),
+                                    reviewOrigin(ready),
                                     localChecks.reviewerEvidence(
                                             task.taskId(),
                                             current.changeSetRevisionId(),
@@ -2746,6 +3430,7 @@ class TestCiAutofixCoordinator
                             repositoryRoot,
                             ready.binding().run()
                                     .inputChangeSetRevisionId(),
+                            reviewOrigin(ready),
                             request.localCheckPolicyRevisionId(),
                             request.checkRunRefs())).isEqualTo(request);
                     assertThatThrownBy(() ->
@@ -2753,6 +3438,7 @@ class TestCiAutofixCoordinator
                                     repositoryRoot,
                                     ready.binding().run()
                                             .inputChangeSetRevisionId(),
+                                    reviewOrigin(ready),
                                     request.localCheckPolicyRevisionId(),
                                     List.of("conflicting-check")))
                             .isInstanceOf(IllegalStateException.class)
@@ -2873,7 +3559,19 @@ class TestCiAutofixCoordinator
 
     private ReviewerResultReady prepareReviewerResult(String suffix)
     {
-        ReviewReady ready = prepareCleanReview(suffix);
+        return prepareReviewerResult(suffix, "failure-1");
+    }
+
+    private ReviewerResultReady prepareReviewerResult(
+            String suffix, String failureRevision)
+    {
+        ReviewReady ready = prepareCleanReview(suffix, failureRevision);
+        return prepareReviewerResult(ready, suffix);
+    }
+
+    private ReviewerResultReady prepareReviewerResult(
+            ReviewReady ready, String suffix)
+    {
         ParkedReview parked = parkForReviewer(
                 ready, TerminalOutcome.COMPLETED);
         Claim reviewerClaim = claim(OperationKind.RUN_REVIEWER);
@@ -2899,6 +3597,45 @@ class TestCiAutofixCoordinator
                 continuation,
                 ready.review().beginReviewerResultContinuation(
                         continuation, TTL));
+    }
+
+    private CompletedReady openReadyGate(String suffix)
+    {
+        return openReadyGate(suffix, "failure-1");
+    }
+
+    private CompletedReady openReadyGate(
+            String suffix, String failureRevision)
+    {
+        ReviewerResultReady ready = prepareReviewerResult(
+                suffix, failureRevision);
+        String finalContent = "opaque ready " + suffix;
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            finalContent,
+                                            null);
+                        });
+        AgentResult result = ready.ready().review()
+                .awaitReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        handle,
+                        TTL);
+        return new CompletedReady(
+                ready,
+                result,
+                userGates.revisionForRun(ready.binding().run().runId())
+                        .orElseThrow(),
+                finalContent);
     }
 
     private ReviewerClaim prepareReviewerClaim(String suffix)
@@ -2982,6 +3719,12 @@ class TestCiAutofixCoordinator
             Claim claim,
             CiFixReviewCoordinator.ReviewerResultBinding binding) {}
 
+    private record CompletedReady(
+            ReviewerResultReady ready,
+            AgentResult result,
+            GateRevision revision,
+            String finalContent) {}
+
     private record ReviewerClaim(
             ReviewerRequest request,
             Claim claim,
@@ -2997,9 +3740,112 @@ class TestCiAutofixCoordinator
         return coordinator.enqueueRepair(red.roundId()).round();
     }
 
+    private void publishCheckPolicy(String name, List<String> command)
+    {
+        LocalCheckPolicyRevision current = localChecks.currentPolicy(
+                task.repositoryId()).orElseThrow();
+        localChecks.recordPolicy(
+                task.repositoryId(),
+                current.policyRevisionId(),
+                "test-policy:" + name,
+                "test-policy-digest:" + name,
+                List.of(new LocalChecks.ProfileDefinition(
+                        name,
+                        command,
+                        ".",
+                        List.of(),
+                        Duration.ofSeconds(5),
+                        List.of(GateIntent.CI_UPDATE))));
+    }
+
+    private void assertPostSealDriftNeedsAttention(
+            String suffix, Runnable drift)
+    {
+        ReviewerResultReady ready = prepareReviewerResult(suffix);
+        CountDownLatch sealed = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            sealed.countDown();
+                            awaitLatch(release);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque post-seal drift",
+                                            null);
+                        });
+        awaitLatch(sealed);
+        drift.run();
+        release.countDown();
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor, ready.binding(), handle, TTL);
+
+        assertThat(userGates.gate(pr.prId())).isEmpty();
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        assertThat(runtime.readyAttentionReasonForRun(
+                ready.binding().run().runId()))
+                .contains("REVIEW_READINESS_STALE");
+    }
+
+    private ReviewReady prepareCleanCleanupReview(String suffix)
+    {
+        ReservedCleanup reserved = reserveCleanup(suffix);
+        CleanupBinding cleanup = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = coordinator.launchCleanup(
+                supervisor,
+                cleanup,
+                reserved.claim(),
+                repositoryRoot,
+                capability -> {
+                    capability.runTool(() -> {
+                        try {
+                            Files.delete(reserved.dirtyPath());
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        commitCiChange(
+                                "cleanup-ready-" + suffix + ".txt",
+                                "clean\n",
+                                "cleanup ready " + suffix);
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "opaque cleanup " + suffix,
+                            null);
+                });
+        coordinator.awaitCleanup(
+                supervisor, cleanup, handle, TTL);
+        Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
+        assertThat(coordinator.selectNext(reconciliation).orElseThrow().kind())
+                .isEqualTo(OperationKind.RUN_TASK_TURN);
+        Claim turn = claim(OperationKind.RUN_TASK_TURN);
+        CiFixReviewCoordinator review = new CiFixReviewCoordinator(
+                autofix, runtime, localChecks, userGates);
+        return new ReviewReady(
+                review,
+                turn,
+                review.beginTaskInspection(turn, repositoryRoot, TTL));
+    }
+
     private ReviewReady prepareCleanReview(String suffix)
     {
-        StartedRepair started = startRepair();
+        return prepareCleanReview(suffix, "failure-1");
+    }
+
+    private ReviewReady prepareCleanReview(
+            String suffix, String failureRevision)
+    {
+        StartedRepair started = startRepair(failureRevision);
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
         var handle = coordinator.launchRepair(
                 supervisor,
@@ -3025,10 +3871,19 @@ class TestCiAutofixCoordinator
         assertThat(selected.kind()).isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
         CiFixReviewCoordinator review = new CiFixReviewCoordinator(
-                autofix, runtime, localChecks);
+                autofix, runtime, localChecks, userGates);
         var binding = review.beginTaskInspection(
                 turn, repositoryRoot, TTL);
         return new ReviewReady(review, turn, binding);
+    }
+
+    private static CiFixReviewOrigin reviewOrigin(ReviewReady ready)
+    {
+        return new CiFixReviewOrigin(
+                ready.binding().input().pendingId(),
+                CiFixSourceKind.valueOf(
+                        ready.binding().projection().source().name()),
+                ready.binding().projection().sourceId());
     }
 
     private static void awaitLatch(CountDownLatch latch)
@@ -3044,6 +3899,32 @@ class TestCiAutofixCoordinator
         }
     }
 
+    private static boolean awaitLatch(
+            CountDownLatch latch, Duration timeout)
+    {
+        try {
+            return latch.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void joinThread(Thread thread)
+    {
+        try {
+            thread.join(15_000);
+            if (thread.isAlive()) {
+                throw new IllegalStateException("test thread did not stop");
+            }
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
     private record ReviewReady(
             CiFixReviewCoordinator review,
             Claim claim,
@@ -3051,7 +3932,18 @@ class TestCiAutofixCoordinator
 
     private StartedRepair startRepair()
     {
-        CiRound round = enqueueFailedRound();
+        return startRepair("failure-1");
+    }
+
+    private StartedRepair startRepair(String failureRevision)
+    {
+        CiRound red = failedRound(failureRevision, NOW.plusSeconds(
+                failureRevision.equals("failure-1") ? 0 : 60));
+        autofix.attachLog(
+                red.checkObservationIds().getFirst(),
+                "failure".getBytes(StandardCharsets.UTF_8),
+                List.of());
+        CiRound round = coordinator.enqueueRepair(red.roundId()).round();
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
         Operation selected = coordinator.selectNext(reconciliation)
                 .orElseThrow();
@@ -3247,6 +4139,10 @@ class TestCiAutofixCoordinator
     private PublishedPrSubject publishedSubject(String prId)
     {
         PullRequestSubject current = runtime.pullRequest(prId).orElseThrow();
+        Runnable hook = publishedSubjectHook.get();
+        if (hook != null) {
+            hook.run();
+        }
         return new PublishedPrSubject(
                 current.prId(),
                 current.taskId(),

@@ -22,6 +22,7 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogEvidence;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogWindow;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiUpdateGateEvidence;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupAttentionReason;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocked;
@@ -221,6 +222,35 @@ public final class CiAutofix
                     writeJson(finalSelectors),
                     writeJson(finalConclusions),
                     now.toEpochMilli());
+            int advanced;
+            if (current.isEmpty()) {
+                advanced = jdbc.update(
+                        """
+                        INSERT INTO flow_ci_policy_current (
+                            repository_id, scope_key, policy_revision_id
+                        ) VALUES (?, ?, ?)
+                        """,
+                        repositoryId,
+                        scopeKey,
+                        id);
+            }
+            else {
+                advanced = jdbc.update(
+                        """
+                        UPDATE flow_ci_policy_current
+                        SET policy_revision_id = ?
+                        WHERE repository_id = ? AND scope_key = ?
+                          AND policy_revision_id = ?
+                        """,
+                        id,
+                        repositoryId,
+                        scopeKey,
+                        current.orElseThrow().policyRevisionId());
+            }
+            if (advanced != 1) {
+                throw new IllegalStateException(
+                        "CI policy pointer changed during append");
+            }
             return new RequiredCiPolicyRevision(
                     id,
                     repositoryId,
@@ -244,15 +274,125 @@ public final class CiAutofix
         requireText(scopeKey, "scopeKey");
         return jdbc.query(
                 """
-                SELECT *
-                FROM flow_ci_policy_revision
-                WHERE repository_id = ? AND scope_key = ?
-                ORDER BY sequence DESC
-                LIMIT 1
+                SELECT p.*
+                FROM flow_ci_policy_current c
+                JOIN flow_ci_policy_revision p
+                  ON p.policy_revision_id = c.policy_revision_id
+                WHERE c.repository_id = ? AND c.scope_key = ?
                 """,
                 (result, row) -> readPolicy(result),
                 repositoryId,
                 scopeKey).stream().findFirst();
+    }
+
+    /** Current actionable CI-fix facts for one local CI_UPDATE gate. */
+    public CiUpdateGateEvidence ciUpdateGateEvidence(
+            String sourceKind, String sourceId)
+    {
+        requireText(sourceKind, "sourceKind");
+        requireText(sourceId, "sourceId");
+        return requireNonNull(transactions.execute(ignored -> {
+            CiRepairAttempt attempt;
+            String outputRevision;
+            String outputHead;
+            String cleanupId = null;
+            String cleanupResultId = null;
+            if (sourceKind.equals("REPAIR_ATTEMPT")) {
+                attempt = repairAttempt(sourceId).orElseThrow(() ->
+                        new IllegalStateException(
+                                "unknown CI repair gate source"));
+                outputRevision = attempt.outputChangeSetRevisionId();
+                outputHead = attempt.outputLocalHead();
+            }
+            else if (sourceKind.equals("CLEANUP")) {
+                CiCleanupCompletion completion = cleanupCompletion(sourceId)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "unknown CI cleanup gate source"));
+                CiCleanupSeal seal = cleanupSeal(sourceId).orElseThrow();
+                attempt = repairAttempt(seal.repairAttemptId()).orElseThrow();
+                outputRevision = completion.outputChangeSetRevisionId();
+                outputHead = completion.outputHead();
+                cleanupId = completion.cleanupId();
+                cleanupResultId = completion.resultRef();
+                if (completion.outcome() != CleanupOutcome.FIX_PREPARED
+                        && completion.outcome()
+                                != CleanupOutcome.NO_HEAD_CHANGE) {
+                    throw new IllegalStateException(
+                            "CI cleanup is not gate actionable");
+                }
+            }
+            else {
+                throw new IllegalArgumentException(
+                        "unsupported CI gate source kind");
+            }
+            if (attempt.state() != AttemptState.FIX_PREPARED
+                    && attempt.state() != AttemptState.NO_HEAD_CHANGE
+                    && !sourceKind.equals("CLEANUP")) {
+                throw new IllegalStateException(
+                        "CI repair is not gate actionable");
+            }
+            CiRound round = roundById(attempt.roundId()).orElseThrow();
+            PublishedPrSubject subject = requireSubject(round.prId());
+            RequiredCiPolicyRevision policy = currentPolicy(
+                    subject.repositoryId(), subject.scopeKey())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "CI_UPDATE requires a current CI policy"));
+            CiRound currentRound = round(
+                    round.prId(), round.remoteHead(),
+                    policy.policyRevisionId()).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "CI_UPDATE has no current CI round"));
+            int policyLocked = jdbc.update(
+                    """
+                    UPDATE flow_ci_policy_current
+                    SET policy_revision_id = policy_revision_id
+                    WHERE repository_id = ? AND scope_key = ?
+                      AND policy_revision_id = ?
+                    """,
+                    subject.repositoryId(),
+                    subject.scopeKey(),
+                    policy.policyRevisionId());
+            int roundLocked = jdbc.update(
+                    """
+                    UPDATE flow_ci_round SET state = state
+                    WHERE round_id = ? AND state = 'FIX_PREPARED'
+                      AND superseded_by IS NULL
+                    """,
+                    round.roundId());
+            if (policy.resolution() != PolicyResolution.RESOLVED
+                    || !policy.targetBaseRef().equals(
+                            subject.targetBaseRef())
+                    || round.state() != RoundState.FIX_PREPARED
+                    || !currentRound.roundId().equals(round.roundId())
+                    || !round.policyRevisionId().equals(
+                            policy.policyRevisionId())
+                    || !subject.currentRemoteHead().equals(round.remoteHead())
+                    || outputRevision == null
+                    || outputHead == null
+                    || attempt.resultRef() == null
+                    || policyLocked != 1
+                    || roundLocked != 1) {
+                throw new IllegalStateException(
+                        "CI_UPDATE source is no longer current/actionable");
+            }
+            return new CiUpdateGateEvidence(
+                    sourceKind,
+                    sourceId,
+                    round.roundId(),
+                    round.taskId(),
+                    round.prId(),
+                    round.remoteHead(),
+                    round.policyRevisionId(),
+                    round.evidenceRevision(),
+                    round.checkObservationIds(),
+                    round.failedLogRefs(),
+                    outputRevision,
+                    outputHead,
+                    attempt.attemptId(),
+                    attempt.resultRef(),
+                    cleanupId,
+                    cleanupResultId);
+        }), "CI_UPDATE evidence transaction returned null");
     }
 
     public CiCheckObservation observeCi(String prId, NormalizedCheck check)

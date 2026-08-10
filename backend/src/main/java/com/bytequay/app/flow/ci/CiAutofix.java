@@ -16,11 +16,14 @@ package com.bytequay.app.flow.ci;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AcceptedCiSnapshot;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCheckObservation;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupCompletion;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogEvidence;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogWindow;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupAttentionReason;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocked;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocker;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeHeadResult;
@@ -30,8 +33,12 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RequiredCiPolicyRevision;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.runtime.FlowRuntime.CiCleanupFinalizationReceipt;
 import com.bytequay.app.flow.runtime.FlowRuntime.CleanupHandoff;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.AttachmentState;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.GitOperation;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanKind;
@@ -1101,6 +1108,364 @@ public final class CiAutofix
                 repairAttemptId).stream().findFirst();
     }
 
+    Optional<CiCleanupSeal> cleanupSeal(String cleanupId)
+    {
+        requireText(cleanupId, "cleanupId");
+        return jdbc.query(
+                "SELECT * FROM flow_ci_cleanup_seal WHERE cleanup_id = ?",
+                (result, row) -> readCleanupSeal(result),
+                cleanupId).stream().findFirst();
+    }
+
+    Optional<CiCleanupSeal> cleanupSealForSuccessor(String operationId)
+    {
+        requireText(operationId, "operationId");
+        return jdbc.query(
+                "SELECT * FROM flow_ci_cleanup_seal WHERE successor_operation_id = ?",
+                (result, row) -> readCleanupSeal(result),
+                operationId).stream().findFirst();
+    }
+
+    Optional<CiCleanupCompletion> cleanupCompletion(String cleanupId)
+    {
+        requireText(cleanupId, "cleanupId");
+        return jdbc.query(
+                "SELECT * FROM flow_ci_cleanup_completion WHERE cleanup_id = ?",
+                (result, row) -> readCleanupCompletion(result),
+                cleanupId).stream().findFirst();
+    }
+
+    CiCleanupCompletion storeCleanupCompletion(
+            CiCleanupFinalizationReceipt receipt)
+    {
+        requireNonNull(receipt, "receipt is null");
+        return requireNonNull(transactions.execute(ignored -> {
+            CiCleanupSeal authoritativeSeal = cleanupSeal(receipt.cleanupId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "CI cleanup completion has no immutable seal"));
+            if (!authoritativeSeal.successorOperationId().equals(
+                    receipt.operationId())) {
+                throw new IllegalStateException(
+                        "CI cleanup receipt belongs to another operation");
+            }
+            CiCleanupCompletion completion = completionFromReceipt(receipt);
+            Optional<CiCleanupCompletion> existing = cleanupCompletion(
+                    completion.cleanupId());
+            if (existing.isPresent()) {
+                if (!existing.get().equals(completion)) {
+                    throw new IllegalStateException(
+                            "CI cleanup completion redelivery changed identity");
+                }
+                return existing.get();
+            }
+            CiCleanupSeal seal = authoritativeSeal;
+            CiRepairAttempt predecessor = repairAttempt(
+                    seal.repairAttemptId()).orElseThrow();
+            if (predecessor.state() != AttemptState.NON_CLEAN_HANDOFF) {
+                throw new IllegalStateException(
+                        "CI cleanup predecessor is not terminally handed off");
+            }
+            assertCleanupCompletionRuntime(
+                    seal, predecessor, completion);
+            jdbc.update(
+                    """
+                    INSERT INTO flow_ci_cleanup_completion (
+                        cleanup_id, run_id, result_ref, outcome,
+                        output_head, output_change_set_revision_id,
+                        final_actual_head, final_branch_head,
+                        final_attachment_state, final_kind,
+                        final_operations_json, final_state_digest,
+                        attention_reason, inspection_failure_code,
+                        completed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    completion.cleanupId(),
+                    completion.runId(),
+                    completion.resultRef(),
+                    completion.outcome().name(),
+                    completion.outputHead(),
+                    completion.outputChangeSetRevisionId(),
+                    completion.finalActualHead(),
+                    completion.finalBranchHead(),
+                    completion.finalAttachmentState() == null
+                            ? null
+                            : completion.finalAttachmentState().name(),
+                    completion.finalKind() == null
+                            ? null
+                            : completion.finalKind().name(),
+                    completion.finalStateDigest() == null
+                            ? null
+                            : writeJson(completion.finalOperations().stream()
+                                    .map(GitOperation::name)
+                                    .toList()),
+                    completion.finalStateDigest(),
+                    completion.attentionReason() == null
+                            ? null
+                            : completion.attentionReason().name(),
+                    completion.inspectionFailureCode() == null
+                            ? null
+                            : completion.inspectionFailureCode().name(),
+                    completion.completedAt().toEpochMilli());
+            String roundState = switch (completion.outcome()) {
+                case FIX_PREPARED, NO_HEAD_CHANGE -> "FIX_PREPARED";
+                case NEEDS_ATTENTION, ADMISSION_BLOCKED -> "NEEDS_ATTENTION";
+            };
+            int roundUpdated = jdbc.update(
+                    """
+                    UPDATE flow_ci_round SET state = ?
+                    WHERE round_id = ? AND state = 'ACTIVE'
+                    """,
+                    roundState,
+                    predecessor.roundId());
+            RoundState storedRound = roundById(
+                    predecessor.roundId()).orElseThrow().state();
+            if (roundUpdated != 1
+                    && storedRound != RoundState.SUPERSEDED) {
+                throw new IllegalStateException(
+                        "CI cleanup round changed before completion");
+            }
+            return cleanupCompletion(completion.cleanupId()).orElseThrow();
+        }), "cleanup completion transaction returned null");
+    }
+
+    private void assertCleanupCompletionRuntime(
+            CiCleanupSeal seal,
+            CiRepairAttempt predecessor,
+            CiCleanupCompletion completion)
+    {
+        boolean admission = completion.outcome()
+                == CleanupOutcome.ADMISSION_BLOCKED;
+        String ownerSql;
+        Object[] ownerArguments;
+        String blockedRef = "CI_CLEANUP_ADMISSION_BLOCKED:"
+                + seal.cleanupId();
+        if (admission && completion.runId() != null) {
+            ownerSql = """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_operation o
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    JOIN flow_runtime_task t ON t.task_id = o.task_id
+                    JOIN flow_runtime_agent_run r
+                      ON r.operation_id = o.operation_id
+                    JOIN flow_runtime_agent_result a ON a.run_id = r.run_id
+                    JOIN flow_runtime_agent_session s
+                      ON s.session_id = r.session_id
+                    WHERE o.operation_id = ?
+                      AND o.owner_kind = 'CI_CLEANUP'
+                      AND o.owner_id = ? AND o.state = 'FAILED'
+                      AND o.result_ref = ? AND d.delivery_state = 'DONE'
+                      AND t.status = 'NEEDS_ATTENTION'
+                      AND t.selected_writer_operation_id IS NULL
+                      AND t.waiting_mutation_state_ref = ?
+                      AND r.run_id = ? AND r.state = 'CANCELED'
+                      AND a.result_id = ? AND a.terminal_outcome = 'CANCELED'
+                      AND a.final_content IS NULL AND a.error_ref = ?
+                      AND a.stop_proof_ref = ?
+                      AND s.state = 'IDLE' AND s.last_run_id = r.run_id
+                      AND NOT EXISTS (
+                        SELECT 1 FROM flow_runtime_agent_process_attempt p
+                        WHERE p.run_id = r.run_id)
+                    """;
+            ownerArguments = new Object[] {
+                seal.successorOperationId(),
+                seal.cleanupId(),
+                completion.resultRef(),
+                cleanupAttentionRef(seal.cleanupId()),
+                completion.runId(),
+                completion.resultRef(),
+                blockedRef,
+                stableId(
+                        "never-launched-stop",
+                        seal.cleanupId(),
+                        completion.runId())};
+        }
+        else if (admission) {
+            ownerSql = """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_operation o
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    JOIN flow_runtime_task t ON t.task_id = o.task_id
+                    WHERE o.operation_id = ?
+                      AND o.owner_kind = 'CI_CLEANUP'
+                      AND o.owner_id = ? AND o.state = 'FAILED'
+                      AND o.result_ref = ? AND d.delivery_state = 'DONE'
+                      AND t.status = 'NEEDS_ATTENTION'
+                      AND t.selected_writer_operation_id IS NULL
+                      AND t.waiting_mutation_state_ref = ?
+                    """;
+            ownerArguments = new Object[] {
+                seal.successorOperationId(),
+                seal.cleanupId(),
+                blockedRef,
+                cleanupAttentionRef(seal.cleanupId())};
+        }
+        else {
+            ownerSql = """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_operation o
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    JOIN flow_runtime_agent_run r
+                      ON r.operation_id = o.operation_id
+                    JOIN flow_runtime_agent_result a ON a.run_id = r.run_id
+                    WHERE o.operation_id = ?
+                      AND o.owner_kind = 'CI_CLEANUP'
+                      AND o.owner_id = ? AND o.result_ref = ?
+                      AND d.delivery_state = 'DONE'
+                      AND r.run_id = ? AND a.result_id = ?
+                    """;
+            ownerArguments = new Object[] {
+                seal.successorOperationId(),
+                seal.cleanupId(),
+                completion.resultRef(),
+                completion.runId(),
+                completion.resultRef()};
+        }
+        Integer ownerMatches = jdbc.queryForObject(
+                ownerSql, Integer.class, ownerArguments);
+        if (requireNonNull(ownerMatches, "cleanup runtime owner count is null")
+                != 1) {
+            throw new IllegalStateException(
+                    "CI cleanup completion is not runtime-owned");
+        }
+        boolean clean = completion.outcome() == CleanupOutcome.FIX_PREPARED
+                || completion.outcome() == CleanupOutcome.NO_HEAD_CHANGE;
+        if (clean) {
+            boolean noChange = completion.outputHead().equals(
+                    predecessor.inputLocalHead());
+            if (noChange != (completion.outcome()
+                    == CleanupOutcome.NO_HEAD_CHANGE)) {
+                throw new IllegalStateException(
+                        "CI cleanup outcome contradicts its objective head");
+            }
+            Integer outputMatches = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_change_set_revision c
+                    JOIN flow_runtime_task t ON t.task_id = c.task_id
+                    JOIN flow_runtime_inbox i
+                      ON i.agent_result_id = ?
+                    WHERE c.change_set_revision_id = ? AND c.head_sha = ?
+                      AND c.previous_change_set_revision_id = ?
+                      AND c.previous_head_sha = ?
+                      AND c.source = 'CI_FIXER'
+                      AND c.source_operation_id = ? AND c.source_run_id = ?
+                      AND t.current_change_set_revision_id = c.change_set_revision_id
+                      AND t.current_head_sha = c.head_sha
+                      AND t.selected_writer_operation_id IS NULL
+                      AND t.waiting_mutation_state_ref IS NULL
+                      AND i.kind = 'CI_FIX_READY'
+                      AND i.external_key = ? AND i.subject_head = ?
+                      AND i.payload_ref = ?
+                    """,
+                    Integer.class,
+                    completion.resultRef(),
+                    completion.outputChangeSetRevisionId(),
+                    completion.outputHead(),
+                    predecessor.inputChangeSetRevisionId(),
+                    predecessor.inputLocalHead(),
+                    seal.successorOperationId(),
+                    completion.runId(),
+                    seal.cleanupId(),
+                    completion.outputHead(),
+                    cleanupReadyPayload(completion));
+            if (requireNonNull(
+                    outputMatches, "cleanup output owner count is null") != 1) {
+                throw new IllegalStateException(
+                        "CI cleanup output is not mechanically adopted");
+            }
+        }
+        else if (!admission) {
+            Integer attentionMatches = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM flow_runtime_task t
+                    JOIN flow_runtime_operation o ON o.task_id = t.task_id
+                    WHERE o.operation_id = ?
+                      AND t.status = 'NEEDS_ATTENTION'
+                      AND t.selected_writer_operation_id IS NULL
+                      AND t.waiting_mutation_state_ref = ?
+                    """,
+                    Integer.class,
+                    seal.successorOperationId(),
+                    cleanupAttentionRef(seal.cleanupId()));
+            if (requireNonNull(
+                    attentionMatches, "cleanup attention count is null") != 1) {
+                throw new IllegalStateException(
+                        "CI cleanup attention is not durably fenced");
+            }
+        }
+    }
+
+    private static String cleanupReadyPayload(CiCleanupCompletion completion)
+    {
+        String outcome = completion.outcome() == CleanupOutcome.NO_HEAD_CHANGE
+                ? CiFixOutcome.NO_HEAD_CHANGE.name()
+                : CiFixOutcome.FIX_PREPARED.name();
+        return "ci-cleanup:" + completion.cleanupId() + ":outcome:" + outcome
+                + ":change-set:" + completion.outputChangeSetRevisionId();
+    }
+
+    private static CiCleanupCompletion completionFromReceipt(
+            CiCleanupFinalizationReceipt receipt)
+    {
+        AgentResult result = receipt.result().orElse(null);
+        CiFixOutcome clean = receipt.cleanOutcome().orElse(null);
+        NonCleanInspection state = receipt.finalState().orElse(null);
+        FailureCode failure = receipt.failureCode().orElse(null);
+        CleanupOutcome outcome;
+        CleanupAttentionReason reason = null;
+        if (clean != null) {
+            outcome = clean == CiFixOutcome.NO_HEAD_CHANGE
+                    ? CleanupOutcome.NO_HEAD_CHANGE
+                    : CleanupOutcome.FIX_PREPARED;
+        }
+        else if (receipt.admissionBlocked()) {
+            outcome = CleanupOutcome.ADMISSION_BLOCKED;
+            reason = state == null
+                    ? CleanupAttentionReason.ADMISSION_INSPECTION_BLOCKED
+                    : CleanupAttentionReason.ADMISSION_SEAL_MISMATCH;
+        }
+        else {
+            if (result == null) {
+                throw new IllegalStateException(
+                        "cleanup attention receipt has no AgentResult");
+            }
+            outcome = CleanupOutcome.NEEDS_ATTENTION;
+            if (state == null) {
+                reason = CleanupAttentionReason.FINAL_INSPECTION_BLOCKED;
+            }
+            else {
+                reason = state.kind() == NonCleanKind.DIRTY
+                        ? CleanupAttentionReason.SECOND_DIRTY
+                        : CleanupAttentionReason
+                                .SECOND_GIT_OPERATION_IN_PROGRESS;
+            }
+        }
+        return new CiCleanupCompletion(
+                receipt.cleanupId(),
+                result == null ? null : result.runId(),
+                result == null ? null : result.resultId(),
+                outcome,
+                receipt.outputHead().orElse(null),
+                receipt.outputChangeSetRevisionId().orElse(null),
+                state == null ? null : state.actualHeadSha(),
+                state == null ? null : state.branchHeadSha(),
+                state == null ? null : state.attachmentState(),
+                state == null ? null : state.kind(),
+                state == null ? null : state.operations(),
+                state == null ? null : state.stateDigest(),
+                reason,
+                failure,
+                receipt.completedAt());
+    }
+
+    private static String cleanupAttentionRef(String cleanupId)
+    {
+        return "ci-cleanup-attention:" + cleanupId;
+    }
+
     CiCleanupSeal storeCleanupSeal(
             String repairAttemptId, CleanupHandoff handoff)
     {
@@ -1114,7 +1479,7 @@ public final class CiAutofix
                     repairAttemptId);
             if (existing.isPresent()) {
                 CiCleanupSeal seal = existing.get();
-                if (attempt.state() != AttemptState.CLEANUP_PENDING
+                if (attempt.state() != AttemptState.NON_CLEAN_HANDOFF
                         || !Objects.equals(attempt.resultRef(),
                                 handoff.predecessorResult().resultId())
                         || !seal.cleanupId().equals(handoff.cleanupId())
@@ -1169,7 +1534,7 @@ public final class CiAutofix
             int attemptUpdated = jdbc.update(
                     """
                     UPDATE flow_ci_repair_attempt
-                    SET result_ref = ?, state = 'CLEANUP_PENDING'
+                    SET result_ref = ?, state = 'NON_CLEAN_HANDOFF'
                     WHERE attempt_id = ? AND state = 'ACTIVE'
                       AND result_ref IS NULL
                     """,
@@ -1326,6 +1691,38 @@ public final class CiAutofix
                         .toList(),
                 result.getString("state_digest"),
                 instant(result.getLong("created_at")));
+    }
+
+    private CiCleanupCompletion readCleanupCompletion(ResultSet result)
+            throws SQLException
+    {
+        String operations = result.getString("final_operations_json");
+        String attachment = result.getString("final_attachment_state");
+        String kind = result.getString("final_kind");
+        String reason = result.getString("attention_reason");
+        String failure = result.getString("inspection_failure_code");
+        return new CiCleanupCompletion(
+                result.getString("cleanup_id"),
+                result.getString("run_id"),
+                result.getString("result_ref"),
+                CleanupOutcome.valueOf(result.getString("outcome")),
+                result.getString("output_head"),
+                result.getString("output_change_set_revision_id"),
+                result.getString("final_actual_head"),
+                result.getString("final_branch_head"),
+                attachment == null ? null : AttachmentState.valueOf(attachment),
+                kind == null ? null : NonCleanKind.valueOf(kind),
+                operations == null
+                        ? null
+                        : readStringList(operations).stream()
+                                .map(GitOperation::valueOf)
+                                .toList(),
+                result.getString("final_state_digest"),
+                reason == null
+                        ? null
+                        : CleanupAttentionReason.valueOf(reason),
+                failure == null ? null : FailureCode.valueOf(failure),
+                instant(result.getLong("completed_at")));
     }
 
     private static boolean sameSeal(

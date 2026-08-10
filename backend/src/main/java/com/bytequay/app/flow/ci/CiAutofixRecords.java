@@ -14,6 +14,7 @@
 package com.bytequay.app.flow.ci;
 
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.AttachmentState;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.GitOperation;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanKind;
 
@@ -49,10 +50,27 @@ public final class CiAutofixRecords
     {
         PENDING,
         ACTIVE,
-        CLEANUP_PENDING,
+        NON_CLEAN_HANDOFF,
         FIX_PREPARED,
         NO_HEAD_CHANGE,
         NEEDS_ATTENTION
+    }
+
+    public enum CleanupOutcome
+    {
+        FIX_PREPARED,
+        NO_HEAD_CHANGE,
+        NEEDS_ATTENTION,
+        ADMISSION_BLOCKED
+    }
+
+    public enum CleanupAttentionReason
+    {
+        SECOND_DIRTY,
+        SECOND_GIT_OPERATION_IN_PROGRESS,
+        FINAL_INSPECTION_BLOCKED,
+        ADMISSION_SEAL_MISMATCH,
+        ADMISSION_INSPECTION_BLOCKED
     }
 
     public enum FinalizeBlocker
@@ -224,7 +242,7 @@ public final class CiAutofixRecords
                 throw new IllegalArgumentException(
                         "only a clean terminal attempt has output");
             }
-            if ((cleanTerminal || state == AttemptState.CLEANUP_PENDING)
+            if ((cleanTerminal || state == AttemptState.NON_CLEAN_HANDOFF)
                     != (resultRef != null)) {
                 throw new IllegalArgumentException(
                         "only finalized repair work has a result");
@@ -267,6 +285,96 @@ public final class CiAutofixRecords
             operations = List.copyOf(operations);
             requireNonNull(stateDigest, "stateDigest is null");
             requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    /** Immutable objective result of the one cleanup successor. */
+    public record CiCleanupCompletion(
+            String cleanupId,
+            String runId,
+            String resultRef,
+            CleanupOutcome outcome,
+            String outputHead,
+            String outputChangeSetRevisionId,
+            String finalActualHead,
+            String finalBranchHead,
+            AttachmentState finalAttachmentState,
+            NonCleanKind finalKind,
+            List<GitOperation> finalOperations,
+            String finalStateDigest,
+            CleanupAttentionReason attentionReason,
+            FailureCode inspectionFailureCode,
+            Instant completedAt)
+    {
+        public CiCleanupCompletion
+        {
+            requireNonNull(cleanupId, "cleanupId is null");
+            requireNonNull(outcome, "outcome is null");
+            boolean admissionBlocked = outcome
+                    == CleanupOutcome.ADMISSION_BLOCKED;
+            boolean attention = outcome == CleanupOutcome.NEEDS_ATTENTION;
+            boolean hasRunResult = runId != null && resultRef != null;
+            boolean anyRunIdentity = runId != null || resultRef != null;
+            boolean hasOutput = outputHead != null
+                    && outputChangeSetRevisionId != null;
+            boolean hasFinalNonClean = finalActualHead != null
+                    && finalBranchHead != null
+                    && finalAttachmentState != null
+                    && finalKind != null
+                    && finalOperations != null
+                    && finalStateDigest != null
+                    && attentionReason != null;
+            boolean anyFinalNonClean = finalActualHead != null
+                    || finalBranchHead != null
+                    || finalAttachmentState != null
+                    || finalKind != null
+                    || finalOperations != null
+                    || finalStateDigest != null
+                    || attentionReason != null
+                    || inspectionFailureCode != null;
+            boolean clean = outcome == CleanupOutcome.FIX_PREPARED
+                    || outcome == CleanupOutcome.NO_HEAD_CHANGE;
+            boolean secondNonClean = attention
+                    && (attentionReason == CleanupAttentionReason.SECOND_DIRTY
+                            || attentionReason == CleanupAttentionReason
+                                    .SECOND_GIT_OPERATION_IN_PROGRESS);
+            boolean inspectionBlocked = attention
+                    && attentionReason == CleanupAttentionReason
+                            .FINAL_INSPECTION_BLOCKED;
+            boolean admissionMismatch = admissionBlocked
+                    && attentionReason == CleanupAttentionReason
+                            .ADMISSION_SEAL_MISMATCH;
+            boolean admissionInspectionBlocked = admissionBlocked
+                    && attentionReason == CleanupAttentionReason
+                            .ADMISSION_INSPECTION_BLOCKED;
+            boolean valid = clean && hasRunResult && hasOutput
+                    && !anyFinalNonClean
+                    || secondNonClean && hasRunResult && !hasOutput
+                        && hasFinalNonClean && inspectionFailureCode == null
+                    || inspectionBlocked && hasRunResult && !hasOutput
+                        && !hasFinalNonClean && inspectionFailureCode != null
+                    || admissionMismatch
+                        && (hasRunResult || !anyRunIdentity) && !hasOutput
+                        && hasFinalNonClean && inspectionFailureCode == null
+                    || admissionInspectionBlocked
+                        && (hasRunResult || !anyRunIdentity)
+                        && !hasOutput && !hasFinalNonClean
+                        && inspectionFailureCode != null;
+            if (!valid) {
+                throw new IllegalArgumentException(
+                        "cleanup outcome has inconsistent objective evidence");
+            }
+            if (secondNonClean
+                    && ((finalKind == NonCleanKind.DIRTY)
+                            != (attentionReason
+                                == CleanupAttentionReason.SECOND_DIRTY))) {
+                throw new IllegalArgumentException(
+                        "cleanup attention reason contradicts Git state");
+            }
+            finalOperations = hasFinalNonClean
+                    ? List.copyOf(finalOperations)
+                    : List.of();
+            requireNonNull(completedAt, "completedAt is null");
         }
     }
 

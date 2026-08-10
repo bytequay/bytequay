@@ -13,10 +13,14 @@
  */
 package com.bytequay.app.flow.ci;
 
+import com.bytequay.app.flow.ci.CiAutofixCoordinator.CleanupBinding;
 import com.bytequay.app.flow.ci.CiAutofixCoordinator.RepairBinding;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupCompletion;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizedRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.NormalizedCheck;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
@@ -34,6 +38,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.SessionState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
@@ -228,7 +233,7 @@ class TestCiAutofixCoordinator
                 "attempt", "round", "operation", "run",
                 publishedHead, publishedHead, "change-set",
                 null, null, List.of(), null,
-                AttemptState.CLEANUP_PENDING, null, 0, NOW))
+                AttemptState.NON_CLEAN_HANDOFF, null, 0, NOW))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("finalized repair work");
         assertThatThrownBy(() -> new CiRepairAttempt(
@@ -242,8 +247,8 @@ class TestCiAutofixCoordinator
                 "attempt", "round", "operation", "run",
                 publishedHead, publishedHead, "change-set",
                 null, null, List.of(), "result",
-                AttemptState.CLEANUP_PENDING, null, 0, NOW).state())
-                .isEqualTo(AttemptState.CLEANUP_PENDING);
+                AttemptState.NON_CLEAN_HANDOFF, null, 0, NOW).state())
+                .isEqualTo(AttemptState.NON_CLEAN_HANDOFF);
         assertThatThrownBy(() -> new CiRepairAttempt(
                 "attempt", "round", "operation", "run",
                 publishedHead, publishedHead, "change-set",
@@ -848,7 +853,7 @@ class TestCiAutofixCoordinator
         assertThat(result.finalContent()).isEqualTo(completion.finalContent());
         assertThat(bodies).hasValue(1);
         assertThat(tools).hasValue(1);
-        assertThat(attempt.state()).isEqualTo(AttemptState.CLEANUP_PENDING);
+        assertThat(attempt.state()).isEqualTo(AttemptState.NON_CLEAN_HANDOFF);
         assertThat(attempt.resultRef()).isEqualTo(result.resultId());
         assertThat(attempt.outputLocalHead()).isNull();
         assertThat(attempt.outputChangeSetRevisionId()).isNull();
@@ -948,6 +953,725 @@ class TestCiAutofixCoordinator
                 .hasMessageContaining("digest");
         assertThat(bodies).hasValue(1);
         assertThat(tools).hasValue(1);
+    }
+
+    @Test
+    void sealedCleanupReusesSessionAndAdoptsOneOpaqueCleanCandidate()
+    {
+        ReservedCleanup reserved = reserveCleanup("clean-success");
+        String logicalHead = reserved.predecessor().inputLocalHead();
+        String sessionId = runtime.session(task.taskId(), AgentRole.CI_FIXER)
+                .orElseThrow().sessionId();
+
+        assertThatThrownBy(() -> runtime.acquireWriterLease(
+                reserved.claim(),
+                AgentRole.CI_FIXER,
+                new WorktreeSnapshot(logicalHead, "forged", "forged"),
+                TTL))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class)
+                .hasMessageContaining("cleanup");
+        CleanupBinding binding = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        assertThat(binding.run().headSha()).isEqualTo(logicalHead);
+        assertThat(binding.fence().headSha()).isEqualTo(logicalHead);
+        assertThat(binding.fence().treeDigest())
+                .isEqualTo(reserved.seal().stateDigest());
+        assertThat(binding.run().capabilitySetRef())
+                .isEqualTo("ci-cleanup-capabilities:v1");
+        assertThat(binding.seal().actualHead()).isNotEqualTo(logicalHead);
+        assertThat(binding.run().sessionId()).isEqualTo(sessionId);
+        assertThat(runtime.currentChangeSet(task.taskId()).orElseThrow().headSha())
+                .isEqualTo(logicalHead);
+        int finalRedInboxCount = count(
+                "flow_runtime_inbox", "kind = 'FINAL_RED'");
+        var newerObservation = autofix.observeCi(pr.prId(), check(
+                "cleanup-new-check", "cleanup-new-run", "FAILURE",
+                "cleanup-new-failure", NOW.plusSeconds(60)));
+        autofix.attachLog(
+                newerObservation.observationId(),
+                "new failure".getBytes(StandardCharsets.UTF_8),
+                List.of());
+        CiRound newerRound = ((FinalizedRound) autofix.finalizeHeadSnapshot(
+                pr.prId(), publishedHead)).round();
+        assertThat(autofix.roundById(
+                reserved.predecessor().roundId()).orElseThrow().state())
+                .isEqualTo(RoundState.SUPERSEDED);
+
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        AtomicInteger bodies = new AtomicInteger();
+        AtomicInteger tools = new AtomicInteger();
+        var completion = new InProcessWriterAgentSupervisor.AgentCompletion(
+                TerminalOutcome.FAILED,
+                "{\"verdict\":\"dirty\"}; arbitrary prose",
+                "model-failed-after-cleanup");
+        var handle = coordinator.launchCleanup(
+                supervisor,
+                binding,
+                reserved.claim(),
+                repositoryRoot,
+                capability -> {
+                    bodies.incrementAndGet();
+                    capability.runTool(() -> {
+                        tools.incrementAndGet();
+                        try {
+                            Files.delete(reserved.dirtyPath());
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        commitCiChange(
+                                "cleanup-result.txt", "clean\n", "cleanup CI");
+                    });
+                    return completion;
+                });
+
+        AgentResult result = coordinator.awaitCleanup(
+                supervisor, binding, handle, TTL);
+        CiCleanupCompletion stored = autofix.cleanupCompletion(
+                reserved.seal().cleanupId()).orElseThrow();
+        ChangeSetRevision output = runtime.currentChangeSet(task.taskId())
+                .orElseThrow();
+
+        assertThat(result.finalContent()).isEqualTo(completion.finalContent());
+        assertThat(stored.outcome()).isEqualTo(CleanupOutcome.FIX_PREPARED);
+        assertThat(stored.runId()).isEqualTo(binding.run().runId());
+        assertThat(stored.resultRef()).isEqualTo(result.resultId());
+        assertThat(stored.outputHead()).isEqualTo(output.headSha());
+        assertThat(output.previousHeadSha()).isEqualTo(logicalHead);
+        assertThat(output.previousChangeSetRevisionId())
+                .isEqualTo(reserved.predecessor()
+                        .inputChangeSetRevisionId());
+        assertThat(output.sourceOperationId())
+                .isEqualTo(reserved.claim().operationId());
+        assertThat(output.sourceRunId()).isEqualTo(binding.run().runId());
+        assertThat(runtime.pendingWork(task.taskId()))
+                .filteredOn(work -> work.kind() == PendingKind.CI_FIX_READY)
+                .singleElement()
+                .satisfies(work -> {
+                    assertThat(work.externalKey())
+                            .isEqualTo(reserved.seal().cleanupId());
+                    assertThat(work.agentResultId()).isEqualTo(result.resultId());
+                });
+        assertThat(autofix.roundById(newerRound.roundId()).orElseThrow().state())
+                .isEqualTo(RoundState.FINAL_RED);
+        assertThat(count("flow_runtime_inbox", "kind = 'FINAL_RED'"))
+                .isEqualTo(finalRedInboxCount);
+        assertThat(bodies).hasValue(1);
+        assertThat(tools).hasValue(1);
+
+        AgentResult replay = coordinator.finalizeCleanup(
+                reserved.seal().cleanupId(),
+                binding.run().runId(),
+                reserved.claim(),
+                binding.fence(),
+                completion,
+                repositoryRoot);
+        assertThat(replay).isEqualTo(result);
+        assertThat(bodies).hasValue(1);
+        assertThat(tools).hasValue(1);
+        AgentResult predecessorReplay = coordinator.finalizeRepairAttempt(
+                reserved.predecessor().attemptId(),
+                reserved.repair().binding().run().runId(),
+                reserved.repair().claim(),
+                reserved.repair().fence(),
+                reserved.predecessorCompletion(),
+                repositoryRoot);
+        assertThat(predecessorReplay.resultId())
+                .isEqualTo(reserved.predecessor().resultRef());
+        assertThatThrownBy(() -> runtime.finishCiAgentRun(
+                binding.run().runId(),
+                reserved.claim(),
+                binding.fence(),
+                completion.terminalOutcome(),
+                completion.finalContent(),
+                completion.errorRef(),
+                reserved.predecessor().attemptId(),
+                CiFixOutcome.FIX_PREPARED,
+                                output.headSha(),
+                                output.changeSetRevisionId()))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class);
+    }
+
+    @Test
+    void cleanupRunCannotMintAThirdCleanupSuccessor()
+    {
+        ReservedCleanup reserved = reserveCleanup("no-third-cleanup");
+        CleanupBinding binding = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        var completion = new InProcessWriterAgentSupervisor.AgentCompletion(
+                TerminalOutcome.COMPLETED, "still non-clean", null);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        String finalizerKey = "test:cleanup-owner-guard";
+        var handle = supervisor.launch(
+                binding.run().runId(),
+                reserved.claim(),
+                binding.fence(),
+                finalizerKey,
+                (runId, claim, fence, stoppedCompletion) -> {
+                    assertThatThrownBy(() -> runtime.prepareNonCleanState(
+                            claim,
+                            fence,
+                            repositoryRoot,
+                            reserved.predecessor()
+                                    .inputChangeSetRevisionId()))
+                            .isInstanceOf(
+                                    FlowRuntime.MutationRejectedException.class)
+                            .hasMessageContaining("CI round");
+                    var prepared = runtime.prepareCiCleanupFinalState(
+                            claim,
+                            fence,
+                            repositoryRoot,
+                            reserved.predecessor()
+                                    .inputChangeSetRevisionId());
+                    assertThat(prepared.nonClean()).isPresent();
+                    assertThatThrownBy(() ->
+                            runtime.handoffStoppedCiRunToCleanup(
+                                    runId,
+                                    claim,
+                                    fence,
+                                    stoppedCompletion.terminalOutcome(),
+                                    stoppedCompletion.finalContent(),
+                                    stoppedCompletion.errorRef(),
+                                    reserved.predecessor().attemptId(),
+                                    prepared.nonClean().orElseThrow()))
+                            .isInstanceOf(
+                                    FlowRuntime.MutationRejectedException.class)
+                            .hasMessageContaining("CI round");
+                    return coordinator.finalizeCleanup(
+                            reserved.seal().cleanupId(),
+                            runId,
+                            claim,
+                            fence,
+                            stoppedCompletion,
+                            repositoryRoot);
+                },
+                ignored -> completion);
+
+        supervisor.awaitAndFinalize(handle, TTL, finalizerKey);
+
+        assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
+                .isOne();
+        assertThat(autofix.cleanupCompletion(reserved.seal().cleanupId()))
+                .hasValueSatisfying(stored -> assertThat(stored.outcome())
+                        .isEqualTo(CleanupOutcome.NEEDS_ATTENTION));
+    }
+
+    @Test
+    void secondDirtyCleanupStoresAttentionAndBlocksEveryLaterMutation()
+    {
+        ReservedCleanup reserved = reserveCleanup("second-dirty");
+        CleanupBinding binding = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        Path secondDirty = Path.of(task.worktreePath()).resolve(
+                "second-dirty.txt");
+        var handle = coordinator.launchCleanup(
+                supervisor,
+                binding,
+                reserved.claim(),
+                repositoryRoot,
+                capability -> {
+                    capability.runTool(() -> {
+                        try {
+                            Files.writeString(
+                                    secondDirty,
+                                    "still dirty\n",
+                                    StandardCharsets.UTF_8);
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "verdict=clean (ignored)",
+                            null);
+                });
+
+        coordinator.awaitCleanup(supervisor, binding, handle, TTL);
+        CiCleanupCompletion stored = autofix.cleanupCompletion(
+                reserved.seal().cleanupId()).orElseThrow();
+        Task blocked = runtime.task(task.taskId()).orElseThrow();
+
+        assertThat(stored.outcome()).isEqualTo(CleanupOutcome.NEEDS_ATTENTION);
+        assertThat(stored.finalStateDigest()).isNotBlank();
+        assertThat(blocked.status()).isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        assertThat(blocked.selectedWriterOperationId()).isNull();
+        assertThat(blocked.waitingMutationStateRef())
+                .isEqualTo("ci-cleanup-attention:" + reserved.seal().cleanupId());
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
+        assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
+                .isOne();
+        assertThat(runtime.pendingWork(task.taskId()))
+                .filteredOn(work -> work.kind() == PendingKind.CI_FIX_READY)
+                .isEmpty();
+        assertThatThrownBy(() -> runtime.transitionTask(
+                blocked.taskId(),
+                blocked.currentLifecycleRevisionId(),
+                TaskStatus.ACTIVE,
+                "UNSAFE_RESUME",
+                "test:unsafe"))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class)
+                .hasMessageContaining("unresolved local mutation");
+        assertThatThrownBy(() -> runtime.transitionTask(
+                blocked.taskId(),
+                blocked.currentLifecycleRevisionId(),
+                TaskStatus.CANCELED,
+                "UNSAFE_CANCEL",
+                "test:unsafe"))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class);
+        assertThatThrownBy(() -> runtime.transitionTask(
+                blocked.taskId(),
+                blocked.currentLifecycleRevisionId(),
+                TaskStatus.COMPLETED,
+                "UNSAFE_COMPLETE",
+                "test:unsafe"))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class);
+        assertThat(runtime.claimNext("blocked-cleanup-worker", TTL)).isEmpty();
+        AgentResult predecessorReplay = coordinator.finalizeRepairAttempt(
+                reserved.predecessor().attemptId(),
+                reserved.repair().binding().run().runId(),
+                reserved.repair().claim(),
+                reserved.repair().fence(),
+                reserved.predecessorCompletion(),
+                repositoryRoot);
+        assertThat(predecessorReplay.resultId())
+                .isEqualTo(reserved.predecessor().resultRef());
+    }
+
+    @Test
+    void changedSealedStateBlocksBeforeCleanupBodyAndReplaysExactly()
+            throws IOException
+    {
+        ReservedCleanup reserved = reserveCleanup("admission-mismatch");
+        Files.writeString(
+                reserved.dirtyPath(),
+                "changed after seal\n",
+                StandardCharsets.UTF_8);
+
+        assertThat(coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL)).isEmpty();
+        CiCleanupCompletion blocked = autofix.cleanupCompletion(
+                reserved.seal().cleanupId()).orElseThrow();
+        assertThat(blocked.outcome())
+                .isEqualTo(CleanupOutcome.ADMISSION_BLOCKED);
+        assertThat(blocked.runId()).isNull();
+        assertThat(blocked.resultRef()).isNull();
+        assertThat(blocked.finalStateDigest())
+                .isNotEqualTo(reserved.seal().stateDigest());
+        assertThat(runtime.task(task.taskId()).orElseThrow().status())
+                .isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        assertThat(runtime.runForOperation(reserved.claim().operationId()))
+                .isEmpty();
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
+        assertThat(coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL)).isEmpty();
+        assertThat(count("flow_ci_cleanup_completion", "1 = 1")).isOne();
+    }
+
+    @Test
+    void unexpectedlyCleanSealedStateBlocksBeforeCleanupRun()
+    {
+        ReservedCleanup reserved = reserveCleanup("admission-clean");
+        Path worktree = Path.of(task.worktreePath());
+        gitOutput(
+                worktree,
+                "reset",
+                "--hard",
+                reserved.predecessor().inputLocalHead());
+        gitOutput(worktree, "clean", "-fd");
+
+        assertThat(coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL)).isEmpty();
+
+        assertThat(autofix.cleanupCompletion(reserved.seal().cleanupId()))
+                .hasValueSatisfying(blocked -> {
+                    assertThat(blocked.outcome())
+                            .isEqualTo(CleanupOutcome.ADMISSION_BLOCKED);
+                    assertThat(blocked.inspectionFailureCode())
+                            .isEqualTo(FailureCode.CLEAN);
+                    assertThat(blocked.runId()).isNull();
+                    assertThat(blocked.resultRef()).isNull();
+                });
+        assertThat(runtime.runForOperation(reserved.claim().operationId()))
+                .isEmpty();
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
+    }
+
+    @Test
+    void cleanupCanObjectivelyRestoreLogicalInputWithoutHeadChange()
+    {
+        ReservedCleanup reserved = reserveCleanup("restore-input");
+        CleanupBinding binding = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = coordinator.launchCleanup(
+                supervisor,
+                binding,
+                reserved.claim(),
+                repositoryRoot,
+                capability -> {
+                    capability.runTool(() -> {
+                        Path worktree = Path.of(task.worktreePath());
+                        gitOutput(
+                                worktree,
+                                "reset",
+                                "--hard",
+                                reserved.predecessor().inputLocalHead());
+                        gitOutput(worktree, "clean", "-fd");
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "I claim a fix, but Git decides",
+                            null);
+                });
+
+        coordinator.awaitCleanup(supervisor, binding, handle, TTL);
+        CiCleanupCompletion completion = autofix.cleanupCompletion(
+                reserved.seal().cleanupId()).orElseThrow();
+        ChangeSetRevision restored = runtime.currentChangeSet(task.taskId())
+                .orElseThrow();
+
+        assertThat(completion.outcome())
+                .isEqualTo(CleanupOutcome.NO_HEAD_CHANGE);
+        assertThat(restored.headSha())
+                .isEqualTo(reserved.predecessor().inputLocalHead());
+        assertThat(restored.changeSetRevisionId())
+                .isNotEqualTo(reserved.predecessor()
+                        .inputChangeSetRevisionId());
+        assertThat(restored.previousChangeSetRevisionId())
+                .isEqualTo(reserved.predecessor()
+                        .inputChangeSetRevisionId());
+    }
+
+    @Test
+    void neverLaunchedCleanupRecoveryReinspectsAndReusesQueuedRun()
+    {
+        ReservedCleanup reserved = reserveCleanup("recover-start");
+        CleanupBinding first = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        jdbc.update(
+                """
+                UPDATE flow_runtime_dispatch_ticket
+                SET claim_expires_at = ? WHERE operation_id = ?
+                """,
+                NOW.minusMillis(1).toEpochMilli(),
+                reserved.claim().operationId());
+        assertThat(runtime.recoverExpiredClaim(
+                reserved.claim().operationId(),
+                reserved.claim().generation())).isTrue();
+        runtime.redriveRetryable(reserved.claim().operationId());
+        Claim recovered = claim(OperationKind.RUN_CI_FIXER);
+        restart();
+
+        CleanupBinding redelivered = coordinator.beginCleanup(
+                recovered, repositoryRoot, TTL).orElseThrow();
+
+        assertThat(redelivered.run().runId()).isEqualTo(first.run().runId());
+        assertThat(redelivered.fence().claimGeneration())
+                .isEqualTo(recovered.generation());
+        assertThat(redelivered.fence().claimTokenDigest())
+                .isNotEqualTo(first.fence().claimTokenDigest());
+        assertThat(count(
+                "flow_runtime_agent_run",
+                "operation_id = '" + recovered.operationId() + "'"))
+                .isOne();
+        assertThat(count(
+                "flow_runtime_agent_process_attempt",
+                "operation_id = '" + recovered.operationId() + "'"))
+                .isZero();
+    }
+
+    @Test
+    void recoveredNeverLaunchedCleanupBlockRetainsCanceledRunAndResult()
+            throws IOException
+    {
+        ReservedCleanup reserved = reserveCleanup("recover-block");
+        CleanupBinding first = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        jdbc.update(
+                """
+                UPDATE flow_runtime_dispatch_ticket
+                SET claim_expires_at = ? WHERE operation_id = ?
+                """,
+                NOW.minusMillis(1).toEpochMilli(),
+                reserved.claim().operationId());
+        assertThat(runtime.recoverExpiredClaim(
+                reserved.claim().operationId(),
+                reserved.claim().generation())).isTrue();
+        runtime.redriveRetryable(reserved.claim().operationId());
+        Claim recovered = claim(OperationKind.RUN_CI_FIXER);
+        Files.writeString(
+                reserved.dirtyPath(),
+                "changed after recovered admission\n",
+                StandardCharsets.UTF_8);
+        restart();
+
+        assertThat(coordinator.beginCleanup(
+                recovered, repositoryRoot, TTL)).isEmpty();
+
+        CiCleanupCompletion blocked = autofix.cleanupCompletion(
+                reserved.seal().cleanupId()).orElseThrow();
+        AgentResult canceled = runtime.resultForRun(first.run().runId())
+                .orElseThrow();
+        assertThat(blocked.outcome())
+                .isEqualTo(CleanupOutcome.ADMISSION_BLOCKED);
+        assertThat(blocked.runId()).isEqualTo(first.run().runId());
+        assertThat(blocked.resultRef()).isEqualTo(canceled.resultId());
+        assertThat(canceled.terminalOutcome())
+                .isEqualTo(TerminalOutcome.CANCELED);
+        assertThat(canceled.finalContent()).isNull();
+        assertThat(canceled.stopProofRef())
+                .startsWith("never-launched-stop-");
+        assertThat(runtime.runForOperation(recovered.operationId()))
+                .hasValueSatisfying(run -> assertThat(run.state())
+                        .isEqualTo(RunState.CANCELED));
+        assertThat(runtime.session(task.taskId(), AgentRole.CI_FIXER))
+                .hasValueSatisfying(session -> {
+                    assertThat(session.state()).isEqualTo(SessionState.IDLE);
+                    assertThat(session.lastRunId()).isEqualTo(first.run().runId());
+                });
+        assertThat(runtime.operation(recovered.operationId()).orElseThrow()
+                .resultRef()).isEqualTo(canceled.resultId());
+        assertThat(count(
+                "flow_runtime_agent_process_attempt",
+                "run_id = '%s'".formatted(first.run().runId())))
+                .isZero();
+
+        restart();
+        assertThat(coordinator.beginCleanup(
+                recovered, repositoryRoot, TTL)).isEmpty();
+        assertThat(count("flow_ci_cleanup_completion", "1 = 1")).isOne();
+        assertThat(runtime.resultForRun(first.run().runId()))
+                .contains(canceled);
+    }
+
+    @Test
+    void lateCleanupCompletionFailureRollsBackAndRetriesWithoutBody()
+    {
+        ReservedCleanup reserved = reserveCleanup("late-rollback");
+        CleanupBinding binding = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        AtomicInteger bodies = new AtomicInteger();
+        AtomicInteger tools = new AtomicInteger();
+        int changeSetsBefore = count(
+                "flow_runtime_change_set_revision", "1 = 1");
+        int reconciliationsBefore = count(
+                "flow_runtime_operation", "kind = 'RECONCILE_TASK'");
+        int inboxBefore = count("flow_runtime_inbox", "1 = 1");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = coordinator.launchCleanup(
+                supervisor,
+                binding,
+                reserved.claim(),
+                repositoryRoot,
+                capability -> {
+                    bodies.incrementAndGet();
+                    capability.runTool(() -> {
+                        tools.incrementAndGet();
+                        try {
+                            Files.delete(reserved.dirtyPath());
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        commitCiChange(
+                                "late-output.txt", "fixed\n", "late cleanup");
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "opaque", null);
+                });
+        jdbc.execute("""
+                CREATE TRIGGER fail_cleanup_completion
+                BEFORE INSERT ON flow_ci_cleanup_completion
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced completion failure');
+                END
+                """);
+
+        assertThatThrownBy(() -> coordinator.awaitCleanup(
+                supervisor, binding, handle, TTL))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(autofix.cleanupCompletion(reserved.seal().cleanupId()))
+                .isEmpty();
+        assertThat(runtime.resultForRun(binding.run().runId())).isEmpty();
+        assertThat(runtime.currentChangeSet(task.taskId()).orElseThrow()
+                .changeSetRevisionId())
+                .isEqualTo(reserved.predecessor()
+                        .inputChangeSetRevisionId());
+        assertThat(runtime.operation(reserved.claim().operationId())
+                .orElseThrow().state()).isEqualTo(OperationState.CLAIMED);
+        assertThat(runtime.operation(reserved.claim().operationId())
+                .orElseThrow().resultRef()).isNull();
+        assertThat(runtime.runForOperation(reserved.claim().operationId()))
+                .hasValueSatisfying(run -> assertThat(run.state())
+                        .isEqualTo(RunState.RUNNING));
+        assertThat(runtime.session(task.taskId(), AgentRole.CI_FIXER))
+                .hasValueSatisfying(session -> {
+                    assertThat(session.state()).isEqualTo(SessionState.RUNNING);
+                    assertThat(session.lastRunId())
+                            .isEqualTo(binding.run().runId());
+                });
+        assertThat(count(
+                "flow_runtime_dispatch_ticket",
+                "operation_id = '%s' AND delivery_state = 'CLAIMED'"
+                        .formatted(reserved.claim().operationId())))
+                .isOne();
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId())
+                .isEqualTo(reserved.claim().operationId());
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isOne();
+        assertThat(count("flow_runtime_change_set_revision", "1 = 1"))
+                .isEqualTo(changeSetsBefore);
+        assertThat(count("flow_runtime_inbox", "1 = 1"))
+                .isEqualTo(inboxBefore);
+        assertThat(count(
+                "flow_runtime_operation", "kind = 'RECONCILE_TASK'"))
+                .isEqualTo(reconciliationsBefore);
+        assertThat(runtime.pendingWork(task.taskId()))
+                .filteredOn(work -> work.kind() == PendingKind.CI_FIX_READY)
+                .isEmpty();
+
+        jdbc.execute("DROP TRIGGER fail_cleanup_completion");
+        coordinator.awaitCleanup(supervisor, binding, handle, TTL);
+        assertThat(bodies).hasValue(1);
+        assertThat(tools).hasValue(1);
+        assertThat(autofix.cleanupCompletion(reserved.seal().cleanupId()))
+                .isPresent();
+        assertThat(runtime.operation(reserved.claim().operationId())
+                .orElseThrow().state()).isEqualTo(OperationState.SUCCEEDED);
+        assertThat(runtime.runForOperation(reserved.claim().operationId()))
+                .hasValueSatisfying(run -> assertThat(run.state())
+                        .isEqualTo(RunState.COMPLETED));
+        assertThat(runtime.session(task.taskId(), AgentRole.CI_FIXER))
+                .hasValueSatisfying(session -> assertThat(session.state())
+                        .isEqualTo(SessionState.IDLE));
+        assertThat(count(
+                "flow_runtime_dispatch_ticket",
+                "operation_id = '%s' AND delivery_state = 'DONE'"
+                        .formatted(reserved.claim().operationId())))
+                .isOne();
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId()).isNull();
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
+        assertThat(runtime.pendingWork(task.taskId()))
+                .filteredOn(work -> work.kind() == PendingKind.CI_FIX_READY)
+                .hasSize(1);
+    }
+
+    @Test
+    void cleanupFinalStateCannotBePreparedBeforeExactStop()
+            throws Exception
+    {
+        ReservedCleanup reserved = reserveCleanup("live-inspection");
+        CleanupBinding binding = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = coordinator.launchCleanup(
+                supervisor,
+                binding,
+                reserved.claim(),
+                repositoryRoot,
+                capability -> {
+                    entered.countDown();
+                    try {
+                        assertThat(release.await(
+                                TTL.toMillis(), TimeUnit.MILLISECONDS)).isTrue();
+                    }
+                    catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                    capability.runTool(() -> {
+                        try {
+                            Files.delete(reserved.dirtyPath());
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                        commitCiChange(
+                                "after-stop-proof.txt",
+                                "changed\n",
+                                "post inspection change");
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "done", null);
+                });
+        assertThat(entered.await(TTL.toMillis(), TimeUnit.MILLISECONDS))
+                .isTrue();
+
+        assertThatThrownBy(() -> runtime.prepareChangeSet(
+                reserved.claim(),
+                binding.fence(),
+                repositoryRoot,
+                reserved.predecessor().inputChangeSetRevisionId()))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class)
+                .hasMessageContaining("stopped final-state");
+        assertThatThrownBy(() -> runtime.adoptChangeSet(
+                reserved.claim(),
+                binding.fence(),
+                repositoryRoot,
+                reserved.predecessor().inputChangeSetRevisionId()))
+                .isInstanceOf(FlowRuntime.MutationRejectedException.class)
+                .hasMessageContaining("stopped final-state");
+        assertThatThrownBy(() -> runtime.prepareCiCleanupFinalState(
+                reserved.claim(),
+                binding.fence(),
+                repositoryRoot,
+                reserved.predecessor().inputChangeSetRevisionId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("stopped");
+
+        release.countDown();
+        coordinator.awaitCleanup(supervisor, binding, handle, TTL);
+        assertThat(autofix.cleanupCompletion(reserved.seal().cleanupId()))
+                .hasValueSatisfying(completion -> assertThat(completion.outcome())
+                        .isEqualTo(CleanupOutcome.FIX_PREPARED));
+    }
+
+    @Test
+    void stableFinalInspectionFailureStoresTypedAttentionOnce()
+    {
+        ReservedCleanup reserved = reserveCleanup("final-untrusted");
+        CleanupBinding binding = coordinator.beginCleanup(
+                reserved.claim(), repositoryRoot, TTL).orElseThrow();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = coordinator.launchCleanup(
+                supervisor,
+                binding,
+                reserved.claim(),
+                repositoryRoot,
+                capability -> {
+                    capability.runTool(() -> {
+                        try {
+                            Files.createDirectories(
+                                    repositoryRoot.resolve(".git/rr-cache"));
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "pretend clean",
+                            null);
+                });
+
+        coordinator.awaitCleanup(supervisor, binding, handle, TTL);
+        CiCleanupCompletion completion = autofix.cleanupCompletion(
+                reserved.seal().cleanupId()).orElseThrow();
+
+        assertThat(completion.outcome())
+                .isEqualTo(CleanupOutcome.NEEDS_ATTENTION);
+        assertThat(completion.inspectionFailureCode())
+                .isEqualTo(FailureCode.UNTRUSTED_REPOSITORY_STATE);
+        assertThat(completion.finalStateDigest()).isNull();
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .waitingMutationStateRef()).isNotNull();
+        assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
+                .isOne();
     }
 
     @Test
@@ -1468,8 +2192,69 @@ class TestCiAutofixCoordinator
         return new StartedRepair(fix, fence, binding);
     }
 
+    private ReservedCleanup reserveCleanup(String suffix)
+    {
+        StartedRepair started = startRepair();
+        Path dirty = Path.of(task.worktreePath()).resolve(
+                "cleanup-input-" + suffix + ".txt");
+        var predecessorCompletion =
+                new InProcessWriterAgentSupervisor.AgentCompletion(
+                        TerminalOutcome.COMPLETED,
+                        "opaque predecessor " + suffix,
+                        null);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = coordinator.launchRepair(
+                supervisor,
+                started.binding(),
+                started.claim(),
+                started.fence(),
+                repositoryRoot,
+                capability -> {
+                    capability.runTool(() -> {
+                        commitCiChange(
+                                "candidate-" + suffix + ".txt",
+                                "candidate\n",
+                                "candidate " + suffix);
+                        try {
+                            Files.writeString(
+                                    dirty,
+                                    "dirty\n",
+                                    StandardCharsets.UTF_8);
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                    return predecessorCompletion;
+                });
+        coordinator.awaitRepair(
+                supervisor, started.binding(), handle, TTL);
+        CiRepairAttempt predecessor = autofix.repairAttempt(
+                started.binding().attempt().attemptId()).orElseThrow();
+        CiCleanupSeal seal = autofix.cleanupSealForRepair(
+                predecessor.attemptId()).orElseThrow();
+        Claim cleanup = claim(OperationKind.RUN_CI_FIXER);
+        assertThat(cleanup.operationId()).isEqualTo(seal.successorOperationId());
+        return new ReservedCleanup(
+                started,
+                predecessor,
+                seal,
+                cleanup,
+                dirty,
+                predecessorCompletion);
+    }
+
     private record StartedRepair(
             Claim claim, WriterFence fence, RepairBinding binding) {}
+
+    private record ReservedCleanup(
+            StartedRepair repair,
+            CiRepairAttempt predecessor,
+            CiCleanupSeal seal,
+            Claim claim,
+            Path dirtyPath,
+            InProcessWriterAgentSupervisor.AgentCompletion
+                    predecessorCompletion) {}
 
     private void assertTerminalCiAudit(TaskStatus terminal)
     {

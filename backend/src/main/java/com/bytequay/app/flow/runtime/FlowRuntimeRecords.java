@@ -108,6 +108,13 @@ public final class FlowRuntimeRecords
         IN_PROCESS_OWNER_UNAVAILABLE
     }
 
+    public enum ChangeSetSource
+    {
+        TASK_AGENT,
+        CI_FIXER,
+        UPSTREAM_SYNC
+    }
+
     public record Task(
             String taskId,
             String requestKey,
@@ -117,9 +124,11 @@ public final class FlowRuntimeRecords
             long epoch,
             String launchBaseSha,
             String currentBaseSha,
+            String currentBaseRevisionId,
             String branchName,
             String worktreePath,
             String currentHeadSha,
+            String currentChangeSetRevisionId,
             String taskSessionId,
             String ciSessionId,
             String prId,
@@ -141,6 +150,91 @@ public final class FlowRuntimeRecords
             requireNonNull(worktreePath, "worktreePath is null");
             requireNonNull(currentLifecycleRevisionId,
                     "currentLifecycleRevisionId is null");
+        }
+    }
+
+    public record TaskBaseRevision(
+            String baseRevisionId,
+            String taskId,
+            long sequence,
+            String previousBaseSha,
+            String baseSha,
+            String reasonCode,
+            String evidenceRef,
+            String sourceOperationId,
+            Instant recordedAt)
+    {
+        public TaskBaseRevision
+        {
+            requireNonNull(baseRevisionId, "baseRevisionId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(baseSha, "baseSha is null");
+            requireNonNull(reasonCode, "reasonCode is null");
+            if (sequence < 1) {
+                throw new IllegalArgumentException("sequence must be positive");
+            }
+            boolean supportedReason = switch (reasonCode) {
+                case "INITIAL", "UPSTREAM_TARGET_INTEGRATION",
+                        "EXPLICIT_RECONCILIATION" -> true;
+                default -> false;
+            };
+            if (!supportedReason
+                    || reasonCode.equals("INITIAL") != (sequence == 1)
+                    || (sequence == 1) != (previousBaseSha == null)) {
+                throw new IllegalArgumentException(
+                        "invalid Task base revision reason/predecessor");
+            }
+            requireNonNull(evidenceRef, "evidenceRef is null");
+            requireNonNull(sourceOperationId, "sourceOperationId is null");
+            requireNonNull(recordedAt, "recordedAt is null");
+        }
+    }
+
+    public record ChangeSetRevision(
+            String changeSetRevisionId,
+            String taskId,
+            long sequence,
+            String previousChangeSetRevisionId,
+            String previousHeadSha,
+            String headSha,
+            String baseRevisionId,
+            String baseSha,
+            String headTreeDigest,
+            String diffDigest,
+            boolean differsFromBase,
+            ChangeSetSource source,
+            String sourceRunId,
+            String sourceOperationId,
+            Instant adoptedAt)
+    {
+        public ChangeSetRevision
+        {
+            requireNonNull(changeSetRevisionId,
+                    "changeSetRevisionId is null");
+            requireNonNull(taskId, "taskId is null");
+            if (sequence < 1
+                    || (sequence == 1)
+                            != (previousChangeSetRevisionId == null)) {
+                throw new IllegalArgumentException(
+                        "invalid change-set revision sequence/predecessor");
+            }
+            requireNonNull(previousHeadSha, "previousHeadSha is null");
+            requireNonNull(headSha, "headSha is null");
+            requireNonNull(baseRevisionId, "baseRevisionId is null");
+            requireNonNull(baseSha, "baseSha is null");
+            requireNonNull(headTreeDigest, "headTreeDigest is null");
+            requireNonNull(diffDigest, "diffDigest is null");
+            requireNonNull(source, "source is null");
+            if (source == ChangeSetSource.UPSTREAM_SYNC
+                    && sourceRunId != null) {
+                throw new IllegalArgumentException(
+                        "UPSTREAM_SYNC must not name an AgentRun");
+            }
+            if (source != ChangeSetSource.UPSTREAM_SYNC) {
+                requireNonNull(sourceRunId, "sourceRunId is null");
+            }
+            requireNonNull(sourceOperationId, "sourceOperationId is null");
+            requireNonNull(adoptedAt, "adoptedAt is null");
         }
     }
 
@@ -176,6 +270,7 @@ public final class FlowRuntimeRecords
             String targetBaseRef,
             String scopeKey,
             String branchName,
+            String createdFromChangeSetRevisionId,
             String createdFromHeadSha,
             String remoteIdentityId,
             String provider,
@@ -193,6 +288,8 @@ public final class FlowRuntimeRecords
             requireNonNull(targetBaseRef, "targetBaseRef is null");
             requireNonNull(scopeKey, "scopeKey is null");
             requireNonNull(branchName, "branchName is null");
+            requireNonNull(createdFromChangeSetRevisionId,
+                    "createdFromChangeSetRevisionId is null");
             requireNonNull(createdFromHeadSha,
                     "createdFromHeadSha is null");
         }
@@ -279,7 +376,10 @@ public final class FlowRuntimeRecords
         }
     }
 
-    /** Program-observed committed worktree state at writer admission. */
+    /**
+     * Writer-admission input only. It is not mechanically inspected yet and
+     * must never be reused as change-set evidence.
+     */
     public record WorktreeSnapshot(
             String headSha, String treeDigest, String evidenceRef)
     {

@@ -43,12 +43,15 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,6 +72,8 @@ class TestCiAutofixCoordinator
     private CiAutofixCoordinator coordinator;
     private Task task;
     private PullRequestSubject pr;
+    private Path repositoryRoot;
+    private String publishedHead;
 
     @BeforeEach
     void setUp()
@@ -150,7 +155,7 @@ class TestCiAutofixCoordinator
 
         CiRound oldStored = autofix.roundById(old.roundId()).orElseThrow();
         CiRound successor = autofix.round(
-                pr.prId(), "H1", old.policyRevisionId()).orElseThrow();
+                pr.prId(), publishedHead, old.policyRevisionId()).orElseThrow();
         assertThat(oldStored.state()).isEqualTo(RoundState.SUPERSEDED);
         assertThat(oldStored.checkObservationIds())
                 .isEqualTo(old.checkObservationIds());
@@ -204,7 +209,7 @@ class TestCiAutofixCoordinator
         assertThat(coordinator.selectNext(reconciliation)).isEmpty();
 
         CiRound successor = autofix.round(
-                pr.prId(), "H1", old.policyRevisionId()).orElseThrow();
+                pr.prId(), publishedHead, old.policyRevisionId()).orElseThrow();
         assertThat(successor.roundId()).isNotEqualTo(old.roundId());
         assertThat(successor.state()).isEqualTo(RoundState.QUEUED);
         assertThat(successor.failedLogRefs()).containsExactly(newerLog.logRef());
@@ -233,7 +238,7 @@ class TestCiAutofixCoordinator
         assertThat(coordinator.selectNext(reconciliation)).isEmpty();
 
         CiRound successor = autofix.round(
-                pr.prId(), "H1", policy.policyRevisionId()).orElseThrow();
+                pr.prId(), publishedHead, policy.policyRevisionId()).orElseThrow();
         assertThat(successor.state()).isEqualTo(RoundState.QUEUED);
         assertThat(successor.failedLogRefs()).isEqualTo(old.failedLogRefs());
         assertThat(autofix.roundById(old.roundId()).orElseThrow().state())
@@ -273,7 +278,7 @@ class TestCiAutofixCoordinator
                 currentRed.checkObservationIds().getFirst(),
                 "failure".getBytes(StandardCharsets.UTF_8),
                 List.of());
-        runtime.advanceRemoteHead(pr.prId(), "H1", "H2");
+        runtime.advanceRemoteHead(pr.prId(), publishedHead, "H2");
         assertThatThrownBy(() -> coordinator.enqueueRepair(currentRed.roundId()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("exact published Task/PR head");
@@ -465,7 +470,7 @@ class TestCiAutofixCoordinator
                 revision,
                 startedAt));
         return ((FinalizedRound) autofix.finalizeHeadSnapshot(
-                pr.prId(), "H1")).round();
+                pr.prId(), publishedHead)).round();
     }
 
     private NormalizedCheck check(
@@ -476,7 +481,7 @@ class TestCiAutofixCoordinator
             Instant startedAt)
     {
         return new NormalizedCheck(
-                "H1", "build", checkId, runId, 1, revision, "Build",
+                publishedHead, "build", checkId, runId, 1, revision, "Build",
                 "COMPLETED", conclusion, startedAt,
                 startedAt.plusSeconds(10), startedAt.plusSeconds(10),
                 "raw:" + revision);
@@ -496,16 +501,23 @@ class TestCiAutofixCoordinator
 
     private Task publishedTask()
     {
+        repositoryRoot = temporaryDirectory.resolve("repository");
+        Path worktree = temporaryDirectory.resolve("worktree");
+        initializeRepository(repositoryRoot, worktree, "task/one");
+        String base = gitOutput(repositoryRoot, "rev-parse", "HEAD");
         Task started = runtime.startTask(
                 "request-1", "repo-1", "Implement", "task/one",
-                temporaryDirectory.resolve("worktree").toString());
+                worktree.toString());
         Claim provision = claim(OperationKind.PROVISION_TASK);
-        runtime.provisionTask(provision, "B0", "H1");
+        runtime.provisionTask(provision, base, base);
         finishInitialTaskTurn();
+        Task adopted = runtime.task(started.taskId()).orElseThrow();
+        publishedHead = adopted.currentHeadSha();
         PullRequestSubject local = runtime.materializePullRequest(
-                started.taskId(), "H1", "main", "main", "main");
+                started.taskId(), adopted.currentChangeSetRevisionId(),
+                "main", "main", "main");
         pr = runtime.bindRemoteIdentity(
-                local.prId(), "H1", "GITHUB", "repo-external", 42,
+                local.prId(), publishedHead, "GITHUB", "repo-external", 42,
                 "PR_node", "https://example.test/pr/42", "receipt:42");
         return runtime.task(started.taskId()).orElseThrow();
     }
@@ -536,10 +548,14 @@ class TestCiAutofixCoordinator
         Operation selected = runtime.selectNext(reconciliation).orElseThrow();
         assertThat(selected.kind()).isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
+        Task current = runtime.task(turn.taskId()).orElseThrow();
         WriterFence fence = runtime.acquireWriterLease(
                 turn,
                 AgentRole.TASK_AGENT,
-                new WorktreeSnapshot("H1", "tree:H1", "snapshot:H1"),
+                new WorktreeSnapshot(
+                        current.currentHeadSha(),
+                        "tree:" + current.currentHeadSha(),
+                        "snapshot:" + current.currentHeadSha()),
                 TTL);
         AgentRun run = runtime.startWriterAgent(
                 turn, fence, "prompt:task", "capabilities:task");
@@ -548,9 +564,81 @@ class TestCiAutofixCoordinator
                 run.runId(),
                 turn,
                 fence,
-                capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
-                        TerminalOutcome.COMPLETED, "done", null));
+                capability -> {
+                    Task task = runtime.task(fence.taskId()).orElseThrow();
+                    Path worktree = Path.of(task.worktreePath());
+                    commitTaskChange(worktree);
+                    runtime.adoptChangeSet(turn, fence, repositoryRoot, null);
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "done", null);
+                });
         supervisor.awaitAndFinish(handle, TTL);
+    }
+
+    private static void commitTaskChange(Path worktree)
+    {
+        try {
+            Files.writeString(
+                    worktree.resolve("task-change.txt"),
+                    "change\n",
+                    StandardCharsets.UTF_8);
+            gitOutput(worktree, "add", "task-change.txt");
+            gitOutput(worktree, "commit", "-m", "task change");
+        }
+        catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void initializeRepository(
+            Path repository, Path worktree, String branch)
+    {
+        try {
+            Files.createDirectories(repository);
+            gitOutput(repository, "init", "-b", "main");
+            gitOutput(repository, "config", "user.name", "ByteQuay Test");
+            gitOutput(repository, "config", "user.email", "test@bytequay.invalid");
+            Files.writeString(
+                    repository.resolve("base.txt"), "base\n", StandardCharsets.UTF_8);
+            gitOutput(repository, "add", "base.txt");
+            gitOutput(repository, "commit", "-m", "base");
+            gitOutput(
+                    repository,
+                    "worktree",
+                    "add",
+                    "-b",
+                    branch,
+                    worktree.toString());
+        }
+        catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String gitOutput(Path directory, String... arguments)
+    {
+        try {
+            List<String> command = new ArrayList<>();
+            command.add("/usr/bin/git");
+            command.addAll(List.of(arguments));
+            Process process = new ProcessBuilder(command)
+                    .directory(directory.toFile())
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(
+                    process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (process.waitFor() != 0) {
+                throw new IllegalStateException(output);
+            }
+            return output.strip();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+        catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private Claim claim(OperationKind expected)

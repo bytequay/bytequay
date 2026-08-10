@@ -42,7 +42,9 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.Inspection;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.TerminatedThreadWitness;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -138,6 +140,72 @@ public final class FlowRuntime
         }
     }
 
+    private static final class PreparedCiCleanupInspectionBlock
+    {
+        private final String expectedChangeSetRevisionId;
+        private final AdoptionSnapshot snapshot;
+        private final Claim claim;
+        private final WriterFence fence;
+        private final String processAttemptId;
+        private final String stopProofRef;
+        private final FailureCode failureCode;
+
+        private PreparedCiCleanupInspectionBlock(
+                String expectedChangeSetRevisionId,
+                AdoptionSnapshot snapshot,
+                Claim claim,
+                WriterFence fence,
+                AgentProcessAttempt stopped,
+                FailureCode failureCode)
+        {
+            this.expectedChangeSetRevisionId = expectedChangeSetRevisionId;
+            this.snapshot = snapshot;
+            this.claim = claim;
+            this.fence = fence;
+            this.processAttemptId = stopped.processAttemptId();
+            this.stopProofRef = stopped.stopProofRef();
+            this.failureCode = failureCode;
+        }
+    }
+
+    /** Runtime-minted mechanical result for one stopped cleanup inspection. */
+    public static final class PreparedCiCleanupFinalState
+    {
+        private final PreparedChangeSet clean;
+        private final PreparedNonCleanState nonClean;
+        private final PreparedCiCleanupInspectionBlock blocked;
+        private final PreparedCiCleanupInspectionBlock authority;
+
+        private PreparedCiCleanupFinalState(
+                PreparedChangeSet clean,
+                PreparedNonCleanState nonClean,
+                PreparedCiCleanupInspectionBlock blocked,
+                PreparedCiCleanupInspectionBlock authority)
+        {
+            this.clean = clean;
+            this.nonClean = nonClean;
+            this.blocked = blocked;
+            this.authority = authority;
+        }
+
+        public boolean isClean()
+        {
+            return clean != null;
+        }
+
+        public Optional<PreparedNonCleanState> nonClean()
+        {
+            return Optional.ofNullable(nonClean);
+        }
+
+        public Optional<FailureCode> failureCode()
+        {
+            return blocked == null
+                    ? Optional.empty()
+                    : Optional.of(blocked.failureCode);
+        }
+    }
+
     /** Private-construction receipt for one committed runtime cleanup handoff. */
     public static final class CleanupHandoff
     {
@@ -179,6 +247,202 @@ public final class FlowRuntime
         public NonCleanInspection sealedState()
         {
             return sealedState;
+        }
+    }
+
+    /** Private-construction proof for first cleanup writer admission. */
+    public static final class PreparedCiCleanupAdmission
+    {
+        private final String cleanupId;
+        private final String repairAttemptId;
+        private final String predecessorOperationId;
+        private final String predecessorRunId;
+        private final String predecessorResultId;
+        private final String inputChangeSetRevisionId;
+        private final String inputHead;
+        private final NonCleanInspection sealedState;
+        private final Claim claim;
+        private final long taskEpoch;
+        private final String sessionId;
+        private final WriterFence existingFence;
+        private final AgentRun existingRun;
+
+        private PreparedCiCleanupAdmission(
+                String cleanupId,
+                String repairAttemptId,
+                String predecessorOperationId,
+                String predecessorRunId,
+                String predecessorResultId,
+                String inputChangeSetRevisionId,
+                String inputHead,
+                NonCleanInspection sealedState,
+                Claim claim,
+                long taskEpoch,
+                String sessionId,
+                WriterFence existingFence,
+                AgentRun existingRun)
+        {
+            this.cleanupId = cleanupId;
+            this.repairAttemptId = repairAttemptId;
+            this.predecessorOperationId = predecessorOperationId;
+            this.predecessorRunId = predecessorRunId;
+            this.predecessorResultId = predecessorResultId;
+            this.inputChangeSetRevisionId = inputChangeSetRevisionId;
+            this.inputHead = inputHead;
+            this.sealedState = sealedState;
+            this.claim = claim;
+            this.taskEpoch = taskEpoch;
+            this.sessionId = sessionId;
+            this.existingFence = existingFence;
+            this.existingRun = existingRun;
+        }
+    }
+
+    /** Runtime-minted proof that cleanup admission stably cannot proceed. */
+    public static final class PreparedCiCleanupBlock
+    {
+        private final PreparedCiCleanupAdmission subject;
+        private final FailureCode failureCode;
+        private final NonCleanInspection observedState;
+
+        private PreparedCiCleanupBlock(
+                PreparedCiCleanupAdmission subject,
+                FailureCode failureCode,
+                NonCleanInspection observedState)
+        {
+            this.subject = requireNonNull(subject, "subject is null");
+            this.failureCode = failureCode;
+            this.observedState = observedState;
+        }
+
+        public Optional<FailureCode> failureCode()
+        {
+            return Optional.ofNullable(failureCode);
+        }
+
+        public Optional<NonCleanInspection> observedState()
+        {
+            return Optional.ofNullable(observedState);
+        }
+    }
+
+    /** Typed stable admission stop carrying only a runtime-minted token. */
+    public static final class CiCleanupAdmissionBlockedException
+            extends IllegalStateException
+    {
+        private final PreparedCiCleanupBlock prepared;
+
+        private CiCleanupAdmissionBlockedException(
+                String message, PreparedCiCleanupBlock prepared)
+        {
+            super(message);
+            this.prepared = requireNonNull(prepared, "prepared is null");
+        }
+
+        public PreparedCiCleanupBlock prepared()
+        {
+            return prepared;
+        }
+    }
+
+    /** Private-construction receipt for one committed cleanup outcome. */
+    public static final class CiCleanupFinalizationReceipt
+    {
+        private final String cleanupId;
+        private final String operationId;
+        private final AgentResult result;
+        private final CiFixOutcome cleanOutcome;
+        private final String outputHead;
+        private final String outputChangeSetRevisionId;
+        private final NonCleanInspection finalState;
+        private final FailureCode failureCode;
+        private final boolean admissionBlocked;
+        private final Instant completedAt;
+
+        private CiCleanupFinalizationReceipt(
+                String cleanupId,
+                String operationId,
+                AgentResult result,
+                CiFixOutcome cleanOutcome,
+                String outputHead,
+                String outputChangeSetRevisionId,
+                NonCleanInspection finalState,
+                FailureCode failureCode,
+                boolean admissionBlocked,
+                Instant completedAt)
+        {
+            this.cleanupId = requireNonNull(cleanupId, "cleanupId is null");
+            this.operationId = requireNonNull(operationId,
+                    "operationId is null");
+            this.result = result;
+            this.cleanOutcome = cleanOutcome;
+            this.outputHead = outputHead;
+            this.outputChangeSetRevisionId = outputChangeSetRevisionId;
+            this.finalState = finalState;
+            this.failureCode = failureCode;
+            this.admissionBlocked = admissionBlocked;
+            this.completedAt = requireNonNull(completedAt,
+                    "completedAt is null");
+        }
+
+        public String cleanupId()
+        {
+            return cleanupId;
+        }
+
+        public String operationId()
+        {
+            return operationId;
+        }
+
+        public Optional<AgentResult> result()
+        {
+            return Optional.ofNullable(result);
+        }
+
+        public Optional<CiFixOutcome> cleanOutcome()
+        {
+            return Optional.ofNullable(cleanOutcome);
+        }
+
+        public Optional<String> outputHead()
+        {
+            return Optional.ofNullable(outputHead);
+        }
+
+        public Optional<String> outputChangeSetRevisionId()
+        {
+            return Optional.ofNullable(outputChangeSetRevisionId);
+        }
+
+        public Optional<NonCleanInspection> finalState()
+        {
+            return Optional.ofNullable(finalState);
+        }
+
+        public Optional<FailureCode> failureCode()
+        {
+            return Optional.ofNullable(failureCode);
+        }
+
+        public boolean admissionBlocked()
+        {
+            return admissionBlocked;
+        }
+
+        public Instant completedAt()
+        {
+            return completedAt;
+        }
+    }
+
+    /** Runtime-owned fence and same-session run for one cleanup operation. */
+    public record CiCleanupWriterStart(WriterFence fence, AgentRun run)
+    {
+        public CiCleanupWriterStart
+        {
+            requireNonNull(fence, "fence is null");
+            requireNonNull(run, "run is null");
         }
     }
 
@@ -414,6 +678,10 @@ public final class FlowRuntime
                 throw new IllegalStateException(
                         "Invalid Task transition: " + task.status()
                                 + " -> " + nextStatus);
+            }
+            if (task.waitingMutationStateRef() != null) {
+                throw new MutationRejectedException(
+                        "Task has unresolved local mutation state");
             }
             if (task.selectedWriterOperationId() != null
                     || writerFence(taskId).isPresent()) {
@@ -841,9 +1109,11 @@ public final class FlowRuntime
                           o.kind = 'PROVISION_TASK'
                           OR (o.kind = 'RECONCILE_TASK'
                               AND t.status = 'ACTIVE'
+                              AND t.waiting_mutation_state_ref IS NULL
                               AND t.selected_writer_operation_id IS NULL)
                           OR (o.kind IN ('RUN_TASK_TURN', 'RUN_CI_FIXER')
                               AND t.status = 'ACTIVE'
+                              AND t.waiting_mutation_state_ref IS NULL
                               AND t.selected_writer_operation_id = o.operation_id)
                       )
                     ORDER BY d.priority DESC, d.not_before, o.operation_id
@@ -1184,6 +1454,10 @@ public final class FlowRuntime
             Instant claimExpiresAt = currentClaimExpiry(claim);
             String claimDigest = claimTokenDigest(claim);
             Operation operation = requireOperation(claim.operationId());
+            if (operation.ownerKind().equals("CI_CLEANUP")) {
+                throw new MutationRejectedException(
+                        "CI cleanup cannot use caller-authored worktree admission");
+            }
             AgentRole requiredRole = roleForWriter(operation.kind());
             if (holderKind != requiredRole) {
                 throw new IllegalArgumentException(
@@ -1191,6 +1465,7 @@ public final class FlowRuntime
             }
             Task task = requireTask(operation.taskId());
             if (task.status() != TaskStatus.ACTIVE
+                    || task.waitingMutationStateRef() != null
                     || !operation.operationId().equals(
                             task.selectedWriterOperationId())) {
                 throw new MutationRejectedException(
@@ -1415,6 +1690,11 @@ public final class FlowRuntime
         synchronized (this) {
             snapshot = inTransaction(() -> adoptionSnapshot(
                     claim, fence, expectedChangeSetRevisionId));
+            if (operation(snapshot.operationId()).orElseThrow()
+                    .ownerKind().equals("CI_CLEANUP")) {
+                throw new MutationRejectedException(
+                        "CI cleanup requires its stopped final-state boundary");
+            }
         }
         Inspection inspection = worktreeInspector.inspect(
                 programOwnedRepositoryRoot,
@@ -1443,6 +1723,11 @@ public final class FlowRuntime
             PreparedNonCleanSnapshot prepared = inTransaction(() -> {
                 AdoptionSnapshot current = adoptionSnapshot(
                         claim, fence, expectedChangeSetRevisionId);
+                if (!requireOperation(current.operationId())
+                        .ownerKind().equals("CI_ROUND")) {
+                    throw new MutationRejectedException(
+                            "only a CI round may hand off non-clean work");
+                }
                 if (current.redelivery() != null) {
                     throw new StaleOwnerRevisionException(
                             "adopted change set cannot become cleanup input");
@@ -1470,6 +1755,249 @@ public final class FlowRuntime
                 stopped.stopProofRef());
     }
 
+    /** Mechanically classifies one stopped cleanup final worktree state. */
+    public PreparedCiCleanupFinalState prepareCiCleanupFinalState(
+            Claim claim,
+            WriterFence fence,
+            Path programOwnedRepositoryRoot,
+            String expectedChangeSetRevisionId)
+    {
+        PreparedCiCleanupInspectionBlock authority =
+                prepareCiCleanupInspectionBlock(
+                        claim,
+                        fence,
+                        expectedChangeSetRevisionId,
+                        null);
+        AdoptionSnapshot snapshot = authority.snapshot;
+        try {
+            Inspection inspection = worktreeInspector.inspect(
+                    programOwnedRepositoryRoot,
+                    snapshot.worktree(),
+                    snapshot.branchName(),
+                    snapshot.baseSha(),
+                    snapshot.predecessorHeadSha());
+            return new PreparedCiCleanupFinalState(
+                    new PreparedChangeSet(
+                            expectedChangeSetRevisionId,
+                            snapshot,
+                            inspection),
+                    null,
+                    null,
+                    authority);
+        }
+        catch (InspectionFailure failure) {
+            if (transientInspectionFailure(failure.code())) {
+                throw failure;
+            }
+            if (failure.code() == FailureCode.DIRTY
+                    || failure.code()
+                        == FailureCode.GIT_OPERATION_IN_PROGRESS) {
+                try {
+                    NonCleanInspection inspection =
+                            worktreeInspector.inspectNonClean(
+                                    programOwnedRepositoryRoot,
+                                    snapshot.worktree(),
+                                    snapshot.branchName(),
+                                    snapshot.baseSha(),
+                                    snapshot.predecessorHeadSha());
+                    return new PreparedCiCleanupFinalState(
+                            null,
+                            new PreparedNonCleanState(
+                                    expectedChangeSetRevisionId,
+                                    snapshot,
+                                    inspection,
+                                    claim,
+                                    fence,
+                                    authority.processAttemptId,
+                                    authority.stopProofRef),
+                            null,
+                            authority);
+                }
+                catch (InspectionFailure nonCleanFailure) {
+                    if (transientInspectionFailure(nonCleanFailure.code())) {
+                        throw nonCleanFailure;
+                    }
+                    failure = nonCleanFailure;
+                }
+            }
+            PreparedCiCleanupInspectionBlock blocked =
+                    new PreparedCiCleanupInspectionBlock(
+                            expectedChangeSetRevisionId,
+                            snapshot,
+                            claim,
+                            fence,
+                            requireStoppedProcessAttemptOutsideTransaction(
+                                    authority),
+                            failure.code());
+            return new PreparedCiCleanupFinalState(
+                    null,
+                    null,
+                    blocked,
+                    authority);
+        }
+    }
+
+    private AgentProcessAttempt requireStoppedProcessAttemptOutsideTransaction(
+            PreparedCiCleanupInspectionBlock authority)
+    {
+        synchronized (this) {
+            return inTransaction(() -> {
+                AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                        authority.snapshot.sourceRunId(),
+                        authority.claim.generation());
+                if (!stopped.processAttemptId().equals(
+                                authority.processAttemptId)
+                        || !stopped.stopProofRef().equals(
+                                authority.stopProofRef)) {
+                    throw new StaleOwnerRevisionException(
+                            "cleanup stop proof changed during inspection");
+                }
+                return stopped;
+            });
+        }
+    }
+
+    private PreparedCiCleanupInspectionBlock prepareCiCleanupInspectionBlock(
+            Claim claim,
+            WriterFence fence,
+            String expectedChangeSetRevisionId,
+            FailureCode failureCode)
+    {
+        synchronized (this) {
+            return inTransaction(() -> {
+                AdoptionSnapshot snapshot = adoptionSnapshot(
+                        claim, fence, expectedChangeSetRevisionId);
+                if (snapshot.redelivery() != null) {
+                    throw new StaleOwnerRevisionException(
+                            "cleanup inspection blocker follows adoption");
+                }
+                AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                        snapshot.sourceRunId(), claim.generation());
+                return new PreparedCiCleanupInspectionBlock(
+                        expectedChangeSetRevisionId,
+                        snapshot,
+                        claim,
+                        fence,
+                        stopped,
+                        failureCode);
+            });
+        }
+    }
+
+    /** Re-inspects the exact sealed state before the first cleanup body. */
+    public PreparedCiCleanupAdmission prepareCiCleanupAdmission(
+            Claim claim,
+            Path programOwnedRepositoryRoot,
+            String cleanupId,
+            String repairAttemptId,
+            String predecessorOperationId,
+            String predecessorRunId,
+            String predecessorResultId,
+            String inputChangeSetRevisionId,
+            String inputHead,
+            NonCleanInspection sealedState)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(programOwnedRepositoryRoot,
+                "programOwnedRepositoryRoot is null");
+        requireText(cleanupId, "cleanupId");
+        requireText(repairAttemptId, "repairAttemptId");
+        requireText(predecessorOperationId, "predecessorOperationId");
+        requireText(predecessorRunId, "predecessorRunId");
+        requireText(predecessorResultId, "predecessorResultId");
+        requireText(inputChangeSetRevisionId,
+                "inputChangeSetRevisionId");
+        requireText(inputHead, "inputHead");
+        requireNonNull(sealedState, "sealedState is null");
+        CiCleanupAdmissionSnapshot snapshot;
+        synchronized (this) {
+            snapshot = inTransaction(() -> cleanupAdmissionSnapshot(
+                    claim,
+                    cleanupId,
+                    repairAttemptId,
+                    predecessorOperationId,
+                    predecessorRunId,
+                    predecessorResultId,
+                    inputChangeSetRevisionId,
+                    inputHead,
+                    sealedState));
+        }
+        if (snapshot.run() != null && snapshot.fence() != null) {
+            return new PreparedCiCleanupAdmission(
+                    cleanupId,
+                    repairAttemptId,
+                    predecessorOperationId,
+                    predecessorRunId,
+                    predecessorResultId,
+                    inputChangeSetRevisionId,
+                    inputHead,
+                    sealedState,
+                    claim,
+                    snapshot.task().epoch(),
+                    snapshot.session().sessionId(),
+                    snapshot.fence(),
+                    snapshot.run());
+        }
+        PreparedCiCleanupAdmission subject = new PreparedCiCleanupAdmission(
+                cleanupId,
+                repairAttemptId,
+                predecessorOperationId,
+                predecessorRunId,
+                predecessorResultId,
+                inputChangeSetRevisionId,
+                inputHead,
+                sealedState,
+                claim,
+                snapshot.task().epoch(),
+                snapshot.session().sessionId(),
+                snapshot.fence(),
+                snapshot.run());
+        NonCleanInspection inspected;
+        try {
+            inspected = worktreeInspector.inspectNonClean(
+                    programOwnedRepositoryRoot,
+                    Path.of(snapshot.task().worktreePath()),
+                    snapshot.task().branchName(),
+                    snapshot.base().baseSha(),
+                    inputHead);
+        }
+        catch (InspectionFailure failure) {
+            if (transientInspectionFailure(failure.code())) {
+                throw failure;
+            }
+            throw new CiCleanupAdmissionBlockedException(
+                    "cleanup worktree cannot be safely admitted",
+                    new PreparedCiCleanupBlock(
+                            subject, failure.code(), null));
+        }
+        if (!inspected.equals(sealedState)) {
+            throw new CiCleanupAdmissionBlockedException(
+                    "cleanup worktree no longer matches its immutable seal",
+                    new PreparedCiCleanupBlock(subject, null, inspected));
+        }
+        return new PreparedCiCleanupAdmission(
+                cleanupId,
+                repairAttemptId,
+                predecessorOperationId,
+                predecessorRunId,
+                predecessorResultId,
+                inputChangeSetRevisionId,
+                inputHead,
+                inspected,
+                claim,
+                snapshot.task().epoch(),
+                snapshot.session().sessionId(),
+                snapshot.fence(),
+                snapshot.run());
+    }
+
+    private static boolean transientInspectionFailure(FailureCode code)
+    {
+        return code == FailureCode.MOVED_DURING_INSPECTION
+                || code == FailureCode.TIMEOUT
+                || code == FailureCode.INTERRUPTED;
+    }
+
     /** Appends only an inspection token minted by this runtime. */
     public synchronized ChangeSetRevision adoptPreparedChangeSet(
             Claim claim, WriterFence fence, PreparedChangeSet prepared)
@@ -1477,12 +2005,50 @@ public final class FlowRuntime
         requireNonNull(claim, "claim is null");
         requireNonNull(fence, "fence is null");
         requireNonNull(prepared, "prepared is null");
+        if (requireOperation(prepared.snapshot.operationId())
+                .ownerKind().equals("CI_CLEANUP")) {
+            throw new MutationRejectedException(
+                    "CI cleanup cannot use generic prepared adoption");
+        }
         return inTransaction(() -> appendInspectedChangeSet(
                 claim,
                 fence,
                 prepared.expectedChangeSetRevisionId,
                 prepared.snapshot,
                 prepared.inspection));
+    }
+
+    private ChangeSetRevision adoptPreparedCiCleanupChangeSet(
+            Claim claim,
+            WriterFence fence,
+            PreparedCiCleanupFinalState prepared)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(prepared, "prepared is null");
+        if (prepared.clean == null || prepared.authority == null) {
+            throw new IllegalArgumentException(
+                    "cleanup final state is not clean");
+        }
+        return inTransaction(() -> {
+            PreparedCiCleanupInspectionBlock authority = prepared.authority;
+            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                    authority.snapshot.sourceRunId(), claim.generation());
+            if (!sameClaimAuthority(authority.claim, claim)
+                    || !sameFenceAuthority(authority.fence, fence)
+                    || !stopped.processAttemptId().equals(
+                            authority.processAttemptId)
+                    || !stopped.stopProofRef().equals(authority.stopProofRef)) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup stopped inspection authority changed");
+            }
+            return appendInspectedChangeSet(
+                    claim,
+                    fence,
+                    prepared.clean.expectedChangeSetRevisionId,
+                    prepared.clean.snapshot,
+                    prepared.clean.inspection);
+        });
     }
 
     private ChangeSetRevision appendInspectedChangeSet(
@@ -1616,6 +2182,306 @@ public final class FlowRuntime
      * Lazily creates the Task's persistent CI session (or resumes its existing
      * session) and creates one operation-bound run.
      */
+    public synchronized CiCleanupWriterStart startCiCleanupWriter(
+            Claim claim,
+            PreparedCiCleanupAdmission prepared,
+            Duration leaseTtl,
+            String promptManifestRef,
+            String capabilitySetRef)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(prepared, "prepared is null");
+        requirePositive(leaseTtl, "leaseTtl");
+        requireText(promptManifestRef, "promptManifestRef");
+        requireText(capabilitySetRef, "capabilitySetRef");
+        return inTransaction(() -> {
+            if (!sameClaimAuthority(prepared.claim, claim)) {
+                throw new StaleClaimException(
+                        "cleanup claim changed after sealed-state inspection");
+            }
+            CiCleanupAdmissionSnapshot current = cleanupAdmissionSnapshot(
+                    claim,
+                    prepared.cleanupId,
+                    prepared.repairAttemptId,
+                    prepared.predecessorOperationId,
+                    prepared.predecessorRunId,
+                    prepared.predecessorResultId,
+                    prepared.inputChangeSetRevisionId,
+                    prepared.inputHead,
+                    prepared.sealedState);
+            if (current.task().epoch() != prepared.taskEpoch
+                    || !current.session().sessionId().equals(
+                            prepared.sessionId)) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup Task/session changed after inspection");
+            }
+            if (current.run() != null && current.fence() != null) {
+                AgentRun run = current.run();
+                WriterFence fence = current.fence();
+                if ((prepared.existingRun != null
+                            && !prepared.existingRun.runId().equals(run.runId()))
+                        || (prepared.existingFence != null
+                            && !sameFenceAuthority(
+                                    prepared.existingFence, fence))
+                        || !run.promptManifestRef().equals(promptManifestRef)
+                        || !run.capabilitySetRef().equals(capabilitySetRef)) {
+                    throw new StaleOwnerRevisionException(
+                            "cleanup writer redelivery changed identity");
+                }
+                return new CiCleanupWriterStart(fence, run);
+            }
+            if (current.run() == null
+                    && (prepared.existingRun != null
+                            || prepared.existingFence != null)) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup writer disappeared after redelivery");
+            }
+            if (current.run() != null
+                    && (prepared.existingRun == null
+                            || !prepared.existingRun.runId().equals(
+                                    current.run().runId())
+                            || prepared.existingFence != null
+                            || !current.run().promptManifestRef().equals(
+                                    promptManifestRef)
+                            || !current.run().capabilitySetRef().equals(
+                                    capabilitySetRef))) {
+                throw new StaleOwnerRevisionException(
+                        "recovered cleanup run changed identity");
+            }
+            Task task = current.task();
+            Operation operation = requireOperation(claim.operationId());
+            long token = task.writerFenceSequence() + 1;
+            int advanced = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET writer_fence_sequence = ?
+                    WHERE task_id = ? AND writer_fence_sequence = ?
+                      AND epoch = ? AND status = 'ACTIVE'
+                      AND selected_writer_operation_id = ?
+                      AND current_head_sha = ?
+                      AND current_change_set_revision_id = ?
+                    """,
+                    token,
+                    task.taskId(),
+                    task.writerFenceSequence(),
+                    task.epoch(),
+                    operation.operationId(),
+                    prepared.inputHead,
+                    prepared.inputChangeSetRevisionId);
+            if (advanced != 1) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup Task changed during writer admission");
+            }
+            Instant expiresAt = earlier(
+                    clock.instant().plus(leaseTtl),
+                    currentClaimExpiry(claim));
+            String evidenceRef = ciCleanupEvidenceRef(
+                    prepared.cleanupId,
+                    prepared.inputChangeSetRevisionId);
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_writer_lease (
+                        task_id, operation_id, task_epoch, holder_kind,
+                        fencing_token, claim_generation, claim_token_digest,
+                        head_sha, tree_digest, snapshot_evidence_ref, expires_at
+                    ) VALUES (?, ?, ?, 'CI_FIXER', ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    task.taskId(),
+                    operation.operationId(),
+                    task.epoch(),
+                    token,
+                    claim.generation(),
+                    claimTokenDigest(claim),
+                    prepared.inputHead,
+                    prepared.sealedState.stateDigest(),
+                    evidenceRef,
+                    expiresAt.toEpochMilli());
+            WriterFence fence = new WriterFence(
+                    task.taskId(),
+                    operation.operationId(),
+                    task.epoch(),
+                    AgentRole.CI_FIXER,
+                    token,
+                    claim.generation(),
+                    claimTokenDigest(claim),
+                    prepared.inputHead,
+                    prepared.sealedState.stateDigest(),
+                    evidenceRef,
+                    expiresAt);
+            if (current.run() != null) {
+                return new CiCleanupWriterStart(fence, current.run());
+            }
+            String runId = stableId("agent-run", operation.operationId());
+            Instant now = clock.instant();
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_run (
+                        run_id, operation_id, session_id, role, head_sha,
+                        prompt_manifest_ref, capability_set_ref, input_ref,
+                        state, created_at
+                    ) VALUES (?, ?, ?, 'CI_FIXER', ?, ?, ?, ?, 'QUEUED', ?)
+                    """,
+                    runId,
+                    operation.operationId(),
+                    current.session().sessionId(),
+                    prepared.inputHead,
+                    promptManifestRef,
+                    capabilitySetRef,
+                    operation.inputRef(),
+                    now.toEpochMilli());
+            int sessionReserved = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = 'RUNNING', last_run_id = ?, updated_at = ?
+                    WHERE session_id = ? AND state = 'IDLE'
+                    """,
+                    runId,
+                    now.toEpochMilli(),
+                    current.session().sessionId());
+            if (sessionReserved != 1) {
+                throw new MutationRejectedException(
+                        "persistent CI session changed during cleanup start");
+            }
+            return new CiCleanupWriterStart(fence, requireRun(runId));
+        });
+    }
+
+    /** Settles a stable pre-body cleanup admission blocker fail closed. */
+    public synchronized CiCleanupFinalizationReceipt blockCiCleanupAdmission(
+            Claim claim, PreparedCiCleanupBlock prepared)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(prepared, "prepared is null");
+        return inTransaction(() -> {
+            PreparedCiCleanupAdmission subject = prepared.subject;
+            if (!sameClaimAuthority(subject.claim, claim)) {
+                throw new StaleClaimException(
+                        "cleanup admission claim changed before blocking");
+            }
+            CiCleanupAdmissionSnapshot current = cleanupAdmissionSnapshot(
+                    claim,
+                    subject.cleanupId,
+                    subject.repairAttemptId,
+                    subject.predecessorOperationId,
+                    subject.predecessorRunId,
+                    subject.predecessorResultId,
+                    subject.inputChangeSetRevisionId,
+                    subject.inputHead,
+                    subject.sealedState);
+            if (current.task().epoch() != subject.taskEpoch
+                    || !current.session().sessionId().equals(
+                            subject.sessionId)
+                    || current.fence() != null) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup admission authority changed before blocking");
+            }
+            Instant now = clock.instant();
+            String blockedRef = "CI_CLEANUP_ADMISSION_BLOCKED:"
+                    + subject.cleanupId;
+            AgentResult canceledResult = null;
+            if (current.run() != null) {
+                AgentRun queued = current.run();
+                if (queued.state() != RunState.QUEUED
+                        || hasProcessAttemptForRun(queued.runId())) {
+                    throw new StaleOwnerRevisionException(
+                            "admission-blocked cleanup run was launched");
+                }
+                String resultId = stableId("agent-result", queued.runId());
+                String stopProofRef = stableId(
+                        "never-launched-stop",
+                        subject.cleanupId,
+                        queued.runId());
+                int resultStored = jdbc.update(
+                        """
+                        INSERT INTO flow_runtime_agent_result (
+                            result_id, run_id, terminal_outcome, final_content,
+                            error_ref, stop_proof_ref, stored_at
+                        ) VALUES (?, ?, 'CANCELED', NULL, ?, ?, ?)
+                        """,
+                        resultId,
+                        queued.runId(),
+                        blockedRef,
+                        stopProofRef,
+                        now.toEpochMilli());
+                int runCanceled = jdbc.update(
+                        """
+                        UPDATE flow_runtime_agent_run
+                        SET state = 'CANCELED', failure_reason_code = ?,
+                            completed_at = ?
+                        WHERE run_id = ? AND state = 'QUEUED'
+                        """,
+                        blockedRef,
+                        now.toEpochMilli(),
+                        queued.runId());
+                int sessionReleased = jdbc.update(
+                        """
+                        UPDATE flow_runtime_agent_session
+                        SET state = 'IDLE', updated_at = ?
+                        WHERE session_id = ? AND state = 'RUNNING'
+                          AND last_run_id = ?
+                        """,
+                        now.toEpochMilli(),
+                        current.session().sessionId(),
+                        queued.runId());
+                if (resultStored != 1 || runCanceled != 1
+                        || sessionReleased != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "never-launched cleanup run changed before blocking");
+                }
+                canceledResult = requireResult(resultId);
+            }
+            String evidenceRef = cleanupAttentionRef(subject.cleanupId);
+            TaskLifecycleRevision attention = appendLifecycle(
+                    current.task(),
+                    TaskStatus.NEEDS_ATTENTION,
+                    "CI_CLEANUP_ADMISSION_BLOCKED",
+                    evidenceRef,
+                    claim.operationId(),
+                    now);
+            int taskUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET status = 'NEEDS_ATTENTION',
+                        current_lifecycle_revision_id = ?,
+                        selected_writer_operation_id = NULL,
+                        waiting_mutation_state_ref = ?
+                    WHERE task_id = ? AND epoch = ? AND status = 'ACTIVE'
+                      AND selected_writer_operation_id = ?
+                      AND waiting_mutation_state_ref IS NULL
+                      AND current_head_sha = ?
+                      AND current_change_set_revision_id = ?
+                    """,
+                    attention.lifecycleRevisionId(),
+                    evidenceRef,
+                    current.task().taskId(),
+                    current.task().epoch(),
+                    claim.operationId(),
+                    subject.inputHead,
+                    subject.inputChangeSetRevisionId);
+            if (taskUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup admission lost its Task owner");
+            }
+            settleDispatch(
+                    claim.operationId(),
+                    OperationState.FAILED,
+                    canceledResult == null
+                            ? blockedRef
+                            : canceledResult.resultId());
+            return new CiCleanupFinalizationReceipt(
+                    subject.cleanupId,
+                    claim.operationId(),
+                    canceledResult,
+                    null,
+                    null,
+                    null,
+                    prepared.observedState,
+                    prepared.failureCode,
+                    true,
+                    Instant.ofEpochMilli(now.toEpochMilli()));
+        });
+    }
+
     public synchronized AgentRun startWriterAgent(
             Claim claim,
             WriterFence fence,
@@ -1630,6 +2496,10 @@ public final class FlowRuntime
             assertCurrentClaim(claim, OperationState.CLAIMED);
             assertFenceRow(claim, fence);
             Operation operation = requireOperation(claim.operationId());
+            if (operation.ownerKind().equals("CI_CLEANUP")) {
+                throw new MutationRejectedException(
+                        "CI cleanup requires specialized sealed-state admission");
+            }
             AgentRole role = roleForWriter(operation.kind());
             assertFenceOwnsOperation(fence, operation, role);
             Optional<AgentRun> existingRun = runForOperation(
@@ -2066,6 +2936,7 @@ public final class FlowRuntime
                 null,
                 null,
                 null,
+                null,
                 null);
     }
 
@@ -2121,6 +2992,10 @@ public final class FlowRuntime
             AgentRun run = requireRun(runId);
             Operation operation = requireOperation(claim.operationId());
             Task task = requireTask(fence.taskId());
+            if (!operation.ownerKind().equals("CI_ROUND")) {
+                throw new MutationRejectedException(
+                        "only a CI round may reserve a cleanup successor");
+            }
             TaskBaseRevision base = currentBaseRevision(task.taskId())
                     .orElseThrow(() -> new StaleOwnerRevisionException(
                             "cleanup Task lost its base revision"));
@@ -2404,9 +3279,419 @@ public final class FlowRuntime
                 finalContent,
                 errorRef,
                 attemptId,
+                "CI_ROUND",
                 outcome,
                 outputHead,
                 outputChangeSetRevisionId);
+    }
+
+    /**
+     * Consumes one exact STOPPED cleanup final-state token. Adoption or
+     * attention settlement is one runtime transaction; the CI owner joins it
+     * to its immutable completion insert in the surrounding transaction.
+     */
+    public synchronized CiCleanupFinalizationReceipt finalizeCiCleanup(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String cleanupId,
+            PreparedCiCleanupFinalState prepared)
+    {
+        requireNonNull(prepared, "prepared is null");
+        return inTransaction(() -> {
+            if (prepared.clean != null) {
+                ChangeSetRevision output = adoptPreparedCiCleanupChangeSet(
+                        claim, fence, prepared);
+                return finishCiCleanupRun(
+                        runId,
+                        claim,
+                        fence,
+                        terminalOutcome,
+                        finalContent,
+                        errorRef,
+                        cleanupId,
+                        output.headSha(),
+                        output.changeSetRevisionId());
+            }
+            if (prepared.nonClean != null) {
+                return finishCiCleanupNonClean(
+                        runId,
+                        claim,
+                        fence,
+                        terminalOutcome,
+                        finalContent,
+                        errorRef,
+                        cleanupId,
+                        prepared.nonClean);
+            }
+            return finishCiCleanupInspectionBlocked(
+                    runId,
+                    claim,
+                    fence,
+                    terminalOutcome,
+                    finalContent,
+                    errorRef,
+                    cleanupId,
+                    prepared);
+        });
+    }
+
+    /** Verifies an exact committed clean-cleanup replay. */
+    public synchronized CiCleanupFinalizationReceipt replayCiCleanupRun(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String cleanupId,
+            String outputHead,
+            String outputChangeSetRevisionId)
+    {
+        if (resultForRun(runId).isEmpty()) {
+            throw new IllegalStateException(
+                    "cleanup replay has no durable AgentResult");
+        }
+        return finishCiCleanupRun(
+                runId,
+                claim,
+                fence,
+                terminalOutcome,
+                finalContent,
+                errorRef,
+                cleanupId,
+                outputHead,
+                outputChangeSetRevisionId);
+    }
+
+    private CiCleanupFinalizationReceipt finishCiCleanupRun(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String cleanupId,
+            String outputHead,
+            String outputChangeSetRevisionId)
+    {
+        requireText(cleanupId, "cleanupId");
+        requireText(outputHead, "outputHead");
+        requireText(outputChangeSetRevisionId,
+                "outputChangeSetRevisionId");
+        CiFixOutcome outcome = outputHead.equals(fence.headSha())
+                ? CiFixOutcome.NO_HEAD_CHANGE
+                : CiFixOutcome.FIX_PREPARED;
+        AgentResult result = finishWriterAgentRun(
+                runId,
+                claim,
+                fence,
+                terminalOutcome,
+                finalContent,
+                errorRef,
+                cleanupId,
+                "CI_CLEANUP",
+                outcome,
+                outputHead,
+                outputChangeSetRevisionId);
+        return new CiCleanupFinalizationReceipt(
+                cleanupId,
+                claim.operationId(),
+                result,
+                outcome,
+                outputHead,
+                outputChangeSetRevisionId,
+                null,
+                null,
+                false,
+                result.storedAt());
+    }
+
+    /** Finalizes a stopped cleanup whose exact worktree is still non-clean. */
+    private CiCleanupFinalizationReceipt finishCiCleanupNonClean(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String cleanupId,
+            PreparedNonCleanState prepared)
+    {
+        requireNonNull(prepared, "prepared is null");
+        return finishCiCleanupAttention(
+                runId,
+                claim,
+                fence,
+                terminalOutcome,
+                finalContent,
+                errorRef,
+                cleanupId,
+                prepared,
+                null);
+    }
+
+    /** Finalizes a stopped cleanup after a stable mechanical inspection stop. */
+    private CiCleanupFinalizationReceipt
+            finishCiCleanupInspectionBlocked(
+                    String runId,
+                    Claim claim,
+                    WriterFence fence,
+                    TerminalOutcome terminalOutcome,
+                    String finalContent,
+                    String errorRef,
+                    String cleanupId,
+                    PreparedCiCleanupFinalState prepared)
+    {
+        requireNonNull(prepared, "prepared is null");
+        PreparedCiCleanupInspectionBlock blocked = prepared.blocked;
+        if (blocked == null) {
+            throw new IllegalArgumentException(
+                    "cleanup final state is not inspection-blocked");
+        }
+        return finishCiCleanupAttention(
+                runId,
+                claim,
+                fence,
+                terminalOutcome,
+                finalContent,
+                errorRef,
+                cleanupId,
+                null,
+                blocked);
+    }
+
+    private CiCleanupFinalizationReceipt finishCiCleanupAttention(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String cleanupId,
+            PreparedNonCleanState prepared,
+            PreparedCiCleanupInspectionBlock blocked)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(terminalOutcome, "terminalOutcome is null");
+        requireText(cleanupId, "cleanupId");
+        if (terminalOutcome != TerminalOutcome.COMPLETED) {
+            requireText(errorRef, "errorRef");
+        }
+        return inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            assertFenceRow(claim, fence);
+            AgentRun run = requireRun(runId);
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(fence.taskId());
+            if (!run.operationId().equals(operation.operationId())
+                    || run.state() != RunState.RUNNING
+                    || run.role() != AgentRole.CI_FIXER
+                    || !operation.ownerKind().equals("CI_CLEANUP")
+                    || !operation.ownerId().equals(cleanupId)
+                    || !operation.operationId().equals(
+                            task.selectedWriterOperationId())) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup attention subject is no longer current");
+            }
+            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                    runId, claim.generation());
+            NonCleanInspection finalState = null;
+            FailureCode failureCode = null;
+            if (prepared != null) {
+                AdoptionSnapshot snapshot = prepared.snapshot;
+                if (!sameClaimAuthority(prepared.claim, claim)
+                        || !sameFenceAuthority(prepared.fence, fence)
+                        || !prepared.processAttemptId.equals(
+                                stopped.processAttemptId())
+                        || !prepared.stopProofRef.equals(stopped.stopProofRef())
+                        || !snapshot.taskId().equals(task.taskId())
+                        || snapshot.taskEpoch() != task.epoch()
+                        || !snapshot.operationId().equals(
+                                operation.operationId())
+                        || !snapshot.sourceRunId().equals(runId)
+                        || snapshot.source() != ChangeSetSource.CI_FIXER
+                        || snapshot.redelivery() != null
+                        || !Objects.equals(
+                                prepared.expectedChangeSetRevisionId,
+                                task.currentChangeSetRevisionId())
+                        || !snapshot.predecessorHeadSha().equals(
+                                task.currentHeadSha())) {
+                    throw new StaleOwnerRevisionException(
+                            "cleanup final state changed after inspection");
+                }
+                finalState = prepared.inspection;
+            }
+            else if (blocked != null) {
+                AdoptionSnapshot snapshot = blocked.snapshot;
+                if (!sameClaimAuthority(blocked.claim, claim)
+                        || !sameFenceAuthority(blocked.fence, fence)
+                        || !blocked.processAttemptId.equals(
+                                stopped.processAttemptId())
+                        || !blocked.stopProofRef.equals(stopped.stopProofRef())
+                        || !snapshot.taskId().equals(task.taskId())
+                        || snapshot.taskEpoch() != task.epoch()
+                        || !snapshot.operationId().equals(
+                                operation.operationId())
+                        || !snapshot.sourceRunId().equals(runId)
+                        || !Objects.equals(
+                                blocked.expectedChangeSetRevisionId,
+                                task.currentChangeSetRevisionId())
+                        || !snapshot.predecessorHeadSha().equals(
+                                task.currentHeadSha())) {
+                    throw new StaleOwnerRevisionException(
+                            "cleanup inspection blocker changed identity");
+                }
+                failureCode = blocked.failureCode;
+            }
+            else {
+                throw new IllegalArgumentException(
+                        "cleanup attention has no mechanical evidence");
+            }
+            Instant now = clock.instant();
+            String resultId = stableId("agent-result", runId);
+            int resultStored = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_result (
+                        result_id, run_id, terminal_outcome, final_content,
+                        error_ref, stop_proof_ref, stored_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    resultId,
+                    runId,
+                    terminalOutcome.name(),
+                    finalContent,
+                    errorRef,
+                    stopped.stopProofRef(),
+                    now.toEpochMilli());
+            RunState runState = switch (terminalOutcome) {
+                case COMPLETED -> RunState.COMPLETED;
+                case FAILED -> RunState.FAILED;
+                case CANCELED -> RunState.CANCELED;
+            };
+            int runFinished = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_run
+                    SET state = ?, failure_reason_code = ?, completed_at = ?
+                    WHERE run_id = ? AND state = 'RUNNING'
+                    """,
+                    runState.name(),
+                    errorRef,
+                    now.toEpochMilli(),
+                    runId);
+            int sessionReleased = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = 'IDLE', updated_at = ?
+                    WHERE session_id = ? AND state = 'RUNNING'
+                      AND last_run_id = ?
+                    """,
+                    now.toEpochMilli(),
+                    run.sessionId(),
+                    runId);
+            if (resultStored != 1 || runFinished != 1
+                    || sessionReleased != 1) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup result owner changed during attention finalization");
+            }
+            OperationState terminalState = switch (terminalOutcome) {
+                case COMPLETED -> OperationState.SUCCEEDED;
+                case FAILED -> OperationState.FAILED;
+                case CANCELED -> OperationState.CANCELED;
+            };
+            settleDispatch(operation.operationId(), terminalState, resultId);
+            String attentionRef = cleanupAttentionRef(cleanupId);
+            TaskLifecycleRevision attention = appendLifecycle(
+                    task,
+                    TaskStatus.NEEDS_ATTENTION,
+                    "CI_CLEANUP_UNRESOLVED",
+                    attentionRef,
+                    operation.operationId(),
+                    now);
+            int taskUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET status = 'NEEDS_ATTENTION',
+                        current_lifecycle_revision_id = ?,
+                        selected_writer_operation_id = NULL,
+                        waiting_mutation_state_ref = ?
+                    WHERE task_id = ? AND epoch = ? AND status = 'ACTIVE'
+                      AND selected_writer_operation_id = ?
+                      AND waiting_mutation_state_ref IS NULL
+                    """,
+                    attention.lifecycleRevisionId(),
+                    attentionRef,
+                    task.taskId(),
+                    task.epoch(),
+                    operation.operationId());
+            int leaseReleased = jdbc.update(
+                    """
+                    DELETE FROM flow_runtime_writer_lease
+                    WHERE task_id = ? AND operation_id = ?
+                      AND task_epoch = ? AND fencing_token = ?
+                    """,
+                    fence.taskId(),
+                    fence.operationId(),
+                    fence.taskEpoch(),
+                    fence.fencingToken());
+            if (taskUpdated != 1 || leaseReleased != 1) {
+                throw new StaleOwnerRevisionException(
+                        "cleanup attention lost its writer authority");
+            }
+            AgentResult result = requireResult(resultId);
+            return new CiCleanupFinalizationReceipt(
+                    cleanupId,
+                    operation.operationId(),
+                    result,
+                    null,
+                    null,
+                    null,
+                    finalState,
+                    failureCode,
+                    false,
+                    result.storedAt());
+        });
+    }
+
+    /** Replays an exact committed cleanup attention result. */
+    public synchronized AgentResult replayCiCleanupAttention(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String cleanupId)
+    {
+        AgentResult result = resultForRun(runId).orElseThrow(() ->
+                new IllegalStateException(
+                        "cleanup attention has no durable AgentResult"));
+        if (result.terminalOutcome() != terminalOutcome
+                || !Objects.equals(result.finalContent(), finalContent)
+                || !Objects.equals(result.errorRef(), errorRef)) {
+            throw new IllegalStateException(
+                    "cleanup attention replay changed terminal content");
+        }
+        AgentResult verified = verifyFinalizedAgentResult(
+                runId, claim, fence, result);
+        return inTransaction(() -> {
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(fence.taskId());
+            if (!operation.ownerKind().equals("CI_CLEANUP")
+                    || !operation.ownerId().equals(cleanupId)
+                    || task.status() != TaskStatus.NEEDS_ATTENTION
+                    || !cleanupAttentionRef(cleanupId).equals(
+                            task.waitingMutationStateRef())) {
+                throw new IllegalStateException(
+                        "cleanup attention replay changed durable identity");
+            }
+            return verified;
+        });
     }
 
     private AgentResult finishWriterAgentRun(
@@ -2417,6 +3702,7 @@ public final class FlowRuntime
             String finalContent,
             String errorRef,
             String ciAttemptId,
+            String ciOwnerKind,
             CiFixOutcome ciOutcome,
             String outputHead,
             String outputChangeSetRevisionId)
@@ -2435,6 +3721,15 @@ public final class FlowRuntime
                 throw new MutationRejectedException(ciFinalization
                         ? "CI finalization requires a CI Fixer run"
                         : "CI Fixer requires its domain finalizer");
+            }
+            if (ciFinalization) {
+                Operation operation = requireOperation(run.operationId());
+                if (!operation.ownerKind().equals(ciOwnerKind)
+                        || (ciOwnerKind.equals("CI_CLEANUP")
+                            && !operation.ownerId().equals(ciAttemptId))) {
+                    throw new MutationRejectedException(
+                            "CI finalizer does not own this operation");
+                }
             }
             Optional<AgentResult> existing = resultForRun(runId);
             if (existing.isPresent()) {
@@ -2457,6 +3752,7 @@ public final class FlowRuntime
                             run,
                             result,
                             ciAttemptId,
+                            ciOwnerKind,
                             ciOutcome,
                             outputHead,
                             outputChangeSetRevisionId);
@@ -2559,6 +3855,7 @@ public final class FlowRuntime
                         run,
                         requireResult(resultId),
                         ciAttemptId,
+                        ciOwnerKind,
                         ciOutcome,
                         outputHead,
                         outputChangeSetRevisionId);
@@ -2605,6 +3902,7 @@ public final class FlowRuntime
             AgentRun run,
             AgentResult result,
             String attemptId,
+            String ownerKind,
             CiFixOutcome outcome,
             String outputHead,
             String outputChangeSetRevisionId)
@@ -2621,7 +3919,10 @@ public final class FlowRuntime
                 PendingKind.CI_FIX_READY,
                 outputHead,
                 ciFixReadyPayload(
-                        attemptId, outcome, outputChangeSetRevisionId),
+                        attemptId,
+                        ownerKind,
+                        outcome,
+                        outputChangeSetRevisionId),
                 result.resultId(),
                 clock.instant());
     }
@@ -2630,6 +3931,7 @@ public final class FlowRuntime
             AgentRun run,
             AgentResult result,
             String attemptId,
+            String ownerKind,
             CiFixOutcome outcome,
             String outputHead,
             String outputChangeSetRevisionId)
@@ -2647,7 +3949,10 @@ public final class FlowRuntime
                 || !ready.externalKey().equals(attemptId)
                 || !ready.subjectHead().equals(outputHead)
                 || !ready.payloadRef().equals(ciFixReadyPayload(
-                        attemptId, outcome, outputChangeSetRevisionId))) {
+                        attemptId,
+                        ownerKind,
+                        outcome,
+                        outputChangeSetRevisionId))) {
             throw new IllegalStateException(
                     "CI finalization redelivery changed continuation identity");
         }
@@ -2656,10 +3961,14 @@ public final class FlowRuntime
 
     private static String ciFixReadyPayload(
             String attemptId,
+            String ownerKind,
             CiFixOutcome outcome,
             String outputChangeSetRevisionId)
     {
-        return "ci-attempt:" + attemptId + ":outcome:" + outcome.name()
+        String subject = ownerKind.equals("CI_CLEANUP")
+                ? "ci-cleanup:"
+                : "ci-attempt:";
+        return subject + attemptId + ":outcome:" + outcome.name()
                 + ":change-set:" + outputChangeSetRevisionId;
     }
 
@@ -2694,6 +4003,18 @@ public final class FlowRuntime
                         .map(Enum::name)
                         .toList()),
                 state.stateDigest());
+    }
+
+    private static String ciCleanupEvidenceRef(
+            String cleanupId, String inputChangeSetRevisionId)
+    {
+        return "ci-cleanup-seal:" + cleanupId
+                + ":input-change-set:" + inputChangeSetRevisionId;
+    }
+
+    private static String cleanupAttentionRef(String cleanupId)
+    {
+        return "ci-cleanup-attention:" + cleanupId;
     }
 
     private void assertFreshCleanupSuccessor(String operationId)
@@ -3663,6 +4984,7 @@ public final class FlowRuntime
                   AND d.claim_expires_at > ? AND o.state = 'CLAIMED'
                   AND t.epoch = l.task_epoch
                   AND t.status = 'ACTIVE'
+                  AND t.waiting_mutation_state_ref IS NULL
                   AND t.selected_writer_operation_id = l.operation_id
                 """,
                 Integer.class,
@@ -3686,7 +5008,53 @@ public final class FlowRuntime
             throw new StaleWriterFenceException("writer fence is stale");
         }
         assertWriterSubjectCurrent(
-                requireOperation(fence.operationId()), fence.headSha());
+                requireOperation(fence.operationId()), fence);
+    }
+
+    private void assertWriterSubjectCurrent(
+            Operation operation, WriterFence fence)
+    {
+        if (!operation.ownerKind().equals("CI_CLEANUP")) {
+            assertWriterSubjectCurrent(operation, fence.headSha());
+            return;
+        }
+        String prefix = "ci-cleanup-seal:" + operation.ownerId()
+                + ":input-change-set:";
+        if (!operation.inputRef().equals(
+                    "ci-cleanup:" + operation.ownerId())
+                || !fence.snapshotEvidenceRef().startsWith(prefix)) {
+            throw new MutationRejectedException(
+                    "cleanup fence has no exact sealed-state subject");
+        }
+        String inputChangeSetRevisionId = fence.snapshotEvidenceRef()
+                .substring(prefix.length());
+        requireText(inputChangeSetRevisionId,
+                "cleanup inputChangeSetRevisionId");
+        Task task = requireTask(operation.taskId());
+        boolean inputIsCurrent = task.currentHeadSha().equals(fence.headSha())
+                && Objects.equals(
+                        task.currentChangeSetRevisionId(),
+                        inputChangeSetRevisionId);
+        Optional<ChangeSetRevision> current = currentChangeSet(task.taskId());
+        Optional<AgentRun> run = runForOperation(operation.operationId());
+        boolean cleanupOutputIsCurrent = current.isPresent()
+                && run.isPresent()
+                && current.get().changeSetRevisionId().equals(
+                        task.currentChangeSetRevisionId())
+                && current.get().headSha().equals(task.currentHeadSha())
+                && Objects.equals(
+                        current.get().previousChangeSetRevisionId(),
+                        inputChangeSetRevisionId)
+                && current.get().previousHeadSha().equals(fence.headSha())
+                && current.get().source() == ChangeSetSource.CI_FIXER
+                && current.get().sourceOperationId().equals(
+                        operation.operationId())
+                && Objects.equals(
+                        current.get().sourceRunId(), run.get().runId());
+        if (!inputIsCurrent && !cleanupOutputIsCurrent) {
+            throw new MutationRejectedException(
+                    "cleanup logical input/change set is no longer current");
+        }
     }
 
     private void assertWriterSubjectCurrent(
@@ -4148,6 +5516,115 @@ public final class FlowRuntime
                 null);
     }
 
+    private CiCleanupAdmissionSnapshot cleanupAdmissionSnapshot(
+            Claim claim,
+            String cleanupId,
+            String repairAttemptId,
+            String predecessorOperationId,
+            String predecessorRunId,
+            String predecessorResultId,
+            String inputChangeSetRevisionId,
+            String inputHead,
+            NonCleanInspection sealedState)
+    {
+        assertCurrentClaim(claim, OperationState.CLAIMED);
+        Operation operation = requireOperation(claim.operationId());
+        if (operation.kind() != OperationKind.RUN_CI_FIXER
+                || !operation.ownerKind().equals("CI_CLEANUP")
+                || !operation.ownerId().equals(cleanupId)
+                || !operation.inputRef().equals("ci-cleanup:" + cleanupId)) {
+            throw new MutationRejectedException(
+                    "claim does not own the exact CI cleanup operation");
+        }
+        Task task = requireTask(operation.taskId());
+        String expectedSubject = cleanupSubjectDigest(
+                task.taskId(),
+                task.epoch(),
+                repairAttemptId,
+                cleanupId,
+                inputChangeSetRevisionId,
+                inputHead,
+                predecessorOperationId,
+                predecessorRunId,
+                predecessorResultId,
+                sealedState);
+        if (task.status() != TaskStatus.ACTIVE
+                || task.waitingMutationStateRef() != null
+                || !operation.operationId().equals(
+                        task.selectedWriterOperationId())
+                || !task.currentHeadSha().equals(inputHead)
+                || !Objects.equals(
+                        task.currentChangeSetRevisionId(),
+                        inputChangeSetRevisionId)
+                || !operation.subjectDigest().equals(expectedSubject)) {
+            throw new MutationRejectedException(
+                    "cleanup logical Task input is no longer current");
+        }
+        TaskBaseRevision base = currentBaseRevision(task.taskId())
+                .orElseThrow(() -> new MutationRejectedException(
+                        "cleanup Task has no current base revision"));
+        AgentSession session = sessionForRole(task, AgentRole.CI_FIXER)
+                .orElseThrow(() -> new MutationRejectedException(
+                        "cleanup has no persistent CI session"));
+        Optional<AgentRun> run = runForOperation(operation.operationId());
+        Optional<WriterFence> fence = writerFence(task.taskId());
+        if (run.isEmpty() && fence.isPresent()) {
+            throw new MutationRejectedException(
+                    "cleanup writer has only one half of its durable authority");
+        }
+        if (run.isEmpty()) {
+            if (session.state() != SessionState.IDLE) {
+                throw new MutationRejectedException(
+                        "persistent CI session is not idle for cleanup");
+            }
+            return new CiCleanupAdmissionSnapshot(
+                    task, base, session, null, null);
+        }
+        AgentRun existingRun = run.orElseThrow();
+        if (existingRun.role() != AgentRole.CI_FIXER
+                || (existingRun.state() != RunState.QUEUED
+                        && existingRun.state() != RunState.RUNNING)
+                || !existingRun.sessionId().equals(session.sessionId())
+                || !existingRun.headSha().equals(inputHead)
+                || session.state() != SessionState.RUNNING
+                || !Objects.equals(session.lastRunId(), existingRun.runId())) {
+            throw new MutationRejectedException(
+                    "cleanup writer redelivery changed durable identity");
+        }
+        if (fence.isEmpty()) {
+            if (existingRun.state() != RunState.QUEUED
+                    || hasProcessAttemptForRun(existingRun.runId())) {
+                throw new MutationRejectedException(
+                        "cleanup writer lost a non-recoverable fence");
+            }
+            return new CiCleanupAdmissionSnapshot(
+                    task, base, session, null, existingRun);
+        }
+        WriterFence existingFence = fence.orElseThrow();
+        if (!existingFence.headSha().equals(inputHead)
+                || !existingFence.treeDigest().equals(
+                        sealedState.stateDigest())
+                || !existingFence.snapshotEvidenceRef().equals(
+                        ciCleanupEvidenceRef(
+                                cleanupId,
+                                inputChangeSetRevisionId))) {
+            throw new MutationRejectedException(
+                    "cleanup writer redelivery changed durable identity");
+        }
+        assertFenceRow(claim, existingFence);
+        return new CiCleanupAdmissionSnapshot(
+                task, base, session, existingFence, existingRun);
+    }
+
+    private boolean hasProcessAttemptForRun(String runId)
+    {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_runtime_agent_process_attempt WHERE run_id = ?",
+                Integer.class,
+                runId);
+        return requireNonNull(count, "process attempt count is null") != 0;
+    }
+
     private Optional<ChangeSetRevision> changeSetForSource(
             String taskId, String operationId, String headSha)
     {
@@ -4255,6 +5732,7 @@ public final class FlowRuntime
                 result.getLong("last_reconciled_work_watermark"),
                 result.getLong("reconciliation_sequence"),
                 result.getString("selected_writer_operation_id"),
+                result.getString("waiting_mutation_state_ref"),
                 result.getLong("writer_fence_sequence"));
     }
 
@@ -4545,6 +6023,13 @@ public final class FlowRuntime
 
     private record PreparedNonCleanSnapshot(
             AdoptionSnapshot snapshot, AgentProcessAttempt stopped) {}
+
+    private record CiCleanupAdmissionSnapshot(
+            Task task,
+            TaskBaseRevision base,
+            AgentSession session,
+            WriterFence fence,
+            AgentRun run) {}
 
     public static class StaleOwnerRevisionException
             extends IllegalStateException

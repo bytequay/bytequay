@@ -144,6 +144,7 @@ public final class FlowRuntimeRecords
             long lastReconciledWorkWatermark,
             long reconciliationSequence,
             String selectedWriterOperationId,
+            String waitingMutationStateRef,
             long writerFenceSequence)
     {
         public Task

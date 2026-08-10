@@ -175,9 +175,44 @@ No `approved`, `confidence`, `verdict`, or parsed-summary field exists.
 of creating sibling retries. `operationId` and `agentRunId` are absent while the
 attempt is only a pending fact; `WorkSelector` sets the operation once, and the
 operation-bound `startFresh`/`resume` transaction sets `agentRunId` once.
-Attempt states are `PENDING`, `ACTIVE`, `CLEANUP_PENDING`, `FIX_PREPARED`,
+Attempt states are `PENDING`, `ACTIVE`, `NON_CLEAN_HANDOFF`, `FIX_PREPARED`,
 `NO_HEAD_CHANGE`, and `NEEDS_ATTENTION`. Only `PENDING` permits both operation
 and run to be absent; all other states require both exact IDs.
+
+### `CiCleanupSeal` and `CiCleanupCompletion`
+
+```text
+CiCleanupSeal
+  cleanupId, repairAttemptId, successorOperationId,
+  actualHead, branchHead, attachmentState, kind, operations[], stateDigest,
+  createdAt
+
+CiCleanupCompletion
+  cleanupId, runId?, resultRef?, outcome,
+  outputHead?, outputChangeSetRevisionId?,
+  finalActualHead?, finalBranchHead?, finalAttachmentState?, finalKind?,
+  finalOperations[]?, finalStateDigest?, attentionReason?,
+  inspectionFailureCode?, completedAt
+```
+
+There is exactly one immutable seal and at most one immutable completion per
+cleanup ID. The seal is unique by predecessor repair attempt and successor
+operation. The predecessor attempt remains `NON_CLEAN_HANDOFF` permanently and
+retains its original operation, run, and result; cleanup never rewrites it as a
+second repair result.
+
+`FIX_PREPARED` and `NO_HEAD_CHANGE` completions require the cleanup run/result
+and one mechanically adopted output revision. `NEEDS_ATTENTION` requires the
+cleanup run/result plus either a second exact non-clean observation or a typed
+stable final-inspection failure. `ADMISSION_BLOCKED` is the pre-body terminal
+outcome for a stable seal mismatch or stable uninspectable repository state. It
+has no cleanup run/result when blocked before the run transaction. If recovery
+already retained a never-launched `QUEUED` run after deleting its expired fence,
+the block preserves that run as `CANCELED` and stores a deterministic
+program-owned `AgentResult`/never-launched stop proof; it never deletes durable
+run history. `MOVED_DURING_INSPECTION`, `TIMEOUT`, and `INTERRUPTED` are
+retryable observations and create no terminal completion. No outcome is derived
+from model prose.
 
 CI Autofix owns no session table. The Task references the one runtime-owned
 `AgentSession(role=CI_FIXER)` defined by
@@ -208,6 +243,9 @@ CiAutofix.finalizeHead(prId, headSha) -> roundId?
 CiAutofix.acceptedRequiredCi(prId, headSha, policyRevisionId) -> AcceptedCiEvidence
 CiAutofix.enqueueRepair(roundId) -> reconciliationOperationId
 CiAutofix.finalizeAttempt(runId, resultRef, terminalOutcome, writerFence) -> AttemptFinalization
+CiAutofixCoordinator.beginCleanup(claim, repositoryRoot, leaseTtl) -> CleanupBinding?
+CiAutofixCoordinator.launchCleanup(binding, claim, repositoryRoot, body) -> ExecutionHandle
+CiAutofixCoordinator.awaitCleanup(binding, handle, timeout) -> AgentResult
 CiAutofix.enqueueRepairRetry(failedAttemptId, reasonCode) -> reconciliationOperationId?
 CiAutofix.observeRemoteGreen(prId, headSha) -> GreenResult
 CiAutofix.enqueueLearning(attemptId, confirmedHead, acceptedCiEvidenceRef) -> operationId
@@ -247,14 +285,16 @@ exists, `AgentSessions.startFresh(...)` atomically creates the persistent sessio
 and first run; later rounds use `AgentSessions.resume(...)`. Both methods are
 idempotent by operation. No CI session or run is created speculatively.
 
-`finalizeAttempt` is the `RUN_CI_FIXER` branch of the runtime's sole
-`AgentRuns.finish` transaction. With the still-valid claim and writer fence, it
-mechanically inspects the worktree, appends/updates the attempt, adopts any clean
-committed change set, and persists exactly one `CI_FIX_READY` continuation whose
-program-owned payload distinguishes `FIX_PREPARED` from `NO_HEAD_CHANGE`, or a
-typed blocked attempt state. Only after clean finalization facts are durable may
-the outer finalizer release the lease/selected pointer and return the persistent
-CI session to `IDLE`. It never interprets `resultRef` prose.
+`finalizeAttempt` is the ordinary `CI_ROUND`/`RUN_CI_FIXER` branch of the
+runtime's role-specific finish transaction. With the still-valid claim and
+writer fence, it mechanically inspects the worktree, appends/updates the
+attempt, adopts any clean committed change set, and persists exactly one
+`CI_FIX_READY` continuation whose program-owned payload distinguishes
+`FIX_PREPARED` from `NO_HEAD_CHANGE`, or performs the non-clean handoff below.
+Only after the owned finalization facts are durable may the outer finalizer
+release or transfer the lease/selected pointer and return the persistent CI
+session to `IDLE`. It never interprets `resultRef` prose. The generic runtime
+agent finalizer is not a valid escape hatch for either CI role.
 `InProcessWriterAgentSupervisor.launch` binds this CI finalizer before exposing
 the handle or fixer body. `awaitAndFinalize` invokes that stored route only after
 durable exact-thread `STOPPED` proof; cancellation and retry cannot replace it
@@ -272,7 +312,7 @@ claim, or fence change still fails closed.
 For `DIRTY` or `GIT_OPERATION_IN_PROGRESS`, the runtime mints a private prepared
 token only after exact `STOPPED` proof and two matching bounded worktree
 observations. One transaction stores the predecessor `AgentResult`, immutable
-`CiCleanupSeal`, and `CLEANUP_PENDING` attempt; settles the old run, session,
+`CiCleanupSeal`, and `NON_CLEAN_HANDOFF` attempt; settles the old run, session,
 operation, ticket, and inbox; creates one direct `CI_CLEANUP` operation/ticket;
 swaps the Task writer pointer old-to-successor; and only then releases the old
 lease. The Task's adopted head remains H1 even when the sealed actual worktree
@@ -281,6 +321,45 @@ transaction reserves that exact mutation only; cleanup execution and its new
 fence are deferred to the cleanup dispatcher. An unsafe or oversized state is
 instead durably blocked as `NEEDS_ATTENTION` while retaining ownership; a
 transient observation or stale authority does not rewrite the attempt.
+
+The claimed cleanup successor cannot use generic writer admission. Before its
+first body, the runtime recomputes the operation's full cleanup subject and
+freshly re-inspects the worktree for exact equality with the immutable seal.
+Only a runtime-minted private admission token can create the cleanup fence and
+run. The Task's logical adopted state, fence head, and run head remain H1/C1;
+the physical H2 and all index/untracked/control/config state are carried by the
+seal digest and evidence reference. The same persistent CI Fixer session is
+resumed for one new operation-bound run. Exact redelivery reuses that run. If a
+never-launched claim expires after the run transaction, the new claim
+re-inspects the seal, mints only a new claim-bound fence, and reuses the queued
+run. Stable admission mismatch or unsafe state stores one `ADMISSION_BLOCKED`
+completion, settles the successor without a body, and installs the unresolved
+mutation barrier. If that stable block follows never-launched recovery, the
+queued run becomes a retained canceled run with its program-owned result and the
+same session returns to `IDLE`. Transient inspection failure leaves the claim
+retryable.
+
+The cleanup launch binds `CI_CLEANUP:<cleanupId>` as its immutable stopped
+finalizer. Only after exact thread termination, tool revocation/drain, and
+durable `STOPPED` proof does the runtime mint the private final-state token. A
+clean final state is adopted once, directly from C1/H1, with source operation
+and run equal to the cleanup. H3 produces `FIX_PREPARED`; an exact restoration
+to H1 produces a new objective `NO_HEAD_CHANGE` revision. One outer transaction
+stores the opaque `AgentResult` and `CiCleanupCompletion`, settles the run,
+session, operation, and ticket, releases the fence/pointer, advances an active
+round to `FIX_PREPARED`, and emits exactly one cleanup-keyed `CI_FIX_READY`.
+Rollback leaves all of those facts unchanged, and exact retry reruns only the
+finalizer, never the body or tools.
+
+A second `DIRTY`/`GIT_OPERATION_IN_PROGRESS` observation stores its exact final
+digest; another stable final-inspection failure stores only its typed failure
+code. Both produce one `NEEDS_ATTENTION` completion, settle and release cleanup
+authority, emit no `CI_FIX_READY`, create no third cleanup, and set
+`Task.waiting_mutation_state_ref` to the exact cleanup-attention reference.
+While that barrier remains, every ordinary Task lifecycle transition and every
+writer admission fail closed. Only a future typed recovery that proves the
+physical worktree safe may clear it. Exact replay returns the stored predecessor
+and cleanup results even after either cleanup terminal outcome.
 
 The two retry commands are bounded, CI-owned semantic retries. They require the
 prior run/result terminal. A repair retry idempotently appends or returns the
@@ -347,7 +426,7 @@ read_file(path, range?)
 search_repository(query, paths?)
 run_command(argv, timeout?)
 edit_file(...)
-run_checks(profile?) -> LocalCheckRunRef[]
+run_checks(profile?) -> LocalCheckRunRef[]  # ordinary repair only
 commit_changes(message) -> commitRef
 ```
 
@@ -360,6 +439,15 @@ switching, and destructive history commands regardless of the command text;
 records that the attempt consulted it. It does not apply edits or claim the
 lesson matches.
 
+The cleanup run uses the distinct program-owned
+`ci-cleanup-capabilities:v1` set. It may use bounded read/edit/command/commit
+tools, but it cannot call the generic adopting `run_checks` tool or generic
+change-set adoption. Cleanup supports exactly one adoption, performed by its
+STOPPED finalizer from C1/H1 to the final clean state. Commands may run tests
+inside the live cleanup turn, but formal `LocalCheckRun` evidence for the final
+adopted revision is produced later by the Task review/gate path. This prevents
+an intermediate C2 followed by more cleanup edits from stranding finalization.
+
 The fixer ends its turn normally; there is no `finish`, `passed`, `nothing`, or
 `park` semantic tool. The runtime always stores the opaque final response, then
 mechanically inspects the fenced worktree before releasing the lease:
@@ -369,13 +457,15 @@ mechanically inspects the fenced worktree before releasing the lease:
 - clean with no head change: persist the opaque result plus objective
   `NO_HEAD_CHANGE`, then ensure Task reconciliation; or
 - dirty/unmerged: reserve one bounded cleanup resume to the same fixer session;
-  if it still cannot leave a committed or restored worktree, quarantine the
-  Task and mark the attempt `NEEDS_ATTENTION`.
+  if that successor still cannot leave a committed or restored worktree, store
+  its immutable attention completion and block the Task. The original attempt
+  remains `NON_CLEAN_HANDOFF`.
 
-Budget exhaustion and process failure follow the same mechanical worktree
-inspection, but only after the supervisor proves the fixer process group is dead
-and its tool capability is revoked. Lease expiry alone never permits inspection
-or a successor writer. No missing model call can block recovery.
+Budget exhaustion and execution failure follow the same mechanical worktree
+inspection, but only after the supervisor proves the exact in-process thread
+ended and its tool capability is revoked and drained. Lease expiry alone never
+permits inspection or a successor writer. New-flow CLI execution remains
+unsupported. No missing model call can block recovery.
 
 The learning turn has a narrower tool policy:
 

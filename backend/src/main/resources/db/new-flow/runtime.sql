@@ -29,6 +29,7 @@ CREATE TABLE flow_runtime_task (
     last_reconciled_work_watermark INTEGER NOT NULL DEFAULT 0,
     reconciliation_sequence INTEGER NOT NULL DEFAULT 0,
     selected_writer_operation_id TEXT,
+    waiting_mutation_state_ref TEXT,
     writer_fence_sequence INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (current_base_revision_id)
         REFERENCES flow_runtime_task_base_revision (base_revision_id),

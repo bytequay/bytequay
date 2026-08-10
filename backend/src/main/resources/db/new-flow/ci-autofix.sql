@@ -114,7 +114,7 @@ CREATE TABLE flow_ci_repair_attempt (
     result_ref TEXT,
     state TEXT NOT NULL CHECK (
         state IN (
-            'PENDING', 'ACTIVE', 'CLEANUP_PENDING',
+            'PENDING', 'ACTIVE', 'NON_CLEAN_HANDOFF',
             'FIX_PREPARED', 'NO_HEAD_CHANGE',
             'NEEDS_ATTENTION'
         )
@@ -132,12 +132,12 @@ CREATE TABLE flow_ci_repair_attempt (
             AND output_local_head IS NOT NULL
             AND output_change_set_revision_id IS NOT NULL
             AND result_ref IS NOT NULL)
-        OR (state = 'CLEANUP_PENDING'
+        OR (state = 'NON_CLEAN_HANDOFF'
             AND output_local_head IS NULL
             AND output_change_set_revision_id IS NULL
             AND result_ref IS NOT NULL)
         OR (state NOT IN (
-                'FIX_PREPARED', 'NO_HEAD_CHANGE', 'CLEANUP_PENDING')
+                'FIX_PREPARED', 'NO_HEAD_CHANGE', 'NON_CLEAN_HANDOFF')
             AND output_local_head IS NULL
             AND output_change_set_revision_id IS NULL
             AND result_ref IS NULL)
@@ -188,4 +188,110 @@ CREATE TABLE flow_ci_cleanup_seal (
         REFERENCES flow_ci_repair_attempt (attempt_id),
     FOREIGN KEY (successor_operation_id)
         REFERENCES flow_runtime_operation (operation_id)
+);
+
+CREATE TABLE flow_ci_cleanup_completion (
+    cleanup_id TEXT PRIMARY KEY,
+    run_id TEXT UNIQUE,
+    result_ref TEXT UNIQUE,
+    outcome TEXT NOT NULL CHECK (
+        outcome IN (
+            'FIX_PREPARED', 'NO_HEAD_CHANGE',
+            'NEEDS_ATTENTION', 'ADMISSION_BLOCKED'
+        )
+    ),
+    output_head TEXT,
+    output_change_set_revision_id TEXT,
+    final_actual_head TEXT,
+    final_branch_head TEXT,
+    final_attachment_state TEXT CHECK (
+        final_attachment_state IS NULL
+        OR final_attachment_state IN ('ATTACHED', 'DETACHED')
+    ),
+    final_kind TEXT CHECK (
+        final_kind IS NULL
+        OR final_kind IN ('DIRTY', 'GIT_OPERATION_IN_PROGRESS')
+    ),
+    final_operations_json TEXT,
+    final_state_digest TEXT,
+    attention_reason TEXT CHECK (
+        attention_reason IS NULL
+        OR attention_reason IN (
+            'SECOND_DIRTY', 'SECOND_GIT_OPERATION_IN_PROGRESS',
+            'FINAL_INSPECTION_BLOCKED', 'ADMISSION_SEAL_MISMATCH',
+            'ADMISSION_INSPECTION_BLOCKED')
+    ),
+    inspection_failure_code TEXT,
+    completed_at INTEGER NOT NULL,
+    CHECK (
+        (outcome IN ('FIX_PREPARED', 'NO_HEAD_CHANGE')
+            AND run_id IS NOT NULL AND result_ref IS NOT NULL
+            AND output_head IS NOT NULL
+            AND output_change_set_revision_id IS NOT NULL
+            AND final_actual_head IS NULL
+            AND final_branch_head IS NULL
+            AND final_attachment_state IS NULL
+            AND final_kind IS NULL
+            AND final_operations_json IS NULL
+            AND final_state_digest IS NULL
+            AND attention_reason IS NULL
+            AND inspection_failure_code IS NULL)
+        OR (outcome = 'NEEDS_ATTENTION'
+            AND run_id IS NOT NULL AND result_ref IS NOT NULL
+            AND output_head IS NULL
+            AND output_change_set_revision_id IS NULL
+            AND ((final_kind = 'DIRTY'
+                    AND attention_reason = 'SECOND_DIRTY'
+                    AND final_actual_head IS NOT NULL
+                    AND final_branch_head IS NOT NULL
+                    AND final_attachment_state IS NOT NULL
+                    AND final_operations_json IS NOT NULL
+                    AND final_state_digest IS NOT NULL
+                    AND inspection_failure_code IS NULL)
+                OR (final_kind = 'GIT_OPERATION_IN_PROGRESS'
+                    AND attention_reason = 'SECOND_GIT_OPERATION_IN_PROGRESS'
+                    AND final_actual_head IS NOT NULL
+                    AND final_branch_head IS NOT NULL
+                    AND final_attachment_state IS NOT NULL
+                    AND final_operations_json IS NOT NULL
+                    AND final_state_digest IS NOT NULL
+                    AND inspection_failure_code IS NULL)
+                OR (attention_reason = 'FINAL_INSPECTION_BLOCKED'
+                    AND final_actual_head IS NULL
+                    AND final_branch_head IS NULL
+                    AND final_attachment_state IS NULL
+                    AND final_kind IS NULL
+                    AND final_operations_json IS NULL
+                    AND final_state_digest IS NULL
+                    AND inspection_failure_code IS NOT NULL)))
+        OR (outcome = 'ADMISSION_BLOCKED'
+            AND ((run_id IS NULL AND result_ref IS NULL)
+                OR (run_id IS NOT NULL AND result_ref IS NOT NULL))
+            AND output_head IS NULL
+            AND output_change_set_revision_id IS NULL
+            AND ((attention_reason = 'ADMISSION_SEAL_MISMATCH'
+                    AND final_actual_head IS NOT NULL
+                    AND final_branch_head IS NOT NULL
+                    AND final_attachment_state IS NOT NULL
+                    AND final_kind IS NOT NULL
+                    AND final_operations_json IS NOT NULL
+                    AND final_state_digest IS NOT NULL
+                    AND inspection_failure_code IS NULL)
+                OR (attention_reason = 'ADMISSION_INSPECTION_BLOCKED'
+                    AND final_actual_head IS NULL
+                    AND final_branch_head IS NULL
+                    AND final_attachment_state IS NULL
+                    AND final_kind IS NULL
+                    AND final_operations_json IS NULL
+                    AND final_state_digest IS NULL
+                    AND inspection_failure_code IS NOT NULL)))
+    ),
+    FOREIGN KEY (cleanup_id)
+        REFERENCES flow_ci_cleanup_seal (cleanup_id),
+    FOREIGN KEY (run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (result_ref)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (output_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
 );

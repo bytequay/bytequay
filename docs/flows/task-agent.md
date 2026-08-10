@@ -187,6 +187,14 @@ These are narrative lifecycle steps, not persisted phases or stages.
 12. No program branch asks whether “findings exist.” Completion against the current
     head is the only objective reviewer fact.
 
+If the result-delivery turn leaves the exact reviewed revision and mechanically
+inspected worktree unchanged, it may stop without spawning another reviewer.
+That consumes one durable input only; it does not mean approved, ready, or gated.
+If the turn adopts a descendant revision, the same zero-argument terminal
+reviewer command must freeze a fresh subject before stop. Missing that command
+consumes the old result and creates typed `NEEDS_ATTENTION`; a naked Task resume
+cannot bypass it.
+
 ### Local user review and first publication
 
 13. When the exact committed head, PR draft, checks, and review are ready, Task calls

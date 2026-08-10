@@ -161,6 +161,7 @@ CREATE TABLE flow_runtime_operation (
             'PROVISION_TASK',
             'RECONCILE_TASK',
             'RUN_TASK_TURN',
+            'RUN_REVIEWER',
             'RUN_CI_FIXER'
         )
     ),
@@ -228,6 +229,10 @@ CREATE TABLE flow_runtime_inbox (
     subject_head TEXT NOT NULL,
     payload_ref TEXT NOT NULL,
     agent_result_id TEXT,
+    intended_gate_kind TEXT CHECK (
+        intended_gate_kind IS NULL
+        OR intended_gate_kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')
+    ),
     work_watermark INTEGER NOT NULL,
     observed_at INTEGER NOT NULL,
     selected_by_operation_id TEXT,
@@ -240,6 +245,10 @@ CREATE TABLE flow_runtime_inbox (
             AND agent_result_id IS NOT NULL)
         OR (kind NOT IN ('CI_FIX_READY', 'AGENT_RESULT_READY')
             AND agent_result_id IS NULL)
+    ),
+    CHECK (
+        (kind = 'FINAL_RED' AND intended_gate_kind IS NULL)
+        OR (kind <> 'FINAL_RED' AND intended_gate_kind IS NOT NULL)
     ),
     UNIQUE (source, external_key, revision),
     UNIQUE (task_id, work_watermark),
@@ -284,7 +293,9 @@ CREATE TABLE flow_runtime_writer_lease (
 CREATE TABLE flow_runtime_agent_session (
     session_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('TASK_AGENT', 'CI_FIXER')),
+    role TEXT NOT NULL CHECK (
+        role IN ('TASK_AGENT', 'ADVERSARIAL_REVIEWER', 'CI_FIXER')
+    ),
     state TEXT NOT NULL CHECK (
         state IN ('NEW', 'IDLE', 'RUNNING', 'PARKED_CHILD', 'CLOSED')
     ),
@@ -292,19 +303,38 @@ CREATE TABLE flow_runtime_agent_session (
     close_reason TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    UNIQUE (task_id, role),
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id)
 );
+
+CREATE UNIQUE INDEX flow_runtime_one_task_session
+    ON flow_runtime_agent_session (task_id)
+    WHERE role = 'TASK_AGENT';
+
+CREATE UNIQUE INDEX flow_runtime_one_ci_session
+    ON flow_runtime_agent_session (task_id)
+    WHERE role = 'CI_FIXER';
 
 CREATE TABLE flow_runtime_agent_run (
     run_id TEXT PRIMARY KEY,
     operation_id TEXT NOT NULL UNIQUE,
     session_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('TASK_AGENT', 'CI_FIXER')),
+    role TEXT NOT NULL CHECK (
+        role IN ('TASK_AGENT', 'ADVERSARIAL_REVIEWER', 'CI_FIXER')
+    ),
     head_sha TEXT NOT NULL,
     prompt_manifest_ref TEXT NOT NULL,
     capability_set_ref TEXT NOT NULL,
     input_ref TEXT NOT NULL,
+    input_change_set_revision_id TEXT,
+    input_remote_head_sha TEXT,
+    wake_kind TEXT CHECK (
+        wake_kind IS NULL
+        OR wake_kind IN ('INITIAL_TASK', 'CI_FIX_READY', 'AGENT_RESULT_READY')
+    ),
+    intended_gate_kind TEXT CHECK (
+        intended_gate_kind IS NULL
+        OR intended_gate_kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')
+    ),
     state TEXT NOT NULL CHECK (
         state IN ('QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELED')
     ),
@@ -312,10 +342,28 @@ CREATE TABLE flow_runtime_agent_run (
     created_at INTEGER NOT NULL,
     started_at INTEGER,
     completed_at INTEGER,
+    CHECK (
+        (role = 'TASK_AGENT' AND wake_kind IS NOT NULL
+            AND intended_gate_kind IS NOT NULL
+            AND (
+                (intended_gate_kind = 'INITIAL_PUBLISH'
+                    AND input_change_set_revision_id IS NULL
+                    AND input_remote_head_sha IS NULL)
+                OR (intended_gate_kind = 'CI_UPDATE'
+                    AND input_change_set_revision_id IS NOT NULL
+                    AND input_remote_head_sha IS NOT NULL)
+            ))
+        OR (role <> 'TASK_AGENT' AND wake_kind IS NULL
+            AND intended_gate_kind IS NULL
+            AND input_change_set_revision_id IS NULL
+            AND input_remote_head_sha IS NULL)
+    ),
     FOREIGN KEY (operation_id)
         REFERENCES flow_runtime_operation (operation_id),
     FOREIGN KEY (session_id)
-        REFERENCES flow_runtime_agent_session (session_id)
+        REFERENCES flow_runtime_agent_session (session_id),
+    FOREIGN KEY (input_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
 );
 
 CREATE TABLE flow_runtime_agent_result (
@@ -397,4 +445,42 @@ CREATE TABLE flow_runtime_agent_process_attempt (
     FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id),
     FOREIGN KEY (operation_id)
         REFERENCES flow_runtime_operation (operation_id)
+);
+
+CREATE TABLE flow_runtime_reviewer_request (
+    request_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    parent_operation_id TEXT NOT NULL UNIQUE,
+    parent_run_id TEXT NOT NULL UNIQUE,
+    reviewer_operation_id TEXT NOT NULL UNIQUE,
+    repository_root TEXT NOT NULL,
+    base_head_sha TEXT NOT NULL,
+    reviewed_head_sha TEXT NOT NULL,
+    remote_head_sha TEXT NOT NULL,
+    change_set_revision_id TEXT NOT NULL,
+    head_tree_digest TEXT NOT NULL,
+    diff_digest TEXT NOT NULL,
+    intended_gate_kind TEXT NOT NULL CHECK (
+        intended_gate_kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')
+    ),
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (parent_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (parent_run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (reviewer_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
+);
+
+CREATE TABLE flow_runtime_reviewer_check_ref (
+    request_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    check_run_ref TEXT NOT NULL,
+    PRIMARY KEY (request_id, ordinal),
+    UNIQUE (request_id, check_run_ref),
+    FOREIGN KEY (request_id)
+        REFERENCES flow_runtime_reviewer_request (request_id)
 );

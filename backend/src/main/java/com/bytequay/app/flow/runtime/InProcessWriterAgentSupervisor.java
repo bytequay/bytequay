@@ -19,12 +19,15 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 
 import java.lang.management.ManagementFactory;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -151,6 +154,18 @@ public final class InProcessWriterAgentSupervisor
                 effect.run();
                 return null;
             });
+        }
+
+        /** Terminal Task tool; its immutable request durably seals all tools. */
+        public ReviewerRequest spawnAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                List<String> checkRunRefs)
+        {
+            return execution.spawnAdversarialReviewer(
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId,
+                    checkRunRefs);
         }
 
         @Override
@@ -722,6 +737,53 @@ public final class InProcessWriterAgentSupervisor
                     notifyAll();
                 }
             }
+        }
+
+        private ReviewerRequest spawnAdversarialReviewer(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId,
+                List<String> checkRunRefs)
+        {
+            synchronized (this) {
+                if (Thread.currentThread() != thread) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "terminal tool requires the owned writer thread");
+                }
+            }
+            Optional<ReviewerRequest> existing =
+                    runtime.reviewerRequestForParentRun(runId);
+            if (existing.isPresent()) {
+                ReviewerRequest replayed = runtime.replayReviewerRequest(
+                        runId,
+                        programOwnedRepositoryRoot,
+                        expectedChangeSetRevisionId,
+                        checkRunRefs);
+                synchronized (this) {
+                    revocationRequested = true;
+                }
+                return replayed;
+            }
+            ReviewerRequest result = callTool(() -> {
+                FlowRuntime.PreparedReviewerRequest prepared =
+                        runtime.prepareReviewerRequest(
+                                runId,
+                                claim,
+                                fence,
+                                programOwnedRepositoryRoot,
+                                expectedChangeSetRevisionId,
+                                checkRunRefs);
+                return runtime.reserveReviewerRequest(
+                        runId,
+                        claim,
+                        fence,
+                        attempt.processAttemptId(),
+                        attempt.capabilityId(),
+                        prepared);
+            });
+            synchronized (this) {
+                revocationRequested = true;
+            }
+            return result;
         }
 
         private synchronized void adoptCurrentOwner(

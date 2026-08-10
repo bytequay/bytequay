@@ -114,7 +114,8 @@ CREATE TABLE flow_ci_repair_attempt (
     result_ref TEXT,
     state TEXT NOT NULL CHECK (
         state IN (
-            'PENDING', 'ACTIVE', 'FIX_PREPARED', 'NO_HEAD_CHANGE',
+            'PENDING', 'ACTIVE', 'CLEANUP_PENDING',
+            'FIX_PREPARED', 'NO_HEAD_CHANGE',
             'NEEDS_ATTENTION'
         )
     ),
@@ -131,7 +132,12 @@ CREATE TABLE flow_ci_repair_attempt (
             AND output_local_head IS NOT NULL
             AND output_change_set_revision_id IS NOT NULL
             AND result_ref IS NOT NULL)
-        OR (state NOT IN ('FIX_PREPARED', 'NO_HEAD_CHANGE')
+        OR (state = 'CLEANUP_PENDING'
+            AND output_local_head IS NULL
+            AND output_change_set_revision_id IS NULL
+            AND result_ref IS NOT NULL)
+        OR (state NOT IN (
+                'FIX_PREPARED', 'NO_HEAD_CHANGE', 'CLEANUP_PENDING')
             AND output_local_head IS NULL
             AND output_change_set_revision_id IS NULL
             AND result_ref IS NULL)
@@ -162,3 +168,24 @@ CREATE TABLE flow_ci_repair_attempt (
 CREATE UNIQUE INDEX flow_ci_one_attempt_retry
     ON flow_ci_repair_attempt (retry_of_attempt_id)
     WHERE retry_of_attempt_id IS NOT NULL;
+
+CREATE TABLE flow_ci_cleanup_seal (
+    cleanup_id TEXT PRIMARY KEY,
+    repair_attempt_id TEXT NOT NULL UNIQUE,
+    successor_operation_id TEXT NOT NULL UNIQUE,
+    actual_head TEXT NOT NULL,
+    branch_head TEXT NOT NULL,
+    attachment_state TEXT NOT NULL CHECK (
+        attachment_state IN ('ATTACHED', 'DETACHED')
+    ),
+    kind TEXT NOT NULL CHECK (
+        kind IN ('DIRTY', 'GIT_OPERATION_IN_PROGRESS')
+    ),
+    operations_json TEXT NOT NULL,
+    state_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (repair_attempt_id)
+        REFERENCES flow_ci_repair_attempt (attempt_id),
+    FOREIGN KEY (successor_operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
+);

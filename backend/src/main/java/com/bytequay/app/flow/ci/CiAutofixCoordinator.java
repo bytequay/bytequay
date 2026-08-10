@@ -14,12 +14,15 @@
 package com.bytequay.app.flow.ci;
 
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizedRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.QueuedRepair;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.runtime.FlowRuntime;
+import com.bytequay.app.flow.runtime.FlowRuntime.CleanupHandoff;
+import com.bytequay.app.flow.runtime.FlowRuntime.PreparedNonCleanState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
@@ -38,6 +41,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.AgentCompletion;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.ExecutionHandle;
@@ -305,6 +309,36 @@ public final class CiAutofixCoordinator
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Unknown CI repair attempt: " + attemptId));
         assertAttemptIdentity(attempt, runId, claim, fence);
+        if (attempt.state() == AttemptState.CLEANUP_PENDING) {
+            CiCleanupSeal seal = autofix.cleanupSealForRepair(attemptId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "CI cleanup attempt has no durable seal"));
+            AgentResult replay = runtime.replayStoppedCiCleanupHandoff(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef(),
+                    attemptId,
+                    seal.cleanupId(),
+                    attempt.inputChangeSetRevisionId(),
+                    attempt.inputLocalHead(),
+                    new NonCleanInspection(
+                            seal.actualHead(),
+                            seal.branchHead(),
+                            seal.attachmentState(),
+                            seal.kind(),
+                            seal.operations(),
+                            seal.stateDigest()),
+                    seal.stateDigest(),
+                    seal.successorOperationId());
+            if (!attempt.resultRef().equals(replay.resultId())) {
+                throw new IllegalStateException(
+                        "CI cleanup attempt changed predecessor result");
+            }
+            return replay;
+        }
         if (attempt.state() == AttemptState.FIX_PREPARED
                 || attempt.state() == AttemptState.NO_HEAD_CHANGE) {
             CiFixOutcome outcome = toCiFixOutcome(attempt.state());
@@ -333,7 +367,13 @@ public final class CiAutofixCoordinator
         catch (InspectionFailure failure) {
             if (failure.code() == FailureCode.DIRTY
                     || failure.code() == FailureCode.GIT_OPERATION_IN_PROGRESS) {
-                autofix.blockDirtyRepairAttempt(attemptId);
+                return handoffDirtyRepair(
+                        attempt,
+                        runId,
+                        claim,
+                        fence,
+                        completion,
+                        programOwnedRepositoryRoot);
             }
             throw failure;
         }
@@ -368,6 +408,81 @@ public final class CiAutofixCoordinator
                     toAttemptState(outcome));
             return result;
         }), "repair finalization transaction returned null");
+    }
+
+    private AgentResult handoffDirtyRepair(
+            CiRepairAttempt attempt,
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            AgentCompletion completion,
+            Path programOwnedRepositoryRoot)
+    {
+        PreparedNonCleanState prepared;
+        try {
+            prepared = runtime.prepareNonCleanState(
+                    claim,
+                    fence,
+                    programOwnedRepositoryRoot,
+                    attempt.inputChangeSetRevisionId());
+        }
+        catch (InspectionFailure failure) {
+            if (blocksCleanupSeal(failure.code())) {
+                blockUnsealableDirtyRepair(
+                        attempt, runId, claim, fence);
+            }
+            throw failure;
+        }
+        return requireNonNull(transactions.execute(ignored -> {
+            CiRepairAttempt current = autofix.repairAttempt(
+                    attempt.attemptId()).orElseThrow();
+            assertAttemptIdentity(current, runId, claim, fence);
+            requireActiveAttemptSubject(current, runId, claim, fence, true);
+            CleanupHandoff handoff = runtime.handoffStoppedCiRunToCleanup(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef(),
+                    attempt.attemptId(),
+                    prepared);
+            autofix.storeCleanupSeal(attempt.attemptId(), handoff);
+            return handoff.predecessorResult();
+        }), "dirty repair handoff transaction returned null");
+    }
+
+    private void blockUnsealableDirtyRepair(
+            CiRepairAttempt attempt,
+            String runId,
+            Claim claim,
+            WriterFence fence)
+    {
+        requireNonNull(transactions.execute(ignored -> {
+            CiRepairAttempt current = autofix.repairAttempt(
+                    attempt.attemptId()).orElseThrow();
+            assertAttemptIdentity(current, runId, claim, fence);
+            runtime.assertWriterRunStopped(runId, claim);
+            requireActiveAttemptSubject(
+                    current, runId, claim, fence, true);
+            autofix.blockDirtyRepairAttempt(attempt.attemptId());
+            return Boolean.TRUE;
+        }), "dirty repair block transaction returned null");
+    }
+
+    static boolean blocksCleanupSeal(FailureCode code)
+    {
+        return code == FailureCode.UNTRUSTED_REPOSITORY_STATE
+                || code == FailureCode.OUTPUT_LIMIT
+                || code == FailureCode.NOT_WORKTREE
+                || code == FailureCode.WRONG_REPOSITORY
+                || code == FailureCode.DETACHED_HEAD
+                || code == FailureCode.WRONG_BRANCH
+                || code == FailureCode.BRANCH_HEAD_MISMATCH
+                || code == FailureCode.BASE_NOT_FOUND
+                || code == FailureCode.PREDECESSOR_NOT_FOUND
+                || code == FailureCode.BASE_NOT_ANCESTOR
+                || code == FailureCode.PREDECESSOR_NOT_ANCESTOR;
     }
 
     private RepairBinding redeliverRepairBinding(

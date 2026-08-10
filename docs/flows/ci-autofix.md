@@ -175,9 +175,9 @@ No `approved`, `confidence`, `verdict`, or parsed-summary field exists.
 of creating sibling retries. `operationId` and `agentRunId` are absent while the
 attempt is only a pending fact; `WorkSelector` sets the operation once, and the
 operation-bound `startFresh`/`resume` transaction sets `agentRunId` once.
-Attempt states are `PENDING`, `ACTIVE`, `FIX_PREPARED`, `NO_HEAD_CHANGE`, and
-`NEEDS_ATTENTION`. Only `PENDING` permits both operation and run to be absent;
-all other states require both exact IDs.
+Attempt states are `PENDING`, `ACTIVE`, `CLEANUP_PENDING`, `FIX_PREPARED`,
+`NO_HEAD_CHANGE`, and `NEEDS_ATTENTION`. Only `PENDING` permits both operation
+and run to be absent; all other states require both exact IDs.
 
 CI Autofix owns no session table. The Task references the one runtime-owned
 `AgentSession(role=CI_FIXER)` defined by
@@ -269,13 +269,18 @@ avoids an unsafe half-start cancellation protocol; Task review and fresh remote
 gates still prevent publication. A remote-head, local-head, Task-lifecycle,
 claim, or fence change still fails closed.
 
-The implemented clean-finalization path durably blocks `DIRTY` or
-`GIT_OPERATION_IN_PROGRESS` as attempt `NEEDS_ATTENTION` without storing a
-result, adopting a change set, or releasing writer ownership. Retrying that old
-stopped finalizer cannot attribute a later out-of-band cleanup to the ended run.
-This marker does not contain a dirty-state digest and no cleanup/release API may
-consume it. Before cutover, the bounded cleanup implementation must freeze the
-exact dirty-state digest and create a separate successor operation/run/fence.
+For `DIRTY` or `GIT_OPERATION_IN_PROGRESS`, the runtime mints a private prepared
+token only after exact `STOPPED` proof and two matching bounded worktree
+observations. One transaction stores the predecessor `AgentResult`, immutable
+`CiCleanupSeal`, and `CLEANUP_PENDING` attempt; settles the old run, session,
+operation, ticket, and inbox; creates one direct `CI_CLEANUP` operation/ticket;
+swaps the Task writer pointer old-to-successor; and only then releases the old
+lease. The Task's adopted head remains H1 even when the sealed actual worktree
+head is H2. The successor starts `READY`/`AVAILABLE` with no run or lease. This
+transaction reserves that exact mutation only; cleanup execution and its new
+fence are deferred to the cleanup dispatcher. An unsafe or oversized state is
+instead durably blocked as `NEEDS_ATTENTION` while retaining ownership; a
+transient observation or stale authority does not rewrite the attempt.
 
 The two retry commands are bounded, CI-owned semantic retries. They require the
 prior run/result terminal. A repair retry idempotently appends or returns the
@@ -363,7 +368,7 @@ mechanically inspects the fenced worktree before releasing the lease:
   `CI_FIX_READY`, and ensure Task reconciliation;
 - clean with no head change: persist the opaque result plus objective
   `NO_HEAD_CHANGE`, then ensure Task reconciliation; or
-- dirty/unmerged: issue one bounded cleanup resume to the same fixer session;
+- dirty/unmerged: reserve one bounded cleanup resume to the same fixer session;
   if it still cannot leave a committed or restored worktree, quarantine the
   Task and mark the attempt `NEEDS_ATTENTION`.
 

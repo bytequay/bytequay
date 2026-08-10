@@ -41,6 +41,9 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import com.bytequay.app.flow.runtime.FlowRuntimeSchema;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
 import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +67,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -223,6 +227,26 @@ class TestCiAutofixCoordinator
         assertThatThrownBy(() -> new CiRepairAttempt(
                 "attempt", "round", "operation", "run",
                 publishedHead, publishedHead, "change-set",
+                null, null, List.of(), null,
+                AttemptState.CLEANUP_PENDING, null, 0, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("finalized repair work");
+        assertThatThrownBy(() -> new CiRepairAttempt(
+                "attempt", "round", "operation", "run",
+                publishedHead, publishedHead, "change-set",
+                null, null, List.of(), "result",
+                AttemptState.ACTIVE, null, 0, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("finalized repair work");
+        assertThat(new CiRepairAttempt(
+                "attempt", "round", "operation", "run",
+                publishedHead, publishedHead, "change-set",
+                null, null, List.of(), "result",
+                AttemptState.CLEANUP_PENDING, null, 0, NOW).state())
+                .isEqualTo(AttemptState.CLEANUP_PENDING);
+        assertThatThrownBy(() -> new CiRepairAttempt(
+                "attempt", "round", "operation", "run",
+                publishedHead, publishedHead, "change-set",
                 publishedHead, "output-change-set", List.of(), "result",
                 AttemptState.FIX_PREPARED, null, 0, NOW))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -235,6 +259,13 @@ class TestCiAutofixCoordinator
                 AttemptState.NO_HEAD_CHANGE, null, 0, NOW))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("objective head");
+    }
+
+    @Test
+    void cleanupHandoffReceiptCannotBeCallerConstructed()
+    {
+        assertThat(FlowRuntime.CleanupHandoff.class.getConstructors())
+                .isEmpty();
     }
 
     @Test
@@ -770,12 +801,17 @@ class TestCiAutofixCoordinator
     }
 
     @Test
-    void dirtyStoppedFixIsDurablyBlockedAndNeverAdopted()
+    void dirtyStoppedFixAtomicallyReservesOneCleanupSuccessor()
     {
         StartedRepair started = startRepair();
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
         var bodies = new AtomicInteger();
+        var tools = new AtomicInteger();
         Path dirtyPath = Path.of(task.worktreePath()).resolve("dirty.txt");
+        var completion = new InProcessWriterAgentSupervisor.AgentCompletion(
+                TerminalOutcome.COMPLETED,
+                "looks good; verdict=PASSED but workspace is dirty",
+                null);
         var handle = coordinator.launchRepair(
                 supervisor,
                 started.binding(),
@@ -785,6 +821,8 @@ class TestCiAutofixCoordinator
                 capability -> {
                     bodies.incrementAndGet();
                     capability.runTool(() -> {
+                        tools.incrementAndGet();
+                        commitCiChange("committed.txt", "candidate\n", "candidate");
                         try {
                             Files.writeString(
                                     dirtyPath,
@@ -795,33 +833,33 @@ class TestCiAutofixCoordinator
                             throw new RuntimeException(e);
                         }
                     });
-                    return new InProcessWriterAgentSupervisor.AgentCompletion(
-                            TerminalOutcome.COMPLETED, "done", null);
+                    return completion;
                 });
 
-        assertThatThrownBy(() -> coordinator.awaitRepair(
-                supervisor, started.binding(), handle, TTL))
-                .isInstanceOf(RuntimeException.class);
-        assertThat(runtime.resultForRun(started.binding().run().runId()))
-                .isEmpty();
-        assertThat(autofix.repairAttempt(
-                started.binding().attempt().attemptId()).orElseThrow().state())
-                .isEqualTo(AttemptState.NEEDS_ATTENTION);
-        assertThat(runtime.task(task.taskId()).orElseThrow()
-                .selectedWriterOperationId())
-                .isEqualTo(started.claim().operationId());
-        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isOne();
+        AgentResult result = coordinator.awaitRepair(
+                supervisor, started.binding(), handle, TTL);
+        CiRepairAttempt attempt = autofix.repairAttempt(
+                started.binding().attempt().attemptId()).orElseThrow();
+        var seal = autofix.cleanupSealForRepair(attempt.attemptId())
+                .orElseThrow();
+        Operation successor = runtime.operation(seal.successorOperationId())
+                .orElseThrow();
 
-        Path worktree = Path.of(task.worktreePath());
-        gitOutput(worktree, "add", "dirty.txt");
-        gitOutput(worktree, "commit", "-m", "out-of-band cleanup");
-        assertThatThrownBy(() -> coordinator.awaitRepair(
-                supervisor, started.binding(), handle, TTL))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("not active");
+        assertThat(result.finalContent()).isEqualTo(completion.finalContent());
         assertThat(bodies).hasValue(1);
-        assertThat(runtime.resultForRun(started.binding().run().runId()))
-                .isEmpty();
+        assertThat(tools).hasValue(1);
+        assertThat(attempt.state()).isEqualTo(AttemptState.CLEANUP_PENDING);
+        assertThat(attempt.resultRef()).isEqualTo(result.resultId());
+        assertThat(attempt.outputLocalHead()).isNull();
+        assertThat(attempt.outputChangeSetRevisionId()).isNull();
+        assertThat(seal.actualHead()).isEqualTo(
+                gitOutput(Path.of(task.worktreePath()), "rev-parse", "HEAD"));
+        assertThat(seal.actualHead()).isNotEqualTo(publishedHead);
+        assertThat(seal.successorOperationId())
+                .isEqualTo(successor.operationId());
+        assertThat(successor.ownerKind()).isEqualTo("CI_CLEANUP");
+        assertThat(successor.ownerId()).isEqualTo(seal.cleanupId());
+        assertThat(successor.state()).isEqualTo(OperationState.READY);
         assertThat(runtime.currentChangeSet(task.taskId()).orElseThrow()
                 .headSha()).isEqualTo(publishedHead);
         assertThat(runtime.pendingWork(task.taskId()))
@@ -829,8 +867,356 @@ class TestCiAutofixCoordinator
                 .isEmpty();
         assertThat(runtime.task(task.taskId()).orElseThrow()
                 .selectedWriterOperationId())
+                .isEqualTo(successor.operationId());
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
+        assertThat(runtime.runForOperation(successor.operationId())).isEmpty();
+        String cleanupTicketPredicate = """
+                operation_id = '%s' AND delivery_state = 'AVAILABLE'
+                AND claim_generation = 0
+                AND claim_owner IS NULL
+                AND claim_token IS NULL
+                """.formatted(successor.operationId());
+        assertThat(count(
+                "flow_runtime_dispatch_ticket",
+                cleanupTicketPredicate))
+                .isOne();
+        assertThat(runtime.session(task.taskId(), AgentRole.CI_FIXER))
+                .hasValueSatisfying(session -> {
+                    assertThat(session.state()).isEqualTo(SessionState.IDLE);
+                    assertThat(session.lastRunId())
+                            .isEqualTo(started.binding().run().runId());
+                });
+        assertThat(runtime.operation(started.claim().operationId())
+                .orElseThrow().resultRef()).isEqualTo(result.resultId());
+        assertThat(autofix.roundById(attempt.roundId()).orElseThrow().state())
+                .isEqualTo(RoundState.ACTIVE);
+
+        Claim cleanupClaim = claim(OperationKind.RUN_CI_FIXER);
+        assertThat(cleanupClaim.operationId())
+                .isEqualTo(successor.operationId());
+        assertThat(runtime.operation(successor.operationId()).orElseThrow().state())
+                .isEqualTo(OperationState.CLAIMED);
+        assertThat(runtime.runForOperation(successor.operationId())).isEmpty();
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
+
+        restart();
+        AgentResult replay = coordinator.finalizeRepairAttempt(
+                attempt.attemptId(),
+                started.binding().run().runId(),
+                started.claim(),
+                started.fence(),
+                completion,
+                repositoryRoot);
+        assertThat(replay).isEqualTo(result);
+        assertThat(autofix.cleanupSealForRepair(attempt.attemptId()))
+                .contains(seal);
+        assertThat(count("flow_ci_cleanup_seal", "1 = 1")).isOne();
+        assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
+                .isOne();
+        assertThatThrownBy(() -> coordinator.finalizeRepairAttempt(
+                attempt.attemptId(),
+                started.binding().run().runId(),
+                started.claim(),
+                started.fence(),
+                new InProcessWriterAgentSupervisor.AgentCompletion(
+                        TerminalOutcome.COMPLETED, "changed prose", null),
+                repositoryRoot))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("terminal content");
+        NonCleanInspection persistedSeal = new NonCleanInspection(
+                seal.actualHead(),
+                seal.branchHead(),
+                seal.attachmentState(),
+                seal.kind(),
+                seal.operations(),
+                seal.stateDigest());
+        assertThatThrownBy(() -> runtime.replayStoppedCiCleanupHandoff(
+                started.binding().run().runId(),
+                started.claim(),
+                started.fence(),
+                completion.terminalOutcome(),
+                completion.finalContent(),
+                completion.errorRef(),
+                attempt.attemptId(),
+                seal.cleanupId(),
+                attempt.inputChangeSetRevisionId(),
+                attempt.inputLocalHead(),
+                persistedSeal,
+                "0".repeat(64),
+                seal.successorOperationId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("digest");
+        assertThat(bodies).hasValue(1);
+        assertThat(tools).hasValue(1);
+    }
+
+    @Test
+    void lateCleanupSealFailureRollsBackRuntimeHandoffAndRetriesExactly()
+    {
+        StartedRepair started = startRepair();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var bodies = new AtomicInteger();
+        var tools = new AtomicInteger();
+        Path dirty = Path.of(task.worktreePath()).resolve("rollback-dirty.txt");
+        var handle = coordinator.launchRepair(
+                supervisor,
+                started.binding(),
+                started.claim(),
+                started.fence(),
+                repositoryRoot,
+                capability -> {
+                    bodies.incrementAndGet();
+                    capability.runTool(() -> {
+                        tools.incrementAndGet();
+                        try {
+                            Files.writeString(
+                                    dirty,
+                                    "dirty\n",
+                                    StandardCharsets.UTF_8);
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "opaque", null);
+                });
+        jdbc.execute("""
+                CREATE TRIGGER fail_cleanup_seal_insert
+                BEFORE INSERT ON flow_ci_cleanup_seal
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced cleanup seal failure');
+                END
+                """);
+
+        assertThatThrownBy(() -> coordinator.awaitRepair(
+                supervisor, started.binding(), handle, TTL))
+                .isInstanceOf(RuntimeException.class);
+
+        String oldOperation = started.claim().operationId();
+        assertThat(runtime.resultForRun(started.binding().run().runId()))
+                .isEmpty();
+        assertThat(autofix.repairAttempt(
+                started.binding().attempt().attemptId()).orElseThrow().state())
+                .isEqualTo(AttemptState.ACTIVE);
+        assertThat(autofix.cleanupSealForRepair(
+                started.binding().attempt().attemptId())).isEmpty();
+        assertThat(runtime.operation(oldOperation).orElseThrow().state())
+                .isEqualTo(OperationState.CLAIMED);
+        assertThat(runtime.operation(oldOperation).orElseThrow().resultRef())
+                .isNull();
+        String oldTicketPredicate = """
+                operation_id = '%s' AND delivery_state = 'CLAIMED'
+                """.formatted(oldOperation);
+        assertThat(count(
+                "flow_runtime_dispatch_ticket",
+                oldTicketPredicate))
+                .isOne();
+        assertThat(runtime.session(task.taskId(), AgentRole.CI_FIXER))
+                .hasValueSatisfying(session -> {
+                    assertThat(session.state()).isEqualTo(SessionState.RUNNING);
+                    assertThat(session.lastRunId())
+                            .isEqualTo(started.binding().run().runId());
+                });
+        String oldInboxPredicate = """
+                selected_by_operation_id = '%s'
+                AND handled_by_operation_id IS NULL
+                """.formatted(oldOperation);
+        assertThat(count(
+                "flow_runtime_inbox",
+                oldInboxPredicate))
+                .isOne();
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId()).isEqualTo(oldOperation);
+        String oldLeasePredicate = """
+                operation_id = '%s'
+                """.formatted(oldOperation);
+        assertThat(count(
+                "flow_runtime_writer_lease",
+                oldLeasePredicate))
+                .isOne();
+        assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
+                .isZero();
+
+        jdbc.execute("DROP TRIGGER fail_cleanup_seal_insert");
+        AgentResult result = coordinator.awaitRepair(
+                supervisor, started.binding(), handle, TTL);
+        var seal = autofix.cleanupSealForRepair(
+                started.binding().attempt().attemptId()).orElseThrow();
+
+        assertThat(result.finalContent()).isEqualTo("opaque");
+        assertThat(bodies).hasValue(1);
+        assertThat(tools).hasValue(1);
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId())
+                .isEqualTo(seal.successorOperationId());
+        assertThat(count("flow_ci_cleanup_seal", "1 = 1")).isOne();
+        assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
+                .isOne();
+        assertThat(runtime.session(task.taskId(), AgentRole.CI_FIXER))
+                .hasValueSatisfying(session -> assertThat(session.state())
+                        .isEqualTo(SessionState.IDLE));
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isZero();
+    }
+
+    @Test
+    void transientSealFailuresStayRetryableAndStaleAuthorityCannotBlock()
+    {
+        assertThat(CiAutofixCoordinator.blocksCleanupSeal(
+                FailureCode.MOVED_DURING_INSPECTION)).isFalse();
+        assertThat(CiAutofixCoordinator.blocksCleanupSeal(
+                FailureCode.TIMEOUT)).isFalse();
+        assertThat(CiAutofixCoordinator.blocksCleanupSeal(
+                FailureCode.INTERRUPTED)).isFalse();
+        assertThat(CiAutofixCoordinator.blocksCleanupSeal(
+                FailureCode.UNTRUSTED_REPOSITORY_STATE)).isTrue();
+
+        StartedRepair started = startRepair();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var completion = new InProcessWriterAgentSupervisor.AgentCompletion(
+                TerminalOutcome.COMPLETED, "opaque", null);
+        var prepared = new AtomicReference<FlowRuntime.PreparedNonCleanState>();
+        var handle = supervisor.launch(
+                started.binding().run().runId(),
+                started.claim(),
+                started.fence(),
+                "TEST_FAIL_BEFORE_DOMAIN",
+                (runId, claim, fence, finished) -> {
+                    prepared.set(runtime.prepareNonCleanState(
+                            claim,
+                            fence,
+                            repositoryRoot,
+                            started.binding().attempt()
+                                    .inputChangeSetRevisionId()));
+                    throw new IllegalStateException("hold stopped owner");
+                },
+                capability -> {
+                    capability.runTool(() -> {
+                        try {
+                            Files.writeString(
+                                    Path.of(task.worktreePath()).resolve(
+                                            "stale-dirty.txt"),
+                                    "dirty\n",
+                                    StandardCharsets.UTF_8);
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                    return completion;
+                });
+        assertThatThrownBy(() -> supervisor.awaitAndFinalize(
+                handle, TTL, "TEST_FAIL_BEFORE_DOMAIN"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("hold stopped owner");
+        assertThat(prepared.get()).isNotNull();
+
+        Claim staleClaim = new Claim(
+                started.claim().operationId(),
+                started.claim().taskId(),
+                started.claim().kind(),
+                started.claim().generation(),
+                "forged-token",
+                started.claim().workerId(),
+                started.claim().expiresAt());
+        assertThatThrownBy(() -> runtime.handoffStoppedCiRunToCleanup(
+                started.binding().run().runId(),
+                staleClaim,
+                started.fence(),
+                completion.terminalOutcome(),
+                completion.finalContent(),
+                completion.errorRef(),
+                started.binding().attempt().attemptId(),
+                prepared.get()))
+                .isInstanceOf(IllegalStateException.class);
+
+        WriterFence staleFence = new WriterFence(
+                started.fence().taskId(),
+                started.fence().operationId(),
+                started.fence().taskEpoch(),
+                started.fence().holderKind(),
+                started.fence().fencingToken() + 1,
+                started.fence().claimGeneration(),
+                started.fence().claimTokenDigest(),
+                started.fence().headSha(),
+                started.fence().treeDigest(),
+                started.fence().snapshotEvidenceRef(),
+                started.fence().expiresAt());
+        assertThatThrownBy(() -> runtime.handoffStoppedCiRunToCleanup(
+                started.binding().run().runId(),
+                started.claim(),
+                staleFence,
+                completion.terminalOutcome(),
+                completion.finalContent(),
+                completion.errorRef(),
+                started.binding().attempt().attemptId(),
+                prepared.get()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(autofix.repairAttempt(
+                started.binding().attempt().attemptId()).orElseThrow().state())
+                .isEqualTo(AttemptState.ACTIVE);
+        assertThat(autofix.cleanupSealForRepair(
+                started.binding().attempt().attemptId())).isEmpty();
+        assertThat(runtime.resultForRun(started.binding().run().runId()))
+                .isEmpty();
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId())
                 .isEqualTo(started.claim().operationId());
         assertThat(count("flow_runtime_writer_lease", "1 = 1")).isOne();
+    }
+
+    @Test
+    void untrustedDirtyStateIsBlockedWithoutManufacturingASeal()
+    {
+        StartedRepair started = startRepair();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        Path unsafeDirty = Path.of(task.worktreePath()).resolve(
+                "unsafe-dirty.txt");
+        var handle = coordinator.launchRepair(
+                supervisor,
+                started.binding(),
+                started.claim(),
+                started.fence(),
+                repositoryRoot,
+                capability -> {
+                    capability.runTool(() -> {
+                        try {
+                            Files.writeString(
+                                    unsafeDirty,
+                                    "dirty\n",
+                                    StandardCharsets.UTF_8);
+                            Files.createDirectories(
+                                    repositoryRoot.resolve(".git/rr-cache"));
+                        }
+                        catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED, "opaque", null);
+                });
+
+        assertThatThrownBy(() -> coordinator.awaitRepair(
+                supervisor, started.binding(), handle, TTL))
+                .isInstanceOf(InspectionFailure.class)
+                .satisfies(failure -> assertThat(
+                        ((InspectionFailure) failure).code())
+                        .isEqualTo(FailureCode.UNTRUSTED_REPOSITORY_STATE));
+        CiRepairAttempt attempt = autofix.repairAttempt(
+                started.binding().attempt().attemptId()).orElseThrow();
+        assertThat(attempt.state()).isEqualTo(AttemptState.NEEDS_ATTENTION);
+        assertThat(attempt.resultRef()).isNull();
+        assertThat(autofix.roundById(attempt.roundId()).orElseThrow().state())
+                .isEqualTo(RoundState.NEEDS_ATTENTION);
+        assertThat(autofix.cleanupSealForRepair(attempt.attemptId())).isEmpty();
+        assertThat(runtime.resultForRun(started.binding().run().runId()))
+                .isEmpty();
+        assertThat(runtime.task(task.taskId()).orElseThrow()
+                .selectedWriterOperationId())
+                .isEqualTo(started.claim().operationId());
+        assertThat(count("flow_runtime_writer_lease", "1 = 1")).isOne();
+        assertThat(count("flow_runtime_operation", "owner_kind = 'CI_CLEANUP'"))
+                .isZero();
     }
 
     @Test

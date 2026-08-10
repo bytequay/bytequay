@@ -99,3 +99,66 @@ CREATE INDEX flow_ci_round_current_idx
     ON flow_ci_round (
         pr_id, remote_head, policy_revision_id, evidence_revision DESC
     );
+
+CREATE TABLE flow_ci_repair_attempt (
+    attempt_id TEXT PRIMARY KEY,
+    round_id TEXT NOT NULL,
+    operation_id TEXT UNIQUE,
+    agent_run_id TEXT UNIQUE,
+    input_local_head TEXT NOT NULL,
+    input_remote_head TEXT NOT NULL,
+    input_change_set_revision_id TEXT NOT NULL,
+    output_local_head TEXT,
+    output_change_set_revision_id TEXT,
+    local_check_run_ids_json TEXT NOT NULL,
+    result_ref TEXT,
+    state TEXT NOT NULL CHECK (
+        state IN (
+            'PENDING', 'ACTIVE', 'FIX_PREPARED', 'NO_HEAD_CHANGE',
+            'NEEDS_ATTENTION'
+        )
+    ),
+    retry_of_attempt_id TEXT,
+    retry_ordinal INTEGER NOT NULL CHECK (retry_ordinal >= 0),
+    created_at INTEGER NOT NULL,
+    CHECK (
+        (state = 'PENDING' AND operation_id IS NULL AND agent_run_id IS NULL)
+        OR (state <> 'PENDING'
+            AND operation_id IS NOT NULL AND agent_run_id IS NOT NULL)
+    ),
+    CHECK (
+        (state IN ('FIX_PREPARED', 'NO_HEAD_CHANGE')
+            AND output_local_head IS NOT NULL
+            AND output_change_set_revision_id IS NOT NULL
+            AND result_ref IS NOT NULL)
+        OR (state NOT IN ('FIX_PREPARED', 'NO_HEAD_CHANGE')
+            AND output_local_head IS NULL
+            AND output_change_set_revision_id IS NULL
+            AND result_ref IS NULL)
+    ),
+    CHECK (
+        state NOT IN ('FIX_PREPARED', 'NO_HEAD_CHANGE')
+        OR (state = 'NO_HEAD_CHANGE'
+            AND output_local_head = input_local_head)
+        OR (state = 'FIX_PREPARED'
+            AND output_local_head <> input_local_head)
+    ),
+    UNIQUE (round_id, retry_ordinal),
+    FOREIGN KEY (round_id) REFERENCES flow_ci_round (round_id),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (agent_run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (input_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
+    FOREIGN KEY (output_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
+    FOREIGN KEY (result_ref)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (retry_of_attempt_id)
+        REFERENCES flow_ci_repair_attempt (attempt_id)
+);
+
+CREATE UNIQUE INDEX flow_ci_one_attempt_retry
+    ON flow_ci_repair_attempt (retry_of_attempt_id)
+    WHERE retry_of_attempt_id IS NOT NULL;

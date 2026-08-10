@@ -163,7 +163,8 @@ and external-effect state are read from their owners rather than copied here.
 
 ```text
 attemptId, roundId, operationId?, agentRunId?, inputLocalHead, inputRemoteHead,
-outputLocalHead?, localCheckRunIds[], resultRef?, state,
+inputChangeSetRevisionId, outputLocalHead?, outputChangeSetRevisionId?,
+localCheckRunIds[], resultRef?, state,
 retryOfAttemptId?, retryOrdinal, createdAt
 ```
 
@@ -174,6 +175,9 @@ No `approved`, `confidence`, `verdict`, or parsed-summary field exists.
 of creating sibling retries. `operationId` and `agentRunId` are absent while the
 attempt is only a pending fact; `WorkSelector` sets the operation once, and the
 operation-bound `startFresh`/`resume` transaction sets `agentRunId` once.
+Attempt states are `PENDING`, `ACTIVE`, `FIX_PREPARED`, `NO_HEAD_CHANGE`, and
+`NEEDS_ATTENTION`. Only `PENDING` permits both operation and run to be absent;
+all other states require both exact IDs.
 
 CI Autofix owns no session table. The Task references the one runtime-owned
 `AgentSession(role=CI_FIXER)` defined by
@@ -246,14 +250,32 @@ idempotent by operation. No CI session or run is created speculatively.
 `finalizeAttempt` is the `RUN_CI_FIXER` branch of the runtime's sole
 `AgentRuns.finish` transaction. With the still-valid claim and writer fence, it
 mechanically inspects the worktree, appends/updates the attempt, adopts any clean
-committed change set, and persists exactly one `CI_FIX_READY`, `NO_HEAD_CHANGE`,
-or typed recovery/attention continuation. Only after those facts are durable may
+committed change set, and persists exactly one `CI_FIX_READY` continuation whose
+program-owned payload distinguishes `FIX_PREPARED` from `NO_HEAD_CHANGE`, or a
+typed blocked attempt state. Only after clean finalization facts are durable may
 the outer finalizer release the lease/selected pointer and return the persistent
 CI session to `IDLE`. It never interprets `resultRef` prose.
 `InProcessWriterAgentSupervisor.launch` binds this CI finalizer before exposing
 the handle or fixer body. `awaitAndFinalize` invokes that stored route only after
 durable exact-thread `STOPPED` proof; cancellation and retry cannot replace it
 with ordinary Task finalization or rerun the fixer body.
+Once `beginRepair` has atomically bound the attempt, run, and lease on exact
+head H1, a newer same-H1 policy/evidence revision does not interrupt it. This
+includes exact redelivery while the bound run is still `QUEUED`. The bound round
+may become `SUPERSEDED`, but the stopped run still stores its opaque result and
+inspected candidate while the new evidence revision remains independently
+current. This can spend one unnecessary fixer turn if H1 becomes green, but it
+avoids an unsafe half-start cancellation protocol; Task review and fresh remote
+gates still prevent publication. A remote-head, local-head, Task-lifecycle,
+claim, or fence change still fails closed.
+
+The implemented clean-finalization path durably blocks `DIRTY` or
+`GIT_OPERATION_IN_PROGRESS` as attempt `NEEDS_ATTENTION` without storing a
+result, adopting a change set, or releasing writer ownership. Retrying that old
+stopped finalizer cannot attribute a later out-of-band cleanup to the ended run.
+This marker does not contain a dirty-state digest and no cleanup/release API may
+consume it. Before cutover, the bounded cleanup implementation must freeze the
+exact dirty-state digest and create a separate successor operation/run/fence.
 
 The two retry commands are bounded, CI-owned semantic retries. They require the
 prior run/result terminal. A repair retry idempotently appends or returns the

@@ -1,0 +1,271 @@
+CREATE TABLE flow_runtime_task (
+    task_id TEXT PRIMARY KEY,
+    request_key TEXT NOT NULL UNIQUE,
+    repository_id TEXT NOT NULL,
+    goal_text TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'CREATED',
+            'ACTIVE',
+            'WAITING_USER',
+            'NEEDS_ATTENTION',
+            'COMPLETED',
+            'CANCELED'
+        )
+    ),
+    epoch INTEGER NOT NULL DEFAULT 1,
+    launch_base_sha TEXT,
+    current_base_sha TEXT,
+    branch_name TEXT NOT NULL UNIQUE,
+    worktree_path TEXT NOT NULL UNIQUE,
+    current_head_sha TEXT,
+    task_session_id TEXT UNIQUE,
+    ci_session_id TEXT UNIQUE,
+    pr_id TEXT UNIQUE,
+    current_lifecycle_revision_id TEXT,
+    pending_work_watermark INTEGER NOT NULL DEFAULT 0,
+    last_reconciled_work_watermark INTEGER NOT NULL DEFAULT 0,
+    reconciliation_sequence INTEGER NOT NULL DEFAULT 0,
+    selected_writer_operation_id TEXT,
+    writer_fence_sequence INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE flow_runtime_task_lifecycle_revision (
+    lifecycle_revision_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    evidence_ref TEXT,
+    operation_id TEXT,
+    recorded_at INTEGER NOT NULL,
+    UNIQUE (task_id, sequence),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id)
+);
+
+CREATE TABLE flow_runtime_remote_identity (
+    remote_identity_id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    repository_external_id TEXT NOT NULL,
+    pr_number INTEGER NOT NULL,
+    pr_node_id TEXT NOT NULL,
+    html_url TEXT NOT NULL,
+    publication_receipt_id TEXT NOT NULL,
+    bound_at INTEGER NOT NULL,
+    UNIQUE (provider, repository_external_id, pr_number)
+);
+
+CREATE TABLE flow_runtime_pr (
+    pr_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE,
+    repository_id TEXT NOT NULL,
+    base_ref TEXT NOT NULL,
+    base_sha TEXT NOT NULL,
+    target_base_ref TEXT NOT NULL,
+    scope_key TEXT NOT NULL,
+    branch_name TEXT NOT NULL,
+    created_from_head_sha TEXT NOT NULL,
+    remote_identity_id TEXT UNIQUE,
+    current_remote_head TEXT,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (remote_identity_id)
+        REFERENCES flow_runtime_remote_identity (remote_identity_id)
+);
+
+CREATE TABLE flow_runtime_operation (
+    operation_id TEXT PRIMARY KEY,
+    owner_kind TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    task_id TEXT,
+    kind TEXT NOT NULL CHECK (
+        kind IN (
+            'PROVISION_TASK',
+            'RECONCILE_TASK',
+            'RUN_TASK_TURN',
+            'RUN_CI_FIXER'
+        )
+    ),
+    subject_digest TEXT NOT NULL,
+    input_ref TEXT NOT NULL,
+    work_watermark INTEGER,
+    state TEXT NOT NULL CHECK (
+        state IN (
+            'READY',
+            'CLAIMED',
+            'WAITING',
+            'SUCCEEDED',
+            'RETRYABLE',
+            'FAILED',
+            'CANCELED'
+        )
+    ),
+    attempt INTEGER NOT NULL DEFAULT 0,
+    result_ref TEXT,
+    created_at INTEGER NOT NULL,
+    UNIQUE (owner_kind, owner_id, kind, subject_digest),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id)
+);
+
+CREATE UNIQUE INDEX flow_runtime_one_live_reconciliation
+    ON flow_runtime_operation (task_id)
+    WHERE kind = 'RECONCILE_TASK'
+        AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE');
+
+CREATE TABLE flow_runtime_dispatch_ticket (
+    operation_id TEXT PRIMARY KEY,
+    not_before INTEGER NOT NULL,
+    claim_owner TEXT,
+    claim_expires_at INTEGER,
+    claim_generation INTEGER NOT NULL DEFAULT 0,
+    claim_token TEXT,
+    priority INTEGER NOT NULL,
+    delivery_state TEXT NOT NULL CHECK (
+        delivery_state IN ('AVAILABLE', 'CLAIMED', 'DONE')
+    ),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
+);
+
+CREATE INDEX flow_runtime_claimable_ticket
+    ON flow_runtime_dispatch_ticket (
+        delivery_state,
+        not_before,
+        priority DESC,
+        operation_id
+    );
+
+CREATE TABLE flow_runtime_inbox (
+    inbox_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    pr_id TEXT,
+    source TEXT NOT NULL,
+    external_key TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (
+        kind IN ('INITIAL_TASK', 'FINAL_RED', 'AGENT_RESULT_READY')
+    ),
+    subject_head TEXT NOT NULL,
+    payload_ref TEXT NOT NULL,
+    agent_result_id TEXT,
+    work_watermark INTEGER NOT NULL,
+    observed_at INTEGER NOT NULL,
+    selected_by_operation_id TEXT,
+    handled_by_operation_id TEXT,
+    terminal_reason TEXT CHECK (
+        terminal_reason IN ('TASK_COMPLETED', 'TASK_CANCELED')
+    ),
+    CHECK (
+        (kind = 'AGENT_RESULT_READY' AND agent_result_id IS NOT NULL)
+        OR (kind <> 'AGENT_RESULT_READY' AND agent_result_id IS NULL)
+    ),
+    UNIQUE (source, external_key, revision),
+    UNIQUE (task_id, work_watermark),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (agent_result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (selected_by_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (handled_by_operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
+);
+
+CREATE INDEX flow_runtime_pending_inbox
+    ON flow_runtime_inbox (
+        task_id,
+        handled_by_operation_id,
+        selected_by_operation_id,
+        work_watermark
+    );
+
+CREATE TABLE flow_runtime_writer_lease (
+    task_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    task_epoch INTEGER NOT NULL,
+    holder_kind TEXT NOT NULL CHECK (
+        holder_kind IN ('TASK_AGENT', 'CI_FIXER')
+    ),
+    fencing_token INTEGER NOT NULL,
+    claim_generation INTEGER NOT NULL,
+    claim_token_digest TEXT NOT NULL,
+    head_sha TEXT NOT NULL,
+    tree_digest TEXT NOT NULL,
+    snapshot_evidence_ref TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
+);
+
+CREATE TABLE flow_runtime_agent_session (
+    session_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('TASK_AGENT', 'CI_FIXER')),
+    state TEXT NOT NULL CHECK (
+        state IN ('NEW', 'IDLE', 'RUNNING', 'PARKED_CHILD', 'CLOSED')
+    ),
+    last_run_id TEXT,
+    close_reason TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (task_id, role),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id)
+);
+
+CREATE TABLE flow_runtime_agent_run (
+    run_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('TASK_AGENT', 'CI_FIXER')),
+    head_sha TEXT NOT NULL,
+    prompt_manifest_ref TEXT NOT NULL,
+    capability_set_ref TEXT NOT NULL,
+    input_ref TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (
+        state IN ('QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELED')
+    ),
+    failure_reason_code TEXT,
+    created_at INTEGER NOT NULL,
+    started_at INTEGER,
+    completed_at INTEGER,
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (session_id)
+        REFERENCES flow_runtime_agent_session (session_id)
+);
+
+CREATE TABLE flow_runtime_agent_result (
+    result_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE,
+    terminal_outcome TEXT NOT NULL CHECK (
+        terminal_outcome IN ('COMPLETED', 'FAILED', 'CANCELED')
+    ),
+    final_content TEXT,
+    error_ref TEXT,
+    process_metadata_ref TEXT NOT NULL,
+    stored_at INTEGER NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id)
+);
+
+CREATE TABLE flow_runtime_agent_process_attempt (
+    process_attempt_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    claim_generation INTEGER NOT NULL,
+    execution_id TEXT NOT NULL UNIQUE,
+    capability_id TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL CHECK (
+        state IN ('RESERVED', 'ACTIVATED', 'STOPPED')
+    ),
+    process_identity TEXT,
+    reserved_at INTEGER NOT NULL,
+    activated_at INTEGER,
+    process_metadata_ref TEXT,
+    stopped_at INTEGER,
+    UNIQUE (run_id, claim_generation),
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id)
+);

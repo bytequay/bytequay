@@ -520,7 +520,7 @@ shapes.
 | `InProcessWriterAgentSupervisor.cancel(handle, deadline)` | authenticated Task/CI cancellation owner | Close local tool admission and durably revoke before interrupting, then wait for the exact thread and any admitted synchronous tool. Store a cooperative stop proof and finish only when both ended. Otherwise quarantine while retaining pointer/lease. An expired claim yields `STOPPED_AWAITING_RECOVERY` after truthful stop capture. |
 | `ProgramRunnerSupervisor.stopAndProve(operationId, writerFence)` | non-agent writer recovery | Terminate and prove a deterministic `UPSTREAM_SYNC`/other program runner dead before inspecting its worktree or transferring its fence; it has no `AgentRun` or model capability. |
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | terminal `spawn_agent` Task tool | Validate and create the frozen reviewer request plus one initially parent-blocked `RUN_REVIEWER` operation/ticket; seal the parent run against more tools and return `reviewRequestId`, but create no reviewer session/run. Parent finalization below parks the session and makes the ticket eligible only after its result/state and writer release are durable. |
-| `AgentRuns.sealForReview(runId)` | accepted `ready_for_review()` tool | Revoke further mutating tools for this run, request terminal completion, and defer gate construction until result/head evidence is stored and the writer lease is released. |
+| `AgentRuns.sealForReview(runId)` | accepted `ready_for_review()` tool | On the implemented `AGENT_RESULT_READY` CI-review continuation, atomically store a capability-validated `ReadyForReviewRequest` and the run's mutually exclusive terminal seal, then revoke further tools. Gate construction runs only after exact thread stop; it never trusts terminal prose. |
 | `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery. A CI Fixer must use its role-specific `CiAutofix` finalizer, which atomically stores its clean outcome or dirty cleanup handoff before releasing ownership; this generic method rejects `CI_FIXER`. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewers instead use the implemented no-fence `finishReviewerAgentRun` path; CI-learning finalization remains deferred. |
 | `TaskQuestions.ask(taskId, runId, question)` | authenticated terminal agent tool | Store the question and measured sealed state, set the waiting barrier, move the Task to `WAITING_USER`, seal the current run against more tools, and request finalization. It does not persist the run result, release the fence/pointer, or change session state; only `AgentRuns.finish` does so and then exposes the question as answerable. |
 | `TaskQuestions.answer(userId, questionId, body)` | authenticated user command | Require the predecessor `AgentResult` durable/question answerable, append the exact answer, release any exact reconciliation wait on this question, reconcile a pending terminal-remote fact first, and if still active atomically create/reserve the one `USER_ANSWER` successor bound to the sealed state; never resume a generic latest turn. |
@@ -602,22 +602,19 @@ typed attention with no successor writer. Initial/upstream/feedback/local-review
 Task bindings remain deferred until they provide the same finalizer-aware
 attention/quarantine contract; the generic Task finalizer is not sufficient.
 
-`ready_for_review()` is also an agent tool. It is only a semantic declaration
-that the Task Agent wants the current work shown to the user. The handler first
-preflights known readiness under the current fence; a rejected call returns
-typed blockers and leaves the run active. An accepted call seals the active
-writer run: further mutation tools are rejected, the agent's ordinary
-final prose is stored, and the program adopts the final clean committed head as a
-`ChangeSetRevision` while the fence is still valid. It then releases the writer
-lease. Only after those facts are durable does the program run any required
-objective producer finalization through durable dispatch—for example, the
-optional upstream Task's exact `UpstreamVerification`—then obtain the exact
-change-set/check/review owner revisions and ask the [gate
-component](./user-gates.md) to build the subject. An invalid call returns an
-immediate tool error and leaves the run active so the agent can correct it. A
-race/failure discovered only by post-run revalidation creates a durable
-`REVIEW_READINESS_FAILED` cause for a new Task turn; it cannot reopen the
-completed run or open a stale gate.
+`ready_for_review()` is implemented only on the `AGENT_RESULT_READY`
+continuation of the CI-fix review loop. It is a zero-argument semantic
+declaration, not approval. Preflight derives the current clean change set,
+complete current Local Checks evidence, completed same-head reviewer request and
+result, current PR remote/branch, and current actionable CI round/policy. A
+rejected call returns typed blockers and leaves tools live. An accepted call
+stores the immutable request and revokes tools. After exact thread stop, the
+specialized finalizer revalidates and locks every mutable owner, opens/revises
+the local `CI_UPDATE` gate and settles result/session/input/pointer/lease in one
+transaction. Stable drift becomes typed `NEEDS_ATTENTION` with no gate;
+transient transaction failure rolls back for stopped-finalizer retry without
+rerunning the body. Initial/upstream/feedback/local-review ready bindings remain
+deferred.
 
 ## 6. Command and dispatch protocol
 

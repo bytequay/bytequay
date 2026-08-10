@@ -143,7 +143,12 @@ public final class LocalChecks
             return evidence.checkRunRefs();
         }
 
-        void assertCurrentForReservation()
+        public LocalCheckEvidence evidence()
+        {
+            return evidence;
+        }
+
+        public void assertCurrentForReservation()
         {
             owner.assertCurrentForReservation(evidence);
         }

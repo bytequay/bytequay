@@ -84,7 +84,7 @@ manifest, not a second reviewer-run table.
 | `goalRef` | Immutable confirmed Task-goal reference |
 | `userAnswerRefs` | Exact resolved Task-scoped question/answer records created after launch |
 | `ruleRefs` | Repository instruction/source references exposed to the reviewer |
-| `checkRunRefs` | Exact-head check evidence available at launch; the current CI-candidate integration freezes this as an empty list until the Local Checks owner is connected |
+| `checkRunRefs` | Complete ordered latest exact-head runs for the request's frozen current Local Checks policy; failed and genuine unavailable runs remain evidence |
 | `status` | Shared runtime state: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, or `CANCELED`; timeout is `FAILED` with `errorRef`/reason `TIMEOUT` |
 | `resultRef` | Opaque reviewer completion prose, when produced |
 | `startedAt`, `completedAt` | Program timestamps |

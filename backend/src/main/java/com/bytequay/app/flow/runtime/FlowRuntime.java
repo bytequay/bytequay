@@ -21,6 +21,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentSession;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.FinalRedRegistration;
@@ -34,6 +35,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReadyForReviewRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ReviewerRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.SessionState;
@@ -41,6 +43,8 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskBaseRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskLifecycleRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskTerminalRequest;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskTerminalRequestKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WakeKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
@@ -139,6 +143,7 @@ public final class FlowRuntime
         private final ReviewRequestSnapshot snapshot;
         private final Inspection inspection;
         private final String repositoryRoot;
+        private final CiFixReviewOrigin origin;
         private final LocalChecks.ReviewerEvidence reviewerEvidence;
         private final String localCheckPolicyRevisionId;
         private final List<String> checkRunRefs;
@@ -149,6 +154,7 @@ public final class FlowRuntime
                 ReviewRequestSnapshot snapshot,
                 Inspection inspection,
                 String repositoryRoot,
+                CiFixReviewOrigin origin,
                 LocalChecks.ReviewerEvidence reviewerEvidence,
                 String localCheckPolicyRevisionId,
                 List<String> checkRunRefs)
@@ -158,6 +164,7 @@ public final class FlowRuntime
             this.snapshot = snapshot;
             this.inspection = inspection;
             this.repositoryRoot = repositoryRoot;
+            this.origin = requireNonNull(origin, "origin is null");
             this.reviewerEvidence = reviewerEvidence;
             this.localCheckPolicyRevisionId =
                     localCheckPolicyRevisionId;
@@ -1034,6 +1041,36 @@ public final class FlowRuntime
         });
     }
 
+    /** Locks and revalidates one exact published PR for gate construction. */
+    public synchronized void assertAndLockCiUpdatePr(
+            PullRequestSubject expected)
+    {
+        requireNonNull(expected, "expected is null");
+        inTransaction(() -> {
+            int locked = jdbc.update(
+                    """
+                    UPDATE flow_runtime_pr
+                    SET current_remote_head = current_remote_head
+                    WHERE pr_id = ? AND task_id = ? AND repository_id = ?
+                      AND branch_name = ? AND target_base_ref = ?
+                      AND current_remote_head = ?
+                      AND remote_identity_id IS NOT NULL
+                    """,
+                    expected.prId(),
+                    expected.taskId(),
+                    expected.repositoryId(),
+                    expected.branchName(),
+                    expected.targetBaseRef(),
+                    expected.currentRemoteHead());
+            if (locked != 1
+                    || !requirePullRequest(expected.prId()).equals(expected)) {
+                throw new StaleOwnerRevisionException(
+                        "CI_UPDATE PR subject changed during gate construction");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
     /**
      * Persists a typed FINAL_RED owner reference and only ensures
      * reconciliation; it never starts a CI process directly.
@@ -1712,6 +1749,7 @@ public final class FlowRuntime
             WriterFence fence,
             Path programOwnedRepositoryRoot,
             String expectedChangeSetRevisionId,
+            CiFixReviewOrigin origin,
             LocalChecks.ReviewerEvidence reviewerEvidence)
     {
         requireText(runId, "runId");
@@ -1721,6 +1759,7 @@ public final class FlowRuntime
                 "programOwnedRepositoryRoot is null");
         requireText(expectedChangeSetRevisionId,
                 "expectedChangeSetRevisionId");
+        requireNonNull(origin, "origin is null");
         requireNonNull(reviewerEvidence, "reviewerEvidence is null");
         List<String> boundedCheckRunRefs = validateReviewerCheckRunRefs(
                 reviewerEvidence.checkRunRefs());
@@ -1730,7 +1769,8 @@ public final class FlowRuntime
                     runId,
                     claim,
                     fence,
-                    expectedChangeSetRevisionId));
+                    expectedChangeSetRevisionId,
+                    origin));
             inTransaction(() -> {
                 if (!reviewerEvidence.taskId().equals(snapshot.taskId())
                         || !reviewerEvidence.changeSetRevisionId().equals(
@@ -1765,6 +1805,7 @@ public final class FlowRuntime
                 inspection,
                 programOwnedRepositoryRoot.toAbsolutePath()
                         .normalize().toString(),
+                origin,
                 reviewerEvidence,
                 reviewerEvidence.policyRevisionId(),
                 boundedCheckRunRefs);
@@ -1808,7 +1849,8 @@ public final class FlowRuntime
                     runId,
                     claim,
                     fence,
-                    requireRun(runId).inputChangeSetRevisionId());
+                    requireRun(runId).inputChangeSetRevisionId(),
+                    prepared.origin);
             if (!current.equals(prepared.snapshot)
                     || !prepared.inspection.headSha().equals(
                             current.reviewedHeadSha())
@@ -1835,6 +1877,9 @@ public final class FlowRuntime
                     current.baseHeadSha(),
                     current.reviewedHeadSha(),
                     current.remoteHeadSha(),
+                    current.originCiFixPendingId(),
+                    current.originCiFixSourceKind(),
+                    current.originCiFixSourceId(),
                     current.changeSetRevisionId(),
                     prepared.localCheckPolicyRevisionId,
                     current.headTreeDigest(),
@@ -1857,6 +1902,9 @@ public final class FlowRuntime
                     current.baseHeadSha(),
                     current.reviewedHeadSha(),
                     current.remoteHeadSha(),
+                    current.originCiFixPendingId(),
+                    current.originCiFixSourceKind(),
+                    current.originCiFixSourceId(),
                     current.changeSetRevisionId(),
                     prepared.localCheckPolicyRevisionId,
                     current.headTreeDigest(),
@@ -1866,6 +1914,10 @@ public final class FlowRuntime
                     clock.instant());
             if (existing.isPresent()) {
                 assertExactReviewerRequest(existing.get(), requested);
+                assertTaskTerminalRequest(
+                        runId,
+                        TaskTerminalRequestKind.REVIEWER,
+                        requestId);
                 return existing.get();
             }
             insertOperationAndTicket(
@@ -1891,10 +1943,12 @@ public final class FlowRuntime
                         request_id, task_id, parent_operation_id,
                         parent_run_id, reviewer_operation_id, repository_root,
                         base_head_sha, reviewed_head_sha, remote_head_sha,
+                        origin_ci_fix_pending_id, origin_ci_fix_source_kind,
+                        origin_ci_fix_source_id,
                         change_set_revision_id, local_check_policy_revision_id,
                         head_tree_digest, diff_digest, intended_gate_kind,
                         created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     requestId,
                     current.taskId(),
@@ -1905,12 +1959,20 @@ public final class FlowRuntime
                     current.baseHeadSha(),
                     current.reviewedHeadSha(),
                     current.remoteHeadSha(),
+                    current.originCiFixPendingId(),
+                    current.originCiFixSourceKind(),
+                    current.originCiFixSourceId(),
                     current.changeSetRevisionId(),
                     prepared.localCheckPolicyRevisionId,
                     current.headTreeDigest(),
                     current.diffDigest(),
                     current.intendedGateKind().name(),
                     requested.createdAt().toEpochMilli());
+            reserveTaskTerminalRequest(
+                    runId,
+                    TaskTerminalRequestKind.REVIEWER,
+                    requestId,
+                    requested.createdAt());
             for (int index = 0; index < prepared.checkRunRefs.size(); index++) {
                 jdbc.update(
                         """
@@ -1934,6 +1996,7 @@ public final class FlowRuntime
             String runId,
             Path programOwnedRepositoryRoot,
             String expectedChangeSetRevisionId,
+            CiFixReviewOrigin origin,
             String localCheckPolicyRevisionId,
             List<String> checkRunRefs)
     {
@@ -1942,6 +2005,7 @@ public final class FlowRuntime
                 "programOwnedRepositoryRoot is null");
         requireText(expectedChangeSetRevisionId,
                 "expectedChangeSetRevisionId");
+        requireNonNull(origin, "origin is null");
         requireText(localCheckPolicyRevisionId,
                 "localCheckPolicyRevisionId");
         List<String> boundedCheckRunRefs = validateReviewerCheckRunRefs(
@@ -1955,6 +2019,11 @@ public final class FlowRuntime
         if (!request.repositoryRoot().equals(normalizedRoot)
                 || !Objects.equals(run.inputChangeSetRevisionId(),
                         expectedChangeSetRevisionId)
+                || !request.originCiFixPendingId().equals(
+                        origin.pendingId())
+                || !request.originCiFixSourceKind().equals(
+                        origin.sourceKind().name())
+                || !request.originCiFixSourceId().equals(origin.sourceId())
                 || !request.localCheckPolicyRevisionId().equals(
                         localCheckPolicyRevisionId)
                 || !request.checkRunRefs().equals(boundedCheckRunRefs)) {
@@ -4349,6 +4418,13 @@ public final class FlowRuntime
         synchronized (this) {
             return inTransaction(() -> {
             AgentRun run = requireRun(runId);
+            if (taskTerminalRequest(runId)
+                    .filter(request -> request.kind()
+                            == TaskTerminalRequestKind.READY_FOR_REVIEW)
+                    .isPresent()) {
+                throw new MutationRejectedException(
+                        "ready-for-review run requires its gate finalizer");
+            }
             Optional<ReviewerRequest> request =
                     reviewerRequestForParentRun(runId);
             Optional<AgentResult> existing = resultForRun(runId);
@@ -4565,6 +4641,279 @@ public final class FlowRuntime
             ensureReconciliationIfPending(task.taskId());
             return requireResult(resultId);
             });
+        }
+    }
+
+    /**
+     * Settles one stopped terminal ready declaration. The gate owner inserts
+     * the exact local revision in the same outer transaction before calling
+     * this method, or supplies one typed stable post-seal blocker.
+     */
+    public synchronized AgentResult finishTaskAgentReadyTurn(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String gateRevisionRef,
+            String readinessFailureCode)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(terminalOutcome, "terminalOutcome is null");
+        if (terminalOutcome != TerminalOutcome.COMPLETED) {
+            requireText(errorRef, "errorRef");
+        }
+        if ((gateRevisionRef == null) == (readinessFailureCode == null)) {
+            throw new IllegalArgumentException(
+                    "ready finalization needs a gate or blocker");
+        }
+        return inTransaction(() -> {
+            ReadyForReviewRequest ready = readyForReviewRequestForRun(runId)
+                    .orElseThrow(() -> new MutationRejectedException(
+                            "ready finalization has no durable request"));
+            assertTaskTerminalRequest(
+                    runId,
+                    TaskTerminalRequestKind.READY_FOR_REVIEW,
+                    ready.requestId());
+            AgentRun run = requireRun(runId);
+            Optional<AgentResult> existing = resultForRun(runId);
+            if (existing.isPresent()) {
+                AgentResult result = existing.orElseThrow();
+                assertFinalizedClaim(claim, result.resultId());
+                if (result.terminalOutcome() != terminalOutcome
+                        || !Objects.equals(result.finalContent(), finalContent)
+                        || !Objects.equals(result.errorRef(), errorRef)) {
+                    throw new IllegalStateException(
+                            "ready finalization changed terminal content");
+                }
+                assertReadyFinalState(
+                        run, ready, gateRevisionRef, readinessFailureCode);
+                return result;
+            }
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            assertFenceRow(claim, fence);
+            Operation operation = requireOperation(claim.operationId());
+            Task task = requireTask(fence.taskId());
+            PendingWork input = selectedInput(operation);
+            if (!run.operationId().equals(operation.operationId())
+                    || !ready.operationId().equals(operation.operationId())
+                    || !ready.taskId().equals(task.taskId())
+                    || run.role() != AgentRole.TASK_AGENT
+                    || run.state() != RunState.RUNNING
+                    || run.wakeKind() != WakeKind.AGENT_RESULT_READY
+                    || run.intendedGateKind() != GateIntent.CI_UPDATE
+                    || input.kind() != PendingKind.AGENT_RESULT_READY
+                    || !operation.operationId().equals(
+                            task.selectedWriterOperationId())) {
+                throw new StaleOwnerRevisionException(
+                        "ready Task turn is no longer current");
+            }
+            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                    runId, claim.generation());
+            if (gateRevisionRef != null) {
+                assertReadyGateRevision(runId, ready, gateRevisionRef);
+            }
+            Instant now = clock.instant();
+            String resultId = stableId("agent-result", runId);
+            int resultStored = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_result (
+                        result_id, run_id, terminal_outcome, final_content,
+                        error_ref, stop_proof_ref, stored_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    resultId,
+                    runId,
+                    terminalOutcome.name(),
+                    finalContent,
+                    errorRef,
+                    stopped.stopProofRef(),
+                    now.toEpochMilli());
+            RunState runState = switch (terminalOutcome) {
+                case COMPLETED -> RunState.COMPLETED;
+                case FAILED -> RunState.FAILED;
+                case CANCELED -> RunState.CANCELED;
+            };
+            int runFinished = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_run
+                    SET state = ?, failure_reason_code = ?, completed_at = ?
+                    WHERE run_id = ? AND state = 'RUNNING'
+                    """,
+                    runState.name(),
+                    errorRef,
+                    now.toEpochMilli(),
+                    runId);
+            int sessionFinished = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_session
+                    SET state = 'IDLE', updated_at = ?
+                    WHERE session_id = ? AND state = 'RUNNING'
+                      AND last_run_id = ?
+                    """,
+                    now.toEpochMilli(),
+                    run.sessionId(),
+                    runId);
+            if (resultStored != 1 || runFinished != 1
+                    || sessionFinished != 1) {
+                throw new StaleOwnerRevisionException(
+                        "ready Task run changed during finalization");
+            }
+            OperationState terminalState = switch (terminalOutcome) {
+                case COMPLETED -> OperationState.SUCCEEDED;
+                case FAILED -> OperationState.FAILED;
+                case CANCELED -> OperationState.CANCELED;
+            };
+            settleDispatch(operation.operationId(), terminalState, resultId);
+            int inputHandled = jdbc.update(
+                    """
+                    UPDATE flow_runtime_inbox
+                    SET handled_by_operation_id = ?
+                    WHERE selected_by_operation_id = ?
+                      AND handled_by_operation_id IS NULL
+                    """,
+                    operation.operationId(),
+                    operation.operationId());
+            if (inputHandled != 1) {
+                throw new StaleOwnerRevisionException(
+                        "ready Task run lost its selected input");
+            }
+            if (readinessFailureCode != null) {
+                TaskLifecycleRevision attention = appendLifecycle(
+                        task,
+                        TaskStatus.NEEDS_ATTENTION,
+                        readinessFailureCode,
+                        "ready-request:" + ready.requestId(),
+                        operation.operationId(),
+                        now);
+                int attentionSet = jdbc.update(
+                        """
+                        UPDATE flow_runtime_task
+                        SET status = 'NEEDS_ATTENTION',
+                            current_lifecycle_revision_id = ?
+                        WHERE task_id = ? AND status = 'ACTIVE'
+                          AND current_lifecycle_revision_id = ?
+                        """,
+                        attention.lifecycleRevisionId(),
+                        task.taskId(),
+                        task.currentLifecycleRevisionId());
+                if (attentionSet != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "ready attention lost its Task lifecycle");
+                }
+            }
+            int pointerCleared = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET selected_writer_operation_id = NULL
+                    WHERE task_id = ? AND selected_writer_operation_id = ?
+                    """,
+                    task.taskId(),
+                    operation.operationId());
+            int leaseReleased = jdbc.update(
+                    """
+                    DELETE FROM flow_runtime_writer_lease
+                    WHERE task_id = ? AND operation_id = ?
+                      AND task_epoch = ? AND fencing_token = ?
+                    """,
+                    fence.taskId(),
+                    fence.operationId(),
+                    fence.taskEpoch(),
+                    fence.fencingToken());
+            if (pointerCleared != 1 || leaseReleased != 1) {
+                throw new StaleOwnerRevisionException(
+                        "ready finalization lost its writer authority");
+            }
+            rearmReconciliationAfterWriter(task.taskId());
+            ensureReconciliationIfPending(task.taskId());
+            return requireResult(resultId);
+        });
+    }
+
+    private void assertReadyGateRevision(
+            String runId,
+            ReadyForReviewRequest ready,
+            String gateRevisionRef)
+    {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_user_gate_revision r
+                JOIN flow_user_gate g ON g.gate_id = r.gate_id
+                JOIN flow_user_gate_subject s
+                  ON s.subject_id = r.subject_manifest_ref
+                JOIN flow_user_gate_ci_update_action a
+                  ON a.action_ref = r.action_manifest_ref
+                JOIN flow_user_gate_transition t
+                  ON t.gate_id = r.gate_id
+                 AND t.gate_revision = r.revision
+                WHERE r.created_by_run_id = ?
+                  AND r.subject_manifest_ref = ?
+                  AND r.subject_digest = ?
+                  AND r.action_manifest_ref = ?
+                  AND r.action_digest = ?
+                  AND r.readiness_evidence_ref = ?
+                  AND a.action_digest = r.action_digest
+                  AND a.branch_ref = s.branch_ref
+                  AND a.expected_remote_head = s.expected_remote_head
+                  AND a.proposed_head = s.proposed_head
+                  AND a.force_push = 0
+                  AND g.task_id = ? AND s.task_id = g.task_id
+                  AND g.pr_id = ? AND s.pr_id = g.pr_id
+                  AND g.kind = 'CI_UPDATE'
+                  AND t.from_state IS NULL AND t.to_state = 'OPEN'
+                  AND t.actor_type = 'PROGRAM'
+                  AND t.actor_id = 'READY_FOR_REVIEW'
+                  AND t.reason_code = 'READY'
+                  AND r.gate_id || ':' || r.revision = ?
+                """,
+                Integer.class,
+                runId,
+                ready.subjectRef(),
+                ready.subjectDigest(),
+                ready.actionRef(),
+                ready.actionDigest(),
+                ready.requestId(),
+                ready.taskId(),
+                ready.prId(),
+                gateRevisionRef);
+        if (requireNonNull(count, "gate revision count is null") != 1) {
+            throw new StaleOwnerRevisionException(
+                    "ready gate revision does not match its sealed subject");
+        }
+    }
+
+    private void assertReadyFinalState(
+            AgentRun run,
+            ReadyForReviewRequest ready,
+            String gateRevisionRef,
+            String readinessFailureCode)
+    {
+        if (gateRevisionRef != null) {
+            assertReadyGateRevision(run.runId(), ready, gateRevisionRef);
+            return;
+        }
+        AgentResult result = resultForRun(run.runId()).orElseThrow();
+        Integer attention = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_task_lifecycle_revision
+                WHERE task_id = ? AND to_status = 'NEEDS_ATTENTION'
+                  AND operation_id = ? AND reason_code = ?
+                  AND evidence_ref = ?
+                """,
+                Integer.class,
+                ready.taskId(),
+                ready.operationId(),
+                readinessFailureCode,
+                "ready-request:" + ready.requestId());
+        if (requireNonNull(attention, "ready attention count is null") != 1
+                || result.resultId() == null) {
+            throw new IllegalStateException(
+                    "ready failure did not settle typed attention");
         }
     }
 
@@ -5948,6 +6297,249 @@ public final class FlowRuntime
                 """,
                 (result, row) -> readReviewerRequest(result),
                 runId).stream().findFirst();
+    }
+
+    private TaskTerminalRequest reserveTaskTerminalRequest(
+            String runId,
+            TaskTerminalRequestKind kind,
+            String requestId,
+            Instant createdAt)
+    {
+        requireText(runId, "runId");
+        requireNonNull(kind, "kind is null");
+        requireText(requestId, "requestId");
+        requireNonNull(createdAt, "createdAt is null");
+        {
+            Optional<TaskTerminalRequest> existing = taskTerminalRequest(runId);
+            if (existing.isPresent()) {
+                TaskTerminalRequest request = existing.orElseThrow();
+                if (request.kind() != kind
+                        || !request.requestId().equals(requestId)) {
+                    throw new StaleCapabilityException(
+                            "Task run already owns another terminal request");
+                }
+                return request;
+            }
+            AgentRun run = requireRun(runId);
+            if (run.role() != AgentRole.TASK_AGENT
+                    || run.state() != RunState.RUNNING) {
+                throw new StaleCapabilityException(
+                        "terminal request requires an active Task run");
+            }
+            int inserted = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_task_terminal_request (
+                        run_id, kind, request_id, created_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    runId,
+                    kind.name(),
+                    requestId,
+                    createdAt.toEpochMilli());
+            if (inserted != 1) {
+                throw new StaleCapabilityException(
+                        "terminal request changed during reservation");
+            }
+            return taskTerminalRequest(runId).orElseThrow();
+        }
+    }
+
+    /** Narrow capability-validated reservation for the terminal ready tool. */
+    public synchronized ReadyForReviewRequest reserveReadyForReviewRequest(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            String processAttemptId,
+            String capabilityId,
+            String requestId,
+            String prId,
+            String subjectRef,
+            String subjectDigest,
+            String actionRef,
+            String actionDigest,
+            Instant createdAt)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireText(processAttemptId, "processAttemptId");
+        requireText(capabilityId, "capabilityId");
+        requireText(requestId, "requestId");
+        requireText(prId, "prId");
+        requireText(subjectRef, "subjectRef");
+        requireText(subjectDigest, "subjectDigest");
+        requireText(actionRef, "actionRef");
+        requireText(actionDigest, "actionDigest");
+        requireNonNull(createdAt, "createdAt is null");
+        return inTransaction(() -> {
+            Optional<ReadyForReviewRequest> existing =
+                    readyForReviewRequestForRun(runId);
+            if (existing.isPresent()) {
+                ReadyForReviewRequest request = existing.orElseThrow();
+                if (!request.requestId().equals(requestId)
+                        || !request.prId().equals(prId)
+                        || !request.subjectRef().equals(subjectRef)
+                        || !request.subjectDigest().equals(subjectDigest)
+                        || !request.actionRef().equals(actionRef)
+                        || !request.actionDigest().equals(actionDigest)) {
+                    throw new StaleCapabilityException(
+                            "ready request replay changed identity");
+                }
+                assertTaskTerminalRequest(
+                        runId,
+                        TaskTerminalRequestKind.READY_FOR_REVIEW,
+                        requestId);
+                return request;
+            }
+            assertInProcessWriterToolCapability(
+                    runId, claim, fence, capabilityId);
+            AgentProcessAttempt process = requireProcessAttempt(
+                    processAttemptId);
+            AgentRun run = requireRun(runId);
+            Operation operation = requireOperation(claim.operationId());
+            PendingWork input = selectedInput(operation);
+            ReviewerRequest reviewer = reviewerRequestForReviewerRun(
+                    input.externalKey()).orElseThrow(() ->
+                            new StaleCapabilityException(
+                                    "ready request has no reviewer subject"));
+            AgentResult reviewerResult = resultForRun(input.externalKey())
+                    .orElseThrow(() -> new StaleCapabilityException(
+                            "ready request has no durable reviewer result"));
+            if (!process.runId().equals(runId)
+                    || !process.capabilityId().equals(capabilityId)
+                    || !run.operationId().equals(operation.operationId())
+                    || run.role() != AgentRole.TASK_AGENT
+                    || run.state() != RunState.RUNNING
+                    || run.wakeKind() != WakeKind.AGENT_RESULT_READY
+                    || run.intendedGateKind() != GateIntent.CI_UPDATE
+                    || input.kind() != PendingKind.AGENT_RESULT_READY
+                    || !input.pendingId().equals(
+                            requireTextResult(run.inputRef(), "inbox:"))
+                    || !input.agentResultId().equals(
+                            reviewerResult.resultId())
+                    || !input.subjectHead().equals(
+                            reviewer.reviewedHeadSha())
+                    || !reviewer.taskId().equals(operation.taskId())) {
+                throw new StaleCapabilityException(
+                        "ready request requires the exact live Task capability");
+            }
+            int inserted = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_ready_for_review_request (
+                        request_id, run_id, operation_id, task_id, pr_id,
+                        subject_ref, subject_digest, action_ref, action_digest,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    requestId,
+                    runId,
+                    operation.operationId(),
+                    operation.taskId(),
+                    prId,
+                    subjectRef,
+                    subjectDigest,
+                    actionRef,
+                    actionDigest,
+                    createdAt.toEpochMilli());
+            reserveTaskTerminalRequest(
+                    runId,
+                    TaskTerminalRequestKind.READY_FOR_REVIEW,
+                    requestId,
+                    createdAt);
+            if (inserted != 1) {
+                throw new StaleCapabilityException(
+                        "ready request changed during reservation");
+            }
+            return readyForReviewRequest(requestId).orElseThrow();
+        });
+    }
+
+    public Optional<ReadyForReviewRequest> readyForReviewRequest(
+            String requestId)
+    {
+        requireText(requestId, "requestId");
+        return readyForReviewRequests(
+                "WHERE request_id = ?", requestId).stream().findFirst();
+    }
+
+    public Optional<ReadyForReviewRequest> readyForReviewRequestForRun(
+            String runId)
+    {
+        requireText(runId, "runId");
+        return readyForReviewRequests(
+                "WHERE run_id = ?", runId).stream().findFirst();
+    }
+
+    /** Reads the immutable attention disposition of one settled ready run. */
+    public Optional<String> readyAttentionReasonForRun(String runId)
+    {
+        ReadyForReviewRequest ready = readyForReviewRequestForRun(runId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "unknown ready request"));
+        return jdbc.queryForList(
+                """
+                SELECT reason_code
+                FROM flow_runtime_task_lifecycle_revision
+                WHERE task_id = ? AND operation_id = ?
+                  AND to_status = 'NEEDS_ATTENTION'
+                  AND evidence_ref = ?
+                """,
+                String.class,
+                ready.taskId(),
+                ready.operationId(),
+                "ready-request:" + ready.requestId()).stream().findFirst();
+    }
+
+    private List<ReadyForReviewRequest> readyForReviewRequests(
+            String predicate, String value)
+    {
+        return jdbc.query(
+                "SELECT * FROM flow_runtime_ready_for_review_request "
+                        + predicate,
+                (result, row) -> new ReadyForReviewRequest(
+                        result.getString("request_id"),
+                        result.getString("run_id"),
+                        result.getString("operation_id"),
+                        result.getString("task_id"),
+                        result.getString("pr_id"),
+                        result.getString("subject_ref"),
+                        result.getString("subject_digest"),
+                        result.getString("action_ref"),
+                        result.getString("action_digest"),
+                        instant(result, "created_at")),
+                value);
+    }
+
+    public Optional<TaskTerminalRequest> taskTerminalRequest(String runId)
+    {
+        requireText(runId, "runId");
+        return jdbc.query(
+                """
+                SELECT * FROM flow_runtime_task_terminal_request
+                WHERE run_id = ?
+                """,
+                (result, row) -> new TaskTerminalRequest(
+                        result.getString("run_id"),
+                        TaskTerminalRequestKind.valueOf(
+                                result.getString("kind")),
+                        result.getString("request_id"),
+                        instant(result, "created_at")),
+                runId).stream().findFirst();
+    }
+
+    private void assertTaskTerminalRequest(
+            String runId,
+            TaskTerminalRequestKind kind,
+            String requestId)
+    {
+        TaskTerminalRequest request = taskTerminalRequest(runId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "terminal request seal is missing"));
+        if (request.kind() != kind
+                || !request.requestId().equals(requestId)) {
+            throw new IllegalStateException(
+                    "terminal request seal changed identity");
+        }
     }
 
     private ReviewerRequest reviewerRequestForOperation(String operationId)
@@ -7592,7 +8184,8 @@ public final class FlowRuntime
             String runId,
             Claim claim,
             WriterFence fence,
-            String expectedInputChangeSetRevisionId)
+            String expectedInputChangeSetRevisionId,
+            CiFixReviewOrigin origin)
     {
         assertCurrentClaim(claim, OperationState.CLAIMED);
         assertFenceRow(claim, fence);
@@ -7600,6 +8193,7 @@ public final class FlowRuntime
         Operation operation = requireOperation(claim.operationId());
         Task task = requireTask(operation.taskId());
         PendingWork input = selectedInput(operation);
+        assertReviewOrigin(input, origin);
         if (!run.operationId().equals(operation.operationId())
                 || run.role() != AgentRole.TASK_AGENT
                 || run.state() != RunState.RUNNING
@@ -7654,10 +8248,40 @@ public final class FlowRuntime
                 base.baseSha(),
                 changeSet.headSha(),
                 run.inputRemoteHeadSha(),
+                origin.pendingId(),
+                origin.sourceKind().name(),
+                origin.sourceId(),
                 changeSet.changeSetRevisionId(),
                 changeSet.headTreeDigest(),
                 changeSet.diffDigest(),
                 run.intendedGateKind());
+    }
+
+    private void assertReviewOrigin(
+            PendingWork input, CiFixReviewOrigin origin)
+    {
+        requireNonNull(origin, "origin is null");
+        if (input.kind() == PendingKind.CI_FIX_READY) {
+            if (!origin.pendingId().equals(input.pendingId())
+                    || !origin.sourceId().equals(input.externalKey())) {
+                throw new MutationRejectedException(
+                        "CI review origin does not match its selected input");
+            }
+            return;
+        }
+        ReviewerRequest predecessor = reviewerRequestForReviewerRun(
+                input.externalKey()).orElseThrow(() ->
+                        new MutationRejectedException(
+                                "review continuation has no origin request"));
+        if (!origin.pendingId().equals(
+                    predecessor.originCiFixPendingId())
+                || !origin.sourceKind().name().equals(
+                    predecessor.originCiFixSourceKind())
+                || !origin.sourceId().equals(
+                    predecessor.originCiFixSourceId())) {
+            throw new MutationRejectedException(
+                    "review continuation changed its CI origin");
+        }
     }
 
     private void requireTaskTurnDescendant(
@@ -7702,6 +8326,12 @@ public final class FlowRuntime
                         requested.reviewedHeadSha())
                 || !existing.remoteHeadSha().equals(
                         requested.remoteHeadSha())
+                || !existing.originCiFixPendingId().equals(
+                        requested.originCiFixPendingId())
+                || !existing.originCiFixSourceKind().equals(
+                        requested.originCiFixSourceKind())
+                || !existing.originCiFixSourceId().equals(
+                        requested.originCiFixSourceId())
                 || !existing.changeSetRevisionId().equals(
                         requested.changeSetRevisionId())
                 || !existing.localCheckPolicyRevisionId().equals(
@@ -8119,6 +8749,9 @@ public final class FlowRuntime
                 result.getString("base_head_sha"),
                 result.getString("reviewed_head_sha"),
                 result.getString("remote_head_sha"),
+                result.getString("origin_ci_fix_pending_id"),
+                result.getString("origin_ci_fix_source_kind"),
+                result.getString("origin_ci_fix_source_id"),
                 result.getString("change_set_revision_id"),
                 result.getString("local_check_policy_revision_id"),
                 result.getString("head_tree_digest"),
@@ -8261,10 +8894,14 @@ public final class FlowRuntime
             String baseHeadSha,
             String reviewedHeadSha,
             String remoteHeadSha,
+            String originCiFixPendingId,
+            String originCiFixSourceKind,
+            String originCiFixSourceId,
             String changeSetRevisionId,
             String headTreeDigest,
             String diffDigest,
             GateIntent intendedGateKind) {}
+
 
     private record TaskResultConsumptionSnapshot(
             String taskId,

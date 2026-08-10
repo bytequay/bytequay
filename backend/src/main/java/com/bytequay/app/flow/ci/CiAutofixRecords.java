@@ -200,6 +200,49 @@ public final class CiAutofixRecords
         }
     }
 
+    /** Exact current CI-fix provenance frozen into a CI_UPDATE gate. */
+    public record CiUpdateGateEvidence(
+            String sourceKind,
+            String sourceId,
+            String roundId,
+            String taskId,
+            String prId,
+            String remoteHead,
+            String requiredCiPolicyRevisionId,
+            long evidenceRevision,
+            List<String> checkObservationIds,
+            List<String> failedLogRefs,
+            String outputChangeSetRevisionId,
+            String outputHead,
+            String repairAttemptId,
+            String repairResultId,
+            String cleanupId,
+            String cleanupResultId)
+    {
+        public CiUpdateGateEvidence
+        {
+            requireNonNull(sourceKind, "sourceKind is null");
+            requireNonNull(sourceId, "sourceId is null");
+            requireNonNull(roundId, "roundId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(remoteHead, "remoteHead is null");
+            requireNonNull(requiredCiPolicyRevisionId,
+                    "requiredCiPolicyRevisionId is null");
+            checkObservationIds = List.copyOf(checkObservationIds);
+            failedLogRefs = List.copyOf(failedLogRefs);
+            requireNonNull(outputChangeSetRevisionId,
+                    "outputChangeSetRevisionId is null");
+            requireNonNull(outputHead, "outputHead is null");
+            requireNonNull(repairAttemptId, "repairAttemptId is null");
+            requireNonNull(repairResultId, "repairResultId is null");
+            if ((cleanupId == null) != (cleanupResultId == null)) {
+                throw new IllegalArgumentException(
+                        "cleanup identity and result must be paired");
+            }
+        }
+    }
+
     public record CiRepairAttempt(
             String attemptId,
             String roundId,

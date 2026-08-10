@@ -20,6 +20,8 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupOutcome;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.gate.UserGateRecords.ReadyForReviewAcceptance;
+import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntime.PreparedTaskWriterAdmission;
 import com.bytequay.app.flow.runtime.FlowRuntime.ReviewerStart;
@@ -29,6 +31,8 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixSourceKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
@@ -74,15 +78,18 @@ public final class CiFixReviewCoordinator
     private final CiAutofix autofix;
     private final FlowRuntime runtime;
     private final LocalChecks localChecks;
+    private final UserGates userGates;
 
     public CiFixReviewCoordinator(
             CiAutofix autofix,
             FlowRuntime runtime,
-            LocalChecks localChecks)
+            LocalChecks localChecks,
+            UserGates userGates)
     {
         this.autofix = requireNonNull(autofix, "autofix is null");
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.localChecks = requireNonNull(localChecks, "localChecks is null");
+        this.userGates = requireNonNull(userGates, "userGates is null");
     }
 
     public enum FixSource
@@ -146,12 +153,17 @@ public final class CiFixReviewCoordinator
         private final String runId;
         private final String changeSetRevisionId;
         private final GateIntent intendedGateKind;
+        private final CiFixReviewOrigin origin;
+        private final UserGates userGates;
+        private final ReviewerRequest completedReviewerRequest;
+        private final AgentResult completedReviewerResult;
 
         private TaskInspectionToolCapability(
                 WriterToolCapability writer,
                 TaskInspectionBinding binding,
                 FlowRuntime runtime,
-                LocalChecks localChecks)
+                LocalChecks localChecks,
+                UserGates userGates)
         {
             this(
                     writer,
@@ -161,7 +173,15 @@ public final class CiFixReviewCoordinator
                     binding.projection().taskId(),
                     binding.run().runId(),
                     binding.run().inputChangeSetRevisionId(),
-                    binding.run().intendedGateKind());
+                    binding.run().intendedGateKind(),
+                    new CiFixReviewOrigin(
+                            binding.input().pendingId(),
+                            CiFixSourceKind.valueOf(
+                                    binding.projection().source().name()),
+                            binding.projection().sourceId()),
+                    userGates,
+                    null,
+                    null);
         }
 
         private TaskInspectionToolCapability(
@@ -172,7 +192,11 @@ public final class CiFixReviewCoordinator
                 String taskId,
                 String runId,
                 String changeSetRevisionId,
-                GateIntent intendedGateKind)
+                GateIntent intendedGateKind,
+                CiFixReviewOrigin origin,
+                UserGates userGates,
+                ReviewerRequest completedReviewerRequest,
+                AgentResult completedReviewerResult)
         {
             this.writer = requireNonNull(writer, "writer is null");
             this.runtime = requireNonNull(runtime, "runtime is null");
@@ -186,6 +210,10 @@ public final class CiFixReviewCoordinator
                     changeSetRevisionId, "changeSetRevisionId is null");
             this.intendedGateKind = requireNonNull(
                     intendedGateKind, "intendedGateKind is null");
+            this.origin = requireNonNull(origin, "origin is null");
+            this.userGates = requireNonNull(userGates, "userGates is null");
+            this.completedReviewerRequest = completedReviewerRequest;
+            this.completedReviewerResult = completedReviewerResult;
         }
 
         public <T> T callTool(Supplier<T> effect)
@@ -219,6 +247,7 @@ public final class CiFixReviewCoordinator
                 return writer.replayAdversarialReviewer(
                         repositoryRoot,
                         changeSetRevisionId,
+                        origin,
                         existing.localCheckPolicyRevisionId(),
                         existing.checkRunRefs());
             }
@@ -228,10 +257,26 @@ public final class CiFixReviewCoordinator
             return writer.spawnAdversarialReviewer(
                     repositoryRoot,
                     changeSetRevisionId,
+                    origin,
                     localChecks.reviewerEvidence(
                             taskId,
                             current.changeSetRevisionId(),
                             intendedGateKind));
+        }
+
+        /** Terminal zero-argument declaration over program-owned evidence. */
+        public ReadyForReviewAcceptance readyForReview()
+        {
+            if (completedReviewerRequest == null
+                    || completedReviewerResult == null) {
+                throw UserGates.missingExactReview();
+            }
+            return writer.readyForReview(
+                    userGates,
+                    repositoryRoot,
+                    completedReviewerRequest,
+                    completedReviewerResult,
+                    origin);
         }
 
         @Override
@@ -336,17 +381,14 @@ public final class CiFixReviewCoordinator
                 claim,
                 binding.fence(),
                 taskFinalizerKey(binding.run().runId()),
-                (runId, currentClaim, currentFence, completion) ->
-                        runtime.finishTaskAgentReviewTurn(
-                                runId,
-                                currentClaim,
-                                currentFence,
-                                completion.terminalOutcome(),
-                                completion.finalContent(),
-                                completion.errorRef()),
+                this::finishTaskTurn,
                 writer -> body.apply(
                         new TaskInspectionToolCapability(
-                                writer, binding, runtime, localChecks)));
+                                writer,
+                                binding,
+                                runtime,
+                                localChecks,
+                                userGates)));
     }
 
     public AgentResult awaitTaskInspection(
@@ -494,14 +536,7 @@ public final class CiFixReviewCoordinator
                 claim,
                 binding.fence(),
                 taskFinalizerKey(binding.run().runId()),
-                (runId, currentClaim, currentFence, completion) ->
-                        runtime.finishTaskAgentReviewTurn(
-                                runId,
-                                currentClaim,
-                                currentFence,
-                                completion.terminalOutcome(),
-                                completion.finalContent(),
-                                completion.errorRef()),
+                this::finishTaskTurn,
                 writer -> body.apply(new TaskInspectionToolCapability(
                         writer,
                         runtime,
@@ -510,7 +545,15 @@ public final class CiFixReviewCoordinator
                         binding.request().taskId(),
                         binding.run().runId(),
                         binding.run().inputChangeSetRevisionId(),
-                        binding.run().intendedGateKind())));
+                        binding.run().intendedGateKind(),
+                        new CiFixReviewOrigin(
+                                binding.request().originCiFixPendingId(),
+                                CiFixSourceKind.valueOf(binding.request()
+                                        .originCiFixSourceKind()),
+                                binding.request().originCiFixSourceId()),
+                        userGates,
+                        binding.request(),
+                        binding.result())));
     }
 
     public AgentResult awaitReviewerResultContinuation(
@@ -523,6 +566,33 @@ public final class CiFixReviewCoordinator
         requireNonNull(binding, "binding is null");
         return supervisor.awaitAndFinalize(
                 handle, timeout, taskFinalizerKey(binding.run().runId()));
+    }
+
+    private AgentResult finishTaskTurn(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            InProcessWriterAgentSupervisor.AgentCompletion completion)
+    {
+        if (runtime.readyForReviewRequestForRun(runId).isPresent()) {
+            UserGates.PreparedReadyFinalization prepared =
+                    userGates.prepareFinalization(runId, claim, fence);
+            return userGates.finalizeReady(
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef(),
+                    prepared);
+        }
+        return runtime.finishTaskAgentReviewTurn(
+                runId,
+                claim,
+                fence,
+                completion.terminalOutcome(),
+                completion.finalContent(),
+                completion.errorRef());
     }
 
     private static boolean isTerminalReviewerRun(

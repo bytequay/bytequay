@@ -14,8 +14,14 @@ CREATE TABLE flow_ci_policy_revision (
     UNIQUE (repository_id, scope_key, sequence)
 );
 
-CREATE INDEX flow_ci_policy_current_idx
-    ON flow_ci_policy_revision (repository_id, scope_key, sequence DESC);
+CREATE TABLE flow_ci_policy_current (
+    repository_id TEXT NOT NULL,
+    scope_key TEXT NOT NULL,
+    policy_revision_id TEXT NOT NULL UNIQUE,
+    PRIMARY KEY (repository_id, scope_key),
+    FOREIGN KEY (policy_revision_id)
+        REFERENCES flow_ci_policy_revision (policy_revision_id)
+);
 
 CREATE TABLE flow_ci_check_observation (
     observation_id TEXT PRIMARY KEY,

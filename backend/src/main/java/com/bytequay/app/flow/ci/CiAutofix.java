@@ -16,6 +16,7 @@ package com.bytequay.app.flow.ci;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AcceptedCiSnapshot;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCheckObservation;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogEvidence;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogWindow;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
@@ -29,6 +30,11 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RequiredCiPolicyRevision;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.runtime.FlowRuntime.CleanupHandoff;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.AttachmentState;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.GitOperation;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanKind;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -1086,6 +1092,97 @@ public final class CiAutofix
         }), "repair completion transaction returned null");
     }
 
+    Optional<CiCleanupSeal> cleanupSealForRepair(String repairAttemptId)
+    {
+        requireText(repairAttemptId, "repairAttemptId");
+        return jdbc.query(
+                "SELECT * FROM flow_ci_cleanup_seal WHERE repair_attempt_id = ?",
+                (result, row) -> readCleanupSeal(result),
+                repairAttemptId).stream().findFirst();
+    }
+
+    CiCleanupSeal storeCleanupSeal(
+            String repairAttemptId, CleanupHandoff handoff)
+    {
+        requireText(repairAttemptId, "repairAttemptId");
+        requireNonNull(handoff, "handoff is null");
+        return requireNonNull(transactions.execute(ignored -> {
+            CiRepairAttempt attempt = repairAttempt(repairAttemptId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Unknown CI repair attempt: " + repairAttemptId));
+            Optional<CiCleanupSeal> existing = cleanupSealForRepair(
+                    repairAttemptId);
+            if (existing.isPresent()) {
+                CiCleanupSeal seal = existing.get();
+                if (attempt.state() != AttemptState.CLEANUP_PENDING
+                        || !Objects.equals(attempt.resultRef(),
+                                handoff.predecessorResult().resultId())
+                        || !seal.cleanupId().equals(handoff.cleanupId())
+                        || !seal.successorOperationId().equals(
+                                handoff.successorOperation().operationId())
+                        || !sameSeal(seal, handoff.sealedState())) {
+                    throw new IllegalStateException(
+                            "CI cleanup handoff redelivery changed identity");
+                }
+                return seal;
+            }
+            if (attempt.state() != AttemptState.ACTIVE
+                    || !attempt.agentRunId().equals(
+                            handoff.predecessorResult().runId())) {
+                throw new IllegalStateException(
+                        "CI repair attempt is not cleanup-reservable");
+            }
+            RoundState roundState = roundById(
+                    attempt.roundId()).orElseThrow().state();
+            if (roundState != RoundState.ACTIVE
+                    && roundState != RoundState.SUPERSEDED) {
+                throw new IllegalStateException(
+                        "CI cleanup round is not active or superseded");
+            }
+            NonCleanInspection state = handoff.sealedState();
+            String cleanupId = stableId("ci-cleanup-seal", repairAttemptId);
+            if (!cleanupId.equals(handoff.cleanupId())) {
+                throw new IllegalStateException(
+                        "runtime cleanup identity is not canonical");
+            }
+            jdbc.update(
+                    """
+                    INSERT INTO flow_ci_cleanup_seal (
+                        cleanup_id, repair_attempt_id,
+                        successor_operation_id, actual_head, branch_head,
+                        attachment_state, kind, operations_json,
+                        state_digest, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    cleanupId,
+                    repairAttemptId,
+                    handoff.successorOperation().operationId(),
+                    state.actualHeadSha(),
+                    state.branchHeadSha(),
+                    state.attachmentState().name(),
+                    state.kind().name(),
+                    writeJson(state.operations().stream()
+                            .map(GitOperation::name)
+                            .toList()),
+                    state.stateDigest(),
+                    clock.instant().toEpochMilli());
+            int attemptUpdated = jdbc.update(
+                    """
+                    UPDATE flow_ci_repair_attempt
+                    SET result_ref = ?, state = 'CLEANUP_PENDING'
+                    WHERE attempt_id = ? AND state = 'ACTIVE'
+                      AND result_ref IS NULL
+                    """,
+                    handoff.predecessorResult().resultId(),
+                    repairAttemptId);
+            if (attemptUpdated != 1) {
+                throw new IllegalStateException(
+                        "CI repair attempt changed during cleanup reservation");
+            }
+            return cleanupSealForRepair(repairAttemptId).orElseThrow();
+        }), "cleanup seal transaction returned null");
+    }
+
     CiRepairAttempt blockDirtyRepairAttempt(String attemptId)
     {
         requireText(attemptId, "attemptId");
@@ -1211,6 +1308,35 @@ public final class CiAutofix
                 result.getString("retry_of_attempt_id"),
                 result.getLong("retry_ordinal"),
                 instant(result.getLong("created_at")));
+    }
+
+    private CiCleanupSeal readCleanupSeal(ResultSet result)
+            throws SQLException
+    {
+        return new CiCleanupSeal(
+                result.getString("cleanup_id"),
+                result.getString("repair_attempt_id"),
+                result.getString("successor_operation_id"),
+                result.getString("actual_head"),
+                result.getString("branch_head"),
+                AttachmentState.valueOf(result.getString("attachment_state")),
+                NonCleanKind.valueOf(result.getString("kind")),
+                readStringList(result.getString("operations_json")).stream()
+                        .map(GitOperation::valueOf)
+                        .toList(),
+                result.getString("state_digest"),
+                instant(result.getLong("created_at")));
+    }
+
+    private static boolean sameSeal(
+            CiCleanupSeal seal, NonCleanInspection state)
+    {
+        return seal.actualHead().equals(state.actualHeadSha())
+                && seal.branchHead().equals(state.branchHeadSha())
+                && seal.attachmentState() == state.attachmentState()
+                && seal.kind() == state.kind()
+                && seal.operations().equals(state.operations())
+                && seal.stateDigest().equals(state.stateDigest());
     }
 
     private PublishedPrSubject requireSubject(String prId)

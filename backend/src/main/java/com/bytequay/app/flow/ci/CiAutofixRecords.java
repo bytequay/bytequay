@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.flow.ci;
 
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.AttachmentState;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.GitOperation;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanKind;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -45,6 +49,7 @@ public final class CiAutofixRecords
     {
         PENDING,
         ACTIVE,
+        CLEANUP_PENDING,
         FIX_PREPARED,
         NO_HEAD_CHANGE,
         NEEDS_ATTENTION
@@ -214,11 +219,15 @@ public final class CiAutofixRecords
             boolean cleanTerminal = state == AttemptState.FIX_PREPARED
                     || state == AttemptState.NO_HEAD_CHANGE;
             boolean hasCleanOutput = outputLocalHead != null
-                    && outputChangeSetRevisionId != null
-                    && resultRef != null;
+                    && outputChangeSetRevisionId != null;
             if (cleanTerminal != hasCleanOutput) {
                 throw new IllegalArgumentException(
-                        "only a clean terminal attempt has output and result");
+                        "only a clean terminal attempt has output");
+            }
+            if ((cleanTerminal || state == AttemptState.CLEANUP_PENDING)
+                    != (resultRef != null)) {
+                throw new IllegalArgumentException(
+                        "only finalized repair work has a result");
             }
             if ((state == AttemptState.NO_HEAD_CHANGE
                         && !outputLocalHead.equals(inputLocalHead))
@@ -228,6 +237,35 @@ public final class CiAutofixRecords
                         "CI repair outcome contradicts its objective head");
             }
             localCheckRunIds = List.copyOf(localCheckRunIds);
+            requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    /** Immutable exact dirty-state handoff to the one cleanup successor. */
+    public record CiCleanupSeal(
+            String cleanupId,
+            String repairAttemptId,
+            String successorOperationId,
+            String actualHead,
+            String branchHead,
+            AttachmentState attachmentState,
+            NonCleanKind kind,
+            List<GitOperation> operations,
+            String stateDigest,
+            Instant createdAt)
+    {
+        public CiCleanupSeal
+        {
+            requireNonNull(cleanupId, "cleanupId is null");
+            requireNonNull(repairAttemptId, "repairAttemptId is null");
+            requireNonNull(successorOperationId,
+                    "successorOperationId is null");
+            requireNonNull(actualHead, "actualHead is null");
+            requireNonNull(branchHead, "branchHead is null");
+            requireNonNull(attachmentState, "attachmentState is null");
+            requireNonNull(kind, "kind is null");
+            operations = List.copyOf(operations);
+            requireNonNull(stateDigest, "stateDigest is null");
             requireNonNull(createdAt, "createdAt is null");
         }
     }

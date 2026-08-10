@@ -102,8 +102,8 @@ but their ownership and constraints must remain intact.
 | `pending_work_watermark` | Monotonic value allocated when a new pending work fact is registered. |
 | `last_reconciled_work_watermark` | Highest pending-work watermark covered by a completed reconciliation pass; it is not proof that every older cause completed. |
 | `reconciliation_sequence` | Monotonic generation for successive reconciliation operations. |
-| `selected_writer_operation_id` | Nullable pointer to the one non-reserved writer operation selected under the Task lock; no other ordinary writer ticket is eligible. |
-| `reserved_mutation_operation_id` | Nullable admission reservation for one already-created successor operation that must consume a sealed non-clean/sequencer state before any unrelated writer. |
+| `selected_writer_operation_id` | Nullable pointer to the one directly claimable writer operation authorized under the Task lock. Normal selection sets it from a pending cause; the mandatory CI cleanup handoff may atomically swap it from a stopped predecessor to its exact cleanup successor. |
+| `reserved_mutation_operation_id` | Nullable parked semantic successor for a user answer or upstream-history command. It is not directly claimable and allows higher-priority terminal/effect/recovery reconciliation to run first. CI dirty cleanup does not use this field. |
 | `waiting_mutation_state_ref` | Nullable pointer to a sealed Task-question state. While present, no writer may run; answering creates and reserves the one exact successor before clearing this barrier. |
 
 `status` is intentionally coarse. Detailed UI state comes from the current
@@ -468,7 +468,8 @@ throughWorkWatermark, createdAt, releasedAt?
 
 There is at most one live wait because there is at most one nonterminal
 reconciliation operation. `blockerOwnerRef` is exact: a reviewer run, user
-question, reserved mutation, or publication operation/gate revision. The pass
+question, reserved mutation, directly selected CI cleanup, or publication
+operation/gate revision. The pass
 transitions to runtime `WAITING` and no new reconciliation generation is created
 merely because older causes remain ineligible. The blocker owner's terminal
 transaction calls `Reconciliation.releaseWait`; that call terminally cancels
@@ -494,17 +495,18 @@ shapes.
 | `TaskCommands.startTask(requestKey, repositoryId, goalText)` | `start_task` Trunk tool | Require a self-contained `goalText`. In one transaction create `Task`, initial lifecycle revision, `PROVISION_TASK` operation, and ticket. Return `task_id` immediately; normal conversation storage remains audit only. |
 | `TaskProvisioning.provision(taskId, operationId)` | dispatcher | For a normal Task, fetch/resolve the configured base to an exact SHA and append the initial `TaskBaseRevision`; then create branch/worktree or fail the launch. Never fall back to a shared checkout. After isolation succeeds, create the persistent Task Agent session, append `CREATED -> ACTIVE`, but start no model call: persist `INITIAL` (ordinary) or first deterministic upstream work as pending and ensure reconciliation. A confirmed upstream Task reuses its already-proven initial base revision. |
 | `WorkflowCommands.enqueueTurn(taskId, kind, subjectManifest)` | domain coordinators | Persist/deduplicate the pending inbox fact, then call `Reconciliation.ensure`; never make a second writer operation directly eligible. |
-| `DispatchQueue.claim(workerId, now)` | dispatcher | Atomically claim one eligible ticket and issue its expiring monotonic `claimToken`. A writer ticket is eligible only when its operation matches the Task's selected or reserved writer pointer. A `RUN_REVIEWER` ticket is eligible only when its exact parent has a durable `AgentResult`, that parent session is `PARKED_CHILD`, its selected-writer pointer is clear, and no writer lease remains; this predicate is the enforceable representation of “parent-blocked.” A reconciliation ticket waits while `selected_writer_operation_id` is live, but may run ahead of a reservation only when a terminal/effect/recovery cause outranks it. A reserved ticket's direct eligibility predicate—not `WorkSelector`—checks predecessor result/pointer/lease plus those higher blockers. A GitHub effect claim also locks its `prId` and permits only that PR's oldest eligible nonterminal `ExternalEffectPlan.prSequence`. An expired agent claim is not eligible for a new generation until `stopAndProve` records the prior generation dead. |
+| `DispatchQueue.claim(workerId, now)` | dispatcher | Atomically claim one eligible ticket and issue its expiring monotonic `claimToken`. A writer ticket is eligible only when its operation matches the Task's selected or reserved writer pointer. A `RUN_REVIEWER` ticket is eligible only when its exact parent has a durable `AgentResult`, that parent session is `PARKED_CHILD`, its selected-writer pointer is clear, and no writer lease remains; this predicate is the enforceable representation of “parent-blocked.” A reconciliation ticket waits while `selected_writer_operation_id` is live, but may run ahead of a parked reservation when a terminal/effect/recovery cause outranks it. A reserved ticket's direct eligibility predicate—not `WorkSelector`—checks predecessor result/pointer/lease plus those higher blockers. A CI cleanup successor is different: its mandatory handoff swaps it directly into `selected_writer_operation_id`, and a newly observed terminal fact cannot admit unrelated work ahead of consuming or quarantining that exact seal. A GitHub effect claim also locks its `prId` and permits only that PR's oldest eligible nonterminal `ExternalEffectPlan.prSequence`. An expired agent claim is not eligible for a new generation until `stopAndProve` records the prior generation dead. |
 | `TaskLifecycle.appendRevision(taskId, expectedLifecycleRevisionId, nextStatus, reasonCode, evidenceRef?, operationId?)` | Task owner commands | Append the immutable transition and advance Task pointers in one transaction; reject an unexpected current revision. |
 | `TaskBases.advance(taskId, expectedBaseRevisionId, newBaseSha, reason, evidenceRef, sourceOperationId, fence)` | fenced base-integration operation | Prove the resolved target/base integration, append `TaskBaseRevision`, and advance current-base pointers atomically; reject a ref name, stale fence, or unproven integration. |
 | `FlowRuntime.adoptChangeSet(claim, fence, repositoryRoot, expectedChangeSetRevisionId)` | fenced Task/CI writer operation, including its authenticated check tool | Require the exact source `AgentRun` still `RUNNING`; mechanically inspect the bound worktree outside the database transaction; then revalidate claim, fence, Task epoch/status/selected operation, base pointer, predecessor and expected change-set pointer before appending and atomically advancing `Task.current_head_sha`/pointer. `expectedChangeSetRevisionId` is null only for the first adoption. Exact redelivery returns the same immutable row. |
+| `FlowRuntime.prepareNonCleanState(...)` / `handoffStoppedCiRunToCleanup(...)` | stopped CI finalizer | Mint a private token only after exact claim/fence/run/STOPPED proof, then inspect outside the transaction. Consumption revalidates that authority and atomically stores the opaque predecessor result, creates one direct `CI_CLEANUP` operation/ticket, swaps the selected-writer pointer without a null gap, and releases the old lease. The immutable CI seal and `CLEANUP_PENDING` attempt join the same outer transaction. This mandatory safety successor does not use `reserved_mutation_operation_id`; it has no run or lease until the cleanup dispatcher claims it, and the dirty actual head is not an adopted Task head. |
 | `ChangeSets.current(taskId)` | launch/gate/check builders | Return the currently adopted immutable revision; never infer it from agent prose. |
 | `PullRequests.materialize(taskId, expectedChangeSetRevisionId, baseRef, targetBaseRef, scopeKey)` | exact local-review/publication command | On first creation, require the supplied immutable revision ID is still the Task's current nonempty change set, derive base/head only from that row, and store `created_from_change_set_revision_id`. Exact replay of that revision and parameters returns the stable local PR even after the Task advances; a different revision or parameters reject. A stale local-review action cannot silently publish a newer unseen revision. |
-| `MutationAdmission.evaluate(taskId, operationId)` | dispatcher before every writer claim | Require the Task's selected/reserved writer pointer, then return objective blockers from lifecycle/quarantine, any unhandled terminal-remote fact, `waiting_mutation_state_ref`, publication barrier, nonterminal exact-head reviewer barrier, and reserved successor. When a wait barrier exists no writer is eligible; when a mutation reservation exists, only that operation ID is eligible after terminal facts are reconciled. |
+| `MutationAdmission.evaluate(taskId, operationId)` | dispatcher before every writer claim | Require the Task's selected or reserved writer pointer, then return objective blockers from lifecycle/quarantine, `waiting_mutation_state_ref`, publication barrier, nonterminal exact-head reviewer barrier, reserved successor, and any exact cleanup-seal requirement owned by a directly selected cleanup operation. An unhandled semantic terminal-remote fact blocks ordinary/reserved writers, but not the exact selected cleanup consuming its already durable seal. When a wait barrier exists no writer is eligible; when a semantic mutation reservation exists, only that operation ID is eligible after higher-priority terminal facts are reconciled. |
 | `WriterLeases.acquire(taskId, operationId, holderKind)` | writer operation | Call `MutationAdmission.evaluate`, then issue the next fencing token only for an allowed holder kind and when no live lease exists. No caller may bypass the canonical predicate. |
 | `WriterLeases.assertValid(fence)` | every mutating adapter | Fail closed before mutation if owner, epoch, token, or expiry differs. |
 | `WriterLeases.renew(fence)` / `release(fence)` | operation runner | Renew only the same token; release idempotently. |
-| `MutationAdmission.reserveSuccessor(taskId, predecessorOperationId, successorOperationId, sealedStateRef, fence)` | terminal upstream history/question tool | In the same transaction as the immutable semantic command and successor operation/nonclaimable ticket, set the Task reservation after verifying the current fence. No unrelated writer may acquire after the predecessor releases. Runtime admission makes this existing ticket directly claimable only after the predecessor `AgentResult` is durable, its selected-writer pointer/lease are cleared, and no terminal/effect/recovery fact outranks it; `WorkSelector` never enables it. |
+| `MutationAdmission.reserveSuccessor(taskId, predecessorOperationId, successorOperationId, sealedStateRef, fence)` | terminal upstream history/question tool | In the same transaction as the immutable semantic command and successor operation/nonclaimable ticket, set the Task reservation after verifying the current fence. No unrelated writer may acquire after the predecessor releases. Runtime admission makes this existing ticket directly claimable only after the predecessor `AgentResult` is durable, its selected-writer pointer/lease are cleared, and no terminal/effect/recovery fact outranks it; `WorkSelector` never enables it. CI cleanup uses its dedicated atomic selected-pointer handoff instead. |
 | `MutationAdmission.finish(taskId, successorOperationId, outcomeRef)` | reserved successor/recovery operation | Clear the reservation only after success or a proven clean restore and release any exact reconciliation wait on this reservation. On dirty/uncertain failure, atomically transfer both reservation/wait to one typed recovery operation or quarantine the Task without admitting another writer. |
 | `AgentSessions.createIdle(role, sessionManifest)` | provisioning only | Create one persistent `IDLE` session without an `AgentRun` or model call. This is the only Task-Agent provisioning path. |
 | `AgentSessions.startFresh(operationId, claimToken, role, promptManifest, capabilities)` | claimed operation | Validate the current claim, lock the operation, and first return its existing unique `AgentRun`, if any. Otherwise create a fresh session plus its first run before process start and bind the owning request once. Use this for a reviewer and for a CI Fixer only when that Task has no CI session yet. Claim redelivery or a crash after commit must reuse the same session/run. |
@@ -515,7 +517,7 @@ shapes.
 | `ProgramRunnerSupervisor.stopAndProve(operationId, writerFence)` | non-agent writer recovery | Terminate and prove a deterministic `UPSTREAM_SYNC`/other program runner dead before inspecting its worktree or transferring its fence; it has no `AgentRun` or model capability. |
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | terminal `spawn_agent` Task tool | Validate and create the frozen reviewer request plus one initially parent-blocked `RUN_REVIEWER` operation/ticket; seal the parent run against more tools and return `reviewRequestId`, but create no reviewer session/run. Parent finalization below parks the session and makes the ticket eligible only after its result/state and writer release are durable. |
 | `AgentRuns.sealForReview(runId)` | accepted `ready_for_review()` tool | Revoke further mutating tools for this run, request terminal completion, and defer gate construction until result/head evidence is stored and the writer lease is released. |
-| `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task/CI generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery; CI Fixer finalization will call `CiAutofix.finalizeAttempt` before lease release when that checkpoint is connected. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewer/learning finalization requires its own later read-only supervisor contract and is not implemented by this API. |
+| `AgentRuns.finish(runId, claimToken, terminalOutcome, writerFence)` | `InProcessWriterAgentSupervisor` for the current proven Task generation | Require an already `STOPPED` exact-generation attempt with durable capability revocation and the supervisor's terminated-thread witness; this method never changes `ACTIVATED` to `STOPPED`. Validate the tagged outcome/current claim and idempotently store one terminal `AgentResult`. Ordinary Task completion returns its persistent session to `IDLE` or durable recovery. A CI Fixer must use its role-specific `CiAutofix` finalizer, which atomically stores its clean outcome or dirty cleanup handoff before releasing ownership; this generic method rejects `CI_FIXER`. Release exact waits and ensure reconciliation only after owned terminal facts are durable. Conflicting result or stale-claim redelivery is rejected; identical current-generation redelivery returns the stored result. Reviewer/learning finalization requires its own later read-only supervisor contract and is not implemented by this API. |
 | `TaskQuestions.ask(taskId, runId, question)` | authenticated terminal agent tool | Store the question and measured sealed state, set the waiting barrier, move the Task to `WAITING_USER`, seal the current run against more tools, and request finalization. It does not persist the run result, release the fence/pointer, or change session state; only `AgentRuns.finish` does so and then exposes the question as answerable. |
 | `TaskQuestions.answer(userId, questionId, body)` | authenticated user command | Require the predecessor `AgentResult` durable/question answerable, append the exact answer, release any exact reconciliation wait on this question, reconcile a pending terminal-remote fact first, and if still active atomically create/reserve the one `USER_ANSWER` successor bound to the sealed state; never resume a generic latest turn. |
 | `LocalCheckPolicies.current(repositoryId)` | check/gate builders | Return the current immutable policy revision and allowed profiles. |
@@ -525,7 +527,7 @@ shapes.
 | `Reconciliation.ensure(taskId, causeRef)` | every pending-work owner | Lock Task and idempotently register `causeRef`: a new cause gets the next `pending_work_watermark`, redelivery reuses its existing one. Reuse the one nonterminal `RECONCILE_TASK`, including `WAITING`, if present. Otherwise, when an unhandled/unselected cause exists, increment `reconciliation_sequence` and create an operation/ticket binding `(taskEpoch, generation, throughWorkWatermark=current pending watermark)`. A cause arriving during that run advances the watermark but cannot mutate its frozen subject. |
 | `Reconciliation.waitFor(operationId, blockerOwnerRef, blockerRevision)` | claimed reconciliation operation | Revalidate that the exact blocker revision is still nonterminal; if so persist `ReconciliationWait`, transition this operation once to `WAITING`, and create no writer or next generation. If it already advanced, restart selection under the same Task lock instead of installing a lost wait. |
 | `Reconciliation.releaseWait(blockerOwnerRef, blockerRevision)` | blocker owner's terminal transaction | Idempotently compare-and-set the exact wait, cancel its runtime operation with typed `BLOCKER_ADVANCED`, and create at most one next reconciliation generation at the current watermark when pending causes remain. |
-| `WorkSelector.selectNext(taskId, throughWorkWatermark)` | claimed reconciliation operation | Lock Task and choose current unselected facts at or below the frozen watermark using canonical priority. If a higher-priority reviewer/question/publication/reserved/recovery continuation is still in flight, call `waitFor` and select no lower work. Otherwise create exactly one ordinary writer operation/ticket, mark its input facts `selected_by_operation_id`, and set `selected_writer_operation_id`. Reservation tickets are never created or enabled here. |
+| `WorkSelector.selectNext(taskId, throughWorkWatermark)` | claimed reconciliation operation | Lock Task and choose current unselected facts at or below the frozen watermark using canonical priority. If a higher-priority reviewer/question/publication/reserved/recovery continuation is still in flight, call `waitFor` and select no lower work. Otherwise create exactly one ordinary writer operation/ticket, mark its input facts `selected_by_operation_id`, and set `selected_writer_operation_id`. Reservation tickets and a CI cleanup successor already selected by its atomic predecessor handoff are never created or enabled here. |
 | `OperationRunner.complete(operationId, typedResultRef)` | non-agent program runner | Commit result and release claim/lease. Agent operations finish only through `AgentRuns.finish`, which performs the equivalent operation settlement in its role-specific transaction; the generic runner must not settle them again. Success clears the matching selected-writer pointer and marks only proven input facts handled. A transport-retryable writer keeps its selections/pointer for the same operation; terminal failure clears them and registers typed recovery. A non-waiting reconciliation completion advances `last_reconciled_work_watermark` only through its frozen watermark and ensures a next generation only for eligible unhandled/newer facts. A waiting pass is advanced only by `releaseWait`, never by this generic completion rule. |
 | `OperationCommands.settle(operationId, expectedState, outcome, typedOwnerProofRef)` | authoritative domain owner | Compare-and-set `WAITING -> READY/SUCCEEDED/CANCELED` or any nonterminal state to `CANCELED` under the state-machine proof rules; make the ticket/barrier ineligible atomically. A claimed executor must first be stopped/proven unable to act, and an uncertain remote call cannot be canceled without reconciliation proof. |
 | `TaskCommands.resolveAttention(taskId, attentionRevision, decision)` | authenticated user/program proof | Resolve only runtime-owned non-gate attention and register the bounded next cause for reconciliation. Gate attention is resolved exclusively by User Gates from typed GitHub proof or explicit cancellation. |
@@ -579,8 +581,10 @@ Every asynchronous command follows one durable boundary:
    and insert one immutable `Operation` plus its unique `DispatchTicket`.
    For a possible Task writer, leave the cause pending and call
    `Reconciliation.ensure`; do not create that writer directly. The explicit
-   sealed-state successor used by a terminal Git/question command is the only
-   reservation exception.
+   sealed-state successor used by a terminal Git/question command is the
+   reservation exception. Mandatory CI cleanup is the separate direct-selection
+   exception: its stopped predecessor transaction swaps the selected pointer
+   directly to that cleanup operation.
 5. Commit.
 6. Optionally notify the dispatcher after commit; periodic ticket claiming is
    the recovery and correctness path.
@@ -631,12 +635,16 @@ competing writer tickets. The one reconciliation operation runs after the
 current writer becomes non-running; under the Task lock, `WorkSelector` uses
 this order:
 
-1. prove terminal remote states and invalidate stale authorizations; a merged or
-   closed PR cancels/transfers any reservation to cleanup before mutation;
+1. record terminal remote states and invalidate stale authorizations. A merged
+   or closed PR cancels/transfers a parked semantic reservation before mutation.
+   If mandatory cleanup is already selected, lifecycle acceptance and unrelated
+   work wait until it consumes/quarantines the exact seal, or one transaction
+   transfers that same seal to typed cleanup recovery;
 2. continue a previously authorized exact-subject effect if still valid;
 3. resolve a pending `RECOVERY`/quarantine proof before normal work;
 4. honor the direct admission barrier for an exact
-   `reserved_mutation_operation_id`; its existing ticket—not `WorkSelector`—runs
+   `reserved_mutation_operation_id`, or the mandatory CI cleanup already named
+   by `selected_writer_operation_id`; its existing ticket—not `WorkSelector`—runs
    when eligible, and lower ordinary work cannot pass it;
 5. deliver an exact in-progress continuation such as `AgentResultReady` or
    `CI_FIX_READY` to the Task Agent; its program-owned payload records
@@ -651,7 +659,9 @@ Priority includes work that is **in flight but not yet deliverable**. If an
 active reviewer is expected to produce `AgentResultReady`, a publication
 operation is waiting for exact provider/CI proof, a Task question is unanswered,
 the persistent CI session is finishing a bounded learning turn needed before a
-new repair turn, or a reserved successor must finish, reconciliation selects no lower writer.
+new repair turn, or a reserved/directly selected cleanup successor must finish,
+reconciliation selects no lower writer. Reconciliation may run before a parked
+semantic reservation, but waits for mandatory selected cleanup.
 It stores one exact `ReconciliationWait` on that blocker. The blocker owner's
 terminal transaction advances that wait once and freezes a new generation at
 the then-current watermark. Old red CI or feedback cannot sneak ahead, and
@@ -734,17 +744,22 @@ remote-wait transition.
   pass create the next generation without reviving a terminal operation.
   A pass waiting on an in-flight higher-priority blocker is released only by
   that blocker revision; pending lower causes do not generate replacement passes.
-- Keep at most one ordinary writer operation in
+- Keep at most one directly claimable writer operation in
   `Task.selected_writer_operation_id`. All other causes remain pending owner
   facts behind one coalesced reconciliation ticket, so ticket-claim timing
   cannot override `WorkSelector` priority.
 - Enforce one live `WriterLease` with `task_id` as its primary key.
 - Every writer admission calls the one `MutationAdmission.evaluate` predicate.
   A quarantined/`NEEDS_ATTENTION` Task, active reviewer barrier, publication
-  barrier, waiting-question barrier, unhandled terminal-remote fact, or
-  mismatched reserved successor fails closed. A reservation is not a lease
-  transfer: the predecessor releases its fence, and only the named successor
-  can receive the next fence after terminal reconciliation.
+  barrier, waiting-question barrier, unhandled semantic terminal-remote fact, or
+  mismatched reserved/directly selected successor fails closed for ordinary and
+  reserved writers. The exact selected cleanup may only consume its durable seal
+  before lifecycle acceptance proceeds. Neither a
+  reservation nor direct selected-pointer transfer is a lease transfer: the
+  predecessor releases its fence, and only the named successor can receive the
+  next fence after its applicable admission checks. A parked semantic successor
+  waits for terminal reconciliation; mandatory selected cleanup consumes or
+  quarantines its seal before lifecycle acceptance.
 - A nonterminal authorized publication operation is an admission barrier even
   while it waits without a lease. If its subject becomes stale, close that
   operation before admitting another writer.

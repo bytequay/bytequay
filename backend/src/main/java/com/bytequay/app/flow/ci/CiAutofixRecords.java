@@ -147,7 +147,9 @@ public final class CiAutofixRecords
             String prId,
             String remoteHead,
             String policyRevisionId,
+            long evidenceRevision,
             List<String> checkObservationIds,
+            List<String> failedLogRefs,
             RoundState state,
             Instant createdAt,
             String supersededBy)
@@ -160,8 +162,62 @@ public final class CiAutofixRecords
             requireNonNull(remoteHead, "remoteHead is null");
             requireNonNull(policyRevisionId, "policyRevisionId is null");
             checkObservationIds = List.copyOf(checkObservationIds);
+            failedLogRefs = List.copyOf(failedLogRefs);
             requireNonNull(state, "state is null");
             requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    public record CiLogEvidence(
+            String logRef,
+            String observationId,
+            String contentDigest,
+            String exposedContentDigest,
+            long rawByteCount,
+            long storedByteCount,
+            boolean truncated,
+            Instant storedAt)
+    {
+        public CiLogEvidence
+        {
+            requireNonNull(logRef, "logRef is null");
+            requireNonNull(observationId, "observationId is null");
+            requireNonNull(contentDigest, "contentDigest is null");
+            requireNonNull(exposedContentDigest,
+                    "exposedContentDigest is null");
+            requireNonNull(storedAt, "storedAt is null");
+        }
+    }
+
+    public record CiLogWindow(
+            String logRef,
+            long offset,
+            String content,
+            long nextOffset,
+            boolean endOfLog)
+    {
+        public CiLogWindow
+        {
+            requireNonNull(logRef, "logRef is null");
+            requireNonNull(content, "content is null");
+        }
+    }
+
+    public record QueuedRepair(
+            CiRound round,
+            String inboxId,
+            String reconciliationOperationId,
+            String terminalReason)
+    {
+        public QueuedRepair
+        {
+            requireNonNull(round, "round is null");
+            requireNonNull(inboxId, "inboxId is null");
+            if ((reconciliationOperationId == null)
+                    == (terminalReason == null)) {
+                throw new IllegalArgumentException(
+                        "repair registration needs reconciliation or terminal reason");
+            }
         }
     }
 

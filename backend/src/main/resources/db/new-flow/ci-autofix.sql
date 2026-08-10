@@ -51,13 +51,29 @@ CREATE INDEX flow_ci_observation_head_idx
         observed_at DESC
     );
 
+CREATE TABLE flow_ci_log_evidence (
+    log_ref TEXT PRIMARY KEY,
+    observation_id TEXT NOT NULL UNIQUE,
+    content_digest TEXT NOT NULL,
+    exposed_content_digest TEXT NOT NULL,
+    raw_byte_count INTEGER NOT NULL,
+    stored_byte_count INTEGER NOT NULL,
+    truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+    sanitized_content BLOB NOT NULL,
+    stored_at INTEGER NOT NULL,
+    FOREIGN KEY (observation_id)
+        REFERENCES flow_ci_check_observation (observation_id)
+);
+
 CREATE TABLE flow_ci_round (
     round_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
     pr_id TEXT NOT NULL,
     remote_head TEXT NOT NULL,
     policy_revision_id TEXT NOT NULL,
+    evidence_revision INTEGER NOT NULL,
     check_observation_ids_json TEXT NOT NULL,
+    failed_log_refs_json TEXT NOT NULL,
     state TEXT NOT NULL CHECK (
         state IN (
             'COLLECTING',
@@ -72,7 +88,7 @@ CREATE TABLE flow_ci_round (
     ),
     created_at INTEGER NOT NULL,
     superseded_by TEXT,
-    UNIQUE (pr_id, remote_head, policy_revision_id),
+    UNIQUE (pr_id, remote_head, policy_revision_id, evidence_revision),
     FOREIGN KEY (policy_revision_id)
         REFERENCES flow_ci_policy_revision (policy_revision_id),
     FOREIGN KEY (superseded_by)
@@ -80,4 +96,6 @@ CREATE TABLE flow_ci_round (
 );
 
 CREATE INDEX flow_ci_round_current_idx
-    ON flow_ci_round (pr_id, remote_head, state);
+    ON flow_ci_round (
+        pr_id, remote_head, policy_revision_id, evidence_revision DESC
+    );

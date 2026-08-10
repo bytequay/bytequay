@@ -15,6 +15,8 @@ package com.bytequay.app.flow.ci;
 
 import com.bytequay.app.flow.ci.CiAutofixRecords.AcceptedCiSnapshot;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCheckObservation;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogEvidence;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiLogWindow;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocked;
 import com.bytequay.app.flow.ci.CiAutofixRecords.FinalizeBlocker;
@@ -43,6 +45,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -53,6 +56,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeSet;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -63,15 +67,43 @@ import static java.util.Objects.requireNonNull;
  * supplied subject reader is the sole bridge to the new PR owner and prevents
  * this component from copying that state.
  *
- * <p>This first slice intentionally accepts only a PR-subject snapshot. It is
- * suitable for durable observation tests, but not for dispatch, gate, ready,
- * feedback, or merge authority. Integration must replace the snapshot read
- * with a PR-owner transaction/fence that freezes subject and CI evidence
- * together. Until then, no caller may treat a round or acceptance snapshot as
- * authorization evidence.
+ * <p>The observation/finalization methods intentionally accept only a
+ * PR-subject snapshot. They are not dispatch, gate, ready, feedback, or merge
+ * authority. {@link CiAutofixCoordinator} revalidates the runtime's actual
+ * Task/PR owner rows in the transaction which queues a repair; acceptance
+ * snapshots remain unsuitable as authorization evidence.
  */
 public final class CiAutofix
 {
+    private static final int MAX_STORED_LOG_BYTES = 1024 * 1024;
+    private static final int MAX_RAW_LOG_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_LOG_WINDOW_BYTES = 64 * 1024;
+    private static final int MAX_LITERAL_SECRET_COUNT = 64;
+    private static final int MAX_LITERAL_SECRET_LENGTH = 256;
+    private static final int MAX_LITERAL_SECRET_TOTAL_LENGTH = 4096;
+    private static final int MIN_LITERAL_SECRET_LENGTH = 8;
+    private static final byte[] TRUNCATION_MARKER =
+            "\n...[BYTEQUAY LOG TRUNCATED]...\n"
+                    .getBytes(StandardCharsets.UTF_8);
+    private static final Pattern AUTHORIZATION_SECRET = Pattern.compile(
+            "(?i)(authorization\\s*:\\s*(?:bearer|token|basic)\\s+)(\\S+)");
+    private static final Pattern GITHUB_TOKEN = Pattern.compile(
+            "\\b(?:gh[pousr]_[A-Za-z0-9_]{20,}"
+                    + "|github_pat_[A-Za-z0-9_]{20,})\\b");
+    private static final Pattern AWS_ACCESS_KEY = Pattern.compile(
+            "\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b");
+    private static final Pattern URL_CREDENTIAL = Pattern.compile(
+            "(?i)(https?://[^\\s/:@]+:)([^\\s@]+)(@)");
+    private static final Pattern PRIVATE_KEY = Pattern.compile(
+            "(?s)-----BEGIN ([A-Z ]*PRIVATE KEY)-----.*?"
+                    + "-----END \\1-----");
+    private static final Pattern COMMON_SECRET_ASSIGNMENT = Pattern.compile(
+            "(?i)(\\b(?=[A-Z_])[A-Z0-9_]{0,64}"
+                    + "(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY)"
+                    + "[A-Z0-9_]{0,64}\\b\\s*[:=]\\s*)"
+                    + "(?:\"[^\\r\\n\"]*\"|'[^\\r\\n']*'|[^\\s,;]+)");
+    private static final Pattern ADD_MASK_COMMAND = Pattern.compile(
+            "(?m)(::add-mask::)[^\\r\\n]*");
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final Comparator<CiCheckObservation> SAME_EXECUTION_ORDER =
             Comparator.comparingLong((CiCheckObservation value) -> value.check().attempt())
@@ -252,6 +284,155 @@ public final class CiAutofix
         return stored;
     }
 
+    /**
+     * Stores one immutable bounded log after best-effort known-form redaction.
+     * Ingestion must explicitly supply the provider/context secret literals;
+     * this cannot recognize arbitrary credentials.
+     */
+    public CiLogEvidence attachLog(
+            String observationId, byte[] rawLog, List<String> literalSecrets)
+    {
+        requireText(observationId, "observationId");
+        requireNonNull(rawLog, "rawLog is null");
+        requireNonNull(literalSecrets, "literalSecrets is null");
+        if (rawLog.length > MAX_RAW_LOG_BYTES) {
+            throw new IllegalArgumentException(
+                    "raw CI log exceeds " + MAX_RAW_LOG_BYTES + " bytes");
+        }
+        List<String> secrets = validateLiteralSecrets(literalSecrets);
+        if (observation(observationId).isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Unknown CI observation: " + observationId);
+        }
+        byte[] sanitized = sanitizeLog(rawLog, secrets);
+        boolean truncated = sanitized.length > MAX_STORED_LOG_BYTES;
+        byte[] stored = boundLog(sanitized);
+        String digest = sha256(rawLog);
+        String exposedDigest = sha256(stored);
+        String logRef = stableId("ci-log", observationId);
+        jdbc.update(
+                """
+                INSERT OR IGNORE INTO flow_ci_log_evidence (
+                    log_ref, observation_id, content_digest,
+                    exposed_content_digest,
+                    raw_byte_count, stored_byte_count, truncated,
+                    sanitized_content, stored_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                logRef,
+                observationId,
+                digest,
+                exposedDigest,
+                rawLog.length,
+                stored.length,
+                truncated ? 1 : 0,
+                stored,
+                clock.instant().toEpochMilli());
+        CiLogEvidence evidence = logEvidence(logRef)
+                .orElseThrow(() -> new IllegalStateException(
+                        "CI log identity conflict for " + observationId));
+        if (!evidence.observationId().equals(observationId)
+                || !evidence.contentDigest().equals(digest)
+                || !evidence.exposedContentDigest().equals(exposedDigest)
+                || evidence.rawByteCount() != rawLog.length
+                || evidence.storedByteCount() != stored.length
+                || evidence.truncated() != truncated) {
+            throw new IllegalStateException(
+                    "CI observation log was redelivered with different bytes");
+        }
+        return evidence;
+    }
+
+    /** Reads one bounded byte window; callers cannot request an unbounded log. */
+    public CiLogWindow readLogWindow(String logRef, long offset, int maxBytes)
+    {
+        requireText(logRef, "logRef");
+        if (offset < 0) {
+            throw new IllegalArgumentException("offset is negative");
+        }
+        if (maxBytes <= 0 || maxBytes > MAX_LOG_WINDOW_BYTES) {
+            throw new IllegalArgumentException(
+                    "maxBytes must be between 1 and " + MAX_LOG_WINDOW_BYTES);
+        }
+        CiLogEvidence evidence = logEvidence(logRef)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Unknown CI log: " + logRef));
+        if (offset > evidence.storedByteCount()) {
+            throw new IllegalArgumentException("offset is beyond stored log");
+        }
+        if (offset < evidence.storedByteCount()) {
+            byte[] first = jdbc.queryForObject(
+                    """
+                    SELECT substr(sanitized_content, ?, 1)
+                    FROM flow_ci_log_evidence
+                    WHERE log_ref = ?
+                    """,
+                    byte[].class,
+                    offset + 1,
+                    logRef);
+            if (first == null || first.length != 1) {
+                throw new IllegalStateException("stored CI log is unreadable");
+            }
+            if (isUtf8Continuation(first[0])) {
+                throw new IllegalArgumentException(
+                        "offset is not a UTF-8 code-point boundary");
+            }
+        }
+        byte[] bytes = jdbc.queryForObject(
+                """
+                SELECT substr(sanitized_content, ?, ?)
+                FROM flow_ci_log_evidence
+                WHERE log_ref = ?
+                """,
+                byte[].class,
+                offset + 1,
+                maxBytes,
+                logRef);
+        byte[] window = bytes == null ? new byte[0] : bytes;
+        boolean reachesEnd = offset + window.length
+                >= evidence.storedByteCount();
+        int safeLength = reachesEnd
+                ? window.length
+                : completeUtf8PrefixLength(window);
+        if (safeLength == 0 && offset < evidence.storedByteCount()) {
+            throw new IllegalArgumentException(
+                    "maxBytes is too small for the next UTF-8 code point");
+        }
+        byte[] safeWindow = safeLength == window.length
+                ? window
+                : Arrays.copyOf(window, safeLength);
+        long next = offset + safeLength;
+        return new CiLogWindow(
+                logRef,
+                offset,
+                new String(safeWindow, StandardCharsets.UTF_8),
+                next,
+                next >= evidence.storedByteCount());
+    }
+
+    public Optional<CiLogEvidence> logEvidence(String logRef)
+    {
+        requireText(logRef, "logRef");
+        return jdbc.query(
+                """
+                SELECT log_ref, observation_id, content_digest,
+                       exposed_content_digest,
+                       raw_byte_count, stored_byte_count, truncated, stored_at
+                FROM flow_ci_log_evidence
+                WHERE log_ref = ?
+                """,
+                (result, row) -> new CiLogEvidence(
+                        result.getString("log_ref"),
+                        result.getString("observation_id"),
+                        result.getString("content_digest"),
+                        result.getString("exposed_content_digest"),
+                        result.getLong("raw_byte_count"),
+                        result.getLong("stored_byte_count"),
+                        result.getBoolean("truncated"),
+                        instant(result.getLong("stored_at"))),
+                logRef).stream().findFirst();
+    }
+
     public FinalizeHeadResult finalizeHeadSnapshot(String prId, String headSha)
     {
         requireText(prId, "prId");
@@ -272,36 +453,104 @@ public final class CiAutofix
                 ignored -> supersedeOldHeadRounds(requireSubject(prId)));
     }
 
-    /** Advances an already frozen round without changing its evidence. */
-    public CiRound advanceRoundState(
-            String roundId, RoundState expectedState, RoundState nextState)
+    /**
+     * Freezes the exact failing log set and queues one current red evidence
+     * revision. The runtime inbox write is deliberately owned by the
+     * coordinator so both owner changes can share one database transaction.
+     */
+    CiRound queueCurrentFinalRed(String roundId)
     {
         requireText(roundId, "roundId");
-        requireNonNull(expectedState, "expectedState is null");
-        requireNonNull(nextState, "nextState is null");
-        if (!allowedTransition(expectedState, nextState)) {
-            throw new IllegalArgumentException(
-                    "Invalid CI round transition: " + expectedState + " -> " + nextState);
-        }
+        return requireNonNull(transactions.execute(ignored -> {
+            CiRound requested = roundById(roundId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Unknown CI round: " + roundId));
+            if (requested.state() != RoundState.FINAL_RED
+                    && requested.state() != RoundState.QUEUED) {
+                throw new IllegalStateException(
+                        "CI round is not queueable: " + requested.state());
+            }
+            PublishedPrSubject subject = requireSubject(requested.prId());
+            if (!subject.taskId().equals(requested.taskId())
+                    || !subject.currentRemoteHead().equals(requested.remoteHead())) {
+                throw new IllegalStateException(
+                        "CI round is not the current PR head");
+            }
+            RequiredCiPolicyRevision policy = currentPolicy(
+                    subject.repositoryId(), subject.scopeKey())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Current CI policy is unavailable"));
+            if (!policy.policyRevisionId().equals(requested.policyRevisionId())
+                    || policy.resolution() != PolicyResolution.RESOLVED) {
+                throw new IllegalStateException(
+                        "CI round policy is no longer current");
+            }
+            CiRound latest = round(
+                    requested.prId(),
+                    requested.remoteHead(),
+                    requested.policyRevisionId()).orElseThrow();
+            RoundCalculation calculation = calculateRound(
+                    requested.prId(), requested.remoteHead(), policy);
+            if (!latest.roundId().equals(roundId)
+                    || calculation.state() != RoundState.FINAL_RED
+                    || !calculation.observationIds().equals(
+                            requested.checkObservationIds())) {
+                throw new IllegalStateException(
+                        "CI observations no longer match this red round");
+            }
+            List<String> failedLogs = requiredFailedLogs(requested, policy);
+            if (failedLogs.isEmpty()) {
+                throw new IllegalStateException(
+                        "FINAL_RED has no failed required log evidence");
+            }
+            if (requested.state() == RoundState.QUEUED) {
+                if (!requested.failedLogRefs().equals(failedLogs)) {
+                    throw new IllegalStateException(
+                            "Queued CI round has stale failed log evidence");
+                }
+                return requested;
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_ci_round
+                    SET failed_log_refs_json = ?, state = 'QUEUED'
+                    WHERE round_id = ? AND state = 'FINAL_RED'
+                    """,
+                    writeJson(failedLogs),
+                    roundId);
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "CI round changed while it was queued");
+            }
+            return roundById(roundId).orElseThrow();
+        }), "queue transaction returned null");
+    }
+
+    /** Disposes only an unselected stale queued round. */
+    CiRound supersedeQueuedRound(String roundId)
+    {
+        requireText(roundId, "roundId");
         return requireNonNull(transactions.execute(ignored -> {
             int updated = jdbc.update(
                     """
                     UPDATE flow_ci_round
-                    SET state = ?
-                    WHERE round_id = ? AND state = ?
+                    SET state = 'SUPERSEDED'
+                    WHERE round_id = ? AND state = 'QUEUED'
                     """,
-                    nextState.name(),
-                    roundId,
-                    expectedState.name());
+                    roundId);
             if (updated != 1) {
                 CiRound current = roundById(roundId)
                         .orElseThrow(() -> new IllegalArgumentException(
                                 "Unknown CI round: " + roundId));
+                if (current.state() == RoundState.SUPERSEDED) {
+                    return current;
+                }
                 throw new IllegalStateException(
-                        "CI round state is " + current.state() + ", not " + expectedState);
+                        "CI round is not stale QUEUED work: "
+                                + current.state());
             }
             return roundById(roundId).orElseThrow();
-        }), "round-state transaction returned null");
+        }), "supersede transaction returned null");
     }
 
     /**
@@ -368,6 +617,8 @@ public final class CiAutofix
                 SELECT *
                 FROM flow_ci_round
                 WHERE pr_id = ? AND remote_head = ? AND policy_revision_id = ?
+                ORDER BY evidence_revision DESC
+                LIMIT 1
                 """,
                 (result, row) -> readRound(result),
                 prId,
@@ -420,7 +671,9 @@ public final class CiAutofix
                 headSha,
                 policy.policyRevisionId());
         boolean newlyFinal = stored.state() == RoundState.FINAL_RED
-                && before.map(CiRound::state).orElse(null) != RoundState.FINAL_RED;
+                && before.filter(previous -> previous.roundId().equals(stored.roundId()))
+                        .map(CiRound::state)
+                        .orElse(null) != RoundState.FINAL_RED;
         return new FinalizedRound(stored, newlyFinal);
     }
 
@@ -477,43 +730,97 @@ public final class CiAutofix
             RequiredCiPolicyRevision policy,
             RoundCalculation calculation)
     {
-        String id = stableId("ci-round", subject.prId(), headSha, policy.policyRevisionId());
         Optional<CiRound> existing = round(subject.prId(), headSha, policy.policyRevisionId());
         if (existing.isEmpty()) {
-            Instant now = clock.instant();
-            jdbc.update(
-                    """
-                    INSERT OR IGNORE INTO flow_ci_round (
-                        round_id, task_id, pr_id, remote_head,
-                        policy_revision_id, check_observation_ids_json,
-                        state, created_at, superseded_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-                    """,
-                    id,
-                    subject.taskId(),
-                    subject.prId(),
-                    headSha,
-                    policy.policyRevisionId(),
-                    writeJson(calculation.observationIds()),
-                    calculation.state().name(),
-                    now.toEpochMilli());
+            return insertRound(subject, headSha, policy, calculation, 0);
         }
-        else if (canRefreshEvidence(existing.get().state())) {
+        CiRound current = existing.get();
+        if (canRefreshEvidence(current.state())) {
             jdbc.update(
                     """
                     UPDATE flow_ci_round
                     SET check_observation_ids_json = ?, state = ?, superseded_by = NULL
                     WHERE round_id = ?
-                      AND state IN (
-                          'COLLECTING', 'FINAL_RED', 'GREEN', 'NEEDS_ATTENTION'
-                      )
+                      AND state = 'COLLECTING'
                     """,
                     writeJson(calculation.observationIds()),
                     calculation.state().name(),
-                    id);
+                    current.roundId());
+            return roundById(current.roundId()).orElseThrow();
         }
-        return round(subject.prId(), headSha, policy.policyRevisionId())
-                .orElseThrow(() -> new IllegalStateException("Round was not stored: " + id));
+        if (sameFrozenEvidence(current, calculation)) {
+            return current;
+        }
+
+        CiRound successor = insertRound(
+                subject,
+                headSha,
+                policy,
+                calculation,
+                current.evidenceRevision() + 1);
+        if (current.state() != RoundState.SUPERSEDED) {
+            int superseded = jdbc.update(
+                    """
+                    UPDATE flow_ci_round
+                    SET state = 'SUPERSEDED', superseded_by = ?
+                    WHERE round_id = ?
+                      AND state IN (
+                          'FINAL_RED', 'QUEUED', 'ACTIVE', 'FIX_PREPARED',
+                          'GREEN', 'NEEDS_ATTENTION'
+                      )
+                    """,
+                    successor.roundId(),
+                    current.roundId());
+            if (superseded != 1) {
+                throw new IllegalStateException(
+                        "CI evidence changed while superseding "
+                                + current.roundId());
+            }
+        }
+        return successor;
+    }
+
+    private CiRound insertRound(
+            PublishedPrSubject subject,
+            String headSha,
+            RequiredCiPolicyRevision policy,
+            RoundCalculation calculation,
+            long evidenceRevision)
+    {
+        String id = stableId(
+                "ci-round",
+                subject.prId(),
+                headSha,
+                policy.policyRevisionId(),
+                Long.toString(evidenceRevision));
+        int inserted = jdbc.update(
+                """
+                INSERT OR IGNORE INTO flow_ci_round (
+                    round_id, task_id, pr_id, remote_head,
+                    policy_revision_id, evidence_revision,
+                    check_observation_ids_json, failed_log_refs_json,
+                    state, created_at, superseded_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL)
+                """,
+                id,
+                subject.taskId(),
+                subject.prId(),
+                headSha,
+                policy.policyRevisionId(),
+                evidenceRevision,
+                writeJson(calculation.observationIds()),
+                calculation.state().name(),
+                clock.instant().toEpochMilli());
+        CiRound stored = roundById(id)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Round was not stored: " + id));
+        if (inserted == 0
+                && (!stored.checkObservationIds().equals(calculation.observationIds())
+                || stored.state() != calculation.state())) {
+            throw new IllegalStateException(
+                    "CI evidence revision identity has conflicting content");
+        }
+        return stored;
     }
 
     private void supersedeOldHeadRounds(PublishedPrSubject subject)
@@ -596,7 +903,7 @@ public final class CiAutofix
                 observationId).stream().findFirst();
     }
 
-    private Optional<CiRound> roundById(String roundId)
+    public Optional<CiRound> roundById(String roundId)
     {
         return jdbc.query(
                 """
@@ -606,6 +913,43 @@ public final class CiAutofix
                 """,
                 (result, row) -> readRound(result),
                 roundId).stream().findFirst();
+    }
+
+    private Optional<CiLogEvidence> logForObservation(String observationId)
+    {
+        return jdbc.query(
+                """
+                SELECT log_ref, observation_id, content_digest,
+                       exposed_content_digest, raw_byte_count,
+                       stored_byte_count, truncated, stored_at
+                FROM flow_ci_log_evidence
+                WHERE observation_id = ?
+                """,
+                (result, row) -> new CiLogEvidence(
+                        result.getString("log_ref"),
+                        result.getString("observation_id"),
+                        result.getString("content_digest"),
+                        result.getString("exposed_content_digest"),
+                        result.getLong("raw_byte_count"),
+                        result.getLong("stored_byte_count"),
+                        result.getBoolean("truncated"),
+                        instant(result.getLong("stored_at"))),
+                observationId).stream().findFirst();
+    }
+
+    private List<String> requiredFailedLogs(
+            CiRound round, RequiredCiPolicyRevision policy)
+    {
+        return round.checkObservationIds().stream()
+                .map(id -> observation(id).orElseThrow())
+                .filter(value -> !policy.acceptedConclusions().contains(
+                        normalizeNullableToken(value.check().conclusion())))
+                .map(value -> logForObservation(value.observationId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Missing bounded log for failed observation "
+                                        + value.observationId()))
+                        .logRef())
+                .toList();
     }
 
     private RequiredCiPolicyRevision readPolicy(ResultSet result)
@@ -635,7 +979,9 @@ public final class CiAutofix
                 result.getString("pr_id"),
                 result.getString("remote_head"),
                 result.getString("policy_revision_id"),
+                result.getLong("evidence_revision"),
                 readStringList(result.getString("check_observation_ids_json")),
+                readStringList(result.getString("failed_log_refs_json")),
                 RoundState.valueOf(result.getString("state")),
                 instant(result.getLong("created_at")),
                 result.getString("superseded_by"));
@@ -704,10 +1050,20 @@ public final class CiAutofix
 
     private static boolean canRefreshEvidence(RoundState state)
     {
-        return state == RoundState.COLLECTING
-                || state == RoundState.FINAL_RED
-                || state == RoundState.GREEN
-                || state == RoundState.NEEDS_ATTENTION;
+        return state == RoundState.COLLECTING;
+    }
+
+    private static boolean sameFrozenEvidence(
+            CiRound round, RoundCalculation calculation)
+    {
+        RoundState calculated = calculation.state();
+        boolean sameState = round.state() == calculated
+                || ((round.state() == RoundState.QUEUED
+                        || round.state() == RoundState.ACTIVE
+                        || round.state() == RoundState.FIX_PREPARED)
+                        && calculated == RoundState.FINAL_RED);
+        return sameState
+                && round.checkObservationIds().equals(calculation.observationIds());
     }
 
     private static String normalizeToken(String value)
@@ -771,6 +1127,164 @@ public final class CiAutofix
         }
     }
 
+    private static String sha256(byte[] value)
+    {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(value));
+        }
+        catch (NoSuchAlgorithmException e) {
+            throw new AssertionError("SHA-256 unavailable", e);
+        }
+    }
+
+    private static byte[] sanitizeLog(byte[] raw, List<String> literalSecrets)
+    {
+        String decoded = new String(raw, StandardCharsets.UTF_8);
+        StringBuilder sanitized = new StringBuilder(decoded.length());
+        decoded.codePoints().forEach(value -> {
+            if (value == '\n' || value == '\r' || value == '\t'
+                    || (!Character.isISOControl(value) && value != 0x7F)) {
+                sanitized.appendCodePoint(value);
+            }
+        });
+        String redacted = AUTHORIZATION_SECRET.matcher(sanitized)
+                .replaceAll("$1[REDACTED]");
+        redacted = GITHUB_TOKEN.matcher(redacted)
+                .replaceAll("[REDACTED_GITHUB_TOKEN]");
+        redacted = AWS_ACCESS_KEY.matcher(redacted)
+                .replaceAll("[REDACTED_AWS_ACCESS_KEY]");
+        redacted = URL_CREDENTIAL.matcher(redacted)
+                .replaceAll("$1[REDACTED]$3");
+        redacted = PRIVATE_KEY.matcher(redacted)
+                .replaceAll("[REDACTED_$1]");
+        redacted = COMMON_SECRET_ASSIGNMENT.matcher(redacted)
+                .replaceAll("$1[REDACTED]");
+        redacted = ADD_MASK_COMMAND.matcher(redacted)
+                .replaceAll("$1[REDACTED]");
+        if (!literalSecrets.isEmpty()) {
+            Pattern literals = Pattern.compile(String.join(
+                    "|",
+                    literalSecrets.stream()
+                            .map(Pattern::quote)
+                            .toList()));
+            redacted = literals.matcher(redacted)
+                    .replaceAll("[MASKED]");
+        }
+        return redacted.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static List<String> validateLiteralSecrets(List<String> values)
+    {
+        if (values.size() > MAX_LITERAL_SECRET_COUNT) {
+            throw new IllegalArgumentException(
+                    "too many program-known CI log secrets");
+        }
+        int totalLength = 0;
+        TreeSet<String> unique = new TreeSet<>(
+                Comparator.comparingInt(String::length).reversed()
+                        .thenComparing(Comparator.naturalOrder()));
+        for (String value : values) {
+            requireText(value, "literal secret");
+            if (value.length() < MIN_LITERAL_SECRET_LENGTH
+                    || value.length() > MAX_LITERAL_SECRET_LENGTH) {
+                throw new IllegalArgumentException(
+                        "program-known CI log secret length is out of bounds");
+            }
+            totalLength += value.length();
+            if (totalLength > MAX_LITERAL_SECRET_TOTAL_LENGTH) {
+                throw new IllegalArgumentException(
+                        "program-known CI log secrets are too large");
+            }
+            unique.add(value);
+        }
+        return List.copyOf(unique);
+    }
+
+    private static byte[] boundLog(byte[] sanitized)
+    {
+        if (sanitized.length <= MAX_STORED_LOG_BYTES) {
+            return sanitized;
+        }
+        int remaining = MAX_STORED_LOG_BYTES - TRUNCATION_MARKER.length;
+        int prefix = floorUtf8Boundary(sanitized, remaining / 2);
+        int suffixStart = ceilUtf8Boundary(
+                sanitized, sanitized.length - (remaining - prefix));
+        int suffix = sanitized.length - suffixStart;
+        byte[] bounded = new byte[prefix + TRUNCATION_MARKER.length + suffix];
+        System.arraycopy(sanitized, 0, bounded, 0, prefix);
+        System.arraycopy(
+                TRUNCATION_MARKER, 0, bounded, prefix,
+                TRUNCATION_MARKER.length);
+        System.arraycopy(
+                sanitized, suffixStart,
+                bounded, prefix + TRUNCATION_MARKER.length, suffix);
+        return bounded;
+    }
+
+    private static int floorUtf8Boundary(byte[] value, int offset)
+    {
+        int boundary = Math.min(offset, value.length);
+        while (boundary > 0
+                && boundary < value.length
+                && isUtf8Continuation(value[boundary])) {
+            boundary--;
+        }
+        return boundary;
+    }
+
+    private static int ceilUtf8Boundary(byte[] value, int offset)
+    {
+        int boundary = Math.max(0, offset);
+        while (boundary < value.length
+                && isUtf8Continuation(value[boundary])) {
+            boundary++;
+        }
+        return boundary;
+    }
+
+    private static int completeUtf8PrefixLength(byte[] value)
+    {
+        if (value.length == 0) {
+            return 0;
+        }
+        int codePointStart = value.length - 1;
+        while (codePointStart > 0
+                && isUtf8Continuation(value[codePointStart])) {
+            codePointStart--;
+        }
+        int expectedLength = utf8SequenceLength(value[codePointStart]);
+        if (expectedLength < 0) {
+            throw new IllegalStateException("stored CI log is not valid UTF-8");
+        }
+        return value.length - codePointStart < expectedLength
+                ? codePointStart
+                : value.length;
+    }
+
+    private static int utf8SequenceLength(byte value)
+    {
+        int unsigned = value & 0xFF;
+        if ((unsigned & 0x80) == 0) {
+            return 1;
+        }
+        if ((unsigned & 0xE0) == 0xC0) {
+            return 2;
+        }
+        if ((unsigned & 0xF0) == 0xE0) {
+            return 3;
+        }
+        if ((unsigned & 0xF8) == 0xF0) {
+            return 4;
+        }
+        return -1;
+    }
+
+    private static boolean isUtf8Continuation(byte value)
+    {
+        return (value & 0xC0) == 0x80;
+    }
+
     private String writeJson(List<String> values)
     {
         try {
@@ -831,26 +1345,6 @@ public final class CiAutofix
                         policy.unavailableReasonRef(), unavailableReasonRef)
                 && policy.requiredCheckSelectors().equals(selectors)
                 && policy.acceptedConclusions().equals(conclusions);
-    }
-
-    private static boolean allowedTransition(RoundState from, RoundState to)
-    {
-        return switch (from) {
-            case FINAL_RED -> to == RoundState.QUEUED
-                    || to == RoundState.SUPERSEDED
-                    || to == RoundState.NEEDS_ATTENTION;
-            case QUEUED -> to == RoundState.ACTIVE
-                    || to == RoundState.SUPERSEDED
-                    || to == RoundState.NEEDS_ATTENTION;
-            case ACTIVE -> to == RoundState.FIX_PREPARED
-                    || to == RoundState.SUPERSEDED
-                    || to == RoundState.NEEDS_ATTENTION;
-            case FIX_PREPARED -> to == RoundState.SUPERSEDED
-                    || to == RoundState.NEEDS_ATTENTION;
-            case NEEDS_ATTENTION -> to == RoundState.QUEUED
-                    || to == RoundState.SUPERSEDED;
-            case COLLECTING, GREEN, SUPERSEDED -> false;
-        };
     }
 
     private record RoundCalculation(

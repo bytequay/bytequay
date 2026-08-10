@@ -28,10 +28,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
+import javax.sql.DataSource;
+
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -49,12 +56,13 @@ class TestCiAutofix
 
     private final AtomicReference<PublishedPrSubject> subject = new AtomicReference<>();
 
+    private DataSource dataSource;
     private CiAutofix autofix;
 
     @BeforeEach
     void setUp()
     {
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        dataSource = new DriverManagerDataSource(
                 "jdbc:sqlite:" + temporaryDirectory.resolve("new-flow.db")
                         + "?foreign_keys=ON");
         CiAutofixSchema.install(dataSource);
@@ -65,6 +73,134 @@ class TestCiAutofix
                 new ObjectMapper(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 ignored -> subject.get());
+    }
+
+    @Test
+    void logEvidenceIsBoundedSanitizedRestartSafeAndByteExact()
+    {
+        var observation = autofix.observeCi("pr-1", check(
+                "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
+        byte[] raw = ("first" + (char) 0 + "line\nsecond")
+                .getBytes(StandardCharsets.UTF_8);
+
+        var first = autofix.attachLog(observation.observationId(), raw, List.of());
+        var duplicate = autofix.attachLog(
+                observation.observationId(), raw, List.of());
+        assertThat(duplicate).isEqualTo(first);
+        assertThat(autofix.readLogWindow(first.logRef(), 0, 5).content())
+                .isEqualTo("first");
+        assertThat(autofix.readLogWindow(first.logRef(), 5, 64).content())
+                .isEqualTo("line\nsecond");
+        assertThatThrownBy(() -> autofix.readLogWindow(
+                first.logRef(), 0, 64 * 1024 + 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> autofix.attachLog(
+                observation.observationId(),
+                "different".getBytes(StandardCharsets.UTF_8),
+                List.of()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("different bytes");
+
+        autofix = new CiAutofix(
+                dataSource,
+                new ObjectMapper(),
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                ignored -> subject.get());
+        assertThat(autofix.logEvidence(first.logRef())).contains(first);
+        assertThat(autofix.readLogWindow(first.logRef(), 0, 64).content())
+                .isEqualTo("firstline\nsecond");
+
+        var largeObservation = autofix.observeCi("pr-1", check(
+                "lint-id", "lint", "COMPLETED", "FAILURE", "1", NOW));
+        byte[] oversized = new byte[1024 * 1024 + 17];
+        Arrays.fill(oversized, (byte) 'x');
+        var bounded = autofix.attachLog(
+                largeObservation.observationId(), oversized, List.of());
+        assertThat(bounded.truncated()).isTrue();
+        assertThat(bounded.rawByteCount()).isEqualTo(oversized.length);
+        assertThat(bounded.storedByteCount()).isEqualTo(1024 * 1024);
+        assertThat(autofix.readLogWindow(
+                bounded.logRef(), 512 * 1024 - 64, 256).content())
+                .contains("[BYTEQUAY LOG TRUNCATED]");
+
+        var secretObservation = autofix.observeCi("pr-1", check(
+                "secret-id", "secret", "COMPLETED", "FAILURE", "1", NOW));
+        String literalSecret = "runtime-known-secret";
+        String credentials = """
+                Authorization: Bearer bearer-value
+                bare=ghp_123456789012345678901234
+                key=AKIA1234567890123456
+                PASSWORD=assignment-password
+                api_key: assignment-api-key
+                AWS_SECRET_ACCESS_KEY=aws-secret-value
+                GH_TOKEN=github-secret-value
+                MY_API_KEY=my-api-secret-value
+                ::add-mask::masked-by-provider
+                https://user:password@example.test/repository
+                -----BEGIN PRIVATE KEY-----
+                private-material
+                -----END PRIVATE KEY-----
+                runtime-known-secret
+                """;
+        var redacted = autofix.attachLog(
+                secretObservation.observationId(),
+                credentials.getBytes(StandardCharsets.UTF_8),
+                List.of(literalSecret));
+        String exposed = autofix.readLogWindow(
+                redacted.logRef(), 0, 4096).content();
+        assertThat(exposed)
+                .contains("[REDACTED]")
+                .contains("[REDACTED_GITHUB_TOKEN]")
+                .contains("[REDACTED_AWS_ACCESS_KEY]")
+                .contains("[REDACTED_PRIVATE KEY]")
+                .contains("[MASKED]")
+                .doesNotContain("bearer-value", "ghp_123456789012345678901234",
+                        "AKIA1234567890123456", "password", "private-material",
+                        "assignment-password", "assignment-api-key",
+                        "aws-secret-value", "github-secret-value",
+                        "my-api-secret-value",
+                        "masked-by-provider", literalSecret);
+
+        assertThatThrownBy(() -> autofix.attachLog(
+                secretObservation.observationId(),
+                "ignored".getBytes(StandardCharsets.UTF_8),
+                List.of("short")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("length");
+        assertThatThrownBy(() -> autofix.attachLog(
+                secretObservation.observationId(),
+                "ignored".getBytes(StandardCharsets.UTF_8),
+                IntStream.range(0, 65)
+                        .mapToObj(index -> "secret-value-" + index)
+                        .toList()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("too many");
+        assertThatThrownBy(() -> autofix.attachLog(
+                secretObservation.observationId(),
+                "ignored".getBytes(StandardCharsets.UTF_8),
+                List.of("x".repeat(257))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("length");
+        assertThatThrownBy(() -> autofix.attachLog(
+                secretObservation.observationId(),
+                "ignored".getBytes(StandardCharsets.UTF_8),
+                IntStream.range(0, 17)
+                        .mapToObj(index -> ("secret-" + index + "-")
+                                .repeat(32).substring(0, 256))
+                        .toList()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("too large");
+
+        var rejectedObservation = autofix.observeCi("pr-1", check(
+                "huge-id", "huge", "COMPLETED", "FAILURE", "1", NOW));
+        assertThatThrownBy(() -> autofix.attachLog(
+                rejectedObservation.observationId(),
+                new byte[4 * 1024 * 1024 + 1],
+                List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exceeds");
+        assertThat(autofix.logEvidence(
+                "ci-log-does-not-exist")).isEmpty();
     }
 
     @Test
@@ -90,6 +226,46 @@ class TestCiAutofix
         assertThat(red.round().policyRevisionId()).isEqualTo(policy.policyRevisionId());
         assertThat(red.round().checkObservationIds()).hasSize(2);
         assertThat(red.newlyFinal()).isTrue();
+    }
+
+    @Test
+    void utf8TruncationAndWindowsNeverSplitCodePoints()
+    {
+        var observation = autofix.observeCi("pr-1", check(
+                "unicode-id", "unicode", "COMPLETED", "FAILURE", "1", NOW));
+        byte[] raw = "🙂漢字".repeat(120_000)
+                .getBytes(StandardCharsets.UTF_8);
+        var evidence = autofix.attachLog(
+                observation.observationId(), raw, List.of());
+
+        assertThat(evidence.truncated()).isTrue();
+        assertThatThrownBy(() -> autofix.readLogWindow(
+                evidence.logRef(), 1, 32))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("boundary");
+        assertThatThrownBy(() -> autofix.readLogWindow(
+                evidence.logRef(), 0, 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("too small");
+
+        StringBuilder reconstructed = new StringBuilder();
+        long offset = 0;
+        while (true) {
+            var window = autofix.readLogWindow(
+                    evidence.logRef(), offset, 4097);
+            assertThat(window.content()).doesNotContain("�");
+            assertThat(window.nextOffset()).isGreaterThan(offset);
+            reconstructed.append(window.content());
+            offset = window.nextOffset();
+            if (window.endOfLog()) {
+                break;
+            }
+        }
+        byte[] exposed = reconstructed.toString()
+                .getBytes(StandardCharsets.UTF_8);
+        assertThat(exposed).hasSize((int) evidence.storedByteCount());
+        assertThat(sha256(exposed)).isEqualTo(evidence.exposedContentDigest());
+        assertThat(reconstructed).contains("[BYTEQUAY LOG TRUNCATED]");
     }
 
     @Test
@@ -229,6 +405,24 @@ class TestCiAutofix
 
         assertThat(result.round().state()).isEqualTo(RoundState.NEEDS_ATTENTION);
         assertThat(result.newlyFinal()).isFalse();
+        List<String> frozenObservations = result.round().checkObservationIds();
+
+        autofix.observeCi("pr-1", check(
+                "H1", "build", "new-check", "new-run", 1, "Build",
+                "COMPLETED", "SUCCESS", "new-final", NOW.plusSeconds(10),
+                NOW.plusSeconds(20), NOW.plusSeconds(20), "raw:new"));
+        FinalizedRound successor = (FinalizedRound) autofix.finalizeHeadSnapshot(
+                "pr-1", "H1");
+
+        assertThat(successor.round().state()).isEqualTo(RoundState.GREEN);
+        assertThat(successor.round().evidenceRevision()).isEqualTo(1);
+        assertThat(autofix.roundById(result.round().roundId()))
+                .get()
+                .satisfies(frozen -> {
+                    assertThat(frozen.state()).isEqualTo(RoundState.SUPERSEDED);
+                    assertThat(frozen.checkObservationIds())
+                            .isEqualTo(frozenObservations);
+                });
     }
 
     @Test
@@ -272,43 +466,44 @@ class TestCiAutofix
     }
 
     @Test
-    void finalizedRoundEvidenceCannotRegressWhileQueuedOrActive()
+    void newerEvidenceSupersedesQueuedRevisionWithoutMutatingIt()
     {
         RequiredCiPolicyRevision policy = resolvedPolicy(List.of("build"));
         String failedObservation = autofix.observeCi("pr-1", check(
                 "build-id", "build", "COMPLETED", "FAILURE", "1", NOW))
                 .observationId();
         FinalizedRound red = (FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1");
-        autofix.advanceRoundState(red.round().roundId(), RoundState.FINAL_RED, RoundState.QUEUED);
+        autofix.attachLog(
+                failedObservation,
+                "failure".getBytes(StandardCharsets.UTF_8),
+                List.of());
+        autofix.queueCurrentFinalRed(red.round().roundId());
 
         autofix.observeCi("pr-1", check(
                 "H1", "build", "new-check", "new-run", 1, "Build",
                 "COMPLETED", "SUCCESS", "new-final", NOW.plusSeconds(10),
                 NOW.plusSeconds(20), NOW.plusSeconds(20), "raw:new"));
+        assertThatThrownBy(() -> autofix.queueCurrentFinalRed(
+                red.round().roundId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no longer match");
         FinalizedRound queued = (FinalizedRound) autofix.finalizeHeadSnapshot(
                 "pr-1", "H1");
 
-        assertThat(queued.round().state()).isEqualTo(RoundState.QUEUED);
-        assertThat(queued.round().checkObservationIds()).containsExactly(failedObservation);
-
-        autofix.advanceRoundState(red.round().roundId(), RoundState.QUEUED, RoundState.ACTIVE);
-        FinalizedRound active = (FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1");
-
-        assertThat(active.round().state()).isEqualTo(RoundState.ACTIVE);
-        assertThat(active.round().checkObservationIds()).containsExactly(failedObservation);
-        assertThatThrownBy(() -> autofix.advanceRoundState(
-                red.round().roundId(), RoundState.QUEUED, RoundState.ACTIVE))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("not QUEUED");
-
-        autofix.advanceRoundState(red.round().roundId(),
-                RoundState.ACTIVE, RoundState.FIX_PREPARED);
-        FinalizedRound prepared = (FinalizedRound) autofix.finalizeHeadSnapshot(
-                "pr-1", "H1");
-        assertThat(prepared.round().state()).isEqualTo(RoundState.FIX_PREPARED);
-        assertThat(prepared.round().checkObservationIds()).containsExactly(failedObservation);
+        assertThat(queued.round().roundId()).isNotEqualTo(red.round().roundId());
+        assertThat(queued.round().evidenceRevision()).isEqualTo(1);
+        assertThat(queued.round().state()).isEqualTo(RoundState.GREEN);
+        assertThat(autofix.roundById(red.round().roundId()))
+                .get()
+                .satisfies(frozen -> {
+                    assertThat(frozen.state()).isEqualTo(RoundState.SUPERSEDED);
+                    assertThat(frozen.checkObservationIds())
+                            .containsExactly(failedObservation);
+                    assertThat(frozen.supersededBy())
+                            .isEqualTo(queued.round().roundId());
+                });
         assertThat(autofix.round("pr-1", "H1", policy.policyRevisionId()))
-                .contains(prepared.round());
+                .contains(queued.round());
     }
 
     @Test
@@ -337,6 +532,13 @@ class TestCiAutofix
                     assertThat(round.checkObservationIds())
                             .doesNotContain(frozenObservation);
                 });
+        assertThat(autofix.roundById(green.round().roundId()))
+                .get()
+                .satisfies(frozen -> {
+                    assertThat(frozen.state()).isEqualTo(RoundState.SUPERSEDED);
+                    assertThat(frozen.checkObservationIds())
+                            .containsExactly(frozenObservation);
+                });
     }
 
     @Test
@@ -347,6 +549,7 @@ class TestCiAutofix
                 "build-id", "build", "COMPLETED", "FAILURE", "1", NOW));
         FinalizedRound red = (FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1");
         assertThat(red.round().state()).isEqualTo(RoundState.FINAL_RED);
+        String frozenObservation = red.round().checkObservationIds().getFirst();
 
         autofix.observeCi("pr-1", check(
                 "H1", "build", "new-check", "new-run", 1, "Build",
@@ -355,6 +558,14 @@ class TestCiAutofix
 
         FinalizedRound green = (FinalizedRound) autofix.finalizeHeadSnapshot("pr-1", "H1");
         assertThat(green.round().state()).isEqualTo(RoundState.GREEN);
+        assertThat(green.round().evidenceRevision()).isEqualTo(1);
+        assertThat(autofix.roundById(red.round().roundId()))
+                .get()
+                .satisfies(frozen -> {
+                    assertThat(frozen.state()).isEqualTo(RoundState.SUPERSEDED);
+                    assertThat(frozen.checkObservationIds())
+                            .containsExactly(frozenObservation);
+                });
         assertThat(autofix.acceptedRequiredCiSnapshot(
                 "pr-1", "H1", policy.policyRevisionId()).roundId())
                 .isEqualTo(green.round().roundId());
@@ -500,5 +711,16 @@ class TestCiAutofix
                 completedAt,
                 observedAt,
                 rawEvidenceRef);
+    }
+
+    private static String sha256(byte[] value)
+    {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(value));
+        }
+        catch (NoSuchAlgorithmException e) {
+            throw new AssertionError(e);
+        }
     }
 }

@@ -125,23 +125,35 @@ revision. Updates append observations; they do not rewrite what an agent saw.
 ### `CiLogEvidence`
 
 ```text
-logRef, observationId, contentDigest, byteLength,
-storageRef, fetchedAt, retentionUntil
+logRef, observationId, contentDigest, exposedContentDigest,
+rawByteCount, storedByteCount, truncated, storedAt
 ```
 
-Logs are stored once and read through bounded search/window tools. They are not
-copied into prompts or worktree files.
+The current local-sidecar baseline rejects raw input above 4 MiB before UTF-8
+decoding, removes control characters, performs best-effort redaction of known
+authorization/token/secret/password/API-key/private-key/add-mask forms plus a
+program-known literal list capped at 64 entries, 8-256 characters each and
+4,096 characters total, and stores at most a UTF-8-safe 1 MiB head/tail
+projection in SQLite. `contentDigest` covers the original raw
+bytes; `exposedContentDigest` covers the stored redacted bytes. Redaction is not
+a proof that arbitrary secrets were recognized. Reads use UTF-8-boundary-safe
+windows capped at 64 KiB. Logs are not copied into prompts or worktree files.
 
 ### `CiRound`
 
 ```text
 roundId, taskId, prId, remoteHead, policyRevisionId,
-checkObservationIds[], failedLogRefs[], state,
+evidenceRevision, checkObservationIds[], failedLogRefs[], state,
 createdAt, supersededBy?
 ```
 
-`UNIQUE(prId, remoteHead, policyRevisionId)` makes policy re-evaluation
-restart-safe. A new policy revision never rewrites or duplicates the old round.
+`UNIQUE(prId, remoteHead, policyRevisionId, evidenceRevision)` makes provider
+reruns and policy re-evaluation restart-safe. Only `COLLECTING` may refresh in
+place. Once a revision reaches `FINAL_RED`, `GREEN`, `NEEDS_ATTENTION`, or a
+later state, identical evidence is idempotent; changed observation IDs or
+calculated state create the next immutable evidence revision and mark the old
+revision `SUPERSEDED`. A new policy revision likewise never rewrites the old
+round.
 
 States are `COLLECTING`, `FINAL_RED`, `QUEUED`, `ACTIVE`, `FIX_PREPARED`,
 `GREEN`, `SUPERSEDED`, and `NEEDS_ATTENTION`. Task review, gate, authorization,
@@ -185,7 +197,7 @@ cause, commands, paths, or a success verdict out of the prose.
 
 ```text
 CiAutofix.observeCi(prId, normalizedCheck) -> ObservationResult
-CiAutofix.attachLog(observationId, rawLog) -> logRef
+CiAutofix.attachLog(observationId, rawLog, programKnownLiteralSecrets) -> logRef
 RequiredCiPolicies.current(repositoryId, targetBaseRef) -> RESOLVED(policy) | UNAVAILABLE(policy) | MISSING
 RequiredCiPolicies.record(repositoryId, scopeKey, targetBaseRef, sourceRef?, normalizedPolicyOrUnavailable) -> policyRevisionId
 CiAutofix.finalizeHead(prId, headSha) -> roundId?
@@ -212,10 +224,17 @@ ignored/rejected and cannot change policy.
 `RESOLVED` revision for the PR's observed target-base scope; an old, missing, or
 unavailable revision returns a typed blocker rather than evidence.
 
-`enqueueRepair` treats the exact `FINAL_RED`/`QUEUED` round as the pending domain
-fact and creates/reuses one deduplicated runtime reconciliation
-`Operation`/`DispatchTicket`. There is no separate mutation-intent record. It
-does not invoke the Task Agent or an agent scheduler directly.
+`enqueueRepair` is the sole `FINAL_RED` to `QUEUED` transition. It revalidates
+the current policy, observation IDs, exact head, and complete frozen failed-log
+references even on redelivery, then creates/reuses one deduplicated runtime
+reconciliation `Operation`/`DispatchTicket`. There is no separate
+mutation-intent record. It does not invoke the Task Agent or an agent scheduler
+directly. `WAITING_USER` and `NEEDS_ATTENTION` Tasks retain the queued cause but
+the runtime parks reconciliation until the Task resumes. If the Task is already
+`COMPLETED` or `CANCELED`, the program preserves an idempotent terminal inbox
+audit fact and creates no reconciliation or CI writer. A Task terminal before
+first enqueue leaves the round `FINAL_RED`; a round already made `QUEUED`
+remains historical `QUEUED` evidence when the Task later becomes terminal.
 The runtime first resolves the unique `AgentRun.operationId` after
 `WorkSelector` creates the selected `RUN_CI_FIXER` operation and the dispatcher
 claims it. Redelivery always reuses that run. Only when no operation-bound run
@@ -348,8 +367,8 @@ code/Git/GitHub mutation tools.
    remote head `H1` and calls `observeCi`.
 2. Required checks remain `COLLECTING` until their current attempts are terminal.
 3. The program fetches each failed job log once and stores a `CiLogEvidence`.
-4. `finalizeHead` creates one exact-head `FINAL_RED` round.
-5. `enqueueRepair` always leaves the `FINAL_RED` round pending and ensures the
+4. `finalizeHead` creates one immutable exact-head `FINAL_RED` evidence revision.
+5. `enqueueRepair` freezes its failed logs, moves it to `QUEUED`, and ensures the
    Task's deduplicated reconciliation ticket, even while another writer runs.
    `WorkSelector` waits for writer admission and gives current final red CI
    priority over feedback; event ingestion itself never drops or delays the fact.

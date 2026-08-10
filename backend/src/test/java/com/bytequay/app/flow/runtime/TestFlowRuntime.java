@@ -40,6 +40,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
 
+import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -92,28 +93,26 @@ class TestFlowRuntime
         ActiveWriter writer = startWriter(
                 OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
         assertThat(writer.run().state()).isEqualTo(RunState.QUEUED);
-        AgentProcessAttempt process = runtime.reserveProcessAttempt(
-                writer.run().runId(), writer.claim(), writer.fence());
-        assertThat(runtime.activateProcessAttempt(
-                process.processAttemptId(), writer.claim(), writer.fence(),
-                "pid:101").state())
-                .isEqualTo(RunState.RUNNING);
-        assertThat(runtime.reserveProcessAttempt(
-                writer.run().runId(), writer.claim(), writer.fence())
-                .processAttemptId())
-                .isEqualTo(process.processAttemptId());
-        assertThat(runtime.runForOperation(initialTurn.operationId())
-                .orElseThrow().startedAt()).isEqualTo(NOW);
 
         runtime = new FlowRuntime(dataSource, clock);
         assertThat(runtime.runForOperation(initialTurn.operationId()))
                 .contains(runtime.runForOperation(
                         initialTurn.operationId()).orElseThrow());
-        runtime.finishAgentRun(
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = supervisor.launch(
                 writer.run().runId(), writer.claim(), writer.fence(),
-                TerminalOutcome.COMPLETED,
-                "ordinary prose; not a protocol", null,
-                "process:task-1");
+                capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
+                        TerminalOutcome.COMPLETED,
+                        "ordinary prose; not a protocol",
+                        null));
+        assertThat(supervisor.launch(
+                writer.run().runId(), writer.claim(), writer.fence(),
+                capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
+                        TerminalOutcome.FAILED, null, "must-not-run")))
+                .isEqualTo(handle);
+        supervisor.awaitAndFinish(handle, TTL);
+        assertThat(runtime.runForOperation(initialTurn.operationId())
+                .orElseThrow().startedAt()).isEqualTo(NOW);
 
         PullRequestSubject local = runtime.materializePullRequest(
                 first.taskId(), "H-one", "main", "main", "main");
@@ -144,7 +143,7 @@ class TestFlowRuntime
         Operation turn = selectFromReconciliation();
         ActiveWriter first = startWriter(
                 OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
-        AgentProcessAttempt firstProcess = activate(first, "pid:201");
+        AgentProcessAttempt firstProcess = activateForRecovery(first);
         clock.advance(TTL.plusSeconds(1));
 
         runtime = new FlowRuntime(dataSource, clock);
@@ -211,7 +210,7 @@ class TestFlowRuntime
         Operation turn = selectFromReconciliation();
         ActiveWriter writer = startWriter(
                 OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
-        AgentProcessAttempt reserved = runtime.reserveProcessAttempt(
+        AgentProcessAttempt reserved = runtime.reserveInProcessWriterAttempt(
                 writer.run().runId(), writer.claim(), writer.fence());
         clock.advance(TTL.plusSeconds(1));
 
@@ -316,7 +315,7 @@ class TestFlowRuntime
         assertThatThrownBy(() -> runtime.assertWriterFence(
                 renewedClaim, liveRowAfterClaim))
                 .isInstanceOf(StaleWriterFenceException.class);
-        assertThatThrownBy(() -> runtime.reserveProcessAttempt(
+        assertThatThrownBy(() -> runtime.reserveInProcessWriterAttempt(
                 run.runId(), renewedClaim, liveRowAfterClaim))
                 .isInstanceOf(StaleClaimException.class);
         assertThat(runtime.claimNext("worker-2", TTL)).isEmpty();
@@ -529,11 +528,11 @@ class TestFlowRuntime
             selectFromReconciliation();
             ActiveWriter writer = startWriter(
                     OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
-            activate(writer, "pid:" + suffix);
-            runtime.finishAgentRun(
-                    writer.run().runId(), writer.claim(), writer.fence(),
-                    outcome, "opaque stop", "agent-stop:" + suffix,
-                    "process:" + suffix);
+            runToCompletion(
+                    writer,
+                    outcome,
+                    "opaque stop",
+                    "agent-stop:" + suffix);
 
             assertThat(runtime.task(task.taskId()).orElseThrow().status())
                     .isEqualTo(TaskStatus.NEEDS_ATTENTION);
@@ -574,12 +573,11 @@ class TestFlowRuntime
 
         ActiveWriter writer = startWriter(
                 OperationKind.RUN_CI_FIXER, AgentRole.CI_FIXER);
-        activate(writer, "pid:ci");
-        var result = runtime.finishAgentRun(
-                writer.run().runId(), writer.claim(), writer.fence(),
+        var result = runToCompletion(
+                writer,
                 TerminalOutcome.FAILED,
-                "not-json and no verdict", "process-exit:1",
-                "process:ci");
+                "not-json and no verdict",
+                "process-exit:1");
 
         assertThat(runtime.resultForRun(writer.run().runId()).orElseThrow()
                 .finalContent()).isEqualTo("not-json and no verdict");
@@ -639,11 +637,11 @@ class TestFlowRuntime
         selectFromReconciliation();
         ActiveWriter writer = startWriter(
                 OperationKind.RUN_TASK_TURN, AgentRole.TASK_AGENT);
-        activate(writer, "pid:initial:" + writer.run().runId());
-        runtime.finishAgentRun(
-                writer.run().runId(), writer.claim(), writer.fence(),
-                TerminalOutcome.COMPLETED, "task complete", null,
-                "process:initial:" + writer.run().runId());
+        runToCompletion(
+                writer,
+                TerminalOutcome.COMPLETED,
+                "task complete",
+                null);
     }
 
     private ActiveWriter startWriter(OperationKind kind, AgentRole role)
@@ -662,14 +660,37 @@ class TestFlowRuntime
         return new ActiveWriter(claim, fence, run);
     }
 
-    private AgentProcessAttempt activate(ActiveWriter writer, String processId)
+    private AgentProcessAttempt activateForRecovery(ActiveWriter writer)
     {
-        AgentProcessAttempt process = runtime.reserveProcessAttempt(
+        AgentProcessAttempt process = runtime.reserveInProcessWriterAttempt(
                 writer.run().runId(), writer.claim(), writer.fence());
-        runtime.activateProcessAttempt(
-                process.processAttemptId(), writer.claim(), writer.fence(),
-                processId);
-        return process;
+        runtime.activateInProcessWriterAttempt(
+                process.processAttemptId(),
+                writer.claim(),
+                writer.fence(),
+                ProcessHandle.current().pid(),
+                Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean()
+                        .getStartTime()),
+                Thread.currentThread().threadId(),
+                Thread.currentThread().getName());
+        return runtime.reserveInProcessWriterAttempt(
+                writer.run().runId(), writer.claim(), writer.fence());
+    }
+
+    private FlowRuntimeRecords.AgentResult runToCompletion(
+            ActiveWriter writer,
+            TerminalOutcome outcome,
+            String finalContent,
+            String errorRef)
+    {
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = supervisor.launch(
+                writer.run().runId(),
+                writer.claim(),
+                writer.fence(),
+                capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
+                        outcome, finalContent, errorRef));
+        return supervisor.awaitAndFinish(handle, TTL);
     }
 
     private Operation selectFromReconciliation()

@@ -33,6 +33,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import com.bytequay.app.flow.runtime.FlowRuntimeSchema;
+import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -542,13 +543,14 @@ class TestCiAutofixCoordinator
                 TTL);
         AgentRun run = runtime.startWriterAgent(
                 turn, fence, "prompt:task", "capabilities:task");
-        var process = runtime.reserveProcessAttempt(
-                run.runId(), turn, fence);
-        runtime.activateProcessAttempt(
-                process.processAttemptId(), turn, fence, "pid:task");
-        runtime.finishAgentRun(
-                run.runId(), turn, fence, TerminalOutcome.COMPLETED,
-                "done", null, "process:task");
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = supervisor.launch(
+                run.runId(),
+                turn,
+                fence,
+                capability -> new InProcessWriterAgentSupervisor.AgentCompletion(
+                        TerminalOutcome.COMPLETED, "done", null));
+        supervisor.awaitAndFinish(handle, TTL);
     }
 
     private Claim claim(OperationKind expected)

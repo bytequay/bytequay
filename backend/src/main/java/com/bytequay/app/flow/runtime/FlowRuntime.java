@@ -21,12 +21,14 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentSession;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.FinalRedRegistration;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.SessionState;
@@ -36,6 +38,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.flow.runtime.InProcessWriterAgentSupervisor.TerminatedThreadWitness;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -1306,8 +1309,8 @@ public final class FlowRuntime
         });
     }
 
-    /** Reserves one dormant process/capability identity for this claim generation. */
-    public synchronized AgentProcessAttempt reserveProcessAttempt(
+    /** Reserves one dormant in-process capability for this claim generation. */
+    synchronized AgentProcessAttempt reserveInProcessWriterAttempt(
             String runId, Claim claim, WriterFence fence)
     {
         requireText(runId, "runId");
@@ -1329,7 +1332,9 @@ public final class FlowRuntime
                 AgentProcessAttempt attempt = existing.get();
                 if (!attempt.runId().equals(runId)
                         || !attempt.operationId().equals(claim.operationId())
-                        || attempt.claimGeneration() != claim.generation()) {
+                        || attempt.claimGeneration() != claim.generation()
+                        || !attempt.claimTokenDigest()
+                                .equals(claimTokenDigest(claim))) {
                     throw new IllegalStateException(
                             "process-attempt identity has conflicting content");
                 }
@@ -1344,14 +1349,15 @@ public final class FlowRuntime
                     """
                     INSERT INTO flow_runtime_agent_process_attempt (
                         process_attempt_id, run_id, operation_id,
-                        claim_generation, execution_id, capability_id,
-                        state, reserved_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'RESERVED', ?)
+                        claim_generation, claim_token_digest, execution_id,
+                        capability_id, state, reserved_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?)
                     """,
                     attemptId,
                     runId,
                     claim.operationId(),
                     claim.generation(),
+                    claimTokenDigest(claim),
                     stableId("execution", runId,
                             Long.toString(claim.generation())),
                     stableId("capability", runId,
@@ -1362,19 +1368,29 @@ public final class FlowRuntime
     }
 
     /**
-     * Records the concrete dormant process identity before the logical run can
-     * become RUNNING. The caller activates model/tools only after this commits.
+     * Records a dormant Java thread before the logical run can become RUNNING.
+     * The supervisor starts the thread only after this transaction commits.
      */
-    public synchronized AgentRun activateProcessAttempt(
+    synchronized AgentRun activateInProcessWriterAttempt(
             String processAttemptId,
             Claim claim,
             WriterFence fence,
-            String processIdentity)
+            long jvmPid,
+            Instant jvmStartedAt,
+            long threadId,
+            String threadName)
     {
         requireText(processAttemptId, "processAttemptId");
         requireNonNull(claim, "claim is null");
         requireNonNull(fence, "fence is null");
-        requireText(processIdentity, "processIdentity");
+        if (jvmPid <= 0) {
+            throw new IllegalArgumentException("jvmPid must be positive");
+        }
+        requireNonNull(jvmStartedAt, "jvmStartedAt is null");
+        if (threadId <= 0) {
+            throw new IllegalArgumentException("threadId must be positive");
+        }
+        requireText(threadName, "threadName");
         return inTransaction(() -> {
             assertCurrentClaim(claim, OperationState.CLAIMED);
             assertFenceRow(claim, fence);
@@ -1386,7 +1402,10 @@ public final class FlowRuntime
                         "process attempt belongs to another claim generation");
             }
             if (attempt.state() == ProcessAttemptState.ACTIVATED) {
-                if (!processIdentity.equals(attempt.processIdentity())
+                if (!Long.valueOf(jvmPid).equals(attempt.jvmPid())
+                        || !jvmStartedAt.equals(attempt.jvmStartedAt())
+                        || !Long.valueOf(threadId).equals(attempt.threadId())
+                        || !threadName.equals(attempt.threadName())
                         || run.state() != RunState.RUNNING) {
                     throw new IllegalStateException(
                             "process activation redelivery changed identity");
@@ -1402,11 +1421,14 @@ public final class FlowRuntime
             int processUpdated = jdbc.update(
                     """
                     UPDATE flow_runtime_agent_process_attempt
-                    SET state = 'ACTIVATED', process_identity = ?,
-                        activated_at = ?
+                    SET state = 'ACTIVATED', jvm_pid = ?, jvm_started_at = ?,
+                        thread_id = ?, thread_name = ?, activated_at = ?
                     WHERE process_attempt_id = ? AND state = 'RESERVED'
                     """,
-                    processIdentity,
+                    jvmPid,
+                    jvmStartedAt.toEpochMilli(),
+                    threadId,
+                    threadName,
                     now.toEpochMilli(),
                     processAttemptId);
             int runUpdated = jdbc.update(
@@ -1426,6 +1448,215 @@ public final class FlowRuntime
         });
     }
 
+    /** Authorizes one tool call for the exact live in-process capability. */
+    synchronized void assertInProcessWriterToolCapability(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            String capabilityId)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireText(capabilityId, "capabilityId");
+        inTransaction(() -> {
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            assertFenceRow(claim, fence);
+            Integer matches = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_agent_process_attempt a
+                    JOIN flow_runtime_agent_run r ON r.run_id = a.run_id
+                    WHERE a.run_id = ? AND a.operation_id = ?
+                      AND a.claim_generation = ?
+                      AND a.claim_token_digest = ?
+                      AND a.capability_id = ? AND a.state = 'ACTIVATED'
+                      AND a.capability_revoked_at IS NULL
+                      AND a.quarantine_reason IS NULL
+                      AND r.state = 'RUNNING'
+                    """,
+                    Integer.class,
+                    runId,
+                    claim.operationId(),
+                    claim.generation(),
+                    claimTokenDigest(claim),
+                    capabilityId);
+            if (requireNonNull(matches, "capability count is null") != 1) {
+                throw new StaleCapabilityException(
+                        "in-process tool capability is stale or revoked");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
+    /** Revokes tools without claiming that the Java execution has stopped. */
+    synchronized AgentProcessAttempt revokeInProcessWriterCapability(
+            String processAttemptId, Claim claim, WriterFence fence)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        return inTransaction(() -> {
+            assertTerminationAuthority(processAttemptId, claim, fence);
+            AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
+            if (attempt.capabilityRevokedAt() != null) {
+                return attempt;
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET capability_revoked_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NULL
+                    """,
+                    clock.instant().toEpochMilli(),
+                    processAttemptId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "in-process capability changed during revocation");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
+    /**
+     * Stores program-owned proof after the concrete supervisor joined the
+     * exact activated Java thread. This method never stops an execution.
+     */
+    synchronized AgentProcessAttempt recordInProcessWriterStopped(
+            String processAttemptId,
+            Claim claim,
+            WriterFence fence,
+            TerminatedThreadWitness witness,
+            InProcessStopType stopType)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(witness, "witness is null");
+        requireNonNull(stopType, "stopType is null");
+        return inTransaction(() -> {
+            assertTerminationAuthority(processAttemptId, claim, fence);
+            AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
+            assertInProcessIdentity(attempt, witness);
+            if (attempt.state() == ProcessAttemptState.STOPPED) {
+                if (attempt.stopType() != stopType) {
+                    throw new IllegalStateException(
+                            "in-process stop redelivery changed type");
+                }
+                return attempt;
+            }
+            if (attempt.state() != ProcessAttemptState.ACTIVATED
+                    || attempt.capabilityRevokedAt() == null
+                    || attempt.quarantineReason() != null) {
+                throw new IllegalStateException(
+                        "in-process execution is not safely stoppable");
+            }
+            Instant now = clock.instant();
+            String proofRef = stableId(
+                    "in-process-stop",
+                    attempt.executionId(),
+                    stopType.name(),
+                    Long.toString(witness.jvmPid()),
+                    Long.toString(witness.jvmStartedAt().toEpochMilli()),
+                    Long.toString(witness.thread().threadId()),
+                    Long.toString(attempt.capabilityRevokedAt()
+                            .toEpochMilli()));
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET state = 'STOPPED', stop_type = ?,
+                        stop_proof_ref = ?, stopped_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NOT NULL
+                      AND quarantine_reason IS NULL
+                    """,
+                    stopType.name(),
+                    proofRef,
+                    now.toEpochMilli(),
+                    processAttemptId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "in-process stop proof changed concurrently");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
+    /** Quarantines an activated execution that ignored bounded cancellation. */
+    synchronized AgentProcessAttempt quarantineInProcessWriterAttempt(
+            String processAttemptId,
+            Claim claim,
+            WriterFence fence,
+            ProcessQuarantineReason reason)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(reason, "reason is null");
+        return inTransaction(() -> {
+            assertTerminationAuthority(processAttemptId, claim, fence);
+            AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
+            if (attempt.quarantineReason() != null) {
+                if (attempt.quarantineReason() != reason) {
+                    throw new IllegalStateException(
+                            "in-process quarantine redelivery changed reason");
+                }
+                return attempt;
+            }
+            if (attempt.state() != ProcessAttemptState.ACTIVATED
+                    || attempt.capabilityRevokedAt() == null) {
+                throw new IllegalStateException(
+                        "only a revoked active execution can be quarantined");
+            }
+            Instant now = clock.instant();
+            int quarantined = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET quarantine_reason = ?, quarantined_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NOT NULL
+                      AND quarantine_reason IS NULL
+                    """,
+                    reason.name(),
+                    now.toEpochMilli(),
+                    processAttemptId);
+            if (quarantined != 1) {
+                throw new StaleOwnerRevisionException(
+                        "in-process quarantine changed concurrently");
+            }
+            Task task = requireTask(fence.taskId());
+            if (task.status() == TaskStatus.NEEDS_ATTENTION) {
+                return requireProcessAttempt(processAttemptId);
+            }
+            if (task.status() != TaskStatus.ACTIVE) {
+                throw new StaleOwnerRevisionException(
+                        "writer quarantine cannot change this Task state");
+            }
+            TaskLifecycleRevision attention = appendLifecycle(
+                    task,
+                    TaskStatus.NEEDS_ATTENTION,
+                    reason.name(),
+                    "process-attempt:" + processAttemptId,
+                    claim.operationId(),
+                    now);
+            int taskUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_task
+                    SET status = 'NEEDS_ATTENTION',
+                        current_lifecycle_revision_id = ?
+                    WHERE task_id = ? AND status = 'ACTIVE'
+                      AND selected_writer_operation_id = ?
+                      AND current_lifecycle_revision_id = ?
+                    """,
+                    attention.lifecycleRevisionId(),
+                    task.taskId(),
+                    claim.operationId(),
+                    task.currentLifecycleRevisionId());
+            if (taskUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "in-process quarantine lost its Task owner revision");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
     /**
      * Stores the tagged terminal result before releasing the lease/session.
      * The final content is never inspected or normalized.
@@ -1436,14 +1667,12 @@ public final class FlowRuntime
             WriterFence fence,
             TerminalOutcome terminalOutcome,
             String finalContent,
-            String errorRef,
-            String processMetadataRef)
+            String errorRef)
     {
         requireText(runId, "runId");
         requireNonNull(claim, "claim is null");
         requireNonNull(fence, "fence is null");
         requireNonNull(terminalOutcome, "terminalOutcome is null");
-        requireText(processMetadataRef, "processMetadataRef");
         if (terminalOutcome != TerminalOutcome.COMPLETED) {
             requireText(errorRef, "errorRef");
         }
@@ -1454,14 +1683,16 @@ public final class FlowRuntime
                 assertFinalizedClaim(claim, result.resultId());
                 if (result.terminalOutcome() != terminalOutcome
                         || !Objects.equals(result.finalContent(), finalContent)
-                        || !Objects.equals(result.errorRef(), errorRef)
-                        || !result.processMetadataRef()
-                                .equals(processMetadataRef)) {
+                        || !Objects.equals(result.errorRef(), errorRef)) {
                     throw new IllegalStateException(
                             "AgentResult redelivery changed terminal content");
                 }
-                assertStoppedProcessMetadata(
-                        runId, claim.generation(), processMetadataRef);
+                AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                        runId, claim.generation());
+                if (!result.stopProofRef().equals(stopped.stopProofRef())) {
+                    throw new IllegalStateException(
+                            "AgentResult stop proof changed after finalization");
+                }
                 return result;
             }
 
@@ -1477,16 +1708,14 @@ public final class FlowRuntime
                     fence, requireOperation(run.operationId()), run.role());
 
             Instant now = clock.instant();
-            AgentProcessAttempt processAttempt = requireActivatedProcessAttempt(
+            AgentProcessAttempt processAttempt = requireStoppedProcessAttempt(
                     runId, claim.generation());
-            completeCurrentProcessAttempt(
-                    processAttempt, processMetadataRef, now);
             String resultId = stableId("agent-result", runId);
             int resultStored = jdbc.update(
                     """
                     INSERT INTO flow_runtime_agent_result (
                         result_id, run_id, terminal_outcome, final_content,
-                        error_ref, process_metadata_ref, stored_at
+                        error_ref, stop_proof_ref, stored_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     resultId,
@@ -1494,7 +1723,7 @@ public final class FlowRuntime
                     terminalOutcome.name(),
                     finalContent,
                     errorRef,
-                    processMetadataRef,
+                    processAttempt.stopProofRef(),
                     now.toEpochMilli());
             RunState runState = switch (terminalOutcome) {
                 case COMPLETED -> RunState.COMPLETED;
@@ -2093,75 +2322,105 @@ public final class FlowRuntime
                         "Unknown process attempt: " + attemptId));
     }
 
-    private AgentProcessAttempt requireActivatedProcessAttempt(
+    private AgentProcessAttempt requireStoppedProcessAttempt(
             String runId, long generation)
     {
         return jdbc.query(
                 """
                 SELECT * FROM flow_runtime_agent_process_attempt
                 WHERE run_id = ? AND claim_generation = ?
-                  AND state = 'ACTIVATED'
-                """,
-                (result, row) -> readProcessAttempt(result),
-                runId,
-                generation).stream().findFirst().orElseThrow(() ->
-                        new IllegalStateException(
-                                "run has no activated process for this claim"));
-    }
-
-    private void completeCurrentProcessAttempt(
-            AgentProcessAttempt attempt,
-            String processMetadataRef,
-            Instant stoppedAt)
-    {
-        if (attempt.state() == ProcessAttemptState.STOPPED) {
-            if (!Objects.equals(
-                    attempt.processMetadataRef(), processMetadataRef)) {
-                throw new IllegalStateException(
-                        "process completion changed opaque metadata");
-            }
-            return;
-        }
-        if (attempt.state() != ProcessAttemptState.ACTIVATED) {
-            throw new IllegalStateException(
-                    "only the current activated process can complete a run");
-        }
-        int updated = jdbc.update(
-                """
-                UPDATE flow_runtime_agent_process_attempt
-                SET state = 'STOPPED', process_metadata_ref = ?, stopped_at = ?
-                WHERE process_attempt_id = ? AND state = 'ACTIVATED'
-                  AND process_identity IS NOT NULL
-                """,
-                processMetadataRef,
-                stoppedAt.toEpochMilli(),
-                attempt.processAttemptId());
-        if (updated != 1) {
-            throw new StaleOwnerRevisionException(
-                    "process attempt changed during current completion");
-        }
-    }
-
-    private void assertStoppedProcessMetadata(
-            String runId,
-            long generation,
-            String processMetadataRef)
-    {
-        AgentProcessAttempt attempt = jdbc.query(
-                """
-                SELECT * FROM flow_runtime_agent_process_attempt
-                WHERE run_id = ? AND claim_generation = ?
                   AND state = 'STOPPED'
+                  AND capability_revoked_at IS NOT NULL
+                  AND stop_type IS NOT NULL
+                  AND stop_proof_ref IS NOT NULL
+                  AND stopped_at IS NOT NULL
                 """,
                 (result, row) -> readProcessAttempt(result),
                 runId,
                 generation).stream().findFirst().orElseThrow(() ->
                         new IllegalStateException(
-                                "finalized run has no stopped process attempt"));
-        if (!Objects.equals(
-                attempt.processMetadataRef(), processMetadataRef)) {
-            throw new IllegalStateException(
-                    "process completion changed opaque metadata");
+                                "run has no stopped in-process proof for this claim"));
+    }
+
+    private void assertTerminationAuthority(
+            String processAttemptId, Claim claim, WriterFence fence)
+    {
+        if (!fence.operationId().equals(claim.operationId())
+                || fence.claimGeneration() != claim.generation()
+                || !fence.claimTokenDigest().equals(claimTokenDigest(claim))) {
+            throw new StaleWriterFenceException(
+                    "writer fence is not bound to the process claim");
+        }
+        Integer matches = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_agent_process_attempt a
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = a.operation_id
+                JOIN flow_runtime_operation o
+                  ON o.operation_id = a.operation_id
+                JOIN flow_runtime_writer_lease l
+                  ON l.operation_id = a.operation_id
+                JOIN flow_runtime_task t ON t.task_id = l.task_id
+                WHERE a.process_attempt_id = ?
+                  AND a.operation_id = ?
+                  AND a.claim_generation = ?
+                  AND a.claim_token_digest = ?
+                  AND d.claim_generation = a.claim_generation
+                  AND d.claim_token = ? AND d.claim_owner = ?
+                  AND l.task_id = ? AND l.operation_id = ?
+                  AND l.task_epoch = ? AND l.fencing_token = ?
+                  AND l.claim_generation = a.claim_generation
+                  AND l.claim_token_digest = a.claim_token_digest
+                  AND l.holder_kind = ? AND l.head_sha = ?
+                  AND l.tree_digest = ? AND l.snapshot_evidence_ref = ?
+                  AND l.expires_at = ?
+                  AND t.epoch = l.task_epoch
+                  AND t.selected_writer_operation_id = l.operation_id
+                  AND (
+                      (d.delivery_state = 'CLAIMED'
+                          AND o.state = 'CLAIMED')
+                      OR (d.delivery_state = 'DONE'
+                          AND o.state = 'FAILED'
+                          AND o.result_ref = ?
+                          AND t.status = 'NEEDS_ATTENTION')
+                  )
+                """,
+                Integer.class,
+                processAttemptId,
+                claim.operationId(),
+                claim.generation(),
+                claimTokenDigest(claim),
+                claim.claimToken(),
+                claim.workerId(),
+                fence.taskId(),
+                fence.operationId(),
+                fence.taskEpoch(),
+                fence.fencingToken(),
+                fence.holderKind().name(),
+                fence.headSha(),
+                fence.treeDigest(),
+                fence.snapshotEvidenceRef(),
+                fence.expiresAt().toEpochMilli(),
+                "PROCESS_ATTEMPT_RECOVERY_REQUIRED:" + processAttemptId);
+        if (requireNonNull(matches, "process owner count is null") != 1) {
+            throw new StaleCapabilityException(
+                    "writer termination authority is stale");
+        }
+    }
+
+    private static void assertInProcessIdentity(
+            AgentProcessAttempt attempt,
+            TerminatedThreadWitness witness)
+    {
+        Thread thread = witness.thread();
+        if (thread.getState() != Thread.State.TERMINATED
+                || !Long.valueOf(witness.jvmPid()).equals(attempt.jvmPid())
+                || !witness.jvmStartedAt().equals(attempt.jvmStartedAt())
+                || !Long.valueOf(thread.threadId())
+                        .equals(attempt.threadId())) {
+            throw new StaleCapabilityException(
+                    "terminated writer execution identity is stale");
         }
     }
 
@@ -2226,6 +2485,13 @@ public final class FlowRuntime
         settleDispatch(expired.operationId(), OperationState.FAILED,
                 reason + ":" + expired.processAttemptId());
         Task task = requireTask(expired.taskId());
+        if (task.status() == TaskStatus.NEEDS_ATTENTION) {
+            return;
+        }
+        if (task.status() != TaskStatus.ACTIVE) {
+            throw new StaleOwnerRevisionException(
+                    "expired writer cannot quarantine this Task state");
+        }
         TaskLifecycleRevision attention = appendLifecycle(
                 task,
                 TaskStatus.NEEDS_ATTENTION,
@@ -2871,14 +3137,25 @@ public final class FlowRuntime
                 result.getString("run_id"),
                 result.getString("operation_id"),
                 result.getLong("claim_generation"),
+                result.getString("claim_token_digest"),
                 result.getString("execution_id"),
                 result.getString("capability_id"),
                 ProcessAttemptState.valueOf(result.getString("state")),
-                result.getString("process_identity"),
+                nullableLong(result, "jvm_pid"),
+                nullableInstant(result, "jvm_started_at"),
+                nullableLong(result, "thread_id"),
+                result.getString("thread_name"),
                 instant(result, "reserved_at"),
                 nullableInstant(result, "activated_at"),
-                result.getString("process_metadata_ref"),
-                nullableInstant(result, "stopped_at"));
+                nullableInstant(result, "capability_revoked_at"),
+                nullableEnum(result, "stop_type", InProcessStopType.class),
+                result.getString("stop_proof_ref"),
+                nullableInstant(result, "stopped_at"),
+                nullableEnum(
+                        result,
+                        "quarantine_reason",
+                        ProcessQuarantineReason.class),
+                nullableInstant(result, "quarantined_at"));
     }
 
     private static AgentResult readResult(ResultSet result)
@@ -2891,7 +3168,7 @@ public final class FlowRuntime
                         result.getString("terminal_outcome")),
                 result.getString("final_content"),
                 result.getString("error_ref"),
-                result.getString("process_metadata_ref"),
+                result.getString("stop_proof_ref"),
                 instant(result, "stored_at"));
     }
 
@@ -2934,6 +3211,21 @@ public final class FlowRuntime
     {
         long value = result.getLong(column);
         return result.wasNull() ? null : Instant.ofEpochMilli(value);
+    }
+
+    private static Long nullableLong(ResultSet result, String column)
+            throws SQLException
+    {
+        long value = result.getLong(column);
+        return result.wasNull() ? null : value;
+    }
+
+    private static <E extends Enum<E>> E nullableEnum(
+            ResultSet result, String column, Class<E> type)
+            throws SQLException
+    {
+        String value = result.getString(column);
+        return value == null ? null : Enum.valueOf(type, value);
     }
 
     private static ProcessAttemptState nullableProcessState(String state)
@@ -3002,6 +3294,15 @@ public final class FlowRuntime
             extends IllegalStateException
     {
         public StaleWriterFenceException(String message)
+        {
+            super(message);
+        }
+    }
+
+    public static class StaleCapabilityException
+            extends IllegalStateException
+    {
+        public StaleCapabilityException(String message)
         {
             super(message);
         }

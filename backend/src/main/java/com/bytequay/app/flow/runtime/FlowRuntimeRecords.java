@@ -41,6 +41,7 @@ public final class FlowRuntimeRecords
         RUN_TASK_TURN,
         RUN_REVIEWER,
         RUN_CI_FIXER,
+        RUN_CI_LEARNING,
         OBSERVE_CI,
         PUBLISH
     }
@@ -60,7 +61,8 @@ public final class FlowRuntimeRecords
     {
         TASK_AGENT,
         ADVERSARIAL_REVIEWER,
-        CI_FIXER
+        CI_FIXER,
+        CI_LEARNER
     }
 
     public enum GateIntent

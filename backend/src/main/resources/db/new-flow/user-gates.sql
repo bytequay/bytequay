@@ -282,6 +282,10 @@ CREATE TABLE flow_user_gate_authorization (
     UNIQUE (
         authorization_id, effect_plan_ref, operation_id, pr_id, action_digest
     ),
+    UNIQUE (
+        authorization_id, gate_id, gate_revision,
+        subject_digest, action_digest
+    ),
     CHECK (
         (authority = 'USER'
             AND actor_id = 'LOCAL_DESKTOP_USER'

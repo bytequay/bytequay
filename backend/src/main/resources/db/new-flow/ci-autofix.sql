@@ -69,6 +69,7 @@ CREATE TABLE flow_ci_log_evidence (
     truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)),
     sanitized_content BLOB NOT NULL,
     stored_at INTEGER NOT NULL,
+    UNIQUE (log_ref, content_digest),
     FOREIGN KEY (observation_id)
         REFERENCES flow_ci_check_observation (observation_id)
 );
@@ -314,4 +315,176 @@ CREATE TABLE flow_ci_cleanup_completion (
         REFERENCES flow_runtime_agent_result (result_id),
     FOREIGN KEY (output_change_set_revision_id)
         REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
+);
+
+CREATE TABLE flow_ci_learning_subject (
+    subject_id TEXT PRIMARY KEY,
+    operation_id TEXT NOT NULL UNIQUE,
+    task_id TEXT NOT NULL,
+    pr_id TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    receipt_id TEXT NOT NULL UNIQUE,
+    receipt_digest TEXT NOT NULL,
+    publication_operation_id TEXT NOT NULL UNIQUE,
+    head_repository_external_id TEXT NOT NULL,
+    head_repository_owner TEXT NOT NULL,
+    head_repository_name TEXT NOT NULL,
+    branch_ref TEXT NOT NULL,
+    expected_remote_head TEXT NOT NULL,
+    plan_id TEXT NOT NULL UNIQUE,
+    plan_digest TEXT NOT NULL,
+    authorization_id TEXT NOT NULL UNIQUE,
+    gate_id TEXT NOT NULL,
+    gate_revision INTEGER NOT NULL CHECK (gate_revision > 0),
+    gate_subject_digest TEXT NOT NULL,
+    gate_action_digest TEXT NOT NULL,
+    publication_policy_revision_id TEXT NOT NULL,
+    published_head TEXT NOT NULL,
+    green_round_id TEXT NOT NULL UNIQUE,
+    green_policy_revision_id TEXT NOT NULL,
+    green_evidence_revision INTEGER NOT NULL CHECK (
+        green_evidence_revision >= 0
+    ),
+    green_observation_operation_id TEXT NOT NULL,
+    red_round_id TEXT NOT NULL,
+    repair_attempt_id TEXT NOT NULL,
+    repair_result_id TEXT NOT NULL,
+    repair_result_digest TEXT NOT NULL,
+    cleanup_id TEXT,
+    cleanup_result_id TEXT,
+    cleanup_result_digest TEXT,
+    output_change_set_revision_id TEXT NOT NULL,
+    output_diff_digest TEXT NOT NULL,
+    subject_digest TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    CHECK ((cleanup_id IS NULL) = (cleanup_result_id IS NULL)),
+    CHECK ((cleanup_result_id IS NULL) = (cleanup_result_digest IS NULL)),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (publication_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (
+        receipt_id, publication_operation_id, plan_id, receipt_digest,
+        head_repository_external_id, head_repository_owner,
+        head_repository_name, branch_ref, expected_remote_head, published_head
+    ) REFERENCES flow_github_external_effect_receipt (
+        receipt_id, operation_id, plan_id, receipt_digest,
+        head_repository_external_id, head_repository_owner,
+        head_repository_name, branch_ref, expected_remote_head, proposed_head
+    ),
+    FOREIGN KEY (
+        plan_id, authorization_id, plan_digest,
+        publication_policy_revision_id
+    ) REFERENCES flow_github_external_effect_plan (
+        plan_id, authorization_id, plan_digest,
+        required_ci_policy_revision_id
+    ),
+    FOREIGN KEY (
+        authorization_id, gate_id, gate_revision,
+        gate_subject_digest, gate_action_digest
+    ) REFERENCES flow_user_gate_authorization (
+        authorization_id, gate_id, gate_revision,
+        subject_digest, action_digest
+    ),
+    FOREIGN KEY (green_round_id)
+        REFERENCES flow_ci_round (round_id),
+    FOREIGN KEY (green_policy_revision_id)
+        REFERENCES flow_ci_policy_revision (policy_revision_id),
+    FOREIGN KEY (green_observation_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (red_round_id) REFERENCES flow_ci_round (round_id),
+    FOREIGN KEY (repair_attempt_id)
+        REFERENCES flow_ci_repair_attempt (attempt_id),
+    FOREIGN KEY (repair_result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (cleanup_id)
+        REFERENCES flow_ci_cleanup_seal (cleanup_id),
+    FOREIGN KEY (cleanup_result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (output_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
+);
+
+CREATE TABLE flow_ci_learning_green_observation (
+    subject_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    observation_id TEXT NOT NULL,
+    evidence_digest TEXT NOT NULL,
+    PRIMARY KEY (subject_id, ordinal),
+    UNIQUE (subject_id, observation_id),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_ci_learning_subject (subject_id),
+    FOREIGN KEY (observation_id)
+        REFERENCES flow_ci_check_observation (observation_id)
+);
+
+CREATE TABLE flow_ci_learning_failed_log (
+    subject_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    log_ref TEXT NOT NULL,
+    content_digest TEXT NOT NULL,
+    PRIMARY KEY (subject_id, ordinal),
+    UNIQUE (subject_id, log_ref),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_ci_learning_subject (subject_id),
+    FOREIGN KEY (log_ref, content_digest)
+        REFERENCES flow_ci_log_evidence (log_ref, content_digest)
+);
+
+CREATE TABLE flow_ci_lesson (
+    lesson_id TEXT PRIMARY KEY,
+    repository_id TEXT NOT NULL,
+    learning_operation_id TEXT NOT NULL UNIQUE,
+    run_id TEXT NOT NULL UNIQUE,
+    subject_id TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK (status = 'CANDIDATE'),
+    title TEXT NOT NULL,
+    markdown TEXT NOT NULL,
+    content_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (learning_operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_ci_learning_subject (subject_id)
+);
+
+CREATE TABLE flow_ci_learning_lesson_request (
+    operation_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE,
+    subject_id TEXT NOT NULL UNIQUE,
+    process_attempt_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    markdown TEXT NOT NULL,
+    content_digest TEXT NOT NULL,
+    sealed_at INTEGER NOT NULL,
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_ci_learning_subject (subject_id),
+    FOREIGN KEY (process_attempt_id)
+        REFERENCES flow_runtime_agent_process_attempt (process_attempt_id)
+);
+
+CREATE TABLE flow_ci_learning_completion (
+    operation_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL UNIQUE,
+    result_id TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL CHECK (state IN ('CANDIDATE', 'MISSED')),
+    lesson_id TEXT UNIQUE,
+    reason_code TEXT NOT NULL,
+    completed_at INTEGER NOT NULL,
+    CHECK (
+        (state = 'CANDIDATE' AND lesson_id IS NOT NULL)
+        OR (state = 'MISSED' AND lesson_id IS NULL)
+    ),
+    FOREIGN KEY (operation_id)
+        REFERENCES flow_runtime_operation (operation_id),
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (lesson_id) REFERENCES flow_ci_lesson (lesson_id)
 );

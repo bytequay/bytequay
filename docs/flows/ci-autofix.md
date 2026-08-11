@@ -214,23 +214,23 @@ run history. `MOVED_DURING_INSPECTION`, `TIMEOUT`, and `INTERRUPTED` are
 retryable observations and create no terminal completion. No outcome is derived
 from model prose.
 
-CI Autofix owns no session table. The Task references the one runtime-owned
+CI Autofix owns no session table. Repairs use the one runtime-owned persistent
 `AgentSession(role=CI_FIXER)` defined by
-[workflow-runtime.md](./workflow-runtime.md). Every repair/learning turn is a
-new `AgentRun` in that session; a replacement process therefore cannot create a
-second logical fixer or writer. Session admission permits only one live turn.
+[workflow-runtime.md](./workflow-runtime.md). Optional post-green learning uses
+one distinct receipt-owned, one-shot `CI_LEARNER` session/run. It has no Task
+writer pointer, writer lease, effect authority, or reuse as a repair session.
 
 ### `CiLesson`
 
 ```text
-lessonId, repositoryId, status=CANDIDATE, title, markdown,
-sourceRoundId, sourceAttemptId, confirmedHead,
-failedLogDigests[], createdByAgentRunId, createdAt,
-supersedesLessonId?
+lessonId, repositoryId, learningOperationId, runId, subjectId,
+status=CANDIDATE, title, markdown, contentDigest, createdAt
 ```
 
-The program indexes title/markdown for relevance retrieval. It does not parse
-cause, commands, paths, or a success verdict out of the prose.
+The current owner stores only the immutable `CANDIDATE`. A future projector or
+retriever may index title/markdown after promotion; promotion, consumption, and
+retrieval are deferred. The program does not parse cause, commands, paths, or a
+success verdict out of the prose.
 
 ## Observation and dispatch APIs
 
@@ -247,9 +247,12 @@ CiAutofixCoordinator.beginCleanup(claim, repositoryRoot, leaseTtl) -> CleanupBin
 CiAutofixCoordinator.launchCleanup(binding, claim, repositoryRoot, body) -> ExecutionHandle
 CiAutofixCoordinator.awaitCleanup(binding, handle, timeout) -> AgentResult
 CiAutofix.enqueueRepairRetry(failedAttemptId, reasonCode) -> reconciliationOperationId?
-CiAutofix.observeRemoteGreen(prId, headSha) -> GreenResult
-CiAutofix.enqueueLearning(attemptId, confirmedHead, acceptedCiEvidenceRef) -> operationId
-CiAutofix.enqueueLearningRetry(failedRunId, reasonCode) -> operationId?
+CiAutofixCoordinator.acceptCiObservation(activation, providerBatch) -> CiRound?
+FlowRuntime.claimNextCiLearning(workerId, ttl) -> Claim?
+CiAutofixCoordinator.beginCiLearning(claim) -> CiLearningStart?
+CiAutofixCoordinator.saveLesson(start, claim, attemptId, title, markdown) -> contentDigest
+CiAutofixCoordinator.finish(start, claim, opaqueCompletion) -> AgentResult
+CiAutofixCoordinator.recoverExpiredCiLearning(operationId, generation) -> retryable
 ```
 
 `finalizeHead` derives the PR's observed target base and resolves/freezes
@@ -361,24 +364,22 @@ writer admission fail closed. Only a future typed recovery that proves the
 physical worktree safe may clear it. Exact replay returns the stored predecessor
 and cleanup results even after either cleanup terminal outcome.
 
-The two retry commands are bounded, CI-owned semantic retries. They require the
-prior run/result terminal. A repair retry idempotently appends or returns the
-unique linked `CiRepairAttempt` revision and pending fact; `WorkSelector` later
-sets its new operation once and `resume` sets its new operation-bound run once.
-A learning retry creates a new linked `RUN_CI_LEARNING` operation whose subject
-includes the next retry ordinal. Neither command reopens a terminal run or
-reuses its operation.
+Repair retry remains a bounded CI-owned semantic retry. Post-green learning has
+no semantic retry API in this checkpoint. Acceptance of a nonempty exact
+source-bound `GREEN` round atomically creates or verifies one receipt-owned
+`Operation(kind=RUN_CI_LEARNING)` and ticket. Its immutable subject freezes the
+APPLIED receipt/plan/authorization/gate, originating red round and failed-log
+digests, repair/optional-cleanup results and stopped-process proofs, published
+change-set/diff, and the later current GREEN policy/round/ordered observations.
+The publication policy and later GREEN policy are validated separately; policy
+advance is allowed.
 
-`enqueueLearning` atomically creates/reuses one
-`Operation(kind=RUN_CI_LEARNING)` plus its unique `DispatchTicket`, with subject
-digest bound to `(attemptId, confirmedHead, acceptedCiEvidenceRef)`. It is
-read-only and bypasses Task writer selection/lease, but the dispatcher may claim
-it only while the persistent CI session is `IDLE` and, under the Task/CI-owner
-lock, no current eligible `FINAL_RED`/repair cause is pending or selected. Thus a queued repair has priority
-over queued learning even before its writer operation is materialized. The
-successful claim atomically reserves the CI session before process start. If learning is already running when a new red round
-arrives, it is not interrupted; reconciliation waits on that exact bounded
-AgentRun, whose terminal transition releases the wait once, then repair starts.
+The learner is optional and lower priority than current `FINAL_RED`, `QUEUED`,
+or `ACTIVE` repair work. It bypasses Task writer selection and uses a distinct
+one-shot `CI_LEARNER` session. A running or quarantined learner never blocks Task
+completion/cancellation or a repair writer. An explicit-empty current policy is
+valid vacuous GREEN but creates no learning opportunity; a later nonempty
+source-bound GREEN may create the one receipt-owned opportunity.
 
 ## CI Fixer launch contract
 
@@ -469,15 +470,18 @@ unsupported. No missing model call can block recovery.
 The learning turn has a narrower tool policy:
 
 ```text
-read_ci_repair_attempt(attempt_id)
-read_ci_log(log_ref, query?, before?, after?)
-use_ci_lesson(lesson_id)
-save_ci_lesson(title, markdown, supersedes_lesson_id?) -> lessonId
+read_ci_repair_evidence()
+read_ci_log(log_ref, offset, max_bytes)
+save_ci_lesson(title, markdown) -> contentDigest
 ```
 
-The runtime binds the current confirmed repair attempt; the model does not pass an
-attempt ID or other provenance metadata. The turn has no writer lease and no
-code/Git/GitHub mutation tools.
+The runtime binds every provenance input; the model chooses no attempt, receipt,
+round, policy, observation, or log reference outside the frozen subject.
+Repair/cleanup result prose is a bounded opaque view and grants no authority.
+`save_ci_lesson` is terminal: one immutable request/seal is stored in the same
+transaction that revokes all tools. Identical response-loss replay returns the
+seal; conflicting content and every later tool call fail. The turn has no
+writer lease and no code, Git, GitHub, lesson-read, or supersession tools.
 
 ## End-to-end lifecycle
 
@@ -620,8 +624,12 @@ engine. Neither agent pushes or constructs provider facts.
 4. Current-policy advance waits for a new provider batch; it never reinterprets
    an old sourced batch as unsourced evidence.
 
-Green learning, ready/merge decisions, test-merge and legacy-status selection,
-webhooks, timeline projection, and general observation routing remain deferred.
+For an exact nonempty source-bound GREEN after an APPLIED repair publication,
+acceptance atomically reserves/replays the optional receipt-owned learner. It
+does not complete the Task or authorize ready/merge. Ready/merge decisions,
+test-merge and legacy-status selection, webhooks, timeline projection, general
+observation routing, learning retries, supersession, and promotion/consumption
+of candidate lessons remain deferred.
 
 ## Lesson contract
 
@@ -687,20 +695,27 @@ because lesson text matched.
 - **Terminal failed repair run:** retain its result/attempt. If bounded retry is
   justified, `enqueueRepairRetry` creates a linked attempt/pending subject; the
   selector produces a new operation/run. Exhaustion becomes `NEEDS_ATTENTION`.
-- **Green observed, terminal learning run fails:** CI remains green and Task
-  progress is not blocked. `enqueueLearningRetry` may create a new linked
-  operation/run within bounded policy; exhaustion records `MISSED_LEARNING` and
-  returns the session to `IDLE`. Never retry the terminal operation.
-- **New red round while learning is queued/running:** queued repair outranks
-  unstarted learning. Running learning is not interrupted; the reconciliation
-  operation waits on its exact AgentRun and is released once when the bounded
-  turn completes/fails, then selects repair.
-- **Budget exhausted:** park with `NEEDS_ATTENTION`; user may raise the budget
-  and resume the same logical session.
+- **Green observed, terminal learning run fails/cancels:** CI remains green and
+  Task progress is not blocked. An accepted durable lesson request still wins
+  as `CANDIDATE` if the exact GREEN remains current; otherwise completion is
+  `MISSED`. Opaque final prose never becomes a lesson.
+- **New red round while learning is queued/running:** repair admission outranks
+  an unstarted learner. A running learner is isolated and does not block the
+  repair writer; its finalizer may only save while its bound GREEN is current.
+- **Expired learner:** no-attempt recovery redrives the same operation; a
+  `RESERVED` recovery also reuses its already-created run/session under the next
+  claim generation. Neither branch requires current GREEN; the next begin
+  cancels if authority became stale. `ACTIVATED` without a STOPPED proof is
+  fail-closed and quarantines only learner process/run/session/dispatch facts,
+  with no successor generation. `STOPPED(NORMAL_RETURN)` recovery stores a
+  program-owned failed `AgentResult`; the CI owner locks and requires current
+  GREEN before creating a candidate from an already accepted lesson seal,
+  otherwise it records `MISSED`. It never mutates Task lifecycle or writer
+  state.
 
 ## Timeline projection
 
-The PR timeline projects meaningful owner facts:
+The deferred PR timeline projector will project meaningful owner facts:
 
 - finalized red CI round;
 - CI Fixer started/completed/parked;
@@ -750,23 +765,27 @@ remain execution details. The agent never records timeline events. See
     `(PR,H2,P2)` round, stales `P1` gate evidence, and cannot accept, ready, or
     merge until `P2` is satisfied. A missing/unavailable scope blocks rather
     than behaving like explicit empty policy.
-15. **Learning serialization:** remote green creates one subject-bound
-    `RUN_CI_LEARNING` operation/ticket. If a new final-red round arrives before
-    claim, repair runs first. If it arrives while learning is running, no second
-    CI-session turn starts; reconciliation waits once, learning ends or records
-    `MISSED_LEARNING`, then repair resumes without interruption or lost work.
-16. **Run-start crash:** stop after `startFresh` or `resume` commits but before
-    the CI model process starts. Claim redelivery returns the same operation-bound
-    session/run; the round produces one terminal result and no duplicate turn.
-17. **Live-claim expiry:** let the CI process remain alive after its dispatch
-    claim expires. No new generation starts until the supervisor revokes the old
-    claim/tools and proves that process dead; only then may the same run resume
-    under a new claim/fence, with one final attempt/result.
-18. **Process retry versus semantic retry:** crash one fixer process before any
-    terminal result and assert a new process attempt reuses the same run. Then
-    terminally fail another fixer/learning run and assert bounded retry creates a
-    linked new operation/run while retaining the failed result; exhaustion
-    creates attention/`MISSED_LEARNING`, never a second run for one operation.
+15. **Learning isolation:** exact nonempty source-bound green creates one
+    receipt-owned `RUN_CI_LEARNING` operation/ticket. Repair outranks an
+    unclaimed learner; a claimed learner has no Task pointer/lease and cannot
+    block Task lifecycle or repair admission. Empty-policy green creates none.
+16. **Run-start crash:** stop after the one-shot learner session/run commits but
+    before process activation. If no run exists, stale GREEN cancels only the
+    operation/ticket and creates no `AgentResult` or learning completion. If a
+    `QUEUED` run exists, it stores a program-owned never-launched canceled result
+    plus `MISSED`. Expiry reclaims the same operation and reuses a created
+    run/session. Neither path creates a duplicate turn.
+17. **Live-claim expiry:** let the learner process remain alive after its
+    dispatch claim expires. An uncertain `ACTIVATED` attempt is quarantined
+    without a successor generation or Task mutation; it is never declared dead
+    or retried. `RESERVED` redrives as above. A durable
+    `STOPPED(NORMAL_RETURN)` proof lets the runtime store the lost-completion
+    result while the CI owner alone decides candidate versus `MISSED`.
+18. **Process recovery versus semantic retry:** crash one fixer process before
+    any terminal result and assert a new process attempt reuses the same run.
+    The optional learner has no semantic retry: reserved recovery reuses its one
+    run, activated uncertainty quarantines it, and STOPPED recovery produces one
+    exact completion without inventing prose.
 
 ## First-principles challenge
 
@@ -777,7 +796,7 @@ remain execution details. The agent never records timeline events. See
 | Should the CI Fixer push to close its own loop? | No. Publication is authority, not diagnosis. Program push plus exact consent prevents accidental external effects. | One Task Agent review handoff per candidate. |
 | Should the program parse logs into a root-cause verdict? | No. It may bound/index logs; the agent judges cause and scope. | More agent reading, fewer brittle parsers. |
 | Should a matching old lesson auto-apply a fix? | No. Similar logs can have different causes. Lessons remain candidate prose. | Repeated fixes still use tokens. |
-| Why save only after remote green? | The authority being optimized is remote CI. Local success or agent confidence is insufficient evidence. | Lessons arrive later and can be lost if the learning turn fails. |
+| Why save only after remote green? | The authority being optimized is remote CI. Local success or agent confidence is insufficient evidence. | Learning is later and optional; once its terminal save seal commits, restart recovery preserves that accepted command. |
 | Why Task Agent review after the specialist? | The specialist knows CI; the Task Agent owns product intent and accumulated implementation decisions. | Slower than direct push, but prevents locally green semantic regressions. |
 | Can each check observation store a mutable `required` flag? | No. Requiredness comes from one immutable current `RequiredCiPolicyRevision`. | One extra policy owner, but every red/green/gate decision is reproducible after configuration changes. |
 | Is a generic recipe/classifier engine needed? | No. It previously duplicated agent judgment and learned from weak evidence. Retrieval plus raw logs is the minimum reliable memory. | No deterministic “zero-token” replay path in this version. |
@@ -798,8 +817,9 @@ remain execution details. The agent never records timeline events. See
 - **Accept Grok's visible background lifecycle:** long CI waits belong to
   program-owned pending tasks, not a blocked agent turn.
   [Grok background tasks](https://github.com/xai-org/grok-build/blob/8a14c91d88875a831a38b3a066b1683116bcb31c/crates/codegen/xai-grok-pager/docs/user-guide/20-background-tasks.md)
-- **Preserve the useful prior ByteQuay lesson:** one agent session across CI
-  rounds and prose memory capture why an earlier attempt failed. **Reject** the
+- **Preserve the useful prior ByteQuay lesson:** the persistent CI Fixer retains
+  repair context across rounds, while an isolated post-green learner may save
+  one candidate explaining a confirmed repair. **Reject** the
   prior agent-owned push, `COMMITTED:`/`PARKED:` marker lines, combined
   cherry-pick+CI session, confidence/rule engine, and worktree log files.
 - **Reject the former generic harness thesis that a deterministic program should
@@ -809,7 +829,7 @@ remain execution details. The agent never records timeline events. See
 
 ## Implementation completion rule
 
-The component is complete only when all fifteen traces pass with arbitrary agent
+The component is complete only when all eighteen traces pass with arbitrary agent
 prose and injected process/provider failures. A flow that depends on marker
 lines, final JSON, the CI Fixer pushing, or an old harness table/service is not
 this design.

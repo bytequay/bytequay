@@ -68,7 +68,9 @@ There is no Plan Agent, Development subagent, review-comment fixer, CI monitor
 agent, workflow Brain, or verdict agent. Remote review feedback returns to the
 Task Agent because it requires the original product and implementation context.
 
-Project Intelligence also uses a bounded read-only learner outside any Task.
+Project Intelligence also uses a bounded read-only learner outside Task writer
+and persistent-session authority. Its receipt-owned operation still carries the
+exact Task/PR lineage it learns from.
 Optional Upstream Sync uses the existing Task Agent plus deterministic program
 Git operations; it does not introduce another agent role.
 
@@ -140,8 +142,9 @@ The bounded GitHub poller proves two identical exhaustive check-suite/run
 passes for the exact proposed head and feeds one private source-bound batch into
 the existing CI round/red-fixer loop. Green and collecting only rearm the watch.
 Configurable/multi-use consent, consent UI, webhooks, generic observation
-routing, test-merge/legacy-status readiness, green consumers, and timeline
-projection remain deferred.
+routing, test-merge/legacy-status readiness, downstream ready/merge green
+consumers, and timeline projection remain deferred. The sole implemented green
+consumer is the optional isolated receipt-owned learner described below.
 
 ### 6. Record a fact once
 
@@ -392,8 +395,11 @@ An implementation is not complete until these traces pass end to end:
 8. **Partial remote effect:** push succeeds and the process dies before reply;
    recovery proves the push, does not repeat it, and resumes at the reply.
 9. **CI lesson:** a candidate lesson can guide a fix but never auto-applies;
-   durable learning is written only after remote green for the exact result
-   head.
+   an exact nonempty receipt-sourced remote GREEN may reserve one isolated
+   read-only learner. A durable terminal save seal is a prerequisite; only the
+   exact stopped finalizer or STOPPED recovery creates a `CANDIDATE`, and only
+   while the bound GREEN remains current. It never completes the Task or
+   authorizes ready/merge.
 10. **External head change:** a manual GitHub push invalidates pending local
    authority and no old-head push/reply/merge proceeds.
 11. **Terminal truth:** an agent says work is complete while GitHub is not

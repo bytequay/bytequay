@@ -144,12 +144,18 @@ agent's eventual prose. The agent can correct a rejected call in the same turn.
 |---|---|
 | `TaskCommands.startTask(requestKey, repositoryId, goalText)` | Idempotently persist Task identity, exact goal, one `PROVISION_TASK` operation, and its ticket; the authenticated `requestKey` already links the audit conversation, and the program sends a best-effort wake after commit |
 | `UpstreamSyncCommands.requestPreview(requestKey, repositoryId, goalText, sourceRemote, fromExclusive, toInclusive, targetRef)` | Optional path: persist a pre-Task preview operation/ticket; the dispatcher performs Git work and the user later confirms the stored digest through the Upstream Sync contract |
-| `TaskProvisioning.provision(taskId, operationId)` | Create branch and one Task worktree; fail closed if isolation cannot be established; only then create the persistent Task Agent session and pending initial work |
+| `TaskProvisioning.execute(claim)` | Resolve the frozen configured base ref locally, bind its exact SHA, create and prove the derived branch/worktree, and only then create the persistent Task Agent session and pending initial work |
 | `WorkflowCommands.enqueueTurn(taskId, INITIAL, launchManifest)` | Normal Tasks only: persist the initial work fact and ensure reconciliation after provisioning; `WorkSelector`, not this call, creates the first Task writer run |
 | `TaskAttentionService.listForRepository(repositoryId)` | Surface user-gate/failure notifications without waking Trunk |
 
 `TaskCommands.startTask` returns after durable acceptance; it does not hold the Trunk
 turn open while the agent works.
+
+The executable provisioning owner is composed, but `start_task` and
+`TaskCommands` are not yet connected to production. Current production creates
+no greenfield Task. Provisioning performs no fetch, credential use, provider
+call, or model call; fresh remote synchronization and Trunk admission remain a
+later cutover prerequisite.
 
 The optional upstream tool ends the Trunk turn at a durable preview request. It
 does not call `start_task`; the exact confirmation command in

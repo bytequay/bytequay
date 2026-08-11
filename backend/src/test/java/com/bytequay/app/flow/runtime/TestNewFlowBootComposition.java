@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.sql.DataSource;
 
@@ -42,6 +44,12 @@ class TestNewFlowBootComposition
     @Autowired
     private Flyway flyway;
 
+    @Autowired
+    private ApplicationContext context;
+
+    @Autowired
+    private TaskProvisioning taskProvisioning;
+
     @Test
     void oldPersistenceRemainsPrimaryAlongsideTheQualifiedNewFlowDatabase()
             throws Exception
@@ -57,5 +65,11 @@ class TestNewFlowBootComposition
         }
         assertThat(entityManagerFactory.isOpen()).isTrue();
         assertThat(flyway.info().current()).isNotNull();
+        assertThat(context.getBeansOfType(NewFlowDispatcher.Handler.class))
+                .containsOnlyKeys("newFlowTaskProvisioning")
+                .containsValue(taskProvisioning);
+        assertThat(ReflectionTestUtils.getField(
+                taskProvisioning, "runtime"))
+                .isSameAs(context.getBean(FlowRuntime.class));
     }
 }

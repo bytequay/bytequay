@@ -630,50 +630,56 @@ public final class FlowRuntime
      * Persists one Task plus its provisioning operation/ticket. It performs no
      * Git, process, or model work.
      */
-    public synchronized Task startTask(
-            String requestKey,
-            String repositoryId,
-            String goalText,
-            String branchName,
-            String worktreePath)
+    synchronized Task startTask(TaskProvisioning.FrozenLaunch launch)
     {
-        requireText(requestKey, "requestKey");
-        requireText(repositoryId, "repositoryId");
-        requireText(goalText, "goalText");
-        requireText(branchName, "branchName");
-        requireText(worktreePath, "worktreePath");
+        requireNonNull(launch, "launch is null");
         return inTransaction(() -> {
-            Optional<Task> existing = taskByRequestKey(requestKey);
-            if (existing.isPresent()) {
-                Task task = existing.get();
-                if (!task.repositoryId().equals(repositoryId)
-                        || !task.goalText().equals(goalText)
-                        || !task.branchName().equals(branchName)
-                        || !task.worktreePath().equals(worktreePath)) {
+            Instant now = clock.instant();
+            String taskId = launch.taskId();
+            String lifecycleId = stableId("task-lifecycle", taskId, "1");
+            int accepted = jdbc.update(
+                    """
+                    INSERT OR IGNORE INTO flow_runtime_task (
+                        task_id, request_key, repository_id,
+                        repository_owner, repository_name, goal_text, status,
+                        repository_root, git_common_dir, remote_name,
+                        base_ref,
+                        launch_digest,
+                        epoch, branch_name, worktree_path,
+                        current_lifecycle_revision_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'CREATED', ?, ?, ?, ?, ?,
+                        1, ?, ?, ?)
+                    """,
+                    taskId,
+                    launch.requestKey(),
+                    launch.repositoryId(),
+                    launch.repositoryOwner(),
+                    launch.repositoryName(),
+                    launch.goalText(),
+                    launch.repositoryRoot(),
+                    launch.gitCommonDir(),
+                    launch.remoteName(),
+                    launch.baseRef(),
+                    launch.launchDigest(),
+                    launch.branchName(),
+                    launch.worktreePath(),
+                    lifecycleId);
+            if (accepted == 0) {
+                Task task = taskByRequestKey(launch.requestKey())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Task launch conflicts with another subject"));
+                TaskProvisioning.assertStoredLaunch(task);
+                if (!task.repositoryId().equals(launch.repositoryId())
+                        || !task.goalText().equals(launch.goalText())) {
                     throw new IllegalStateException(
-                            "requestKey already owns a different Task subject");
+                            "requestKey already owns a different Task command");
                 }
                 return task;
             }
-
-            Instant now = clock.instant();
-            String taskId = stableId("task", requestKey);
-            String lifecycleId = stableId("task-lifecycle", taskId, "1");
-            jdbc.update(
-                    """
-                    INSERT INTO flow_runtime_task (
-                        task_id, request_key, repository_id, goal_text, status,
-                        epoch, branch_name, worktree_path,
-                        current_lifecycle_revision_id
-                    ) VALUES (?, ?, ?, ?, 'CREATED', 1, ?, ?, ?)
-                    """,
-                    taskId,
-                    requestKey,
-                    repositoryId,
-                    goalText,
-                    branchName,
-                    worktreePath,
-                    lifecycleId);
+            if (accepted != 1) {
+                throw new IllegalStateException(
+                        "Task acceptance changed an unexpected row count");
+            }
             jdbc.update(
                     """
                     INSERT INTO flow_runtime_task_lifecycle_revision (
@@ -685,12 +691,8 @@ public final class FlowRuntime
                     taskId,
                     now.toEpochMilli());
 
-            String subjectDigest = stableId(
-                    "provision-subject",
-                    taskId,
-                    repositoryId,
-                    branchName,
-                    worktreePath);
+            String subjectDigest = TaskProvisioning.provisionSubjectDigest(
+                    taskId, launch.launchDigest());
             String operationId = stableId(
                     "operation", taskId, "PROVISION_TASK", subjectDigest);
             insertOperationAndTicket(
@@ -709,12 +711,11 @@ public final class FlowRuntime
     }
 
     /** Completes objective provisioning and creates the one idle Task session. */
-    public synchronized AgentSession provisionTask(
-            Claim claim, String baseSha, String headSha)
+    synchronized AgentSession provisionTask(
+            Claim claim, TaskProvisioning.ProvisionedWorktree proof)
     {
         requireNonNull(claim, "claim is null");
-        requireObjectId(baseSha, "baseSha");
-        requireObjectId(headSha, "headSha");
+        requireNonNull(proof, "proof is null");
         return inTransaction(() -> {
             Operation operation = requireOperation(claim.operationId());
             if (operation.kind() != OperationKind.PROVISION_TASK) {
@@ -722,6 +723,9 @@ public final class FlowRuntime
                         "claim does not own Task provisioning");
             }
             Task task = requireTask(operation.taskId());
+            proof.assertMatches(claim, task, operation);
+            String baseSha = proof.baseSha();
+            String headSha = proof.headSha();
             if (operation.state() == OperationState.SUCCEEDED) {
                 assertFinalizedClaim(
                         claim, "provisioned:" + task.taskId());
@@ -2975,6 +2979,7 @@ public final class FlowRuntime
             Operation operation = requireOperation(operationId);
             if (operation.kind() == OperationKind.PUBLISH
                     || operation.kind() == OperationKind.OBSERVE_CI
+                    || operation.kind() == OperationKind.PROVISION_TASK
                     || operation.kind()
                         == OperationKind.RUN_CI_LEARNING) {
                 throw new IllegalArgumentException(
@@ -8303,6 +8308,12 @@ public final class FlowRuntime
                 taskId).stream().findFirst();
     }
 
+    public Optional<Task> taskForRequestKey(String requestKey)
+    {
+        requireText(requestKey, "requestKey");
+        return taskByRequestKey(requestKey);
+    }
+
     public Optional<TaskBaseRevision> currentBaseRevision(String taskId)
     {
         requireText(taskId, "taskId");
@@ -10379,7 +10390,7 @@ public final class FlowRuntime
                     && from != TaskStatus.CANCELED;
         }
         return switch (from) {
-            case CREATED -> to == TaskStatus.ACTIVE;
+            case CREATED -> to == TaskStatus.CANCELED;
             case ACTIVE -> to == TaskStatus.WAITING_USER
                     || to == TaskStatus.NEEDS_ATTENTION
                     || to == TaskStatus.COMPLETED;
@@ -11118,7 +11129,14 @@ public final class FlowRuntime
                 result.getString("task_id"),
                 result.getString("request_key"),
                 result.getString("repository_id"),
+                result.getString("repository_owner"),
+                result.getString("repository_name"),
                 result.getString("goal_text"),
+                result.getString("repository_root"),
+                result.getString("git_common_dir"),
+                result.getString("remote_name"),
+                result.getString("base_ref"),
+                result.getString("launch_digest"),
                 TaskStatus.valueOf(result.getString("status")),
                 result.getLong("epoch"),
                 result.getString("launch_base_sha"),

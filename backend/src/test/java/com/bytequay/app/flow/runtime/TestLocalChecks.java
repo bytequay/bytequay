@@ -86,13 +86,13 @@ final class TestLocalChecks
         worktree = temporaryDirectory.resolve("worktree");
         initializeRepository(repository, worktree);
         String head = git(repository, "rev-parse", "HEAD");
-        task = runtime.startTask(
+        task = FlowRuntimeTestSupport.startTask(runtime,
                 "request-1",
                 "repo-1",
                 "Implement",
-                "task/change",
                 worktree.toString());
-        runtime.provisionTask(claim(OperationKind.PROVISION_TASK), head, head);
+        worktree = Path.of(task.worktreePath());
+        FlowRuntimeTestSupport.provisionTask(runtime, claim(OperationKind.PROVISION_TASK), head);
         task = runtime.task(task.taskId()).orElseThrow();
         Claim reconciliation = claim(OperationKind.RECONCILE_TASK);
         assertThat(runtime.selectNext(reconciliation).orElseThrow().kind())

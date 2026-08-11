@@ -16,6 +16,7 @@ package com.bytequay.app.flow.runtime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -71,8 +72,8 @@ class TestNewFlowDispatcher
     @Test
     void claimsHighestPriorityAcrossTheExactWiredKinds()
     {
-        var task = runtime.startTask(
-                "priority-request", "repo", "goal", "task/priority",
+        var task = FlowRuntimeTestSupport.startTask(runtime,
+                "priority-request", "repo", "goal",
                 temporaryDirectory.resolve("priority").toString());
         String provision = operation(task.taskId(), "PROVISION_TASK");
         jdbc.update("UPDATE flow_runtime_dispatch_ticket SET priority = 1 "
@@ -99,11 +100,11 @@ class TestNewFlowDispatcher
     @Test
     void capacityIncludesClaimsAndUnprovenActivatedProcesses()
     {
-        var firstTask = runtime.startTask(
-                "capacity-1", "repo", "first", "task/one",
+        var firstTask = FlowRuntimeTestSupport.startTask(runtime,
+                "capacity-1", "repo", "first",
                 temporaryDirectory.resolve("one").toString());
-        runtime.startTask(
-                "capacity-2", "repo", "second", "task/two",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "capacity-2", "repo", "second",
                 temporaryDirectory.resolve("two").toString());
         Set<OperationKind> kinds = Set.of(OperationKind.PROVISION_TASK);
         Claim first = runtime.claimNextForDispatch(
@@ -138,8 +139,8 @@ class TestNewFlowDispatcher
     @Test
     void recoversExpiredClaimsOnceWithoutSpinning()
     {
-        var task = runtime.startTask(
-                "recovery", "repo", "goal", "task/recovery",
+        var task = FlowRuntimeTestSupport.startTask(runtime,
+                "recovery", "repo", "goal",
                 temporaryDirectory.resolve("recovery").toString());
         Claim expired = runtime.claimNextForDispatch(
                 Set.of(OperationKind.PROVISION_TASK), "old", TTL, 1)
@@ -148,7 +149,6 @@ class TestNewFlowDispatcher
         FlowRuntime restarted = new FlowRuntime(
                 dataSource,
                 Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC));
-        AtomicBoolean recovered = new AtomicBoolean();
         NewFlowDispatcher.Handler handler = new NewFlowDispatcher.Handler()
         {
             @Override
@@ -158,23 +158,36 @@ class TestNewFlowDispatcher
             }
 
             @Override
-            public void execute(Claim claim) {}
+            public void execute(Claim claim)
+            {
+                throw new AssertionError("future rearm was claimed early");
+            }
 
             @Override
-            public boolean recover(ExpiredClaim expired)
+            public boolean recover(ExpiredClaim ignored)
             {
-                boolean changed = restarted.recoverExpiredClaim(
-                        expired.operationId(), expired.generation());
-                recovered.set(changed);
-                return changed;
+                jdbc.update("""
+                        UPDATE flow_runtime_operation
+                        SET state = 'READY', result_ref = 'TEST_REARMED'
+                        WHERE operation_id = ? AND state = 'CLAIMED'
+                        """, expired.operationId());
+                jdbc.update("""
+                        UPDATE flow_runtime_dispatch_ticket
+                        SET delivery_state = 'AVAILABLE', not_before = ?,
+                            claim_owner = NULL, claim_token = NULL,
+                            claim_expires_at = NULL
+                        WHERE operation_id = ? AND delivery_state = 'CLAIMED'
+                        """, NOW.plusSeconds(60).toEpochMilli(),
+                        expired.operationId());
+                return true;
             }
         };
         NewFlowDispatcher dispatcher = new NewFlowDispatcher(
                 restarted, config("recovery-worker"), List.of(handler));
 
         assertThat(dispatcher.dispatchOnce()).isTrue();
-        assertThat(recovered).isTrue();
-        assertThat(dispatcher.dispatchOnce()).isFalse();
+        assertThat(restarted.operation(expired.operationId()).orElseThrow().state())
+                .isEqualTo(OperationState.READY);
         assertThat(operation(task.taskId(), "PROVISION_TASK")).isNotBlank();
     }
 
@@ -182,11 +195,11 @@ class TestNewFlowDispatcher
     void shutdownInterruptsTheLiveHandlerAndClaimsNoMoreWork()
             throws Exception
     {
-        runtime.startTask(
-                "blocked-1", "repo", "first", "task/blocked-one",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "blocked-1", "repo", "first",
                 temporaryDirectory.resolve("blocked-one").toString());
-        runtime.startTask(
-                "blocked-2", "repo", "second", "task/blocked-two",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "blocked-2", "repo", "second",
                 temporaryDirectory.resolve("blocked-two").toString());
         CountDownLatch entered = new CountDownLatch(1);
         AtomicBoolean interrupted = new AtomicBoolean();
@@ -240,8 +253,8 @@ class TestNewFlowDispatcher
     void twoRuntimeInstancesExecuteOneTicketOnce()
             throws Exception
     {
-        runtime.startTask(
-                "race-one", "repo", "goal", "task/race-one",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "race-one", "repo", "goal",
                 temporaryDirectory.resolve("race-one").toString());
         FlowRuntime other = new FlowRuntime(
                 dataSource, Clock.fixed(NOW, ZoneOffset.UTC));
@@ -268,11 +281,11 @@ class TestNewFlowDispatcher
     void concurrentCapacityLeavesOneTicketAvailableUntilRelease()
             throws Exception
     {
-        runtime.startTask(
-                "global-capacity-1", "repo", "first", "task/global-one",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "global-capacity-1", "repo", "first",
                 temporaryDirectory.resolve("global-one").toString());
-        runtime.startTask(
-                "global-capacity-2", "repo", "second", "task/global-two",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "global-capacity-2", "repo", "second",
                 temporaryDirectory.resolve("global-two").toString());
         FlowRuntime other = new FlowRuntime(
                 dataSource, Clock.fixed(NOW, ZoneOffset.UTC));
@@ -307,8 +320,8 @@ class TestNewFlowDispatcher
     void pollingAndEarlyWakeBothFindDurableTickets()
             throws Exception
     {
-        runtime.startTask(
-                "poll-only", "repo", "poll", "task/poll-only",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "poll-only", "repo", "poll",
                 temporaryDirectory.resolve("poll-only").toString());
         CountDownLatch polled = new CountDownLatch(1);
         NewFlowDispatcher pollDispatcher = asynchronousDispatcher(
@@ -318,8 +331,8 @@ class TestNewFlowDispatcher
         pollDispatcher.close();
 
         settleAllClaimed();
-        runtime.startTask(
-                "early-wake", "repo", "wake", "task/early-wake",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "early-wake", "repo", "wake",
                 temporaryDirectory.resolve("early-wake").toString());
         CountDownLatch woken = new CountDownLatch(1);
         NewFlowDispatcher wakeDispatcher = asynchronousDispatcher(
@@ -346,9 +359,8 @@ class TestNewFlowDispatcher
         dispatcher.start();
 
         assertThatThrownBy(() ->
-                runtime.startTask(
+                FlowRuntimeTestSupport.startTask(runtime,
                         "rollback-request", "repo", "goal",
-                        "task/rollback",
                         temporaryDirectory.resolve("rollback").toString()))
                 .isInstanceOf(RuntimeException.class);
         assertThat(called.await(150, TimeUnit.MILLISECONDS)).isFalse();
@@ -361,8 +373,8 @@ class TestNewFlowDispatcher
                 Integer.class)).isZero();
 
         jdbc.execute("DROP TRIGGER fail_new_flow_ticket");
-        runtime.startTask(
-                "rollback-request", "repo", "goal", "task/rollback",
+        FlowRuntimeTestSupport.startTask(runtime,
+                "rollback-request", "repo", "goal",
                 temporaryDirectory.resolve("rollback").toString());
         dispatcher.wake();
         assertThat(called.await(2, TimeUnit.SECONDS)).isTrue();

@@ -88,14 +88,14 @@ final class TestFlowRuntimeChangeSets
         worktree = temporaryDirectory.resolve("worktree");
         initializeRepository(repository, worktree);
         baseSha = git(repository, "rev-parse", "HEAD");
-        task = runtime.startTask(
+        task = FlowRuntimeTestSupport.startTask(runtime,
                 "request-1",
                 "repo-1",
                 "Implement",
-                "task/change",
                 worktree.toString());
+        worktree = Path.of(task.worktreePath());
         provisionClaim = claim(OperationKind.PROVISION_TASK);
-        runtime.provisionTask(provisionClaim, baseSha, baseSha);
+        FlowRuntimeTestSupport.provisionTask(runtime, provisionClaim, baseSha);
         task = runtime.task(task.taskId()).orElseThrow();
     }
 
@@ -112,7 +112,7 @@ final class TestFlowRuntimeChangeSets
                 });
         assertThat(runtime.currentChangeSet(task.taskId())).isEmpty();
 
-        runtime.provisionTask(provisionClaim, baseSha, baseSha);
+        FlowRuntimeTestSupport.provisionTask(runtime, provisionClaim, baseSha);
 
         assertThat(count("flow_runtime_task_base_revision")).isEqualTo(1);
         assertThat(count("flow_runtime_change_set_revision")).isZero();
@@ -146,18 +146,17 @@ final class TestFlowRuntimeChangeSets
     @Test
     void provisioningRejectsRefLikeObjectIdentity()
     {
-        Task invalid = runtime.startTask(
+        Task invalid = FlowRuntimeTestSupport.startTask(runtime,
                 "request-invalid",
                 "repo-1",
                 "Invalid provision",
-                "task/invalid",
                 temporaryDirectory.resolve("invalid-worktree").toString());
         Claim invalidProvision = claim(OperationKind.PROVISION_TASK);
 
-        assertThatThrownBy(() -> runtime.provisionTask(
-                invalidProvision, "main", "b".repeat(40)))
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.provisionTask(runtime,
+                invalidProvision, "main"))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("full lowercase object ID");
+                .hasMessageContaining("full object ID");
         assertThat(runtime.currentBaseRevision(invalid.taskId())).isEmpty();
     }
 
@@ -193,7 +192,7 @@ final class TestFlowRuntimeChangeSets
                 advancedRevisionId,
                 task.taskId());
 
-        runtime.provisionTask(provisionClaim, baseSha, baseSha);
+        FlowRuntimeTestSupport.provisionTask(runtime, provisionClaim, baseSha);
 
         assertThat(runtime.currentBaseRevision(task.taskId()))
                 .hasValueSatisfying(base -> assertThat(base.baseSha())
@@ -243,7 +242,7 @@ final class TestFlowRuntimeChangeSets
         assertThat(fenceStayedValid).isTrue();
         assertThat(runtime.currentChangeSet(task.taskId())).contains(second.get());
         assertThat(count("flow_runtime_change_set_revision")).isEqualTo(2);
-        runtime.provisionTask(provisionClaim, baseSha, baseSha);
+        FlowRuntimeTestSupport.provisionTask(runtime, provisionClaim, baseSha);
         assertThat(count("flow_runtime_task_base_revision")).isEqualTo(1);
         assertThatThrownBy(() -> runtime.materializePullRequest(
                 task.taskId(), first.get().changeSetRevisionId(),
@@ -349,7 +348,7 @@ final class TestFlowRuntimeChangeSets
 
             git(worktree, "switch", "-c", "task/wrong");
             failures.add(inspectorFailure(writer, null));
-            git(worktree, "switch", "task/change");
+            git(worktree, "switch", task.branchName());
         });
 
         assertThat(failures).containsExactly(
@@ -496,8 +495,8 @@ final class TestFlowRuntimeChangeSets
 
     private void assertProvisionReplayRejected(Claim forgedClaim)
     {
-        assertThatThrownBy(() -> runtime.provisionTask(
-                forgedClaim, baseSha, baseSha))
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.provisionTask(runtime,
+                forgedClaim, baseSha))
                 .isInstanceOf(StaleClaimException.class);
     }
 

@@ -446,9 +446,10 @@ only for missing/stale evidence or an unproven process boundary. The implemented
 local `CI_UPDATE` gate then blocks `FAILED`, records genuine `UNAVAILABLE` as a
 manual-only warning, and rejects missing/stale/process-boundary evidence. Its
 complete-empty local-review binding is implemented; private comments/threads,
-other gate kinds, standing consent, provider execution, and effect proof remain
-deferred. Manual current-OPEN `CI_UPDATE` authorization and its immutable
-one-step push plan/runtime ticket are implemented.
+other gate kinds, standing consent, and general provider observation remain
+deferred. Manual current-OPEN `CI_UPDATE` authorization, its immutable one-step
+push plan/runtime ticket, and exact GitHub attempt/probe/receipt settlement are
+implemented.
 
 | Gate | Required objective facts |
 |---|---|
@@ -534,8 +535,10 @@ name and authorization path for the CI repair-push gate/consent subject.
 | `GateCommands.openOrRevise(...)` | Append one deduplicated gate revision/`OPEN` transition with the exact visible action manifest and digest. It creates no effect plan, operation, or ticket before authority exists. |
 | `GateFreshness.revalidate(gateId, revision)` | Rebuild relevant digests and compare before authorization and every effect. |
 | `GateCommands.authorize(AuthorizeGateCommand)` | In one transaction verify authority/revision/digests, append authorization, reserve the operation ID, lock `prId` and allocate the plan's next monotonic `prSequence`, create the GitHub-owned immutable plan from the frozen action manifest, and create that runtime `Operation` plus its `DispatchTicket`. |
-| `UserGates.beginCiUpdateEffect(claim)` | Revalidate the claimed exact graph and every current owner fact, then append `AUTHORIZED -> EXECUTING` without calling Git or GitHub. Stable drift appends terminal `STALE`, cancels the same operation/ticket, releases the publication barrier, and rearms parked reconciliation in one transaction. |
-| `UserGates.recoverExpiredCiUpdateEffect(operationId, generation)` | Before any provider-attempt API exists, prove the expired generation could not have called a provider, return `EXECUTING -> AUTHORIZED` when needed, and redrive the same operation/ticket. Generic claim recovery rejects `PUBLISH`. |
+| `UserGates.beginCiUpdateEffect(claim)` | Revalidate the claimed exact graph and every current owner fact, then append `AUTHORIZED -> EXECUTING` without calling Git or GitHub. Stable drift may append terminal `STALE` and cancel only before any attempt exists. With historical attempt uncertainty it enters durable probe-only `NEEDS_ATTENTION` and retains the barrier. |
+| `UserGates.recoverExpiredCiUpdateEffect(operationId, generation)` | Prove the expired generation has no durable provider attempt, return `EXECUTING -> AUTHORIZED` when needed, and redrive the same operation/ticket. Generic claim recovery rejects `PUBLISH`; a generation with an attempt uses probe-only recovery. |
+| `GitHubCiUpdateExecutor.execute(claim)` | Outside owner transactions, probe the exact frozen ref, commit each possible mutation attempt before its call (maximum two), execute the exact-lease fast-forward, then hand a sealed provider observation/failure to User Gates for atomic settlement. |
+| `UserGates.applyCiUpdateObservation(...)` | Consume only a provider-minted claim/plan/target/attempt-bound remote observation. `APPLIED` consumes with a receipt, `DIVERGED` stales, exact-expected `ABSENT` schedules the bounded retry unless authority uncertainty must remain probe-only, and `UNKNOWN` retains the barrier. |
 | `ConsentEvaluator.maybeAuthorize(gateId, gateRevision)` | If current narrow consent is eligible, construct the same `AuthorizeGateCommand`; otherwise do nothing. |
 | `ReadyPolicyEvaluator.maybeAuthorize(prId, exactRemoteHead)` | Resolve the current `RequiredCiPolicyRevision`, require eligible lineage plus exact-head accepted CI/no blocker, and under the same per-PR allocator atomically create `ReadyAuthorization` freezing that policy/evidence, its next-sequence GitHub-owned plan, and the runtime operation/ticket. |
 | `GateExecution.acceptResult(operationId, githubResultRef)` | Consume only after GitHub integration returns typed references proving every required plan step, then release any exact reconciliation wait on this gate/operation revision; User Gates does not copy attempts/probes/receipts. |
@@ -637,6 +640,9 @@ Default policy:
 
 ### Narrow CI consent
 
+Standing consent is a deferred policy owner. The implemented executable
+`CI_UPDATE` path uses only an exact authenticated manual authorization.
+
 The first implementation scopes consent to one Task, one branch, an expiry, and
 a maximum automatic use count. It permits only normal push of a reviewed,
 exact-head CI repair with `PASSED` local checks. An `UNAVAILABLE` check candidate
@@ -680,11 +686,14 @@ The following changes stale the named open/authorized revision:
 From the authorization commit until the operation becomes terminal, the runtime
 installs a logical publication
 barrier for the Task. It does **not** hold a writer lease across CI waiting. The
-implemented begin boundary makes no external call; the future executor will push
-the frozen commit SHA without changing the local worktree or Task branch. The
+begin boundary makes no external call. The concrete GitHub executor later
+commits an attempt and pushes the frozen commit SHA without changing the local
+worktree or Task branch. The
 barrier blocks WorkSelector, writer claims, leases/fences, and Task lifecycle
-changes. Stable begin-time drift atomically stales the gate, cancels the
-never-started operation, releases the barrier, and rearms reconciliation.
+changes. Stable begin-time drift atomically stales and cancels only a
+never-attempted operation. If an attempt exists, local-authority uncertainty
+enters durable probe-only attention and retains the barrier until an exact
+`APPLIED` or `DIVERGED` remote observation settles it.
 
 External effects do not add a second queue. Every immutable GitHub effect plan
 has a per-`prId` monotonic `prSequence`. Before claiming its runtime ticket, the

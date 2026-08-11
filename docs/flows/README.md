@@ -130,8 +130,10 @@ The current executable subset implements this boundary only for manual local
 plan and its runtime `PUBLISH` operation/ticket, installing the barrier. Claim
 locks the PR and admits the exact stored graph at the oldest nonterminal
 sequence; begin performs current-owner freshness revalidation but makes no Git
-or provider call. Attempts, probes, receipts, standing consent, and timeline
-projection remain deferred.
+or provider call. The concrete GitHub executor commits an attempt before its
+exact-lease push and uses immutable probes/receipts for settlement. Standing
+consent, general remote-observation routing, and timeline projection remain
+deferred.
 
 ### 6. Record a fact once
 

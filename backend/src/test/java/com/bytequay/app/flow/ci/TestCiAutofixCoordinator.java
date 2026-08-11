@@ -32,6 +32,7 @@ import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.GateState;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.gate.UserGatesSchema;
+import com.bytequay.app.flow.github.GitHubEffectRecords.ProbeOutcome;
 import com.bytequay.app.flow.github.GitHubEffects;
 import com.bytequay.app.flow.github.GitHubEffectsSchema;
 import com.bytequay.app.flow.runtime.FlowRuntime;
@@ -45,6 +46,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixSourceKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GitHubRepositoryLocator;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckConclusion;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckPolicyRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
@@ -95,6 +97,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.executeApplied;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.executeTerminalProbe;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.executeUnavailableProbe;
+import static com.bytequay.app.flow.github.GitHubProviderFixtures.observation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -2619,7 +2625,7 @@ class TestCiAutofixCoordinator
     }
 
     @Test
-    void publicationPlanningAddsNoSpeculativeReviewOrProviderExecutionOwner()
+    void publicationExecutionAddsNoReviewThreadsConsentOrProviderFramework()
     {
         openReadyGate("binding-yagni");
 
@@ -2632,9 +2638,6 @@ class TestCiAutofixCoordinator
                     OR name LIKE 'flow_user_gate_local_review_batch%'
                     OR name LIKE 'flow_user_gate_local_review_current%'
                     OR name LIKE '%consent%'
-                    OR name LIKE '%effect_attempt%'
-                    OR name LIKE '%effect_probe%'
-                    OR name LIKE '%effect_receipt%'
                     OR name LIKE '%provider_call%'
                 )
                 """,
@@ -4421,6 +4424,493 @@ class TestCiAutofixCoordinator
                 .hasMessageContaining("digest graph");
     }
 
+    @Test
+    void appliedProviderProbeConsumesTheExactPlanAndReplays()
+    {
+        CompletedReady ready = openReadyGate("publish-applied");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "publish-applied-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(claim);
+        githubEffects.recordObservation(
+                claim,
+                observation(
+                        runtime, claim, activation, null,
+                        ProbeOutcome.ABSENT),
+                NOW);
+        var activated = githubEffects.activateAttempt(
+                claim, authorized.planId(), NOW);
+        assertThat(count("flow_github_external_effect_attempt", "1 = 1"))
+                .isEqualTo(1);
+        runtime.consumePublishExecutionHandle(
+                activated.executionHandle(), claim,
+                activated.attempt().attemptId(),
+                activated.attempt().executionTokenDigest());
+
+        var applied = observation(
+                runtime, claim, activation, activated.attempt(),
+                ProbeOutcome.APPLIED);
+        var receipt = userGates.applyCiUpdateObservation(
+                claim, activated.executionHandle(), activated.attempt(),
+                applied).orElseThrow();
+        assertThat(userGates.applyCiUpdateObservation(
+                claim, activated.executionHandle(), activated.attempt(),
+                applied))
+                .contains(receipt);
+        assertThatThrownBy(() -> userGates.applyCiUpdateObservation(
+                claim, activated.executionHandle(), activated.attempt(),
+                observation(
+                        runtime, claim, activation, activated.attempt(),
+                        ProbeOutcome.UNKNOWN)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(runtime.pullRequest(pr.prId()).orElseThrow()
+                .currentRemoteHead()).isEqualTo(activation.proposedHead());
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.SUCCEEDED);
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN, GateState.AUTHORIZED,
+                        GateState.EXECUTING, GateState.CONSUMED);
+        assertThat(githubEffects.exactReceipt(authorized.planId()))
+                .contains(receipt);
+    }
+
+    @Test
+    void realExecutorCommitsAttemptBeforeItsOnlyProviderCall()
+    {
+        CompletedReady ready = openReadyGate("executor-attempt-boundary");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "executor-attempt-boundary-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var step = githubEffects.steps(authorized.planId()).getFirst();
+        AtomicInteger pushes = new AtomicInteger();
+
+        var receipt = executeApplied(
+                runtime,
+                userGates,
+                githubEffects,
+                claim,
+                step,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                () -> assertThat(count(
+                        "flow_github_external_effect_attempt",
+                        "operation_id = '" + claim.operationId() + "'"))
+                        .isEqualTo(1),
+                pushes).orElseThrow();
+
+        assertThat(pushes.get()).isEqualTo(1);
+        assertThat(count(
+                "flow_github_external_effect_receipt", "1 = 1"))
+                .isEqualTo(1);
+
+        restart();
+        assertThat(executeApplied(
+                runtime,
+                userGates,
+                githubEffects,
+                claim,
+                githubEffects.steps(authorized.planId()).getFirst(),
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                () -> {
+                    throw new AssertionError(
+                            "terminal replay must not call the provider");
+                },
+                pushes)).contains(receipt);
+        assertThat(pushes.get()).isEqualTo(1);
+        for (Claim conflicting : List.of(
+                new Claim(
+                        claim.operationId(), claim.taskId(),
+                        OperationKind.RECONCILE_TASK, claim.generation(),
+                        claim.claimToken(), claim.workerId(),
+                        claim.expiresAt()),
+                new Claim(
+                        claim.operationId(), claim.taskId(), claim.kind(),
+                        claim.generation(), "wrong-token", claim.workerId(),
+                        claim.expiresAt()),
+                new Claim(
+                        claim.operationId(), claim.taskId(), claim.kind(),
+                        claim.generation() + 1, claim.claimToken(),
+                        claim.workerId(), claim.expiresAt()),
+                new Claim(
+                        claim.operationId(), "wrong-task", claim.kind(),
+                        claim.generation(), claim.claimToken(),
+                        claim.workerId(), claim.expiresAt()),
+                new Claim(
+                        claim.operationId(), claim.taskId(), claim.kind(),
+                        claim.generation(), claim.claimToken(),
+                        "wrong-worker", claim.expiresAt()))) {
+            assertThatThrownBy(() -> executeApplied(
+                    runtime,
+                    userGates,
+                    githubEffects,
+                    conflicting,
+                    githubEffects.steps(authorized.planId()).getFirst(),
+                    Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                    () -> {
+                        throw new AssertionError(
+                                "conflicting replay called the provider");
+                    },
+                    pushes)).isInstanceOf(RuntimeException.class);
+        }
+        assertThat(pushes.get()).isEqualTo(1);
+    }
+
+    @Test
+    void attemptInsertFailureRollsBackBeforeProviderCall()
+    {
+        CompletedReady ready = openReadyGate("executor-attempt-rollback");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "executor-attempt-rollback-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var step = githubEffects.steps(authorized.planId()).getFirst();
+        jdbc.execute("""
+                CREATE TRIGGER reject_effect_attempt
+                BEFORE INSERT ON flow_github_external_effect_attempt
+                BEGIN
+                    SELECT RAISE(ABORT, 'attempt insert rejected');
+                END
+                """);
+        AtomicInteger pushes = new AtomicInteger();
+
+        assertThatThrownBy(() -> executeApplied(
+                runtime,
+                userGates,
+                githubEffects,
+                claim,
+                step,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                () -> {},
+                pushes)).isInstanceOf(RuntimeException.class);
+
+        assertThat(pushes.get()).isZero();
+        assertThat(count(
+                "flow_github_external_effect_attempt", "1 = 1")).isZero();
+    }
+
+    @Test
+    void invalidProviderTargetReplaysWithoutAnotherProviderCommand()
+    {
+        assertTerminalProviderRejectionReplays(true);
+    }
+
+    @Test
+    void divergedProviderTargetReplaysWithoutAnotherProviderCommand()
+    {
+        assertTerminalProviderRejectionReplays(false);
+    }
+
+    private void assertTerminalProviderRejectionReplays(
+            boolean invalidTarget)
+    {
+        String suffix = invalidTarget
+                ? "provider-invalid-replay" : "provider-diverged-replay";
+        CompletedReady ready = openReadyGate(suffix);
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                suffix + "-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        AtomicInteger providerCommands = new AtomicInteger();
+
+        assertThat(executeTerminalProbe(
+                runtime,
+                userGates,
+                githubEffects,
+                claim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                invalidTarget,
+                providerCommands)).isEmpty();
+        int afterFirst = providerCommands.get();
+        assertThat(executeTerminalProbe(
+                runtime,
+                userGates,
+                githubEffects,
+                claim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                invalidTarget,
+                providerCommands)).isEmpty();
+
+        assertThat(providerCommands.get()).isEqualTo(afterFirst);
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CANCELED);
+        assertThat(githubEffects.attempts(authorized.planId())).isEmpty();
+    }
+
+    @Test
+    void unavailablePreflightRetainsTheBarrierWithoutAnAttempt()
+    {
+        CompletedReady ready = openReadyGate("provider-preflight-unavailable");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "provider-preflight-unavailable-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        AtomicInteger pushes = new AtomicInteger();
+
+        assertThat(executeUnavailableProbe(
+                runtime,
+                userGates,
+                githubEffects,
+                claim,
+                githubEffects.steps(authorized.planId()).getFirst(),
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                false,
+                pushes)).isEmpty();
+
+        assertThat(pushes.get()).isZero();
+        assertThat(githubEffects.attempts(authorized.planId())).isEmpty();
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.RETRYABLE);
+        assertThat(userGates.transitions(revision.gateId()).getLast())
+                .satisfies(transition -> {
+                    assertThat(transition.toState())
+                            .isEqualTo(GateState.NEEDS_ATTENTION);
+                    assertThat(transition.reasonCode())
+                            .isEqualTo("EFFECT_PREPARATION_UNAVAILABLE");
+                });
+    }
+
+    @Test
+    void invalidPostAttemptProbeRetainsTheBarrier()
+    {
+        CompletedReady ready = openReadyGate("provider-post-invalid");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "provider-post-invalid-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        AtomicInteger pushes = new AtomicInteger();
+
+        assertThat(executeUnavailableProbe(
+                runtime,
+                userGates,
+                githubEffects,
+                claim,
+                githubEffects.steps(authorized.planId()).getFirst(),
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                true,
+                pushes)).isEmpty();
+
+        assertThat(pushes.get()).isEqualTo(1);
+        assertThat(githubEffects.attempts(authorized.planId())).hasSize(1);
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.RETRYABLE);
+        assertThat(userGates.transitions(revision.gateId()).getLast())
+                .satisfies(transition -> {
+                    assertThat(transition.toState())
+                            .isEqualTo(GateState.NEEDS_ATTENTION);
+                    assertThat(transition.reasonCode())
+                            .isEqualTo("EFFECT_PROBE_UNAVAILABLE");
+                });
+    }
+
+    @Test
+    void activatedExpiryIsProbeOnlyAndRecoveryReplays()
+    {
+        CompletedReady ready = openReadyGate("publish-probe-recovery");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "publish-probe-recovery-key");
+        Claim first = runtime.claimNextPublish(
+                "publisher", Duration.ofSeconds(1)).orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(first);
+        githubEffects.recordObservation(
+                first,
+                observation(
+                        runtime, first, activation, null,
+                        ProbeOutcome.ABSENT),
+                NOW);
+        githubEffects.activateAttempt(first, authorized.planId(), NOW);
+        advancePublicationClock(Duration.ofSeconds(2));
+
+        assertThatThrownBy(() -> userGates.recoverExpiredCiUpdateEffect(
+                first.operationId(), first.generation()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("probe-only");
+        userGates.recoverExpiredCiUpdateProbe(
+                first.operationId(), first.generation());
+        userGates.recoverExpiredCiUpdateProbe(
+                first.operationId(), first.generation());
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.RETRYABLE);
+        assertThat(userGates.transitions(revision.gateId()).getLast()
+                .toState())
+                .isEqualTo(GateState.NEEDS_ATTENTION);
+
+        advancePublicationClock(Duration.ofSeconds(5));
+        Claim probe = runtime.claimNextPublish("probe-worker", TTL)
+                .orElseThrow();
+        var probeActivation = userGates.beginCiUpdateEffect(probe);
+        assertThat(probeActivation.mutationAllowed()).isFalse();
+        userGates.applyCiUpdateObservation(
+                probe,
+                null,
+                githubEffects.attempts(authorized.planId()).getLast(),
+                observation(
+                        runtime,
+                        probe,
+                        probeActivation,
+                        githubEffects.attempts(
+                                authorized.planId()).getLast(),
+                        ProbeOutcome.ABSENT));
+        assertThat(userGates.transitions(revision.gateId()).getLast()
+                .toState())
+                .isEqualTo(GateState.AUTHORIZED);
+        advancePublicationClock(Duration.ofSeconds(5));
+        Claim retry = runtime.claimNextPublish("retry-worker", TTL)
+                .orElseThrow();
+        assertThat(userGates.beginCiUpdateEffect(retry).mutationAllowed())
+                .isTrue();
+    }
+
+    @Test
+    void authorityDriftAfterAttemptRetainsProbeOnlyBarrierOnAbsent()
+    {
+        CompletedReady ready = openReadyGate("publish-authority-unproven");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "publish-authority-unproven-key");
+        Claim first = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(first);
+        githubEffects.recordObservation(
+                first,
+                observation(
+                        runtime, first, activation, null,
+                        ProbeOutcome.ABSENT),
+                NOW);
+        var activated = githubEffects.activateAttempt(
+                first, authorized.planId(), NOW);
+        runtime.consumePublishExecutionHandle(
+                activated.executionHandle(),
+                first,
+                activated.attempt().attemptId(),
+                activated.attempt().executionTokenDigest());
+        userGates.applyCiUpdateObservation(
+                first,
+                activated.executionHandle(),
+                activated.attempt(),
+                observation(
+                        runtime,
+                        first,
+                        activation,
+                        activated.attempt(),
+                        ProbeOutcome.ABSENT));
+        publishCheckPolicy("authority-drift", List.of("/usr/bin/true"));
+        advancePublicationClock(Duration.ofSeconds(5));
+        Claim second = runtime.claimNextPublish("probe-worker", TTL)
+                .orElseThrow();
+
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(second))
+                .isInstanceOf(
+                        UserGates.DurableProbeRequiredException.class);
+        advancePublicationClock(Duration.ofSeconds(5));
+        Claim third = runtime.claimNextPublish("probe-worker-2", TTL)
+                .orElseThrow();
+        var probeOnly = userGates.beginCiUpdateEffect(third);
+        assertThat(probeOnly.mutationAllowed()).isFalse();
+        userGates.applyCiUpdateObservation(
+                third,
+                null,
+                activated.attempt(),
+                observation(
+                        runtime,
+                        third,
+                        probeOnly,
+                        activated.attempt(),
+                        ProbeOutcome.ABSENT));
+
+        assertThat(userGates.transitions(revision.gateId()).getLast()
+                .toState()).isEqualTo(GateState.NEEDS_ATTENTION);
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.RETRYABLE);
+    }
+
+    @Test
+    void sameTimestampUnknownAfterAbsentCannotAuthorizeAttempt()
+    {
+        CompletedReady ready = openReadyGate("probe-order");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "probe-order-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(claim);
+        githubEffects.recordObservation(
+                claim,
+                observation(
+                        runtime, claim, activation, null,
+                        ProbeOutcome.ABSENT),
+                NOW);
+        githubEffects.recordObservation(
+                claim,
+                observation(
+                        runtime, claim, activation, null,
+                        ProbeOutcome.UNKNOWN),
+                NOW);
+
+        assertThatThrownBy(() -> githubEffects.activateAttempt(
+                claim, authorized.planId(), NOW))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("latest exact-expected");
+        assertThat(count("flow_github_external_effect_attempt", "1 = 1"))
+                .isZero();
+    }
+
+    @Test
+    void appliedSettlementAcceptsEqualConcurrentRemoteObservation()
+    {
+        CompletedReady ready = openReadyGate("publish-observed-race");
+        GateRevision revision = ready.revision();
+        var authorized = userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "publish-observed-race-key");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(claim);
+        runtime.advanceRemoteHead(
+                activation.prId(), activation.expectedRemoteHead(),
+                activation.proposedHead());
+
+        assertThat(userGates.applyCiUpdateObservation(
+                claim,
+                null,
+                null,
+                observation(
+                        runtime, claim, activation, null,
+                        ProbeOutcome.APPLIED))).isPresent();
+        assertThat(runtime.operation(authorized.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.SUCCEEDED);
+        assertThat(count("flow_github_external_effect_receipt", "1 = 1"))
+                .isEqualTo(1);
+    }
+
     private CompletedReady openReadyGate(String suffix)
     {
         return openReadyGate(suffix, "failure-1");
@@ -5006,8 +5496,12 @@ class TestCiAutofixCoordinator
         PullRequestSubject local = runtime.materializePullRequest(
                 started.taskId(), adopted.currentChangeSetRevisionId(),
                 "main", "main", "main");
-        pr = runtime.bindRemoteIdentity(
-                local.prId(), publishedHead, "GITHUB", "repo-external", 42,
+        pr = runtime.bindGitHubRemoteIdentity(
+                local.prId(), publishedHead,
+                new GitHubRepositoryLocator(
+                        "repo-external", "octocat", "bytequay"),
+                new GitHubRepositoryLocator(
+                        "head-repo-external", "octocat", "bytequay"), 42,
                 "PR_node", "https://example.test/pr/42", "receipt:42");
         return runtime.task(started.taskId()).orElseThrow();
     }

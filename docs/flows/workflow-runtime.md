@@ -625,10 +625,13 @@ operation/ticket. That nonterminal operation is the Task publication barrier:
 reconciliation parks, writer claim/lease/fence and Task lifecycle changes reject.
 `claimNextPublish` locks the PR and admits only its oldest nonterminal
 `prSequence`; `beginCiUpdateEffect` records `AUTHORIZED -> EXECUTING` after exact
-revalidation but makes no provider call. Stable drift records terminal STALE,
-cancels the operation/ticket, releases the barrier, and rearms parked
-reconciliation in one transaction. Generic expired-claim recovery rejects
-`PUBLISH`; the owner-specific never-started recovery redrives the same operation.
+revalidation but makes no provider call. The GitHub executor runs outside owner
+transactions, commits the exact attempt before the mutation call, and settles
+only from a sealed exact remote observation. Stable drift records terminal
+STALE only before any attempt; later uncertainty retains the barrier in
+probe-only attention. Generic expired-claim recovery rejects `PUBLISH`; the
+owner-specific never-started recovery redrives the same operation, while an
+activated generation can only redrive probing.
 
 ## 6. Command and dispatch protocol
 

@@ -122,12 +122,22 @@ CREATE TABLE flow_runtime_remote_identity (
     remote_identity_id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
     repository_external_id TEXT NOT NULL,
+    repository_owner TEXT NOT NULL,
+    repository_name TEXT NOT NULL,
+    head_repository_external_id TEXT NOT NULL,
+    head_repository_owner TEXT NOT NULL,
+    head_repository_name TEXT NOT NULL,
     pr_number INTEGER NOT NULL,
     pr_node_id TEXT NOT NULL,
     html_url TEXT NOT NULL,
     publication_receipt_id TEXT NOT NULL,
     bound_at INTEGER NOT NULL,
-    UNIQUE (provider, repository_external_id, pr_number)
+    UNIQUE (provider, repository_external_id, pr_number),
+    CHECK (provider = 'GITHUB'),
+    CHECK (
+        repository_owner <> '' AND repository_name <> ''
+        AND head_repository_owner <> '' AND head_repository_name <> ''
+    )
 );
 
 CREATE TABLE flow_runtime_pr (

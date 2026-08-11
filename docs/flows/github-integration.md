@@ -66,9 +66,14 @@ manual decision for the current OPEN revision and atomically creates one
 immutable plan, exactly one ordinal-1 `PUSH_EXACT` step, and the linked runtime
 `PUBLISH` operation/ticket. Claim admits only the oldest nonterminal
 `prSequence`; typed begin revalidates freshness and records `EXECUTING`. This
-checkpoint performs no Git/GitHub call and owns no attempt, probe, receipt, or
-remote result. Stable pre-call drift stales the gate and cancels the operation;
-never-started expiry redrives that same operation.
+component now executes that one step through an exact GitHub-only transport.
+It commits a distinct immutable attempt before each possible mutation call
+(maximum two), pushes the
+literal proposed commit to the literal full ref with an exact-old-SHA lease,
+and accepts only a later exact remote probe as proof. Stable pre-attempt target
+failure can stale the gate; any uncertainty after an attempt keeps the gate and
+publication barrier in probe-only attention. Never-started expiry redrives the
+same operation, while activated expiry can only schedule another probe.
 
 ## Logical data model
 
@@ -78,18 +83,24 @@ These are logical records, not a prescribed ORM or migration scheme.
 
 The authoritative record is owned by the PR aggregate in
 [pr-timeline.md](./pr-timeline.md), not by this component. The effect executor
-produces the proven provider locator needed to bind it:
+requires the set-once program-observed GitHub identity bound there. The current
+record freezes both base and head repository locators, so forks do not inherit
+or guess the base repository target:
 
 | Field | Meaning |
 |---|---|
 | `provider` | `GITHUB` in this implementation |
-| `repositoryExternalId`, `pullNumber` | Unique remote repository/PR locator |
+| base `repositoryExternalId`, canonical owner/name, `pullNumber` | Unique base repository/PR locator |
+| head `repositoryExternalId`, canonical owner/name | Exact repository that owns the authorized branch ref |
 | `prNodeId` | Stable GitHub node identity |
 | `htmlUrl` | Display link |
 | `publicationReceiptId` | Proven effect that opened/found this PR |
 
-After proof, this component calls `PrRecords.bindRemoteIdentity(...)`. It stores
-no shadow identity.
+The locator comes from a program-owned provider observation, never caller text
+or worktree remote naming. Execution requires exactly one credential-free
+GitHub push URL whose canonical owner/name matches the frozen head locator; zero,
+multiple, fetch-only, credential-bearing, rewritten, or non-GitHub targets fail
+closed. It stores no shadow identity.
 
 ### `RemotePullRequestSnapshot`
 
@@ -139,21 +150,27 @@ authorization, runtime `Operation`, and `DispatchTicket`. A unique
 The enclosing `Operation`, claim state, retry time, fence, and unique
 `DispatchTicket` belong to [workflow-runtime.md](./workflow-runtime.md). This
 implemented component owns only the immutable one-step `CI_UPDATE` plan tied to
-that `operationId`; provider execution evidence remains deferred.
+that `operationId`, its bounded attempts and remote probes, and its exact
+receipt. Other effect kinds remain deferred.
 
 ### Effect steps and evidence
 
 Each plan contains ordered, immutable `ExternalEffectStep` records. The current
 `CI_UPDATE` plan has exactly one canonical ordinal-1 `PUSH_EXACT` step binding
 branch ref, expected remote head, proposed head, `force=false`, action digest,
-and precondition digest. A future provider checkpoint will add attempt/proof
-owners. A step generally has a stable idempotency key, frozen payload reference,
-and precondition digest.
-`ExternalEffectAttempt` records each provider call, `ExternalEffectProbe`
+and precondition digest. A step generally has a stable idempotency key, frozen
+payload reference, and precondition digest.
+`ExternalEffectAttempt` records authority for one possible provider mutation
+call before that call can start, `ExternalEffectProbe`
 records read-after-unknown checks, and `ExternalEffectReceipt` records the
 provider object/current value plus the fresh observation that proved success.
 Every record carries `operationId` and `stepId`; none duplicates runtime claim
-or operation lifecycle state.
+or operation lifecycle state. Probe order is monotonic by claim generation and
+probe number, never wall-clock/hash order. `APPLIED` means the exact proposed
+SHA, `ABSENT` means the exact expected SHA, a missing ref or any third SHA is
+`DIVERGED`, and unavailable proof is `UNKNOWN`. CI update mutation is bounded
+to two exact-identical attempts with a fixed five-second retry delay; once an
+attempt exists, expiry and local uncertainty grant probe authority only.
 
 For a reply API without a native idempotency key, the frozen payload includes a
 non-rendered ByteQuay effect marker covered by the action digest. Recovery probes
@@ -206,9 +223,7 @@ monitor or review-comments agent.
 
 ```text
 AuthorizedEffectPlans.create(authorizationId, operationId, actionManifest) -> effectPlanRef
-GitHubEffectExecutor.advance(operationId, runtimeClaim) -> StepOutcome
-GitHubEffectExecutor.probe(operationId, stepId, runtimeClaim) -> ProbeOutcome
-GitHubEffectExecutor.reconcile(operationId) -> EffectPlanProgress
+GitHubCiUpdateExecutor.execute(runtimeClaim) -> optional exact receipt
 ```
 
 `AuthorizedEffectPlans.create` is not a public second submission step. It is
@@ -233,37 +248,61 @@ claim to the executor. The executor accepts only the linked immutable
 authorization from [user-gates.md](./user-gates.md); agent prose, Task status,
 and a boolean `override` are not authority.
 
-An uncertain probe returns an immutable GitHub-owned result reference. It never
-edits Gate state directly: `GateAttention.applyProbe(...)` in User Gates consumes
-that typed reference and atomically settles or re-enables the gate, runtime
-operation, plan eligibility, and publication barrier.
+The concrete provider privately mints claim- and subject-bound observation or
+local-failure proofs. GitHub Effects persists only actual remote observations;
+User Gates consumes the sealed proof and atomically settles or retries the gate,
+runtime operation, plan eligibility, and publication barrier. A raw caller
+cannot supply an `APPLIED` enum/head pair or an arbitrary runtime result ref.
 
 ### Provider adapter
 
-The first implementation needs one direct `GitHubProvider`, not a framework of
-one-implementation interfaces. Its operations are:
+The current implementation uses one direct package-private `GitHubProvider`,
+not a provider framework. Its executable surface is only:
 
 ```text
-pushExact(localHead, headRef, expectedRemoteHead?, mode)
-openDraftPullRequest(headRef, baseRef, expectedBaseSha, title, body)
-getPullRequest(repositoryId, pullNumber)
-getChecks(repositoryId, headSha)
-getReviewsAndThreads(repositoryId, pullNumber)
-postReply(itemId, expectedRevision, body)
-resolveThread(threadId, expectedRevision)
-markReady(repositoryId, pullNumber, expectedHead)
-merge(repositoryId, pullNumber, expectedHead, method)
+probe(exact authorized CI_UPDATE activation)
+pushExactFastForward(exact durable attempt capability, prepared target)
 ```
 
-The adapter returns provider data; it never updates domain state itself.
-`mode` is `CREATE_REF`, `FAST_FORWARD`, or `FORCE_WITH_LEASE`. A clean first
-publication attempt uses `CREATE_REF`; normal CI/feedback updates use
-`FAST_FORWARD`.
-A proven partial-initial-publication recovery probes the already-created Task
-branch and uses `FAST_FORWARD` from its exact frozen remote head rather than
-attempting another `CREATE_REF`.
-`FORCE_WITH_LEASE` is rejected unless the exact manual action manifest includes
-it and the lease still matches. Standing CI consent never authorizes it.
+Preparation proves both commit objects, expected-as-ancestor-of-proposed,
+exact credential-free GitHub push-remote routing, safe Git configuration, and
+credential availability before an attempt exists. Each pre/post probe and
+pre-attempt preparation also performs a fresh authenticated, bounded,
+no-proxy/no-redirect GitHub repository read. It accepts only a complete `200`
+whose stable repository ID and canonical owner/name equal the frozen head
+locator. For this owner, `repositoryExternalId` is the canonical decimal REST
+repository database `id`, not a GraphQL node ID or `owner/name`. An
+authenticated exact mismatch is invalid; `404`, authentication,
+transport, malformed, oversized, timed-out reads, or a credential attested to
+a different repository ID are unavailable. The
+credential source must attest that the returned credential is restricted to
+the requested stable repository ID; a broad classic PAT cannot satisfy this
+executor boundary, and production credential-source wiring remains deferred.
+
+The repository-identity read and Git ref update are sequential, not one
+provider-atomic operation. The repository-scoped credential preserves target
+authority across that interval, the exact lease protects the ref value, and
+the post-call probe revalidates repository identity. The mutation transports the
+literal proposed SHA to the literal full ref with
+`--force-with-lease=<ref>:<expected>`. That lease is the atomic compare-and-set
+transport, not force-push authority: the action remains `force=false`, ancestry
+must prove a fast-forward, and there is no plain-force fallback. Repository
+hooks, prompts, replace objects, URL rewrites, and local `http.*` or `push.*`
+overrides are disabled or rejected; structured stdout is bounded and stderr is
+never parsed. Local proof also disables lazy object fetching and rejects legacy
+`info/grafts`, so neither a provider fetch nor a fabricated parent edge can
+create fast-forward authority.
+Tokens exist only in the child environment/in-memory prepared capability;
+mutable token buffers are wiped after use. Derived Java strings cannot be
+reliably wiped, so they are never persisted or logged. URLs, arguments, and
+durable evidence contain no credentials.
+
+Initial publication, feedback/reply, ready, merge, general observation,
+webhook, timeline, and multi-provider adapters remain deferred.
+Production secret-source and dispatcher wiring/cutover are also deferred; this
+checkpoint supplies the concrete owner/executor boundary and deterministic
+transport tests only. `cancelAttention` is intentionally absent: an `UNKNOWN`
+attempt retains the oldest-plan barrier until an exact later probe settles it.
 
 ## Agent-facing read tools
 

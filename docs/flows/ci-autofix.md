@@ -555,15 +555,20 @@ the future recovery owner resolves that exact reason.
 implemented stopped finalizer locks and revalidates the exact PR remote,
 current Local Checks policy/latest runs, current required-CI policy/actionable
 round, clean current Task change set, and completed same-head reviewer. It then
-opens or revises one local `CI_UPDATE` gate and settles the Task result/session/
-input/pointer/lease atomically. Parent `FAILED` or `CANCELED` prose/outcome does
+opens or revises one local `CI_UPDATE` gate whose exact subject references the
+User Gates-owned deterministic complete-empty local-review binding for this
+PR/change set, and settles the Task result/session/input/pointer/lease
+atomically. Parent `FAILED` or `CANCELED` prose/outcome does
 not undo an already accepted command. Stable post-seal drift records typed
 attention and no gate; a transaction failure retries the stopped finalizer and
 does not rerun the agent body.
 
 This checkpoint creates no authorization, effect plan, dispatch ticket, push,
-provider call, or timeline event. The OPEN gate is inert until the separately
-specified authorization/effect owners are implemented.
+provider call, or timeline event. The binding proves only that no private local
+review items exist; the future authenticated manual authorization supplies the
+semantic review and must reject a historical absent binding. The OPEN gate is
+inert until the separately specified authorization/effect owners are
+implemented.
 
 ### 4. Authorize and push
 

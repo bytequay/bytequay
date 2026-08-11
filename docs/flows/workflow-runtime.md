@@ -610,8 +610,11 @@ result, current PR remote/branch, and current actionable CI round/policy. A
 rejected call returns typed blockers and leaves tools live. An accepted call
 stores the immutable request and revokes tools. After exact thread stop, the
 specialized finalizer revalidates and locks every mutable owner, opens/revises
-the local `CI_UPDATE` gate and settles result/session/input/pointer/lease in one
-transaction. Stable drift becomes typed `NEEDS_ATTENTION` with no gate;
+the local `CI_UPDATE` gate with one deterministic User Gates-owned
+complete-empty local-review binding for the exact PR/change set, and settles
+result/session/input/pointer/lease in one transaction. The binding contains no
+thread, comment, batch, status, or current pointer and grants no authority.
+Stable drift becomes typed `NEEDS_ATTENTION` with no gate;
 transient transaction failure rolls back for stopped-finalizer retry without
 rerunning the body. Initial/upstream/feedback/local-review ready bindings remain
 deferred.

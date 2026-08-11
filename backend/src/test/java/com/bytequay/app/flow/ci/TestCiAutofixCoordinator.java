@@ -2341,6 +2341,8 @@ class TestCiAutofixCoordinator
                         capability -> {
                             acceptance.set(
                                     capability.readyForReview().status());
+                            assertThat(capability.readyForReview().status())
+                                    .isEqualTo("ACCEPTED_SEALED");
                             assertThatThrownBy(
                                     capability::spawnAdversarialReviewer)
                                     .isInstanceOf(FlowRuntime
@@ -2377,9 +2379,17 @@ class TestCiAutofixCoordinator
                         .orElseThrow().headSha());
         assertThat(subject.expectedRemoteHead()).isEqualTo(publishedHead);
         assertThat(subject.localChecks()).hasSize(1);
-        assertThat(subject.localReview().ownerPresent()).isFalse();
+        assertThat(subject.localReview().ownerPresent()).isTrue();
+        assertThat(subject.localReview().bindingId()).isNotBlank();
         assertThat(subject.localReview().batchIds()).isEmpty();
         assertThat(subject.localReview().latestRevisionIds()).isEmpty();
+        var localReview = userGates.localReviewBinding(
+                subject.localReview().bindingId()).orElseThrow();
+        assertThat(localReview.prId()).isEqualTo(pr.prId());
+        assertThat(localReview.candidateChangeSetRevisionId())
+                .isEqualTo(subject.changeSetRevisionId());
+        assertThat(localReview.digest())
+                .isEqualTo(subject.localReview().digest());
         assertThat(subject.ciMemoryRefs()).isEmpty();
         assertThat(subject.ciObservationIds()).isNotEmpty();
         assertThat(subject.failedLogRefs()).isNotEmpty();
@@ -2405,6 +2415,14 @@ class TestCiAutofixCoordinator
                 replay)).isEqualTo(result);
         assertThat(userGates.revisionForRun(
                 ready.binding().run().runId())).contains(revision);
+        assertThat(count(
+                "flow_user_gate_local_review_binding", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count("flow_user_gate_subject", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count(
+                "flow_runtime_ready_for_review_request", "1 = 1"))
+                .isEqualTo(1);
         assertThat(count("flow_runtime_operation", "1 = 1"))
                 .isEqualTo(operationCount);
         assertThat(count("flow_runtime_dispatch_ticket", "1 = 1"))
@@ -2413,6 +2431,190 @@ class TestCiAutofixCoordinator
                 "SELECT name FROM sqlite_master WHERE type = 'table' "
                         + "AND (name LIKE '%authorization%' "
                         + "OR name LIKE '%effect_plan%')",
+                String.class)).isEmpty();
+    }
+
+    @Test
+    void localReviewBindingInsertRollsBackWithReadySubject()
+    {
+        ReviewerResultReady ready = prepareReviewerResult(
+                "binding-rollback");
+        jdbc.execute("""
+                CREATE TRIGGER fail_ready_subject
+                BEFORE INSERT ON flow_user_gate_subject
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced ready subject failure');
+                END
+                """);
+        AtomicInteger permittedAfterFailure = new AtomicInteger();
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            assertThatThrownBy(capability::readyForReview)
+                                    .isInstanceOf(RuntimeException.class)
+                                    .hasMessageContaining(
+                                            "forced ready subject failure");
+                            capability.runTool(
+                                    permittedAfterFailure::incrementAndGet);
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            "opaque ready rollback",
+                                            null);
+                        });
+        ready.ready().review().awaitReviewerResultContinuation(
+                supervisor, ready.binding(), handle, TTL);
+
+        assertThat(permittedAfterFailure).hasValue(1);
+        assertThat(count(
+                "flow_user_gate_local_review_binding", "1 = 1"))
+                .isZero();
+        assertThat(count("flow_user_gate_subject", "1 = 1")).isZero();
+        assertThat(runtime.readyForReviewRequestForRun(
+                ready.binding().run().runId())).isEmpty();
+        assertThat(userGates.gate(pr.prId())).isEmpty();
+    }
+
+    @Test
+    void localReviewBindingIsUniqueForTheExactPrCandidate()
+    {
+        CompletedReady ready = openReadyGate("binding-unique");
+        var subject = userGates.subject(
+                ready.revision().subjectManifestRef()).orElseThrow();
+
+        assertThatThrownBy(() -> jdbc.update(
+                """
+                INSERT INTO flow_user_gate_local_review_binding (
+                    binding_id, pr_id, candidate_change_set_revision_id,
+                    binding_digest, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                "conflicting-binding",
+                subject.prId(),
+                subject.changeSetRevisionId(),
+                "conflicting-digest",
+                NOW.plusSeconds(1).toEpochMilli()))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(count(
+                "flow_user_gate_local_review_binding", "1 = 1"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void subjectSchemaRejectsImpossibleLocalReviewBindings()
+    {
+        CompletedReady ready = openReadyGate("binding-checks");
+        String subjectId = ready.revision().subjectManifestRef();
+
+        assertThatThrownBy(() -> jdbc.update(
+                """
+                UPDATE flow_user_gate_subject
+                SET local_review_owner_present = 0
+                WHERE subject_id = ?
+                """,
+                subjectId)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> jdbc.update(
+                """
+                UPDATE flow_user_gate_subject
+                SET local_review_binding_id = NULL
+                WHERE subject_id = ?
+                """,
+                subjectId)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> jdbc.update(
+                """
+                UPDATE flow_user_gate_subject
+                SET local_review_batch_refs_json = '["x"]'
+                WHERE subject_id = ?
+                """,
+                subjectId)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> jdbc.update(
+                """
+                UPDATE flow_user_gate_subject
+                SET local_review_revision_refs_json = '["x"]'
+                WHERE subject_id = ?
+                """,
+                subjectId)).isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> jdbc.update(
+                """
+                UPDATE flow_user_gate_subject
+                SET local_review_digest = 'wrong-digest'
+                WHERE subject_id = ?
+                """,
+                subjectId)).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void subjectReadFailsClosedOnBindingCorruption() throws Exception
+    {
+        CompletedReady ready = openReadyGate("binding-corruption");
+        var subject = userGates.subject(
+                ready.revision().subjectManifestRef()).orElseThrow();
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("PRAGMA foreign_keys = OFF");
+            statement.executeUpdate(
+                    "UPDATE flow_user_gate_local_review_binding "
+                            + "SET binding_digest = 'corrupt' "
+                            + "WHERE binding_id = '"
+                            + subject.localReview().bindingId() + "'");
+        }
+
+        assertThatThrownBy(() -> userGates.subject(subject.subjectId()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(
+                        "local-review binding does not match gate subject");
+    }
+
+    @Test
+    void historicalAbsentBindingIsReadButNeverSynthesized() throws Exception
+    {
+        CompletedReady ready = openReadyGate("binding-absent");
+        String subjectId = ready.revision().subjectManifestRef();
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("PRAGMA foreign_keys = OFF");
+            statement.executeUpdate(
+                    "UPDATE flow_user_gate_subject "
+                            + "SET local_review_owner_present = 0, "
+                            + "local_review_binding_id = NULL "
+                            + "WHERE subject_id = '" + subjectId + "'");
+        }
+
+        var historical = userGates.subject(subjectId).orElseThrow();
+        assertThat(historical.localReview().ownerPresent()).isFalse();
+        assertThat(historical.localReview().bindingId()).isNull();
+        int bindingCount = count(
+                "flow_user_gate_local_review_binding", "1 = 1");
+        userGates.replayReadyRequest(
+                ready.ready().binding().run().runId());
+        assertThat(userGates.subject(subjectId).orElseThrow()
+                .localReview().ownerPresent()).isFalse();
+        assertThat(count(
+                "flow_user_gate_local_review_binding", "1 = 1"))
+                .isEqualTo(bindingCount);
+    }
+
+    @Test
+    void completeEmptyBindingAddsNoSpeculativeLocalReviewOrEffectOwner()
+    {
+        openReadyGate("binding-yagni");
+
+        assertThat(jdbc.queryForList(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND (
+                    name LIKE 'flow_user_gate_local_review_thread%'
+                    OR name LIKE 'flow_user_gate_local_review_revision%'
+                    OR name LIKE 'flow_user_gate_local_review_batch%'
+                    OR name LIKE 'flow_user_gate_local_review_current%'
+                    OR name LIKE 'flow_user_gate_authorization%'
+                    OR name LIKE 'flow_github_effect%'
+                )
+                """,
                 String.class)).isEmpty();
     }
 
@@ -2841,6 +3043,17 @@ class TestCiAutofixCoordinator
         assertThat(userGates.revisionForRun(
                 first.ready().binding().run().runId()))
                 .contains(first.revision());
+        var firstSubject = userGates.subject(
+                first.revision().subjectManifestRef()).orElseThrow();
+        var secondSubject = userGates.subject(
+                second.revision().subjectManifestRef()).orElseThrow();
+        assertThat(firstSubject.localReview().ownerPresent()).isTrue();
+        assertThat(secondSubject.localReview().ownerPresent()).isTrue();
+        assertThat(firstSubject.localReview().bindingId())
+                .isNotEqualTo(secondSubject.localReview().bindingId());
+        assertThat(count(
+                "flow_user_gate_local_review_binding", "1 = 1"))
+                .isEqualTo(2);
     }
 
     @Test

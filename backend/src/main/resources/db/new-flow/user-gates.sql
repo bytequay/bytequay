@@ -1,3 +1,18 @@
+CREATE TABLE flow_user_gate_local_review_binding (
+    binding_id TEXT PRIMARY KEY,
+    pr_id TEXT NOT NULL,
+    candidate_change_set_revision_id TEXT NOT NULL,
+    binding_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (pr_id, candidate_change_set_revision_id),
+    UNIQUE (
+        binding_id, pr_id, candidate_change_set_revision_id, binding_digest
+    ),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (candidate_change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
+);
+
 CREATE TABLE flow_user_gate_subject (
     subject_id TEXT PRIMARY KEY,
     subject_digest TEXT NOT NULL,
@@ -29,14 +44,11 @@ CREATE TABLE flow_user_gate_subject (
     cleanup_id TEXT,
     cleanup_result_id TEXT,
     local_review_owner_present INTEGER NOT NULL CHECK (
-        local_review_owner_present = 0
+        local_review_owner_present IN (0, 1)
     ),
-    local_review_batch_refs_json TEXT NOT NULL CHECK (
-        local_review_batch_refs_json = '[]'
-    ),
-    local_review_revision_refs_json TEXT NOT NULL CHECK (
-        local_review_revision_refs_json = '[]'
-    ),
+    local_review_binding_id TEXT,
+    local_review_batch_refs_json TEXT NOT NULL,
+    local_review_revision_refs_json TEXT NOT NULL,
     local_review_digest TEXT NOT NULL,
     ci_memory_refs_json TEXT NOT NULL CHECK (ci_memory_refs_json = '[]'),
     manual_only INTEGER NOT NULL CHECK (manual_only IN (0, 1)),
@@ -72,6 +84,22 @@ CREATE TABLE flow_user_gate_subject (
     FOREIGN KEY (cleanup_result_id)
         REFERENCES flow_runtime_agent_result (result_id),
     CHECK ((cleanup_id IS NULL) = (cleanup_result_id IS NULL)),
+    CHECK (
+        (local_review_owner_present = 0
+            AND local_review_binding_id IS NULL
+            AND local_review_batch_refs_json = '[]'
+            AND local_review_revision_refs_json = '[]')
+        OR (local_review_owner_present = 1
+            AND local_review_binding_id IS NOT NULL
+            AND local_review_batch_refs_json = '[]'
+            AND local_review_revision_refs_json = '[]')
+    ),
+    FOREIGN KEY (
+        local_review_binding_id, pr_id, change_set_revision_id,
+        local_review_digest
+    ) REFERENCES flow_user_gate_local_review_binding (
+        binding_id, pr_id, candidate_change_set_revision_id, binding_digest
+    ),
     FOREIGN KEY (created_by_run_id)
         REFERENCES flow_runtime_agent_run (run_id)
 );

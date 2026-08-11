@@ -89,8 +89,9 @@ revisions instead of inventing another gate framework.
 Current executable scope is narrower than this full contract. The implemented
 owner constructs only local `CI_UPDATE` gates from the sealed CI-review Task
 continuation. It creates one stable `(pr_id, CI_UPDATE)` aggregate, immutable
-subjects/actions/revisions/transitions, and no authorization or external-effect
-record. A different later ready run may atomically transition only the current
+subjects/actions/revisions/transitions, one exact complete-empty local-review
+binding per PR/change set, and no authorization or external-effect record. A
+different later ready run may atomically transition only the current
 OPEN revision to `STALE/SUPERSEDED_BY_READY` and append a new OPEN revision;
 historical replay returns the revision created by that run.
 
@@ -224,6 +225,25 @@ CodePublicationReviewBinding {
 }
 ```
 
+The implemented `CI_UPDATE` subset owns only the complete-empty case:
+
+```text
+LocalReviewBinding {
+  bindingId, prId, candidateChangeSetRevisionId, digest, createdAt
+}
+```
+
+Existence means the exact candidate currently has no private local-review batch
+or revision references. Identity and digest are deterministic from `prId`, the
+exact change-set revision, and the two empty ordered lists; `createdAt` is audit
+metadata and is excluded from identity/replay equality. There is no status,
+current pointer, thread, comment, or batch table in this subset. Every new
+`CI_UPDATE` subject has `ownerPresent=true` and an exact composite reference to
+this row. A historical subject with the explicit absent sentinel remains
+unreviewed; it is never synthesized or upgraded and a future authorization must
+reject it. The authenticated manual authorization click supplies the user's
+semantic review; the binding proves only objective absence of private items.
+
 This binding is required by `INITIAL_PUBLISH`, `CI_UPDATE`, and a code-changing
 `REMOTE_FEEDBACK` gate. It references the latest immutable private review facts
 for the exact candidate head and requires every bound thread to be objectively
@@ -316,13 +336,13 @@ comment, review, title/body edit, thread resolution, ready action, or merge.
 
 The current CI implementation freezes the exact repair attempt/result and, for
 a cleanup-produced candidate, the cleanup ID/result as separate causal facts.
-It also freezes the full ordered failed observation/log lists. Because no
-greenfield local-review or CI-memory owner exists yet, it stores canonical
-explicit empty bindings for both; it never reads legacy data. This makes the
-local OPEN gate reviewable as a bounded snapshot but not sufficient for the
-full readiness policy above. The later authorization/freshness owner must
-revalidate those deferred bindings and transition an obsolete OPEN snapshot;
-OPEN alone is neither authorization nor executable work.
+It also freezes the full ordered failed observation/log lists. The implemented
+greenfield local-review owner stores the exact complete-empty binding above;
+because no CI-memory owner exists yet, memory references remain canonically
+empty. Neither path reads legacy data. The later authorization/freshness owner
+must reject an absent local-review sentinel, revalidate the exact binding and
+other current facts, and transition an obsolete OPEN snapshot. OPEN alone is
+neither authorization nor executable work.
 
 ### 6.3 `REMOTE_FEEDBACK`
 
@@ -416,9 +436,9 @@ The current Local Checks owner freezes `FAILED` and genuine tool/environment
 `UNAVAILABLE` attempts as reviewer evidence and blocks reviewer reservation
 only for missing/stale evidence or an unproven process boundary. The implemented
 local `CI_UPDATE` gate then blocks `FAILED`, records genuine `UNAVAILABLE` as a
-manual-only warning, and rejects missing/stale/process-boundary evidence. Other
-gate kinds, full local-review readiness, authorization, and effects remain
-deferred.
+manual-only warning, and rejects missing/stale/process-boundary evidence. Its
+complete-empty local-review binding is implemented; private comments/threads,
+other gate kinds, authorization, and effects remain deferred.
 
 | Gate | Required objective facts |
 |---|---|

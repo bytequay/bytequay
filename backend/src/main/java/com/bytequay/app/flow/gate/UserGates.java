@@ -23,6 +23,7 @@ import com.bytequay.app.flow.gate.UserGateRecords.GateState;
 import com.bytequay.app.flow.gate.UserGateRecords.GateSubject;
 import com.bytequay.app.flow.gate.UserGateRecords.GateTransition;
 import com.bytequay.app.flow.gate.UserGateRecords.LocalCheckBinding;
+import com.bytequay.app.flow.gate.UserGateRecords.LocalReviewBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.ReadyForReviewAcceptance;
 import com.bytequay.app.flow.gate.UserGateRecords.UserGate;
 import com.bytequay.app.flow.runtime.FlowRuntime;
@@ -132,6 +133,7 @@ public final class UserGates
     {
         private final Claim claim;
         private final WriterFence fence;
+        private final LocalReviewBinding localReviewBinding;
         private final GateSubject subject;
         private final CiUpdateAction action;
         private final Inspection inspection;
@@ -139,12 +141,14 @@ public final class UserGates
         private PreparedReadyRequest(
                 Claim claim,
                 WriterFence fence,
+                LocalReviewBinding localReviewBinding,
                 GateSubject subject,
                 CiUpdateAction action,
                 Inspection inspection)
         {
             this.claim = claim;
             this.fence = fence;
+            this.localReviewBinding = localReviewBinding;
             this.subject = subject;
             this.action = action;
             this.inspection = inspection;
@@ -207,7 +211,12 @@ public final class UserGates
                 createdAt);
         Inspection inspection = inspect(repositoryRoot, bundle.subject());
         return new PreparedReadyRequest(
-                claim, fence, bundle.subject(), bundle.action(), inspection);
+                claim,
+                fence,
+                bundle.localReviewBinding(),
+                bundle.subject(),
+                bundle.action(),
+                inspection);
     }
 
     public ReadyForReviewAcceptance reserveReadyRequest(
@@ -243,11 +252,15 @@ public final class UserGates
                     prepared.subject.createdAt());
             if (!current.subject().equals(prepared.subject)
                     || !current.action().equals(prepared.action)
+                    || !sameLocalReviewBinding(
+                            current.localReviewBinding,
+                            prepared.localReviewBinding)
                     || !inspectionMatches(
                             prepared.inspection, prepared.subject)) {
                 throw new FlowRuntime.StaleOwnerRevisionException(
                         "ready subject changed after inspection");
             }
+            insertLocalReviewBinding(prepared.localReviewBinding);
             insertSubject(prepared.subject);
             insertAction(prepared.action);
             String requestId = stableId(
@@ -438,6 +451,15 @@ public final class UserGates
                 subjectId).stream().findFirst();
     }
 
+    public Optional<LocalReviewBinding> localReviewBinding(String bindingId)
+    {
+        requireText(bindingId, "bindingId");
+        return jdbc.query(
+                "SELECT * FROM flow_user_gate_local_review_binding WHERE binding_id = ?",
+                (result, row) -> readLocalReviewBinding(result),
+                bindingId).stream().findFirst();
+    }
+
     public List<GateTransition> transitions(String gateId)
     {
         requireText(gateId, "gateId");
@@ -577,16 +599,29 @@ public final class UserGates
             throw new ReadyRejectedException(
                     blockers.stream().distinct().toList());
         }
+        String localReviewDigest = stableId(
+                "local-review-binding:v1",
+                pr.prId(),
+                changeSet.changeSetRevisionId(),
+                "batch-count:0",
+                "revision-count:0");
+        LocalReviewBinding localReviewBinding = new LocalReviewBinding(
+                stableId(
+                        "local-review-binding-id:v1",
+                        pr.prId(),
+                        changeSet.changeSetRevisionId()),
+                pr.prId(),
+                changeSet.changeSetRevisionId(),
+                localReviewDigest,
+                createdAt);
         CodePublicationReviewBinding localReview =
                 new CodePublicationReviewBinding(
                         changeSet.changeSetRevisionId(),
-                        false,
+                        localReviewBinding.bindingId(),
+                        true,
                         List.of(),
                         List.of(),
-                        stableId(
-                                "local-review-none",
-                                pr.prId(),
-                                changeSet.changeSetRevisionId()));
+                        localReviewDigest);
         String branchRef = "refs/heads/" + task.branchName();
         List<LocalCheckBinding> checkBindings = checks.runs().stream()
                 .map(check -> new LocalCheckBinding(
@@ -652,6 +687,7 @@ public final class UserGates
                 changeSet.headSha(),
                 "force:false");
         return new GateBundle(
+                localReviewBinding,
                 subject,
                 new CiUpdateAction(
                         stableId("gate-action", runId, actionDigest),
@@ -845,12 +881,13 @@ public final class UserGates
                     required_ci_policy_revision_id, ci_evidence_revision,
                     repair_attempt_id, repair_result_id, cleanup_id,
                     cleanup_result_id, local_review_owner_present,
+                    local_review_binding_id,
                     local_review_batch_refs_json,
                     local_review_revision_refs_json, local_review_digest,
                     ci_memory_refs_json, manual_only, created_by_run_id,
                     created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]', '[]', ?,
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, '[]', '[]', ?,
                           '[]', ?, ?, ?)
                 """,
                 subject.subjectId(),
@@ -880,6 +917,7 @@ public final class UserGates
                 subject.repairResultId(),
                 subject.cleanupId(),
                 subject.cleanupResultId(),
+                subject.localReview().bindingId(),
                 subject.localReview().digest(),
                 subject.manualOnly() ? 1 : 0,
                 subject.createdByRunId(),
@@ -914,6 +952,31 @@ public final class UserGates
                 "warning_code",
                 subject.subjectId(),
                 subject.warningCodes());
+    }
+
+    private void insertLocalReviewBinding(LocalReviewBinding binding)
+    {
+        Optional<LocalReviewBinding> existing = localReviewBinding(
+                binding.bindingId());
+        if (existing.isPresent()) {
+            if (!sameLocalReviewBinding(existing.orElseThrow(), binding)) {
+                throw new IllegalStateException(
+                        "local-review binding replay changed identity");
+            }
+            return;
+        }
+        jdbc.update(
+                """
+                INSERT INTO flow_user_gate_local_review_binding (
+                    binding_id, pr_id, candidate_change_set_revision_id,
+                    binding_digest, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                binding.bindingId(),
+                binding.prId(),
+                binding.candidateChangeSetRevisionId(),
+                binding.digest(),
+                binding.createdAt().toEpochMilli());
     }
 
     private void insertAction(CiUpdateAction action)
@@ -971,6 +1034,10 @@ public final class UserGates
     private GateSubject readSubject(ResultSet result) throws SQLException
     {
         String subjectId = result.getString("subject_id");
+        boolean localReviewOwnerPresent =
+                result.getInt("local_review_owner_present") != 0;
+        String localReviewBindingId =
+                result.getString("local_review_binding_id");
         List<LocalCheckBinding> checks = jdbc.query(
                 """
                 SELECT * FROM flow_user_gate_subject_local_check
@@ -982,7 +1049,7 @@ public final class UserGates
                         LocalCheckConclusion.valueOf(
                                 row.getString("conclusion"))),
                 subjectId);
-        return new GateSubject(
+        GateSubject subject = new GateSubject(
                 subjectId,
                 result.getString("task_id"),
                 result.getString("pr_id"),
@@ -1021,7 +1088,8 @@ public final class UserGates
                 List.of(),
                 new CodePublicationReviewBinding(
                         result.getString("change_set_revision_id"),
-                        false,
+                        localReviewBindingId,
+                        localReviewOwnerPresent,
                         List.of(),
                         List.of(),
                         result.getString("local_review_digest")),
@@ -1033,6 +1101,49 @@ public final class UserGates
                 result.getString("subject_digest"),
                 result.getString("created_by_run_id"),
                 instant(result, "created_at"));
+        assertStoredLocalReviewBinding(subject);
+        return subject;
+    }
+
+    private static LocalReviewBinding readLocalReviewBinding(ResultSet result)
+            throws SQLException
+    {
+        return new LocalReviewBinding(
+                result.getString("binding_id"),
+                result.getString("pr_id"),
+                result.getString("candidate_change_set_revision_id"),
+                result.getString("binding_digest"),
+                instant(result, "created_at"));
+    }
+
+    private void assertStoredLocalReviewBinding(GateSubject subject)
+    {
+        CodePublicationReviewBinding review = subject.localReview();
+        if (!review.ownerPresent()) {
+            return;
+        }
+        LocalReviewBinding binding = localReviewBinding(review.bindingId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "local-review binding is missing"));
+        String expectedId = stableId(
+                "local-review-binding-id:v1",
+                subject.prId(),
+                subject.changeSetRevisionId());
+        String expectedDigest = stableId(
+                "local-review-binding:v1",
+                subject.prId(),
+                subject.changeSetRevisionId(),
+                "batch-count:0",
+                "revision-count:0");
+        if (!binding.bindingId().equals(expectedId)
+                || !binding.prId().equals(subject.prId())
+                || !binding.candidateChangeSetRevisionId().equals(
+                        subject.changeSetRevisionId())
+                || !binding.digest().equals(expectedDigest)
+                || !review.digest().equals(expectedDigest)) {
+            throw new IllegalStateException(
+                    "local-review binding does not match gate subject");
+        }
     }
 
     private UserGate readGate(ResultSet result) throws SQLException
@@ -1195,6 +1306,8 @@ public final class UserGates
                 ci.repairResultId(),
                 nullable(ci.cleanupId()),
                 nullable(ci.cleanupResultId()),
+                "local-review-owner:true",
+                localReview.bindingId(),
                 localReview.digest(),
                 warnings.isEmpty() ? "manual:false" : "manual:true"));
         checks.runs().forEach(check -> fields.add(
@@ -1255,6 +1368,16 @@ public final class UserGates
                         right.snapshotEvidenceRef());
     }
 
+    private static boolean sameLocalReviewBinding(
+            LocalReviewBinding left, LocalReviewBinding right)
+    {
+        return left.bindingId().equals(right.bindingId())
+                && left.prId().equals(right.prId())
+                && left.candidateChangeSetRevisionId().equals(
+                        right.candidateChangeSetRevisionId())
+                && left.digest().equals(right.digest());
+    }
+
     private static String nullable(String value)
     {
         return value == null ? "<none>" : value;
@@ -1300,6 +1423,9 @@ public final class UserGates
         }
     }
 
-    private record GateBundle(GateSubject subject, CiUpdateAction action) {}
+    private record GateBundle(
+            LocalReviewBinding localReviewBinding,
+            GateSubject subject,
+            CiUpdateAction action) {}
 
 }

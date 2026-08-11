@@ -62,10 +62,11 @@ review prose passed, or whether the user should approve an effect.
   instruction.
 
 The currently implemented CI-review checkpoint stops at an inert local OPEN
-`CI_UPDATE` gate. It creates no authorization, effect plan, GitHub operation or
-dispatch ticket, performs no Git/GitHub call, and does not observe a remote
-result. Those records and effects begin only in the authorization/executor
-boundary specified below.
+`CI_UPDATE` gate. Its subject owns an exact deterministic complete-empty local
+review binding, but that fact grants no authority. It creates no authorization,
+effect plan, GitHub operation or dispatch ticket, performs no Git/GitHub call,
+and does not observe a remote result. Those records and effects begin only in
+the authorization/executor boundary specified below.
 
 ## Logical data model
 

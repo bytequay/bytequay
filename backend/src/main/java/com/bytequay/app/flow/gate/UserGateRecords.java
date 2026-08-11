@@ -49,8 +49,28 @@ public final class UserGateRecords
         }
     }
 
+    /** Existence proves the exact candidate has no private review items. */
+    public record LocalReviewBinding(
+            String bindingId,
+            String prId,
+            String candidateChangeSetRevisionId,
+            String digest,
+            Instant createdAt)
+    {
+        public LocalReviewBinding
+        {
+            requireNonNull(bindingId, "bindingId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(candidateChangeSetRevisionId,
+                    "candidateChangeSetRevisionId is null");
+            requireNonNull(digest, "digest is null");
+            requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
     public record CodePublicationReviewBinding(
             String candidateChangeSetRevisionId,
+            String bindingId,
             boolean ownerPresent,
             List<String> batchIds,
             List<String> latestRevisionIds,
@@ -63,10 +83,13 @@ public final class UserGateRecords
             batchIds = List.copyOf(batchIds);
             latestRevisionIds = List.copyOf(latestRevisionIds);
             requireNonNull(digest, "digest is null");
-            if (ownerPresent || !batchIds.isEmpty()
-                    || !latestRevisionIds.isEmpty()) {
+            if (!batchIds.isEmpty() || !latestRevisionIds.isEmpty()) {
                 throw new IllegalArgumentException(
-                        "local-review owner is not implemented");
+                        "local-review items are not implemented");
+            }
+            if (ownerPresent != (bindingId != null)) {
+                throw new IllegalArgumentException(
+                        "local-review owner and binding must agree");
             }
         }
     }

@@ -393,10 +393,11 @@ The Task Agent's standing instruction is short and explicit:
   `list/read/reply/resolve_local_thread` tools; Remote Feedback owns only GitHub
   feedback records.
 - `ready_for_review()` requests a gate; it does not authorize an effect.
-- The implemented CI binding freezes a canonical explicit empty local-review
-  binding and empty CI-memory reference list because neither greenfield owner
-  exists yet. Initial/upstream/feedback/local-review ready bindings remain
-  deferred rather than consulting legacy state.
+- The implemented CI binding references one User Gates-owned deterministic
+  complete-empty local-review fact for the exact PR/change set and freezes an
+  empty CI-memory reference list because no memory owner exists yet. Private
+  local-review comments/threads and initial/upstream/feedback/local-review Task
+  bindings remain deferred rather than consulting legacy state.
 - The initial gate freezes `KEEP_DRAFT` or `MARK_READY_ON_EXACT_GREEN`; only the
   program applies that policy after publication and exact-head CI observation. It
   may carry only across program-authorized `CI_UPDATE` heads.

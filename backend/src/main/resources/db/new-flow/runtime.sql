@@ -180,6 +180,7 @@ CREATE TABLE flow_runtime_operation (
             'RUN_TASK_TURN',
             'RUN_REVIEWER',
             'RUN_CI_FIXER',
+            'RUN_CI_LEARNING',
             'OBSERVE_CI',
             'PUBLISH'
         )
@@ -313,7 +314,9 @@ CREATE TABLE flow_runtime_agent_session (
     session_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK (
-        role IN ('TASK_AGENT', 'ADVERSARIAL_REVIEWER', 'CI_FIXER')
+        role IN (
+            'TASK_AGENT', 'ADVERSARIAL_REVIEWER', 'CI_FIXER', 'CI_LEARNER'
+        )
     ),
     state TEXT NOT NULL CHECK (
         state IN ('NEW', 'IDLE', 'RUNNING', 'PARKED_CHILD', 'CLOSED')
@@ -338,7 +341,9 @@ CREATE TABLE flow_runtime_agent_run (
     operation_id TEXT NOT NULL UNIQUE,
     session_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK (
-        role IN ('TASK_AGENT', 'ADVERSARIAL_REVIEWER', 'CI_FIXER')
+        role IN (
+            'TASK_AGENT', 'ADVERSARIAL_REVIEWER', 'CI_FIXER', 'CI_LEARNER'
+        )
     ),
     head_sha TEXT NOT NULL,
     prompt_manifest_ref TEXT NOT NULL,

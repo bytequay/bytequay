@@ -440,7 +440,10 @@ feedback-driven head.
 This is exhaustive only for head-bound GitHub check runs on exact
 `proposedHead`; it is not branch-protection or merge-readiness proof. Test-merge
 checks, legacy commit statuses, webhooks, a generic event bus, timeline
-projection, green learning/readiness, and cutover remain deferred.
+projection, readiness/merge consumption of GREEN, and cutover remain deferred.
+An accepted nonempty exact source-bound GREEN may atomically reserve the
+receipt-owned read-only learner defined by
+[ci-autofix.md](./ci-autofix.md); it grants no provider or merge authority.
 
 ### 3. CI update
 

@@ -1232,7 +1232,7 @@ public final class CiAutofix
                 headSha);
     }
 
-    private Optional<CiCheckObservation> observation(String observationId)
+    Optional<CiCheckObservation> observation(String observationId)
     {
         return jdbc.query(
                 """

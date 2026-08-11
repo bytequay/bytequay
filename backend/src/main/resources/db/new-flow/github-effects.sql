@@ -17,6 +17,10 @@ CREATE TABLE flow_github_external_effect_plan (
     UNIQUE (pr_id, pr_sequence),
     UNIQUE (plan_id, operation_id),
     UNIQUE (plan_id, action_ref, action_digest),
+    UNIQUE (
+        plan_id, authorization_id, plan_digest,
+        required_ci_policy_revision_id
+    ),
     FOREIGN KEY (operation_id)
         REFERENCES flow_runtime_operation (operation_id),
     FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
@@ -167,6 +171,12 @@ CREATE TABLE flow_github_external_effect_receipt (
     proposed_head TEXT NOT NULL,
     receipt_digest TEXT NOT NULL UNIQUE,
     recorded_at INTEGER NOT NULL,
+    UNIQUE (receipt_id, plan_id, receipt_digest, proposed_head),
+    UNIQUE (
+        receipt_id, operation_id, plan_id, receipt_digest,
+        head_repository_external_id, head_repository_owner,
+        head_repository_name, branch_ref, expected_remote_head, proposed_head
+    ),
     FOREIGN KEY (plan_id, operation_id)
         REFERENCES flow_github_external_effect_plan (plan_id, operation_id),
     FOREIGN KEY (

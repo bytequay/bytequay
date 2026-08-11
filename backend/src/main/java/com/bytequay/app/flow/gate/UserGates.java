@@ -116,6 +116,26 @@ public final class UserGates
     private final FlowWorktreeInspector worktreeInspector =
             new FlowWorktreeInspector();
 
+    /** Exact consumed publication graph eligible for optional learning. */
+    public record CiUpdateLearningPublication(
+            ExternalEffectReceipt receipt,
+            ExternalEffectPlan plan,
+            GateAuthorization authorization,
+            GateRevision revision,
+            GateSubject subject,
+            CiUpdateAction action)
+    {
+        public CiUpdateLearningPublication
+        {
+            requireNonNull(receipt, "receipt is null");
+            requireNonNull(plan, "plan is null");
+            requireNonNull(authorization, "authorization is null");
+            requireNonNull(revision, "revision is null");
+            requireNonNull(subject, "subject is null");
+            requireNonNull(action, "action is null");
+        }
+    }
+
     public UserGates(
             DataSource dataSource,
             FlowRuntime runtime,
@@ -1591,6 +1611,66 @@ public final class UserGates
                         + "WHERE authorization_id = ?",
                 (result, row) -> readAuthorization(result),
                 authorizationId).stream().findFirst();
+    }
+
+    /** Recomputes the complete immutable owner graph for a consumed receipt. */
+    public Optional<CiUpdateLearningPublication> learningPublication(
+            String receiptId)
+    {
+        requireText(receiptId, "receiptId");
+        Optional<ExternalEffectReceipt> stored =
+                githubEffects.exactReceiptById(receiptId);
+        if (stored.isEmpty()) {
+            return Optional.empty();
+        }
+        ExternalEffectReceipt receipt = stored.orElseThrow();
+        ExternalEffectPlan plan = githubEffects.plan(receipt.planId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "learning receipt plan is missing"));
+        GateAuthorization authorization = authorization(
+                plan.authorizationId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "learning authorization is missing"));
+        AuthorizedCiUpdate exact = assertStoredAuthorizationGraph(
+                authorization);
+        GateRevision revision = requireRevision(
+                authorization.gateId(), authorization.gateRevision());
+        GateSubject subject = requireSubject(revision.subjectManifestRef());
+        CiUpdateAction action = requireAction(revision.actionManifestRef());
+        Integer consumed = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_user_gate_transition t
+                WHERE t.gate_id = ? AND t.gate_revision = ?
+                  AND t.to_state = 'CONSUMED'
+                  AND t.reason_code = 'EFFECT_APPLIED'
+                  AND t.actor_type = 'PROGRAM' AND t.actor_id = ?
+                  AND t.detail_ref = ?
+                  AND t.sequence = (
+                      SELECT MAX(t2.sequence)
+                      FROM flow_user_gate_transition t2
+                      WHERE t2.gate_id = ? AND t2.gate_revision = ?
+                  )
+                """,
+                Integer.class,
+                authorization.gateId(), authorization.gateRevision(),
+                receipt.operationId(), receipt.receiptId(),
+                authorization.gateId(), authorization.gateRevision());
+        if (requireNonNull(consumed,
+                "learning consumed count is null") != 1
+                || !exact.planId().equals(plan.planId())
+                || !exact.operationId().equals(receipt.operationId())
+                || !plan.operationId().equals(receipt.operationId())
+                || !plan.prId().equals(subject.prId())
+                || !plan.actionRef().equals(action.actionRef())
+                || !plan.actionDigest().equals(action.actionDigest())
+                || !receipt.expectedRemoteHead().equals(
+                        action.expectedRemoteHead())
+                || !receipt.proposedHead().equals(action.proposedHead())) {
+            throw new IllegalStateException(
+                    "learning publication graph is inconsistent");
+        }
+        return Optional.of(new CiUpdateLearningPublication(
+                receipt, plan, authorization, revision, subject, action));
     }
 
     public List<GateTransition> transitions(String gateId)

@@ -525,6 +525,190 @@ public final class CiAutofixRecords
         }
     }
 
+    /** Exact immutable evidence subject for one optional read-only learner. */
+    public record CiLearningSubject(
+            String subjectId,
+            String operationId,
+            String taskId,
+            String prId,
+            String repositoryId,
+            String receiptId,
+            String receiptDigest,
+            String publicationOperationId,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
+            String branchRef,
+            String expectedRemoteHead,
+            String planId,
+            String planDigest,
+            String authorizationId,
+            String gateId,
+            long gateRevision,
+            String gateSubjectDigest,
+            String gateActionDigest,
+            String publicationPolicyRevisionId,
+            String publishedHead,
+            String greenRoundId,
+            String greenPolicyRevisionId,
+            long greenEvidenceRevision,
+            String greenObservationOperationId,
+            List<String> greenObservationIds,
+            List<String> greenObservationDigests,
+            String redRoundId,
+            String repairAttemptId,
+            String repairResultId,
+            String repairResultDigest,
+            String cleanupId,
+            String cleanupResultId,
+            String cleanupResultDigest,
+            String outputChangeSetRevisionId,
+            String outputDiffDigest,
+            List<String> failedLogRefs,
+            List<String> failedLogDigests,
+            String subjectDigest,
+            Instant createdAt)
+    {
+        public CiLearningSubject
+        {
+            requireNonNull(subjectId, "subjectId is null");
+            requireNonNull(operationId, "operationId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(repositoryId, "repositoryId is null");
+            requireNonNull(receiptId, "receiptId is null");
+            requireNonNull(receiptDigest, "receiptDigest is null");
+            requireNonNull(publicationOperationId,
+                    "publicationOperationId is null");
+            requireNonNull(headRepositoryExternalId,
+                    "headRepositoryExternalId is null");
+            requireNonNull(headRepositoryOwner,
+                    "headRepositoryOwner is null");
+            requireNonNull(headRepositoryName,
+                    "headRepositoryName is null");
+            requireNonNull(branchRef, "branchRef is null");
+            requireNonNull(expectedRemoteHead,
+                    "expectedRemoteHead is null");
+            requireNonNull(planId, "planId is null");
+            requireNonNull(planDigest, "planDigest is null");
+            requireNonNull(authorizationId, "authorizationId is null");
+            requireNonNull(gateId, "gateId is null");
+            requireNonNull(gateSubjectDigest,
+                    "gateSubjectDigest is null");
+            requireNonNull(gateActionDigest,
+                    "gateActionDigest is null");
+            requireNonNull(publicationPolicyRevisionId,
+                    "publicationPolicyRevisionId is null");
+            requireNonNull(publishedHead, "publishedHead is null");
+            requireNonNull(greenRoundId, "greenRoundId is null");
+            requireNonNull(greenPolicyRevisionId,
+                    "greenPolicyRevisionId is null");
+            requireNonNull(greenObservationOperationId,
+                    "greenObservationOperationId is null");
+            greenObservationIds = List.copyOf(greenObservationIds);
+            greenObservationDigests = List.copyOf(
+                    greenObservationDigests);
+            if (greenObservationIds.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "learning requires nonempty green observations");
+            }
+            if (greenObservationIds.size()
+                    != greenObservationDigests.size()) {
+                throw new IllegalArgumentException(
+                        "green observation IDs/digests differ");
+            }
+            requireNonNull(redRoundId, "redRoundId is null");
+            requireNonNull(repairAttemptId,
+                    "repairAttemptId is null");
+            requireNonNull(repairResultId, "repairResultId is null");
+            requireNonNull(repairResultDigest,
+                    "repairResultDigest is null");
+            if ((cleanupId == null) != (cleanupResultId == null)) {
+                throw new IllegalArgumentException(
+                        "cleanup identity and result must be paired");
+            }
+            if ((cleanupResultId == null)
+                    != (cleanupResultDigest == null)) {
+                throw new IllegalArgumentException(
+                        "cleanup result identity/digest must be paired");
+            }
+            requireNonNull(outputChangeSetRevisionId,
+                    "outputChangeSetRevisionId is null");
+            requireNonNull(outputDiffDigest,
+                    "outputDiffDigest is null");
+            failedLogRefs = List.copyOf(failedLogRefs);
+            failedLogDigests = List.copyOf(failedLogDigests);
+            if (failedLogRefs.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "learning requires the originating failed logs");
+            }
+            if (failedLogRefs.size() != failedLogDigests.size()) {
+                throw new IllegalArgumentException(
+                        "failed log refs/digests differ");
+            }
+            requireNonNull(subjectDigest, "subjectDigest is null");
+            requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    public enum LearningCompletionState
+    {
+        CANDIDATE,
+        MISSED
+    }
+
+    /** Opaque candidate only; it grants no deterministic routing authority. */
+    public record CiLesson(
+            String lessonId,
+            String repositoryId,
+            String learningOperationId,
+            String runId,
+            String subjectId,
+            String title,
+            String markdown,
+            String contentDigest,
+            Instant createdAt)
+    {
+        public CiLesson
+        {
+            requireNonNull(lessonId, "lessonId is null");
+            requireNonNull(repositoryId, "repositoryId is null");
+            requireNonNull(learningOperationId,
+                    "learningOperationId is null");
+            requireNonNull(runId, "runId is null");
+            requireNonNull(subjectId, "subjectId is null");
+            requireNonNull(title, "title is null");
+            requireNonNull(markdown, "markdown is null");
+            requireNonNull(contentDigest, "contentDigest is null");
+            requireNonNull(createdAt, "createdAt is null");
+        }
+    }
+
+    public record CiLearningCompletion(
+            String operationId,
+            String runId,
+            String resultId,
+            LearningCompletionState state,
+            String lessonId,
+            String reasonCode,
+            Instant completedAt)
+    {
+        public CiLearningCompletion
+        {
+            requireNonNull(operationId, "operationId is null");
+            requireNonNull(runId, "runId is null");
+            requireNonNull(resultId, "resultId is null");
+            requireNonNull(state, "state is null");
+            requireNonNull(reasonCode, "reasonCode is null");
+            requireNonNull(completedAt, "completedAt is null");
+            if ((state == LearningCompletionState.CANDIDATE)
+                    != (lessonId != null)) {
+                throw new IllegalArgumentException(
+                        "only a candidate completion has a lesson");
+            }
+        }
+    }
+
     public sealed interface FinalizeHeadResult
             permits FinalizedRound, FinalizeBlocked {}
 

@@ -377,6 +377,26 @@ public final class GitHubEffects
         return Optional.of(value);
     }
 
+    public Optional<ExternalEffectReceipt> exactReceiptById(String receiptId)
+    {
+        requireText(receiptId, "receiptId");
+        Optional<String> planId = jdbc.queryForList(
+                        "SELECT plan_id FROM "
+                                + "flow_github_external_effect_receipt "
+                                + "WHERE receipt_id = ?",
+                        String.class, receiptId).stream().findFirst();
+        if (planId.isEmpty()) {
+            return Optional.empty();
+        }
+        ExternalEffectReceipt exact = exactReceipt(
+                planId.orElseThrow()).orElseThrow();
+        if (!exact.receiptId().equals(receiptId)) {
+            throw new IllegalStateException(
+                    "GitHub receipt lookup changed identity");
+        }
+        return Optional.of(exact);
+    }
+
     /** Persists one exact remote observation; no call result is accepted. */
     public ExternalEffectProbe recordObservation(
             Claim claim,

@@ -98,6 +98,7 @@ public final class FlowRuntime
     private static final int CI_OBSERVATION_PRIORITY = 825;
     private static final int CI_FIX_PRIORITY = 800;
     private static final int TASK_TURN_PRIORITY = 700;
+    private static final int CI_LEARNING_PRIORITY = 600;
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -588,6 +589,28 @@ public final class FlowRuntime
             requireNonNull(request, "request is null");
             requireNonNull(session, "session is null");
             requireNonNull(run, "run is null");
+        }
+    }
+
+    /** Fresh one-shot read-only learner session and run. */
+    public record CiLearningStart(AgentSession session, AgentRun run)
+    {
+        public CiLearningStart
+        {
+            requireNonNull(session, "session is null");
+            requireNonNull(run, "run is null");
+        }
+    }
+
+    /** Process-only result used by the CI owner during STOPPED recovery. */
+    public record StoppedCiLearningResult(
+            AgentResult result, String runId, String subjectId)
+    {
+        public StoppedCiLearningResult
+        {
+            requireNonNull(result, "result is null");
+            requireNonNull(runId, "runId is null");
+            requireNonNull(subjectId, "subjectId is null");
         }
     }
 
@@ -1323,6 +1346,47 @@ public final class FlowRuntime
         });
     }
 
+    /** Reserves the one optional learner owned by an applied CI update. */
+    public synchronized Operation ensureCiLearningOperation(
+            String operationId,
+            String receiptId,
+            String taskId,
+            String subjectId,
+            String subjectDigest,
+            Instant createdAt)
+    {
+        requireText(operationId, "operationId");
+        requireText(receiptId, "receiptId");
+        requireText(taskId, "taskId");
+        requireText(subjectId, "subjectId");
+        requireText(subjectDigest, "subjectDigest");
+        requireNonNull(createdAt, "createdAt is null");
+        return inTransaction(() -> {
+            insertOperationAndTicket(
+                    operationId,
+                    "CI_UPDATE_RECEIPT",
+                    receiptId,
+                    taskId,
+                    OperationKind.RUN_CI_LEARNING,
+                    subjectDigest,
+                    subjectId,
+                    null,
+                    CI_LEARNING_PRIORITY,
+                    createdAt);
+            Operation operation = requireOperation(operationId);
+            if (!operation.ownerKind().equals("CI_UPDATE_RECEIPT")
+                    || !operation.ownerId().equals(receiptId)
+                    || !Objects.equals(operation.taskId(), taskId)
+                    || operation.kind() != OperationKind.RUN_CI_LEARNING
+                    || !operation.subjectDigest().equals(subjectDigest)
+                    || !operation.inputRef().equals(subjectId)) {
+                throw new IllegalStateException(
+                        "CI learning operation replay changed identity");
+            }
+            return operation;
+        });
+    }
+
     private boolean ciObservationCanceledReplay(
             Claim claim, String resultRef)
     {
@@ -1860,6 +1924,255 @@ public final class FlowRuntime
             }
             return Optional.empty();
         });
+    }
+
+    /** Claims one isolated optional learner after all current repair work. */
+    public synchronized Optional<Claim> claimNextCiLearning(
+            String workerId, Duration claimTtl)
+    {
+        requireText(workerId, "workerId");
+        requirePositive(claimTtl, "claimTtl");
+        return inTransaction(() -> {
+            Instant now = clock.instant();
+            List<ClaimCandidate> candidates = jdbc.query(
+                    """
+                    SELECT o.operation_id, o.task_id, o.kind,
+                           d.claim_generation
+                    FROM flow_runtime_operation o
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    JOIN flow_ci_learning_subject s
+                      ON s.operation_id = o.operation_id
+                     AND s.subject_id = o.input_ref
+                     AND s.subject_digest = o.subject_digest
+                    WHERE o.kind = 'RUN_CI_LEARNING'
+                      AND o.owner_kind = 'CI_UPDATE_RECEIPT'
+                      AND o.owner_id = s.receipt_id
+                      AND o.state IN ('READY', 'RETRYABLE')
+                      AND d.delivery_state = 'AVAILABLE'
+                      AND d.not_before <= ?
+                      AND NOT EXISTS (
+                          SELECT 1 FROM flow_ci_round r
+                          WHERE r.task_id = o.task_id
+                            AND r.state IN ('FINAL_RED', 'QUEUED', 'ACTIVE')
+                      )
+                    ORDER BY d.priority DESC, d.not_before, o.operation_id
+                    LIMIT 32
+                    """,
+                    (result, row) -> new ClaimCandidate(
+                            result.getString("operation_id"),
+                            result.getString("task_id"),
+                            OperationKind.valueOf(result.getString("kind")),
+                            result.getLong("claim_generation")),
+                    now.toEpochMilli());
+            for (ClaimCandidate candidate : candidates) {
+                long generation = candidate.generation() + 1;
+                String token = UUID.randomUUID().toString();
+                Instant expiresAt = now.plus(claimTtl);
+                int ticketUpdated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_dispatch_ticket
+                        SET claim_owner = ?, claim_expires_at = ?,
+                            claim_generation = ?, claim_token = ?,
+                            delivery_state = 'CLAIMED'
+                        WHERE operation_id = ?
+                          AND delivery_state = 'AVAILABLE'
+                          AND claim_generation = ?
+                        """,
+                        workerId, expiresAt.toEpochMilli(), generation, token,
+                        candidate.operationId(), candidate.generation());
+                if (ticketUpdated == 0) {
+                    continue;
+                }
+                int operationUpdated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_operation
+                        SET state = 'CLAIMED', attempt = attempt + 1
+                        WHERE operation_id = ?
+                          AND state IN ('READY', 'RETRYABLE')
+                        """,
+                        candidate.operationId());
+                if (operationUpdated != 1) {
+                    throw new IllegalStateException(
+                            "CI learning ticket claimed without its operation");
+                }
+                return Optional.of(new Claim(
+                        candidate.operationId(), candidate.taskId(),
+                        OperationKind.RUN_CI_LEARNING, generation, token,
+                        workerId, expiresAt));
+            }
+            return Optional.empty();
+        });
+    }
+
+    public synchronized Operation assertCiLearningClaim(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        return inTransaction(() -> {
+            if (claim.kind() != OperationKind.RUN_CI_LEARNING) {
+                throw new IllegalArgumentException(
+                        "claim is not a CI learning claim");
+            }
+            assertCurrentClaim(claim, OperationState.CLAIMED);
+            Operation operation = requireOperation(claim.operationId());
+            Integer exact = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM flow_ci_learning_subject s
+                    WHERE s.operation_id = ? AND s.subject_id = ?
+                      AND s.receipt_id = ? AND s.task_id = ?
+                      AND s.subject_digest = ?
+                    """,
+                    Integer.class,
+                    operation.operationId(), operation.inputRef(),
+                    operation.ownerId(), operation.taskId(),
+                    operation.subjectDigest());
+            if (operation.kind() != OperationKind.RUN_CI_LEARNING
+                    || !operation.ownerKind().equals("CI_UPDATE_RECEIPT")
+                    || requireNonNull(exact,
+                            "CI learning subject count is null") != 1) {
+                throw new IllegalStateException(
+                        "CI learning operation graph is invalid");
+            }
+            return operation;
+        });
+    }
+
+    public synchronized void cancelClaimedCiLearning(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        String resultRef = "CI_LEARNING_GREEN_SUPERSEDED";
+        inTransaction(() -> {
+            assertCiLearningClaim(claim);
+            Optional<AgentRun> existing = runForOperation(
+                    claim.operationId());
+            if (existing.isPresent()) {
+                AgentRun run = existing.orElseThrow();
+                Integer activated = jdbc.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM flow_runtime_agent_process_attempt
+                        WHERE run_id = ? AND state <> 'RESERVED'
+                        """,
+                        Integer.class, run.runId());
+                if (run.state() != RunState.QUEUED
+                        || requireNonNull(activated,
+                            "activated learner count is null") != 0) {
+                    throw new IllegalStateException(
+                            "started CI learning requires stopped finalization");
+                }
+                AgentSession session = requireSession(run.sessionId());
+                Instant now = clock.instant();
+                String resultId = stableId(
+                        "agent-result", run.runId());
+                String stopProof = stableId(
+                        "never-launched-ci-learning-stop", run.runId());
+                int resultStored = jdbc.update(
+                        """
+                        INSERT INTO flow_runtime_agent_result (
+                            result_id, run_id, terminal_outcome,
+                            final_content, error_ref, stop_proof_ref, stored_at
+                        ) VALUES (?, ?, 'CANCELED', NULL, ?, ?, ?)
+                        """,
+                        resultId, run.runId(), resultRef, stopProof,
+                        now.toEpochMilli());
+                int runClosed = jdbc.update(
+                        "UPDATE flow_runtime_agent_run SET state = 'CANCELED', "
+                                + "failure_reason_code = ?, completed_at = ? "
+                                + "WHERE run_id = ? AND state = 'QUEUED'",
+                        resultRef, now.toEpochMilli(), run.runId());
+                int sessionClosed = jdbc.update(
+                        "UPDATE flow_runtime_agent_session "
+                                + "SET state = 'CLOSED', close_reason = ?, "
+                                + "updated_at = ? WHERE session_id = ? "
+                                + "AND state = 'RUNNING' AND last_run_id = ?",
+                        resultRef, now.toEpochMilli(), session.sessionId(),
+                        run.runId());
+                int completionStored = jdbc.update(
+                        """
+                        INSERT INTO flow_ci_learning_completion (
+                            operation_id, run_id, result_id, state, lesson_id,
+                            reason_code, completed_at
+                        ) VALUES (?, ?, ?, 'MISSED', NULL, ?, ?)
+                        """,
+                        claim.operationId(), run.runId(), resultId, resultRef,
+                        now.toEpochMilli());
+                if (resultStored != 1 || runClosed != 1
+                        || sessionClosed != 1 || completionStored != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "never-launched CI learner changed during cancel");
+                }
+                settleDispatch(
+                        claim.operationId(), OperationState.CANCELED,
+                        resultId);
+                return Boolean.TRUE;
+            }
+            settleDispatch(
+                    claim.operationId(), OperationState.CANCELED, resultRef);
+            return Boolean.TRUE;
+        });
+    }
+
+    public synchronized boolean ciLearningCanceledReplay(Claim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        if (claim.kind() != OperationKind.RUN_CI_LEARNING) {
+            return false;
+        }
+        Integer exact = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                WHERE o.operation_id = ? AND o.task_id = ?
+                  AND o.kind = 'RUN_CI_LEARNING'
+                  AND o.owner_kind = 'CI_UPDATE_RECEIPT'
+                  AND o.state = 'CANCELED'
+                  AND d.delivery_state = 'DONE'
+                  AND d.claim_generation = ? AND d.claim_token = ?
+                  AND d.claim_owner = ?
+                  AND (
+                    (o.result_ref = 'CI_LEARNING_GREEN_SUPERSEDED'
+                     AND NOT EXISTS (
+                        SELECT 1 FROM flow_runtime_agent_run r0
+                        WHERE r0.operation_id = o.operation_id
+                     ))
+                    OR EXISTS (
+                        SELECT 1
+                        FROM flow_runtime_agent_run r
+                        JOIN flow_runtime_agent_session s
+                          ON s.session_id = r.session_id
+                         AND s.last_run_id = r.run_id
+                        JOIN flow_runtime_agent_result x
+                          ON x.run_id = r.run_id
+                         AND x.result_id = o.result_ref
+                        JOIN flow_ci_learning_completion c
+                          ON c.operation_id = o.operation_id
+                         AND c.run_id = r.run_id
+                         AND c.result_id = x.result_id
+                        WHERE r.operation_id = o.operation_id
+                          AND r.role = 'CI_LEARNER'
+                          AND r.state = 'CANCELED'
+                          AND r.failure_reason_code =
+                                'CI_LEARNING_GREEN_SUPERSEDED'
+                          AND s.role = 'CI_LEARNER'
+                          AND s.state = 'CLOSED'
+                          AND s.close_reason =
+                                'CI_LEARNING_GREEN_SUPERSEDED'
+                          AND x.terminal_outcome = 'CANCELED'
+                          AND x.error_ref =
+                                'CI_LEARNING_GREEN_SUPERSEDED'
+                          AND x.stop_proof_ref IS NOT NULL
+                          AND c.state = 'MISSED' AND c.lesson_id IS NULL
+                          AND c.reason_code =
+                                'CI_LEARNING_GREEN_SUPERSEDED'
+                    )
+                  )
+                """,
+                Integer.class, claim.operationId(), claim.taskId(),
+                claim.generation(), claim.claimToken(), claim.workerId());
+        return requireNonNull(exact,
+                "CI learning cancellation count is null") == 1;
     }
 
     public synchronized Operation assertCiObservationClaim(Claim claim)
@@ -2579,7 +2892,9 @@ public final class FlowRuntime
         return inTransaction(() -> {
             Operation operation = requireOperation(operationId);
             if (operation.kind() == OperationKind.PUBLISH
-                    || operation.kind() == OperationKind.OBSERVE_CI) {
+                    || operation.kind() == OperationKind.OBSERVE_CI
+                    || operation.kind()
+                        == OperationKind.RUN_CI_LEARNING) {
                 throw new IllegalArgumentException(
                         operation.kind() + " requires owner-specific recovery");
             }
@@ -2610,6 +2925,46 @@ public final class FlowRuntime
             }
             recoverNeverLaunchedClaim(expired);
             return true;
+        });
+    }
+
+    /** Owner-specific recovery for an isolated optional learner. */
+    public synchronized boolean recoverExpiredCiLearning(
+            String operationId, long generation)
+    {
+        requireText(operationId, "operationId");
+        return inTransaction(() -> {
+            Operation operation = requireOperation(operationId);
+            if (operation.kind() != OperationKind.RUN_CI_LEARNING) {
+                throw new IllegalArgumentException(
+                        "operation is not CI learning");
+            }
+            if (operation.state() == OperationState.RETRYABLE
+                    && ticketMatches(operationId, generation, "AVAILABLE")) {
+                return true;
+            }
+            if (operation.state() == OperationState.FAILED
+                    && ticketMatches(operationId, generation, "DONE")) {
+                assertCiLearningQuarantineReplay(operationId, generation);
+                return false;
+            }
+            ExpiredClaim expired = requireExpiredClaim(
+                    operationId, generation);
+            if (expired.processAttemptId() == null
+                    || expired.processAttemptState()
+                        == ProcessAttemptState.RESERVED) {
+                recoverNeverLaunchedClaim(expired);
+                return true;
+            }
+            if (expired.processAttemptState()
+                    == ProcessAttemptState.STOPPED) {
+                throw new IllegalStateException(
+                        "STOPPED CI learning requires CI-owner finalization");
+            }
+            else {
+                quarantineExpiredCiLearningAttempt(expired);
+            }
+            return false;
         });
     }
 
@@ -2648,6 +3003,55 @@ public final class FlowRuntime
             }
             return Boolean.TRUE;
         });
+    }
+
+    private void assertCiLearningQuarantineReplay(
+            String operationId, long generation)
+    {
+        Integer exact = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                JOIN flow_runtime_agent_run r
+                  ON r.operation_id = o.operation_id
+                JOIN flow_runtime_agent_session s
+                  ON s.session_id = r.session_id
+                 AND s.last_run_id = r.run_id
+                JOIN flow_runtime_agent_process_attempt a
+                  ON a.run_id = r.run_id
+                 AND a.claim_generation = d.claim_generation
+                WHERE o.operation_id = ? AND o.kind = 'RUN_CI_LEARNING'
+                  AND o.owner_kind = 'CI_UPDATE_RECEIPT'
+                  AND o.state = 'FAILED'
+                  AND o.result_ref =
+                        'CI_LEARNING_PROCESS_QUARANTINED:'
+                        || a.process_attempt_id
+                  AND d.delivery_state = 'DONE'
+                  AND d.claim_generation = ?
+                  AND r.role = 'CI_LEARNER' AND r.state = 'FAILED'
+                  AND r.failure_reason_code =
+                        'CI_LEARNING_PROCESS_QUARANTINED'
+                  AND s.role = 'CI_LEARNER' AND s.state = 'CLOSED'
+                  AND s.close_reason =
+                        'CI_LEARNING_PROCESS_QUARANTINED'
+                  AND a.state = 'ACTIVATED'
+                  AND a.capability_revoked_at IS NOT NULL
+                  AND a.quarantine_reason =
+                        'IN_PROCESS_OWNER_UNAVAILABLE'
+                  AND a.quarantined_at IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM flow_runtime_agent_result x
+                    WHERE x.run_id = r.run_id
+                  )
+                """,
+                Integer.class, operationId, generation);
+        if (requireNonNull(exact,
+                "CI learning quarantine replay count is null") != 1) {
+            throw new IllegalStateException(
+                    "CI learning quarantine replay is inconsistent");
+        }
     }
 
     /**
@@ -4415,6 +4819,477 @@ public final class FlowRuntime
                         "persistent agent session changed concurrently");
             }
             return requireRun(runId);
+        });
+    }
+
+    /** Starts or idempotently returns the isolated one-shot CI learner. */
+    public synchronized CiLearningStart startCiLearningAgent(
+            Claim claim,
+            String promptManifestRef,
+            String capabilitySetRef)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(promptManifestRef, "promptManifestRef");
+        requireText(capabilitySetRef, "capabilitySetRef");
+        return inTransaction(() -> {
+            Operation operation = assertCiLearningClaim(claim);
+            Optional<AgentRun> existing = runForOperation(
+                    operation.operationId());
+            if (existing.isPresent()) {
+                AgentRun run = existing.orElseThrow();
+                AgentSession session = requireSession(run.sessionId());
+                if (run.role() != AgentRole.CI_LEARNER
+                        || session.role() != AgentRole.CI_LEARNER
+                        || !run.promptManifestRef().equals(promptManifestRef)
+                        || !run.capabilitySetRef().equals(capabilitySetRef)
+                        || !run.inputRef().equals(operation.inputRef())
+                        || !run.operationId().equals(operation.operationId())
+                        || !run.runId().equals(session.lastRunId())
+                        || (run.state() != RunState.QUEUED
+                            && run.state() != RunState.RUNNING)
+                        || session.state() != SessionState.RUNNING) {
+                    throw new IllegalStateException(
+                            "CI learner start replay changed identity");
+                }
+                return new CiLearningStart(session, run);
+            }
+            String head = jdbc.queryForObject(
+                    "SELECT published_head FROM flow_ci_learning_subject "
+                            + "WHERE subject_id = ? AND operation_id = ?",
+                    String.class, operation.inputRef(),
+                    operation.operationId());
+            Instant now = clock.instant();
+            String sessionId = stableId(
+                    "ci-learning-session", operation.operationId());
+            String runId = stableId("agent-run", operation.operationId());
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_session (
+                        session_id, task_id, role, state, last_run_id,
+                        created_at, updated_at
+                    ) VALUES (?, ?, 'CI_LEARNER', 'RUNNING', ?, ?, ?)
+                    """,
+                    sessionId, operation.taskId(), runId,
+                    now.toEpochMilli(), now.toEpochMilli());
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_run (
+                        run_id, operation_id, session_id, role, head_sha,
+                        prompt_manifest_ref, capability_set_ref, input_ref,
+                        state, created_at
+                    ) VALUES (?, ?, ?, 'CI_LEARNER', ?, ?, ?, ?, 'QUEUED', ?)
+                    """,
+                    runId, operation.operationId(), sessionId, head,
+                    promptManifestRef, capabilitySetRef,
+                    operation.inputRef(), now.toEpochMilli());
+            return new CiLearningStart(
+                    requireSession(sessionId), requireRun(runId));
+        });
+    }
+
+    public synchronized AgentProcessAttempt reserveInProcessCiLearningAttempt(
+            String runId, Claim claim)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        return inTransaction(() -> {
+            Operation operation = assertCiLearningClaim(claim);
+            AgentRun run = requireRun(runId);
+            if (!run.operationId().equals(operation.operationId())
+                    || run.role() != AgentRole.CI_LEARNER
+                    || run.state() != RunState.QUEUED) {
+                throw new StaleClaimException(
+                        "CI learner run is not reservable");
+            }
+            String attemptId = stableId(
+                    "process-attempt", runId,
+                    Long.toString(claim.generation()));
+            Optional<AgentProcessAttempt> existing = processAttempt(attemptId);
+            if (existing.isPresent()) {
+                AgentProcessAttempt attempt = existing.orElseThrow();
+                if (!attempt.runId().equals(runId)
+                        || !attempt.operationId().equals(claim.operationId())
+                        || attempt.claimGeneration() != claim.generation()
+                        || !attempt.claimTokenDigest().equals(
+                                claimTokenDigest(claim))) {
+                    throw new IllegalStateException(
+                            "CI learner reservation replay changed identity");
+                }
+                return attempt;
+            }
+            Instant now = clock.instant();
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_process_attempt (
+                        process_attempt_id, run_id, operation_id,
+                        claim_generation, claim_token_digest, execution_id,
+                        capability_id, state, reserved_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?)
+                    """,
+                    attemptId, runId, claim.operationId(), claim.generation(),
+                    claimTokenDigest(claim),
+                    stableId("ci-learning-execution", runId,
+                            Long.toString(claim.generation())),
+                    stableId("ci-learning-capability", runId,
+                            Long.toString(claim.generation())),
+                    now.toEpochMilli());
+            return requireProcessAttempt(attemptId);
+        });
+    }
+
+    public synchronized AgentRun activateInProcessCiLearningAttempt(
+            String processAttemptId,
+            Claim claim,
+            long jvmPid,
+            Instant jvmStartedAt,
+            long threadId,
+            String threadName)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(jvmStartedAt, "jvmStartedAt is null");
+        requireText(threadName, "threadName");
+        if (jvmPid <= 0 || threadId <= 0) {
+            throw new IllegalArgumentException(
+                    "CI learner process identity must be positive");
+        }
+        return inTransaction(() -> {
+            assertCiLearningClaim(claim);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            AgentRun run = requireRun(attempt.runId());
+            if (!attempt.operationId().equals(claim.operationId())
+                    || attempt.claimGeneration() != claim.generation()
+                    || !attempt.claimTokenDigest().equals(
+                            claimTokenDigest(claim))
+                    || run.role() != AgentRole.CI_LEARNER) {
+                throw new StaleClaimException(
+                        "CI learner process belongs to another claim");
+            }
+            if (attempt.state() == ProcessAttemptState.ACTIVATED) {
+                if (!Long.valueOf(jvmPid).equals(attempt.jvmPid())
+                        || !jvmStartedAt.equals(attempt.jvmStartedAt())
+                        || !Long.valueOf(threadId).equals(attempt.threadId())
+                        || !threadName.equals(attempt.threadName())
+                        || run.state() != RunState.RUNNING) {
+                    throw new IllegalStateException(
+                            "CI learner activation replay changed identity");
+                }
+                return run;
+            }
+            if (attempt.state() != ProcessAttemptState.RESERVED
+                    || run.state() != RunState.QUEUED) {
+                throw new IllegalStateException(
+                        "CI learner process cannot be activated");
+            }
+            Instant now = clock.instant();
+            int attemptUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET state = 'ACTIVATED', jvm_pid = ?, jvm_started_at = ?,
+                        thread_id = ?, thread_name = ?, activated_at = ?
+                    WHERE process_attempt_id = ? AND state = 'RESERVED'
+                    """,
+                    jvmPid, jvmStartedAt.toEpochMilli(), threadId, threadName,
+                    now.toEpochMilli(), processAttemptId);
+            int runUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_run
+                    SET state = 'RUNNING', started_at = COALESCE(started_at, ?)
+                    WHERE run_id = ? AND state = 'QUEUED'
+                    """,
+                    now.toEpochMilli(), run.runId());
+            if (attemptUpdated != 1 || runUpdated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "CI learner changed during activation");
+            }
+            return requireRun(run.runId());
+        });
+    }
+
+    public synchronized void assertInProcessCiLearningToolCapability(
+            String runId, Claim claim, String capabilityId)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireText(capabilityId, "capabilityId");
+        inTransaction(() -> {
+            assertCiLearningClaim(claim);
+            Integer exact = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_runtime_agent_process_attempt a
+                    JOIN flow_runtime_agent_run r ON r.run_id = a.run_id
+                    JOIN flow_runtime_operation o
+                      ON o.operation_id = r.operation_id
+                    WHERE a.run_id = ? AND a.operation_id = ?
+                      AND a.claim_generation = ?
+                      AND a.claim_token_digest = ?
+                      AND a.capability_id = ? AND a.state = 'ACTIVATED'
+                      AND a.capability_revoked_at IS NULL
+                      AND a.quarantine_reason IS NULL
+                      AND r.role = 'CI_LEARNER' AND r.state = 'RUNNING'
+                      AND o.kind = 'RUN_CI_LEARNING'
+                      AND o.owner_kind = 'CI_UPDATE_RECEIPT'
+                    """,
+                    Integer.class, runId, claim.operationId(),
+                    claim.generation(), claimTokenDigest(claim), capabilityId);
+            if (requireNonNull(exact,
+                    "CI learner capability count is null") != 1) {
+                throw new StaleCapabilityException(
+                        "CI learner capability is stale or revoked");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
+    public synchronized AgentProcessAttempt revokeInProcessCiLearningCapability(
+            String processAttemptId, Claim claim)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        return inTransaction(() -> {
+            assertCiLearningTerminationAuthority(processAttemptId, claim);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            if (attempt.capabilityRevokedAt() != null) {
+                return attempt;
+            }
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET capability_revoked_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NULL
+                    """,
+                    clock.instant().toEpochMilli(), processAttemptId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "CI learner capability changed during revocation");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
+    /** Atomically seals the sole model-authored lesson request and tools. */
+    public synchronized String sealCiLearningLesson(
+            String processAttemptId,
+            Claim claim,
+            String title,
+            String markdown)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(claim, "claim is null");
+        requireText(title, "title");
+        requireText(markdown, "markdown");
+        if (title.length() > 160 || markdown.length() > 16_384) {
+            throw new IllegalArgumentException(
+                    "CI lesson exceeds its bounded size");
+        }
+        return inTransaction(() -> {
+            String contentDigest = stableId(
+                    "ci-lesson-content", title, markdown);
+            List<String> existing = jdbc.queryForList(
+                    "SELECT content_digest FROM "
+                            + "flow_ci_learning_lesson_request "
+                            + "WHERE operation_id = ? AND run_id = ("
+                            + "SELECT run_id FROM "
+                            + "flow_runtime_agent_process_attempt "
+                            + "WHERE process_attempt_id = ?)",
+                    String.class, claim.operationId(), processAttemptId);
+            if (!existing.isEmpty()) {
+                Integer exact = jdbc.queryForObject(
+                        """
+                        SELECT COUNT(*)
+                        FROM flow_ci_learning_lesson_request q
+                        JOIN flow_runtime_agent_process_attempt a
+                          ON a.process_attempt_id = q.process_attempt_id
+                        WHERE q.operation_id = ?
+                          AND q.process_attempt_id = ?
+                          AND q.title = ? AND q.markdown = ?
+                          AND q.content_digest = ?
+                          AND a.claim_generation = ?
+                          AND a.claim_token_digest = ?
+                        """,
+                        Integer.class, claim.operationId(), processAttemptId,
+                        title, markdown, contentDigest, claim.generation(),
+                        claimTokenDigest(claim));
+                if (requireNonNull(exact,
+                        "CI lesson replay count is null") != 1) {
+                    throw new IllegalStateException(
+                            "CI lesson request replay changed content");
+                }
+                return existing.getFirst();
+            }
+            assertCiLearningTerminationAuthority(processAttemptId, claim);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            AgentRun run = requireRun(attempt.runId());
+            Operation operation = requireOperation(claim.operationId());
+            Instant now = clock.instant();
+            int requestStored = jdbc.update(
+                    """
+                    INSERT INTO flow_ci_learning_lesson_request (
+                        operation_id, run_id, subject_id,
+                        process_attempt_id, title, markdown,
+                        content_digest, sealed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    operation.operationId(), run.runId(),
+                    operation.inputRef(), processAttemptId,
+                    title, markdown, contentDigest, now.toEpochMilli());
+            int revoked = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET capability_revoked_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NULL
+                      AND quarantine_reason IS NULL
+                    """,
+                    now.toEpochMilli(), processAttemptId);
+            if (requestStored != 1 || revoked != 1) {
+                throw new StaleOwnerRevisionException(
+                        "CI lesson seal lost its active capability");
+            }
+            return contentDigest;
+        });
+    }
+
+    public synchronized AgentProcessAttempt recordInProcessCiLearningStopped(
+            String processAttemptId,
+            Claim claim,
+            InProcessCiLearningAgentSupervisor.TerminatedThreadWitness witness,
+            InProcessStopType stopType)
+    {
+        requireText(processAttemptId, "processAttemptId");
+        requireNonNull(witness, "witness is null");
+        requireNonNull(stopType, "stopType is null");
+        return inTransaction(() -> {
+            assertCiLearningTerminationAuthority(processAttemptId, claim);
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    processAttemptId);
+            assertCiLearningProcessIdentity(attempt, witness);
+            if (attempt.state() == ProcessAttemptState.STOPPED) {
+                if (attempt.stopType() != stopType) {
+                    throw new IllegalStateException(
+                            "CI learner stop replay changed type");
+                }
+                return attempt;
+            }
+            if (attempt.state() != ProcessAttemptState.ACTIVATED
+                    || attempt.capabilityRevokedAt() == null
+                    || attempt.quarantineReason() != null) {
+                throw new IllegalStateException(
+                        "CI learner is not safely stoppable");
+            }
+            Instant now = clock.instant();
+            String proof = stableId(
+                    "in-process-ci-learning-stop", attempt.executionId(),
+                    stopType.name(), Long.toString(witness.jvmPid()),
+                    Long.toString(witness.jvmStartedAt().toEpochMilli()),
+                    Long.toString(witness.thread().threadId()),
+                    Long.toString(attempt.capabilityRevokedAt()
+                            .toEpochMilli()));
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_agent_process_attempt
+                    SET state = 'STOPPED', stop_type = ?, stop_proof_ref = ?,
+                        stopped_at = ?
+                    WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                      AND capability_revoked_at IS NOT NULL
+                      AND quarantine_reason IS NULL
+                    """,
+                    stopType.name(), proof, now.toEpochMilli(),
+                    processAttemptId);
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "CI learner stop proof changed concurrently");
+            }
+            return requireProcessAttempt(processAttemptId);
+        });
+    }
+
+    /** Stores the opaque result; CI owner facts join this outer transaction. */
+    public synchronized AgentResult finishCiLearningAgentRun(
+            String runId,
+            Claim claim,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(terminalOutcome, "terminalOutcome is null");
+        if (terminalOutcome != TerminalOutcome.COMPLETED) {
+            requireText(errorRef, "errorRef");
+        }
+        return inTransaction(() -> {
+            Optional<AgentResult> existing = resultForRun(runId);
+            if (existing.isPresent()) {
+                AgentResult result = existing.orElseThrow();
+                assertFinalizedClaim(claim, result.resultId());
+                if (result.terminalOutcome() != terminalOutcome
+                        || !Objects.equals(result.finalContent(), finalContent)
+                        || !Objects.equals(result.errorRef(), errorRef)) {
+                    throw new IllegalStateException(
+                            "CI learner result replay changed content");
+                }
+                return result;
+            }
+            Operation operation = assertCiLearningClaim(claim);
+            AgentRun run = requireRun(runId);
+            AgentSession session = requireSession(run.sessionId());
+            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                    runId, claim.generation());
+            if (!run.operationId().equals(operation.operationId())
+                    || run.role() != AgentRole.CI_LEARNER
+                    || run.state() != RunState.RUNNING
+                    || session.role() != AgentRole.CI_LEARNER
+                    || session.state() != SessionState.RUNNING
+                    || !runId.equals(session.lastRunId())) {
+                throw new StaleOwnerRevisionException(
+                        "CI learner finalization identity changed");
+            }
+            Instant now = clock.instant();
+            String resultId = stableId("agent-result", runId);
+            int resultStored = jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_agent_result (
+                        result_id, run_id, terminal_outcome, final_content,
+                        error_ref, stop_proof_ref, stored_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    resultId, runId, terminalOutcome.name(), finalContent,
+                    errorRef, stopped.stopProofRef(), now.toEpochMilli());
+            RunState runState = switch (terminalOutcome) {
+                case COMPLETED -> RunState.COMPLETED;
+                case FAILED -> RunState.FAILED;
+                case CANCELED -> RunState.CANCELED;
+            };
+            int runClosed = jdbc.update(
+                    "UPDATE flow_runtime_agent_run SET state = ?, "
+                            + "failure_reason_code = ?, completed_at = ? "
+                            + "WHERE run_id = ? AND state = 'RUNNING'",
+                    runState.name(), errorRef, now.toEpochMilli(), runId);
+            int sessionClosed = jdbc.update(
+                    "UPDATE flow_runtime_agent_session SET state = 'CLOSED', "
+                            + "close_reason = ?, updated_at = ? "
+                            + "WHERE session_id = ? AND state = 'RUNNING' "
+                            + "AND last_run_id = ?",
+                    "CI_LEARNING_" + terminalOutcome.name(),
+                    now.toEpochMilli(), session.sessionId(), runId);
+            if (resultStored != 1 || runClosed != 1
+                    || sessionClosed != 1) {
+                throw new StaleOwnerRevisionException(
+                        "CI learner changed during finalization");
+            }
+            OperationState operationState = switch (terminalOutcome) {
+                case COMPLETED -> OperationState.SUCCEEDED;
+                case FAILED -> OperationState.FAILED;
+                case CANCELED -> OperationState.CANCELED;
+            };
+            settleDispatch(operation.operationId(), operationState, resultId);
+            return requireResult(resultId);
         });
     }
 
@@ -8559,6 +9434,63 @@ public final class FlowRuntime
         }
     }
 
+    private void assertCiLearningTerminationAuthority(
+            String processAttemptId, Claim claim)
+    {
+        Integer exact = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_agent_process_attempt a
+                JOIN flow_runtime_agent_run r ON r.run_id = a.run_id
+                JOIN flow_runtime_agent_session s
+                  ON s.session_id = r.session_id
+                JOIN flow_runtime_operation o
+                  ON o.operation_id = a.operation_id
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = a.operation_id
+                JOIN flow_ci_learning_subject l
+                  ON l.operation_id = o.operation_id
+                 AND l.subject_id = o.input_ref
+                 AND l.subject_digest = o.subject_digest
+                WHERE a.process_attempt_id = ? AND a.operation_id = ?
+                  AND a.claim_generation = ?
+                  AND a.claim_token_digest = ?
+                  AND d.claim_generation = a.claim_generation
+                  AND d.claim_token = ? AND d.claim_owner = ?
+                  AND d.delivery_state = 'CLAIMED'
+                  AND o.state = 'CLAIMED'
+                  AND o.kind = 'RUN_CI_LEARNING'
+                  AND o.owner_kind = 'CI_UPDATE_RECEIPT'
+                  AND o.owner_id = l.receipt_id
+                  AND r.role = 'CI_LEARNER' AND r.state = 'RUNNING'
+                  AND s.role = 'CI_LEARNER' AND s.state = 'RUNNING'
+                  AND s.last_run_id = r.run_id
+                """,
+                Integer.class, processAttemptId, claim.operationId(),
+                claim.generation(), claimTokenDigest(claim),
+                claim.claimToken(), claim.workerId());
+        if (requireNonNull(exact,
+                "CI learner termination count is null") != 1) {
+            throw new StaleCapabilityException(
+                    "CI learner termination authority is stale");
+        }
+    }
+
+    private static void assertCiLearningProcessIdentity(
+            AgentProcessAttempt attempt,
+            InProcessCiLearningAgentSupervisor.TerminatedThreadWitness witness)
+    {
+        Thread thread = witness.thread();
+        if (thread.getState() != Thread.State.TERMINATED
+                || !Long.valueOf(witness.jvmPid()).equals(attempt.jvmPid())
+                || !witness.jvmStartedAt().equals(attempt.jvmStartedAt())
+                || !Long.valueOf(thread.threadId()).equals(
+                        attempt.threadId())) {
+            throw new StaleCapabilityException(
+                    "terminated CI learner identity is stale");
+        }
+    }
+
     private static void assertReviewerProcessIdentity(
             AgentProcessAttempt attempt,
             InProcessReviewerAgentSupervisor.TerminatedThreadWitness witness)
@@ -8713,6 +9645,181 @@ public final class FlowRuntime
             throw new StaleOwnerRevisionException(
                     "expired reviewer lost its Task owner revision");
         }
+    }
+
+    private void quarantineExpiredCiLearningAttempt(ExpiredClaim expired)
+    {
+        if (expired.processAttemptState() != ProcessAttemptState.ACTIVATED) {
+            throw new IllegalStateException(
+                    "only an activated CI learner needs quarantine");
+        }
+        AgentProcessAttempt attempt = requireProcessAttempt(
+                expired.processAttemptId());
+        AgentRun run = requireRun(expired.runId());
+        AgentSession session = requireSession(run.sessionId());
+        if (run.role() != AgentRole.CI_LEARNER
+                || session.role() != AgentRole.CI_LEARNER) {
+            throw new IllegalStateException(
+                    "expired learner has a conflicting role");
+        }
+        Instant now = clock.instant();
+        int quarantined = jdbc.update(
+                """
+                UPDATE flow_runtime_agent_process_attempt
+                SET capability_revoked_at = COALESCE(
+                        capability_revoked_at, ?),
+                    quarantine_reason = 'IN_PROCESS_OWNER_UNAVAILABLE',
+                    quarantined_at = ?
+                WHERE process_attempt_id = ? AND state = 'ACTIVATED'
+                  AND quarantine_reason IS NULL
+                """,
+                now.toEpochMilli(), now.toEpochMilli(),
+                attempt.processAttemptId());
+        int runClosed = jdbc.update(
+                """
+                UPDATE flow_runtime_agent_run
+                SET state = 'FAILED',
+                    failure_reason_code = 'CI_LEARNING_PROCESS_QUARANTINED',
+                    completed_at = ?
+                WHERE run_id = ? AND state = 'RUNNING'
+                """,
+                now.toEpochMilli(), run.runId());
+        int sessionClosed = jdbc.update(
+                """
+                UPDATE flow_runtime_agent_session
+                SET state = 'CLOSED',
+                    close_reason = 'CI_LEARNING_PROCESS_QUARANTINED',
+                    updated_at = ?
+                WHERE session_id = ? AND state = 'RUNNING'
+                  AND last_run_id = ?
+                """,
+                now.toEpochMilli(), session.sessionId(), run.runId());
+        if (quarantined != 1 || runClosed != 1 || sessionClosed != 1) {
+            throw new StaleOwnerRevisionException(
+                    "expired CI learner changed during quarantine");
+        }
+        settleDispatch(
+                expired.operationId(), OperationState.FAILED,
+                "CI_LEARNING_PROCESS_QUARANTINED:"
+                        + attempt.processAttemptId());
+    }
+
+    /**
+     * Stores only runtime-owned STOPPED recovery facts. The CI owner must add
+     * its lesson/completion fact in the same outer transaction.
+     */
+    public synchronized StoppedCiLearningResult
+            finishExpiredStoppedCiLearningProcess(
+                    String operationId, long generation)
+    {
+        requireText(operationId, "operationId");
+        return inTransaction(() -> finishExpiredStoppedCiLearningProcess0(
+                operationId, generation));
+    }
+
+    public synchronized void assertStoppedCiLearningRecoveryReplay(
+            String operationId, long generation, String resultId)
+    {
+        requireText(operationId, "operationId");
+        requireText(resultId, "resultId");
+        Integer exact = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                JOIN flow_runtime_agent_run r
+                  ON r.operation_id = o.operation_id
+                JOIN flow_runtime_agent_session s
+                  ON s.session_id = r.session_id
+                 AND s.last_run_id = r.run_id
+                JOIN flow_runtime_agent_process_attempt a
+                  ON a.run_id = r.run_id
+                 AND a.claim_generation = d.claim_generation
+                JOIN flow_runtime_agent_result x
+                  ON x.run_id = r.run_id
+                 AND x.result_id = o.result_ref
+                WHERE o.operation_id = ? AND o.kind = 'RUN_CI_LEARNING'
+                  AND o.owner_kind = 'CI_UPDATE_RECEIPT'
+                  AND o.state = 'FAILED' AND o.result_ref = ?
+                  AND d.delivery_state = 'DONE'
+                  AND d.claim_generation = ?
+                  AND r.role = 'CI_LEARNER' AND r.state = 'FAILED'
+                  AND r.failure_reason_code =
+                        'CI_LEARNING_COMPLETION_LOST'
+                  AND s.role = 'CI_LEARNER' AND s.state = 'CLOSED'
+                  AND s.close_reason = 'CI_LEARNING_COMPLETION_LOST'
+                  AND a.state = 'STOPPED' AND a.stop_type = 'NORMAL_RETURN'
+                  AND a.stop_proof_ref IS NOT NULL
+                  AND x.terminal_outcome = 'FAILED'
+                  AND x.final_content IS NULL
+                  AND x.error_ref = 'CI_LEARNING_COMPLETION_LOST'
+                  AND x.stop_proof_ref = a.stop_proof_ref
+                """,
+                Integer.class, operationId, resultId, generation);
+        if (requireNonNull(exact,
+                "stopped learner replay count is null") != 1) {
+            throw new IllegalStateException(
+                    "stopped CI learner recovery replay is inconsistent");
+        }
+    }
+
+    private StoppedCiLearningResult finishExpiredStoppedCiLearningProcess0(
+            String operationId, long generation)
+    {
+        ExpiredClaim expired = requireExpiredClaim(operationId, generation);
+        if (expired.kind() != OperationKind.RUN_CI_LEARNING
+                || expired.processAttemptState()
+                        != ProcessAttemptState.STOPPED) {
+            throw new IllegalArgumentException(
+                    "claim is not a stopped CI learner");
+        }
+        AgentProcessAttempt attempt = requireProcessAttempt(
+                expired.processAttemptId());
+        AgentRun run = requireRun(expired.runId());
+        AgentSession session = requireSession(run.sessionId());
+        if (attempt.state() != ProcessAttemptState.STOPPED
+                || attempt.stopType() != InProcessStopType.NORMAL_RETURN
+                || attempt.stopProofRef() == null
+                || run.role() != AgentRole.CI_LEARNER
+                || run.state() != RunState.RUNNING
+                || session.role() != AgentRole.CI_LEARNER
+                || session.state() != SessionState.RUNNING) {
+            throw new IllegalStateException(
+                    "stopped CI learner recovery graph is invalid");
+        }
+        Instant now = clock.instant();
+        String reason = "CI_LEARNING_COMPLETION_LOST";
+        String resultId = stableId("agent-result", run.runId());
+        int resultStored = jdbc.update(
+                """
+                INSERT INTO flow_runtime_agent_result (
+                    result_id, run_id, terminal_outcome, final_content,
+                    error_ref, stop_proof_ref, stored_at
+                ) VALUES (?, ?, 'FAILED', NULL, ?, ?, ?)
+                """,
+                resultId, run.runId(), reason, attempt.stopProofRef(),
+                now.toEpochMilli());
+        int runClosed = jdbc.update(
+                "UPDATE flow_runtime_agent_run SET state = 'FAILED', "
+                        + "failure_reason_code = ?, completed_at = ? "
+                        + "WHERE run_id = ? AND state = 'RUNNING'",
+                reason, now.toEpochMilli(), run.runId());
+        int sessionClosed = jdbc.update(
+                "UPDATE flow_runtime_agent_session SET state = 'CLOSED', "
+                        + "close_reason = ?, updated_at = ? "
+                        + "WHERE session_id = ? AND state = 'RUNNING' "
+                        + "AND last_run_id = ?",
+                reason, now.toEpochMilli(), session.sessionId(), run.runId());
+        if (resultStored != 1 || runClosed != 1
+                || sessionClosed != 1) {
+            throw new StaleOwnerRevisionException(
+                    "stopped CI learner changed during recovery");
+        }
+        settleDispatch(
+                expired.operationId(), OperationState.FAILED, resultId);
+        return new StoppedCiLearningResult(
+                requireResult(resultId), run.runId(), run.inputRef());
     }
 
     private static String reviewerRecoveryRef(String processAttemptId)
@@ -8968,6 +10075,8 @@ public final class FlowRuntime
             case CI_FIXER -> task.ciSessionId();
             case ADVERSARIAL_REVIEWER -> throw new IllegalArgumentException(
                     "reviewers require a fresh request-bound session");
+            case CI_LEARNER -> throw new IllegalArgumentException(
+                    "learners require a fresh receipt-bound session");
         };
         if (sessionId == null) {
             return Optional.empty();
@@ -9128,6 +10237,7 @@ public final class FlowRuntime
                 """
                 SELECT COUNT(*) FROM flow_runtime_operation
                 WHERE task_id = ? AND state = 'CLAIMED'
+                  AND kind <> 'RUN_CI_LEARNING'
                 """,
                 Integer.class,
                 taskId);

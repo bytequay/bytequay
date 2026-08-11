@@ -91,7 +91,11 @@ owner constructs only local `CI_UPDATE` gates from the sealed CI-review Task
 continuation. It creates one stable `(pr_id, CI_UPDATE)` aggregate, immutable
 subjects/actions/revisions/transitions, one exact complete-empty local-review
 binding per PR/change set, and exact manual authorization for the current OPEN
-revision. Authorization atomically creates one immutable GitHub-owned,
+revision. It also implements one explicit, one-shot, Task-scoped `CI_UPDATE`
+consent lasting at most 24 hours. If that consent is current and a newly opened
+revision is fully automatic-eligible, the stopped-ready transaction creates the
+same exact authorization graph; it never scans an existing OPEN gate.
+Authorization atomically creates one immutable GitHub-owned,
 single-step `CI_UPDATE` push plan plus its runtime `PUBLISH` operation/ticket;
 it performs no Git/provider call and writes no timeline event. A
 different later ready run may atomically transition only the current
@@ -133,9 +137,12 @@ Immutable row:
 
 The implemented manual `CI_UPDATE` row is
 `{authorization_id, gate_id, gate_revision, pr_id, subject_digest,
-action_digest, authority=USER, actor_id=LOCAL_DESKTOP_USER, idempotency_key,
-operation_id, effect_plan_ref, authorized_at}`. Standing-consent and
-consumption fields remain part of the wider contract, not this checkpoint.
+action_digest, authority=USER|CI_UPDATE_CONSENT, actor_id, consent_id?,
+consent_revision?, consent_digest?, idempotency_key, operation_id,
+effect_plan_ref, authorized_at}`. Manual rows use the fixed
+`LOCAL_DESKTOP_USER`; automatic rows have an exact composite foreign key to the
+one-shot consent revision. The unique non-null `(consent_id,
+consent_revision)` binding is its atomic use fact.
 
 An authorization is not reusable for another gate revision or another action
 digest.
@@ -154,6 +161,11 @@ digest.
 Standing consent never bypasses a gate revision. It is authority for the program
 to create a normal exact `GateAuthorization` after all current evidence is
 rebuilt and checked.
+
+The implemented subset is deliberately smaller than the general record above:
+one immutable `CI_UPDATE` revision scopes one Task, its exact current PR,
+repository identity, head-repository identity, and branch; it is either enabled
+or revoked, expires within 24 hours, and has exactly one possible automatic use.
 
 ### `ReadyPolicyRevision` and `ReadyAuthorization`
 
@@ -334,20 +346,22 @@ Freeze:
 - exact CI repair result, optional cleanup result, and current memory references
   when a memory owner exists;
 - current `RequiredCiPolicyRevision` for post-push CI/ready evaluation;
-- current consent revision, if automatic authorization is considered;
 - current ready-policy revision, so any permitted carry-forward is exact and
   revocation-safe.
 
 Action manifest: push only the proposed exact head. It cannot contain a GitHub
 comment, review, title/body edit, thread resolution, ready action, or merge.
+The gate subject does not speculate about later authority. If the new-gate
+transaction uses one-shot consent, the resulting `GateAuthorization` binds that
+exact current consent revision and digest.
 
 The current CI implementation freezes the exact repair attempt/result and, for
 a cleanup-produced candidate, the cleanup ID/result as separate causal facts.
 It also freezes the full ordered failed observation/log lists. The implemented
 greenfield local-review owner stores the exact complete-empty binding above;
 because no CI-memory owner exists yet, memory references remain canonically
-empty. Neither path reads legacy data. The implemented manual
-authorization/freshness owner rejects an absent local-review sentinel,
+empty. Neither path reads legacy data. The implemented manual and one-shot
+consent authorization/freshness owner rejects an absent local-review sentinel,
 revalidates the exact binding and
 all frozen current facts, and transitions an obsolete OPEN snapshot to terminal
 STALE. OPEN alone is neither authorization nor executable work.
@@ -446,8 +460,9 @@ only for missing/stale evidence or an unproven process boundary. The implemented
 local `CI_UPDATE` gate then blocks `FAILED`, records genuine `UNAVAILABLE` as a
 manual-only warning, and rejects missing/stale/process-boundary evidence. Its
 complete-empty local-review binding is implemented; private comments/threads,
-other gate kinds, standing consent, and general provider observation remain
-deferred. Manual current-OPEN `CI_UPDATE` authorization, its immutable one-step
+other gate kinds, configurable/multi-use consent, and general provider
+observation remain deferred. Manual current-OPEN `CI_UPDATE` authorization,
+one-shot new-gate `CI_UPDATE` consent, its immutable one-step
 push plan/runtime ticket, and exact GitHub attempt/probe/receipt settlement are
 implemented.
 
@@ -506,9 +521,9 @@ immediate; this is not parsing its eventual final response.
 | `GateCommands.requestChanges(userId, gateId, revision, localRevisionIds[], summary?)` | Submit the selected owned local-review revisions, terminally mark this gate revision `CHANGES_REQUESTED`, persist pending Task work, and ensure the one reconciliation ticket in the same transaction. It does not directly create a writer turn. |
 | `GateCommands.cancel(userId, gateId, revision)` | Cancel this revision without authorizing anything. |
 | `GateCommands.cancelAttention(userId, gateId, revision, attentionRevision)` | Request abandonment of this exact attention state and retain proven receipts. If no executor/remote call can still act, atomically cancel plan/runtime operation and release the barrier; otherwise keep attention while stop/probe proof is obtained, then settle `CANCELED`. |
-| `ConsentCommands.grantCiUpdate(userId, taskId, constraints)` | Append narrow CI standing-consent revision. |
+| `UserGates.grantCiUpdateConsent(taskId, expiresAt, idempotencyKey)` | The fixed local user grants one future automatic use, scoped entirely from current program-owned Task/PR/repository/branch facts and expiring within 24 hours. |
 | `ConsentCommands.grantAutoMerge(userId, prId, method, readyPolicy?)` | Append exact PR-scoped merge consent. Draft PR requires explicit mark-ready policy. |
-| `ConsentCommands.revoke(userId, consentId, expectedRevision)` | Prevent future authorizations; already executing exact effects retain only their frozen authority. |
+| `UserGates.revokeCiUpdateConsent(consentId, expectedRevision, idempotencyKey)` | Append a disabled immutable revision. An automatic authorization with no prior committed `EFFECT_BEGIN` is stale at begin even if its ticket was claimed; once that exact begin exists, execution and never-started recovery retain frozen authority. |
 | `DirectPrCommands.markReady(userId, prId, expectedRemoteHead)` | Immediate explicit exact-head ready action regardless of stored ready policy; no-op if already ready and deduplicate against an existing same-head ready operation. |
 | `ReadyPolicyCommands.revoke(userId, prId, expectedRevision)` | Disable future policy-derived ready authorizations; it cannot undo a proven ready effect. |
 
@@ -539,7 +554,7 @@ name and authorization path for the CI repair-push gate/consent subject.
 | `UserGates.recoverExpiredCiUpdateEffect(operationId, generation)` | Prove the expired generation has no durable provider attempt, return `EXECUTING -> AUTHORIZED` when needed, and redrive the same operation/ticket. Generic claim recovery rejects `PUBLISH`; a generation with an attempt uses probe-only recovery. |
 | `GitHubCiUpdateExecutor.execute(claim)` | Outside owner transactions, probe the exact frozen ref, commit each possible mutation attempt before its call (maximum two), execute the exact-lease fast-forward, then hand a sealed provider observation/failure to User Gates for atomic settlement. |
 | `UserGates.applyCiUpdateObservation(...)` | Consume only a provider-minted claim/plan/target/attempt-bound remote observation. `APPLIED` consumes with a receipt, `DIVERGED` stales, exact-expected `ABSENT` schedules the bounded retry unless authority uncertainty must remain probe-only, and `UNKNOWN` retains the barrier. |
-| `ConsentEvaluator.maybeAuthorize(gateId, gateRevision)` | If current narrow consent is eligible, construct the same `AuthorizeGateCommand`; otherwise do nothing. |
+| stopped-ready gate finalization | Only while atomically creating a new `CI_UPDATE` revision, consume an eligible current one-shot consent through the same private authorization core; otherwise leave the revision OPEN. There is no evaluator queue or retroactive scan. |
 | `ReadyPolicyEvaluator.maybeAuthorize(prId, exactRemoteHead)` | Resolve the current `RequiredCiPolicyRevision`, require eligible lineage plus exact-head accepted CI/no blocker, and under the same per-PR allocator atomically create `ReadyAuthorization` freezing that policy/evidence, its next-sequence GitHub-owned plan, and the runtime operation/ticket. |
 | `GateExecution.acceptResult(operationId, githubResultRef)` | Consume only after GitHub integration returns typed references proving every required plan step, then release any exact reconciliation wait on this gate/operation revision; User Gates does not copy attempts/probes/receipts. |
 | `GateAttention.applyProbe(operationId, attentionRevision, githubProbeResultRef)` | Validate a typed GitHub-owned probe and transition `NEEDS_ATTENTION` to `CONSUMED`, same-operation `AUTHORIZED`, or `STALE`; call runtime `OperationCommands.settle`, release any exact reconciliation wait on this gate/operation revision, and atomically settle/re-enable plan/barrier. It never accepts a user/model claim as provider proof. |
@@ -640,19 +655,20 @@ Default policy:
 
 ### Narrow CI consent
 
-Standing consent is a deferred policy owner. The implemented executable
-`CI_UPDATE` path uses only an exact authenticated manual authorization.
-
-The first implementation scopes consent to one Task, one branch, an expiry, and
-a maximum automatic use count. It permits only normal push of a reviewed,
+The implemented first consent is one-shot, defaults off, expires within 24
+hours, and is scoped to one Task plus its program-derived exact PR, repository,
+head repository, and branch. It permits only normal push of a reviewed,
 exact-head CI repair with `PASSED` local checks. An `UNAVAILABLE` check candidate
 is always manual. Consent does not permit force push, history rewrite, remote
 reply, resolution, ready action, metadata edit, or merge. Any such candidate
 stays manual.
 
 The program still creates and records an exact `CI_UPDATE` gate revision and
-authorization for each use. This makes the timeline and recovery path identical
-to manual authorization.
+ordinary authorization. The unique automatic authorization is the one use and
+creates the identical plan, operation, ticket, barrier, executor, and recovery
+path as manual authorization. It is considered only in the transaction that
+opens a new gate revision; granting it later never authorizes an existing OPEN
+revision.
 
 ### Optional auto-merge
 
@@ -681,7 +697,7 @@ The following changes stale the named open/authorized revision:
 | Partial remote branch/identity/PR head or base differs from its frozen recovery binding | Recovery `INITIAL_PUBLISH`. No create, fast-forward, ready, or later effect may run. |
 | CI/review/mergeability observation revision | `MERGE`; feedback gate when waiting for its post-push green. |
 | Action draft or action order change | Gate whose action digest changes. |
-| Applicable consent/policy revoked | Unclaimed automatic authorization; manual authorization remains only for its frozen action unless safety evidence changed. |
+| Applicable consent/policy revoked | Automatic authorization with no prior committed exact `EFFECT_BEGIN`; a claimed ticket is not frozen authority, while a recovered post-begin authorization is. Manual authorization remains only for its frozen action unless safety evidence changed. |
 
 From the authorization commit until the operation becomes terminal, the runtime
 installs a logical publication
@@ -837,10 +853,10 @@ Insert a process restart after every numbered step in test variants.
 
 ### G. Narrow CI consent
 
-1. User grants Task-scoped consent with one remaining use.
-2. Open an eligible exact `CI_UPDATE` gate; `ConsentEvaluator` constructs the
-   same `AuthorizeGateCommand`, creates authorization, and decrements use
-   atomically.
+1. User grants one Task-scoped use expiring within 24 hours.
+2. Opening an eligible exact `CI_UPDATE` gate uses the same private
+   authorization core and atomically creates its unique consent-bound
+   authorization.
 3. Try a force-push or action containing a reply; automatic authorization is
    refused and remains manual.
 4. Redelivery/restart cannot consume a second use for the same gate revision.
@@ -868,7 +884,7 @@ Insert a process restart after every numbered step in test variants.
 1. `run_checks()` records an attempted exact-head check as `UNAVAILABLE` with
    captured reason/output.
 2. Gate opens with that evidence, a prominent warning, and `manualOnly=true`.
-3. Assert `ConsentEvaluator` cannot authorize it through CI standing consent.
+3. Assert new-gate finalization cannot authorize it through CI standing consent.
 4. A user may manually authorize the exact candidate; a `FAILED` or
    missing/never-attempted check variant cannot open the gate.
 

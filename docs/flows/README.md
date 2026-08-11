@@ -125,15 +125,18 @@ scoped standing consent. The authorization freezes the relevant head,
 revisions, action digest, and policy revision. A changed subject makes it
 stale.
 
-The current executable subset implements this boundary only for manual local
-`CI_UPDATE`: the exact decision atomically creates one immutable one-step push
-plan and its runtime `PUBLISH` operation/ticket, installing the barrier. Claim
+The current executable subset implements this boundary for manual local
+`CI_UPDATE` and one fixed-local-user, one-shot Task consent lasting at most 24
+hours. Consent is considered only while a stopped-ready transaction opens a new
+all-`PASSED` exact gate revision; it never scans an existing gate. Either exact
+decision atomically creates one immutable one-step push plan and its runtime
+`PUBLISH` operation/ticket, installing the barrier. Claim
 locks the PR and admits the exact stored graph at the oldest nonterminal
 sequence; begin performs current-owner freshness revalidation but makes no Git
 or provider call. The concrete GitHub executor commits an attempt before its
-exact-lease push and uses immutable probes/receipts for settlement. Standing
-consent, general remote-observation routing, and timeline projection remain
-deferred.
+exact-lease push and uses immutable probes/receipts for settlement.
+Configurable/multi-use consent, consent UI, general remote-observation routing,
+and timeline projection remain deferred.
 
 ### 6. Record a fact once
 

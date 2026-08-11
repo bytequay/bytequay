@@ -27,6 +27,7 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.PolicyResolution;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
+import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateConsentRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGateRecords.GateRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.GateState;
@@ -75,6 +76,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
@@ -2625,7 +2627,7 @@ class TestCiAutofixCoordinator
     }
 
     @Test
-    void publicationExecutionAddsNoReviewThreadsConsentOrProviderFramework()
+    void publicationExecutionAddsOnlyTheOneShotConsentOwner()
     {
         openReadyGate("binding-yagni");
 
@@ -2637,11 +2639,17 @@ class TestCiAutofixCoordinator
                     OR name LIKE 'flow_user_gate_local_review_revision%'
                     OR name LIKE 'flow_user_gate_local_review_batch%'
                     OR name LIKE 'flow_user_gate_local_review_current%'
-                    OR name LIKE '%consent%'
                     OR name LIKE '%provider_call%'
                 )
                 """,
                 String.class)).isEmpty();
+        assertThat(jdbc.queryForList(
+                "SELECT name FROM sqlite_master "
+                        + "WHERE type = 'table' AND name LIKE '%consent%' "
+                        + "ORDER BY name",
+                String.class)).containsExactly(
+                        "flow_user_gate_ci_consent_current",
+                        "flow_user_gate_ci_consent_revision");
     }
 
     @Test
@@ -2953,6 +2961,9 @@ class TestCiAutofixCoordinator
     @Test
     void unavailableRequiredLocalCheckOpensManualOnlyGate()
     {
+        userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "unavailable-consent");
         publishCheckPolicy(
                 "unavailable-ready",
                 List.of("/definitely-missing-bytequay-check"));
@@ -2987,6 +2998,11 @@ class TestCiAutofixCoordinator
         assertThat(subject.localChecks()).singleElement()
                 .satisfies(check -> assertThat(check.conclusion())
                         .isEqualTo(LocalCheckConclusion.UNAVAILABLE));
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
+        assertThat(userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "manual-unavailable")).isNotNull();
     }
 
     @Test
@@ -3895,6 +3911,423 @@ class TestCiAutofixCoordinator
                 .isEqualTo(1);
         assertThat(count("flow_github_external_effect_step", "1 = 1"))
                 .isEqualTo(1);
+    }
+
+    @Test
+    void oneShotConsentAuthorizesOnlyTheNewExactGateGraph()
+    {
+        var consent = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "grant-one-shot");
+        assertThat(userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "grant-one-shot")).isEqualTo(consent);
+
+        CompletedReady ready = openReadyGate("automatic-authorization");
+        GateRevision revision = ready.revision();
+        String authorizationId = jdbc.queryForObject(
+                "SELECT authorization_id FROM flow_user_gate_authorization",
+                String.class);
+        var authorization = userGates.authorization(
+                authorizationId).orElseThrow();
+        assertThat(authorization.authority())
+                .isEqualTo("CI_UPDATE_CONSENT");
+        assertThat(authorization.actorId())
+                .isEqualTo("USER_GATES_CI_CONSENT");
+        assertThat(authorization.consentId()).isEqualTo(consent.consentId());
+        assertThat(authorization.consentRevision())
+                .isEqualTo(consent.revision());
+        assertThat(authorization.consentDigest())
+                .isEqualTo(consent.revisionDigest());
+        assertThat(count("flow_user_gate_authorization", "consent_id IS NOT NULL"))
+                .isEqualTo(1);
+        assertThat(count("flow_github_external_effect_plan", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                .isEqualTo(1);
+        assertThat(count("flow_github_external_effect_attempt", "1 = 1"))
+                .isZero();
+        assertThat(count("flow_github_external_effect_probe", "1 = 1"))
+                .isZero();
+        assertThat(count("flow_github_external_effect_receipt", "1 = 1"))
+                .isZero();
+        assertThat(userGates.transitions(revision.gateId()))
+                .extracting(transition -> transition.reasonCode())
+                .containsExactly("READY", "CI_UPDATE_CONSENT_AUTHORIZATION");
+        assertThatThrownBy(() -> userGates.authorizeCiUpdate(
+                revision.gateId(), revision.revision(),
+                revision.subjectDigest(), revision.actionDigest(),
+                "later-manual-click"))
+                .isInstanceOf(UserGates.AuthorizationRejectedException.class)
+                .hasMessage("AUTHORIZATION_AUTHORITY_CONFLICT");
+
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(claim);
+        assertThat(activation.operationId())
+                .isEqualTo(authorization.operationId());
+    }
+
+    @Test
+    void consentDoesNotRetroactivelyAuthorizeAnExistingOpenGate()
+    {
+        CompletedReady ready = openReadyGate("consent-not-retroactive");
+        userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "grant-after-open");
+
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
+        assertThat(userGates.transitions(ready.revision().gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(GateState.OPEN);
+    }
+
+    @Test
+    void revokedConsentStopsOnlyAnUnbegunEffect()
+    {
+        var consent = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "grant-before-revoke");
+        CompletedReady ready = openReadyGate("consent-revoked-before-begin");
+        var authorization = userGates.authorization(jdbc.queryForObject(
+                "SELECT authorization_id FROM flow_user_gate_authorization",
+                String.class)).orElseThrow();
+        userGates.revokeCiUpdateConsent(
+                consent.consentId(), consent.revision(), "revoke-before-begin");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(claim))
+                .isInstanceOf(UserGates.DurableStaleEffectException.class)
+                .hasMessage("CI_UPDATE_CONSENT_REVOKED");
+        assertThat(runtime.operation(authorization.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CANCELED);
+        assertThat(userGates.transitions(ready.revision().gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN, GateState.AUTHORIZED, GateState.STALE);
+    }
+
+    @Test
+    void expiredConsentStopsBeforeBegin()
+    {
+        userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofMinutes(10)),
+                "grant-before-expiry");
+        CompletedReady expiring = openReadyGate("consent-expires-before-begin");
+        var expiringAuthorization = userGates.authorization(
+                jdbc.queryForObject(
+                        "SELECT authorization_id "
+                                + "FROM flow_user_gate_authorization",
+                        String.class)).orElseThrow();
+        advancePublicationClock(Duration.ofMinutes(11));
+        Claim expiredClaim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(expiredClaim))
+                .isInstanceOf(UserGates.DurableStaleEffectException.class)
+                .hasMessage("CI_UPDATE_CONSENT_EXPIRED");
+        assertThat(runtime.operation(expiringAuthorization.operationId())
+                .orElseThrow().state()).isEqualTo(OperationState.CANCELED);
+        assertThat(userGates.transitions(expiring.revision().gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(
+                        GateState.OPEN, GateState.AUTHORIZED, GateState.STALE);
+    }
+
+    @Test
+    void executingConsentEffectIsFrozenAcrossLaterRevocation()
+    {
+        var consent = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "grant-before-execution");
+        openReadyGate("consent-revoked-after-begin");
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        var activation = userGates.beginCiUpdateEffect(claim);
+
+        userGates.revokeCiUpdateConsent(
+                consent.consentId(), consent.revision(),
+                "revoke-after-begin");
+
+        assertThat(userGates.beginCiUpdateEffect(claim))
+                .isEqualTo(activation);
+        assertThat(runtime.operation(activation.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CLAIMED);
+    }
+
+    @Test
+    void begunConsentRemainsFrozenThroughNeverStartedClaimRecovery()
+    {
+        var consent = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofMinutes(10)),
+                "grant-before-begun-recovery");
+        openReadyGate("consent-begun-recovery");
+        Claim first = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        userGates.beginCiUpdateEffect(first);
+        userGates.revokeCiUpdateConsent(
+                consent.consentId(), consent.revision(),
+                "revoke-begun-recovery");
+        advancePublicationClock(TTL.plusSeconds(1));
+
+        userGates.recoverExpiredCiUpdateEffect(
+                first.operationId(), first.generation());
+        Claim redelivery = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+
+        assertThat(userGates.beginCiUpdateEffect(redelivery).mutationAllowed())
+                .isTrue();
+        advancePublicationClock(TTL.plusSeconds(1));
+        userGates.recoverExpiredCiUpdateEffect(
+                redelivery.operationId(), redelivery.generation());
+        Claim third = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        assertThat(userGates.beginCiUpdateEffect(third).mutationAllowed())
+                .isTrue();
+    }
+
+    @Test
+    void unbegunConsentRecoveryStillHonorsRevocation()
+    {
+        var consent = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "grant-before-unbegun-recovery");
+        openReadyGate("consent-unbegun-recovery");
+        Claim first = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        userGates.revokeCiUpdateConsent(
+                consent.consentId(), consent.revision(),
+                "revoke-unbegun-recovery");
+        advancePublicationClock(TTL.plusSeconds(1));
+
+        userGates.recoverExpiredCiUpdateEffect(
+                first.operationId(), first.generation());
+        Claim redelivery = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(redelivery))
+                .isInstanceOf(UserGates.DurableStaleEffectException.class)
+                .hasMessage("CI_UPDATE_CONSENT_REVOKED");
+    }
+
+    @Test
+    void consentGrantIsBoundedAndConcurrentReplayCreatesOneRevision()
+            throws Exception
+    {
+        assertThatThrownBy(() -> userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(24)).plusMillis(1),
+                "too-long-consent"))
+                .isInstanceOf(IllegalArgumentException.class);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<CiUpdateConsentRevision> first =
+                new AtomicReference<>();
+        AtomicReference<CiUpdateConsentRevision> second =
+                new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Runnable grant = () -> {
+            awaitLatch(start);
+            try {
+                CiUpdateConsentRevision value =
+                        userGates.grantCiUpdateConsent(
+                        task.taskId(), NOW.plus(Duration.ofHours(1)),
+                        "concurrent-consent-grant");
+                if (!first.compareAndSet(null, value)) {
+                    second.set(value);
+                }
+            }
+            catch (Throwable thrown) {
+                failure.compareAndSet(null, thrown);
+            }
+        };
+        Thread left = new Thread(grant, "left-consent-grant");
+        Thread right = new Thread(grant, "right-consent-grant");
+        left.start();
+        right.start();
+        start.countDown();
+        left.join(30_000);
+        right.join(30_000);
+
+        assertThat(failure.get()).isNull();
+        assertThat(first.get()).isEqualTo(second.get());
+        assertThat(count(
+                "flow_user_gate_ci_consent_revision", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count(
+                "flow_user_gate_ci_consent_current", "1 = 1"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void consentCommandReplayIsExactAndActiveGrantCannotBeReplaced()
+    {
+        var granted = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "exact-grant-key");
+        assertThatThrownBy(() -> userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(2)),
+                "exact-grant-key"))
+                .isInstanceOf(UserGates.ConsentRejectedException.class)
+                .hasMessage("CONSENT_REPLAY_CONFLICT");
+        assertThatThrownBy(() -> userGates.grantCiUpdateConsent(
+                "different-task", NOW.plus(Duration.ofHours(1)),
+                "exact-grant-key"))
+                .isInstanceOf(UserGates.ConsentRejectedException.class)
+                .hasMessage("CONSENT_REPLAY_CONFLICT");
+        assertThatThrownBy(() -> userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "second-active-grant"))
+                .isInstanceOf(UserGates.ConsentRejectedException.class)
+                .hasMessage("CONSENT_ALREADY_ACTIVE");
+        assertThat(count(
+                "flow_user_gate_ci_consent_revision", "1 = 1"))
+                .isEqualTo(1);
+
+        var revoked = userGates.revokeCiUpdateConsent(
+                granted.consentId(), granted.revision(),
+                "exact-revoke-key");
+        assertThat(userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "exact-grant-key")).isEqualTo(granted);
+        assertThat(userGates.revokeCiUpdateConsent(
+                granted.consentId(), granted.revision(),
+                "exact-revoke-key")).isEqualTo(revoked);
+        assertThat(userGates.currentCiUpdateConsent(task.taskId()))
+                .contains(revoked);
+        assertThatThrownBy(() -> userGates.revokeCiUpdateConsent(
+                "different-consent", granted.revision(),
+                "exact-revoke-key"))
+                .isInstanceOf(UserGates.ConsentRejectedException.class)
+                .hasMessage("CONSENT_REPLAY_CONFLICT");
+        assertThatThrownBy(() -> userGates.revokeCiUpdateConsent(
+                granted.consentId(), granted.revision() + 1,
+                "exact-revoke-key"))
+                .isInstanceOf(UserGates.ConsentRejectedException.class)
+                .hasMessage("CONSENT_REPLAY_CONFLICT");
+    }
+
+    @Test
+    void revokedConsentBeforeGateCreationLeavesTheNewGateManual()
+    {
+        var granted = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "grant-then-revoke");
+        userGates.revokeCiUpdateConsent(
+                granted.consentId(), granted.revision(),
+                "revoke-before-open");
+
+        CompletedReady ready = openReadyGate("revoked-consent-new-gate");
+
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
+        assertThat(userGates.transitions(ready.revision().gateId()))
+                .extracting(transition -> transition.toState())
+                .containsExactly(GateState.OPEN);
+    }
+
+    @Test
+    void automaticAuthorizationRollsBackWithStoppedFinalizationAndRetries()
+    {
+        userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "rollback-consent");
+        ReviewerResultReady ready = prepareReviewerResult(
+                "automatic-authorization-rollback");
+        String finalContent = "opaque automatic rollback";
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        var handle = ready.ready().review()
+                .launchReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        ready.claim(),
+                        capability -> {
+                            capability.readyForReview();
+                            return new InProcessWriterAgentSupervisor
+                                    .AgentCompletion(
+                                            TerminalOutcome.COMPLETED,
+                                            finalContent,
+                                            null);
+                        });
+        jdbc.execute("""
+                CREATE TRIGGER fail_automatic_effect_step
+                BEFORE INSERT ON flow_github_external_effect_step
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced automatic effect failure');
+                END
+                """);
+        assertThatThrownBy(() -> ready.ready().review()
+                .awaitReviewerResultContinuation(
+                        supervisor,
+                        ready.binding(),
+                        handle,
+                        TTL)).isInstanceOf(RuntimeException.class);
+        assertThat(runtime.resultForRun(
+                ready.binding().run().runId())).isEmpty();
+        assertThat(userGates.gate(pr.prId())).isEmpty();
+        assertThat(count("flow_user_gate_authorization", "1 = 1")).isZero();
+        assertThat(count("flow_github_external_effect_plan", "1 = 1"))
+                .isZero();
+        assertThat(count("flow_runtime_operation", "kind = 'PUBLISH'"))
+                .isZero();
+
+        jdbc.execute("DROP TRIGGER fail_automatic_effect_step");
+        var prepared = userGates.prepareFinalization(
+                ready.binding().run().runId(),
+                ready.claim(),
+                ready.binding().fence());
+        AgentResult result = userGates.finalizeReady(
+                ready.binding().run().runId(),
+                ready.claim(),
+                ready.binding().fence(),
+                TerminalOutcome.COMPLETED,
+                finalContent,
+                null,
+                prepared);
+
+        assertThat(result.terminalOutcome())
+                .isEqualTo(TerminalOutcome.COMPLETED);
+        assertThat(count("flow_user_gate_authorization", "1 = 1"))
+                .isEqualTo(1);
+        assertThat(count("flow_github_external_effect_plan", "1 = 1"))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void consentSchemaAndGraphRejectMixedScopeOrMissingAuthority()
+    {
+        var consent = userGates.grantCiUpdateConsent(
+                task.taskId(), NOW.plus(Duration.ofHours(1)),
+                "schema-consent");
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE flow_user_gate_ci_consent_revision "
+                        + "SET head_repository_name = 'wrong' "
+                        + "WHERE consent_id = ? AND revision = ?",
+                consent.consentId(), consent.revision()))
+                .isInstanceOf(RuntimeException.class);
+        openReadyGate("corrupt-consent-graph");
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE flow_user_gate_authorization "
+                        + "SET consent_id = NULL, consent_revision = NULL, "
+                        + "consent_digest = NULL "
+                        + "WHERE authority = 'CI_UPDATE_CONSENT'"))
+                .isInstanceOf(RuntimeException.class);
+        Claim claim = runtime.claimNextPublish("publisher", TTL)
+                .orElseThrow();
+        jdbc.execute((ConnectionCallback<Void>)
+                connection -> {
+                    connection.createStatement().execute(
+                            "PRAGMA foreign_keys=OFF");
+                    try (var statement = connection.prepareStatement(
+                            "UPDATE flow_user_gate_ci_consent_revision "
+                                    + "SET head_repository_name = 'corrupt' "
+                                    + "WHERE consent_id = ? "
+                                    + "AND revision = ?")) {
+                        statement.setString(1, consent.consentId());
+                        statement.setLong(2, consent.revision());
+                        statement.executeUpdate();
+                    }
+                    return null;
+                });
+        assertThatThrownBy(() -> userGates.beginCiUpdateEffect(claim))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("CI_UPDATE consent digest is inconsistent");
     }
 
     @Test

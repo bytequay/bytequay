@@ -14,6 +14,7 @@
 package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.flow.gate.UserGates.PublishDisposition;
+import com.bytequay.app.flow.github.InitialPublishRecords.Settlement;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
@@ -34,6 +35,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PrDraftRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessAttemptState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ProcessQuarantineReason;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
@@ -133,6 +135,28 @@ public final class FlowRuntime
         {
             return tokenDigest;
         }
+    }
+
+    /** One-use precursor whose digest may be persisted before a handle exists. */
+    public static final class PublishExecutionReservation
+    {
+        private final String operationId;
+        private final long generation;
+        private final String attemptId;
+        private final String tokenDigest;
+        private final AtomicBoolean minted = new AtomicBoolean();
+
+        private PublishExecutionReservation(
+                String operationId, long generation, String attemptId,
+                String tokenDigest)
+        {
+            this.operationId = operationId;
+            this.generation = generation;
+            this.attemptId = attemptId;
+            this.tokenDigest = tokenDigest;
+        }
+
+        public String tokenDigest() { return tokenDigest; }
     }
 
     /** Unforgeable result of mechanical Git inspection awaiting owner CAS. */
@@ -1005,8 +1029,130 @@ public final class FlowRuntime
         });
     }
 
-    /** Adds the set-once provider identity to the same local PR record. */
-    public synchronized PullRequestSubject bindGitHubRemoteIdentity(
+    /** Appends one exact-head local draft; it never performs a remote call. */
+    public synchronized PrDraftRevision savePrDraft(
+            Claim claim,
+            WriterFence fence,
+            String capabilityId,
+            String prId,
+            String expectedChangeSetRevisionId,
+            String expectedHeadSha,
+            String createdByRunId,
+            String title,
+            String body)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireText(capabilityId, "capabilityId");
+        requireText(prId, "prId");
+        requireText(expectedChangeSetRevisionId,
+                "expectedChangeSetRevisionId");
+        requireText(expectedHeadSha, "expectedHeadSha");
+        requireText(createdByRunId, "createdByRunId");
+        requireText(title, "title");
+        requireNonNull(body, "body is null");
+        if (title.length() > 256 || body.length() > 65_536) {
+            throw new IllegalArgumentException("PR draft is too large");
+        }
+        return inTransaction(() -> {
+            assertInProcessWriterToolCapability(
+                    createdByRunId, claim, fence, capabilityId);
+            PullRequestSubject pr = requirePullRequest(prId);
+            Task task = requireTask(pr.taskId());
+            ChangeSetRevision changeSet = requireChangeSetRevision(
+                    expectedChangeSetRevisionId);
+            AgentRun run = requireRun(createdByRunId);
+            if (pr.published()) {
+                throw new StaleOwnerRevisionException(
+                        "published PR metadata is immutable in this flow");
+            }
+            if (task.status() != TaskStatus.ACTIVE
+                    || !Objects.equals(task.currentChangeSetRevisionId(),
+                            expectedChangeSetRevisionId)
+                    || !Objects.equals(task.currentHeadSha(), expectedHeadSha)
+                    || !changeSet.taskId().equals(task.taskId())
+                    || !changeSet.headSha().equals(expectedHeadSha)
+                    || !changeSet.differsFromBase()
+                    || !run.operationId().equals(claim.operationId())
+                    || run.role() != AgentRole.TASK_AGENT
+                    || run.state() != RunState.RUNNING
+                    || !fence.taskId().equals(task.taskId())
+                    || !Objects.equals(task.selectedWriterOperationId(),
+                            claim.operationId())) {
+                throw new StaleOwnerRevisionException(
+                        "PR draft is not bound to the current authored head");
+            }
+            long sequence = jdbc.queryForObject(
+                    "SELECT COALESCE(MAX(sequence), 0) + 1 "
+                            + "FROM flow_runtime_pr_draft_revision WHERE pr_id = ?",
+                    Long.class,
+                    prId);
+            String digest = stableId(
+                    "pr-draft:v1",
+                    prId,
+                    Long.toString(sequence),
+                    expectedChangeSetRevisionId,
+                    expectedHeadSha,
+                    title,
+                    body);
+            String revisionId = stableId("pr-draft-revision:v1", digest);
+            Instant now = clock.instant();
+            jdbc.update(
+                    """
+                    INSERT INTO flow_runtime_pr_draft_revision (
+                        draft_revision_id, pr_id, sequence,
+                        change_set_revision_id, head_sha, title, body,
+                        draft_digest, created_by_run_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    revisionId, prId, sequence, expectedChangeSetRevisionId,
+                    expectedHeadSha, title, body, digest, createdByRunId,
+                    now.toEpochMilli());
+            int updated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_pr SET current_draft_revision_id = ?
+                    WHERE pr_id = ? AND remote_identity_id IS NULL
+                      AND (current_draft_revision_id IS NULL
+                           OR current_draft_revision_id = ?)
+                    """,
+                    revisionId,
+                    prId,
+                    pr.currentDraftRevisionId());
+            if (updated != 1) {
+                throw new StaleOwnerRevisionException(
+                        "PR draft changed concurrently");
+            }
+            return requirePrDraftRevision(revisionId);
+        });
+    }
+
+    public Optional<PrDraftRevision> currentPrDraft(String prId)
+    {
+        requireText(prId, "prId");
+        return jdbc.query(
+                """
+                SELECT d.* FROM flow_runtime_pr p
+                JOIN flow_runtime_pr_draft_revision d
+                  ON d.draft_revision_id = p.current_draft_revision_id
+                WHERE p.pr_id = ?
+                """,
+                (result, row) -> readPrDraftRevision(result),
+                prId).stream().findFirst();
+    }
+
+    public PrDraftRevision requirePrDraftRevision(String revisionId)
+    {
+        requireText(revisionId, "revisionId");
+        return jdbc.query(
+                "SELECT * FROM flow_runtime_pr_draft_revision "
+                        + "WHERE draft_revision_id = ?",
+                (result, row) -> readPrDraftRevision(result),
+                revisionId).stream().findFirst().orElseThrow(() ->
+                        new IllegalArgumentException(
+                                "Unknown PR draft revision: " + revisionId));
+    }
+
+    private synchronized PullRequestSubject bindGitHubRemoteIdentity(
             String prId,
             String expectedLocalHead,
             GitHubRepositoryLocator baseRepository,
@@ -1035,6 +1181,23 @@ public final class FlowRuntime
             throw new IllegalArgumentException("prNumber must be positive");
         }
         return inTransaction(() -> {
+            return bindGitHubRemoteIdentity0(
+                    prId, expectedLocalHead, baseRepository, headRepository,
+                    prNumber, prNodeId, htmlUrl, publicationReceiptId, true);
+        });
+    }
+
+    private PullRequestSubject bindGitHubRemoteIdentity0(
+            String prId,
+            String expectedLocalHead,
+            GitHubRepositoryLocator baseRepository,
+            GitHubRepositoryLocator headRepository,
+            long prNumber,
+            String prNodeId,
+            String htmlUrl,
+            String publicationReceiptId,
+            boolean requireCurrentLocalHead)
+    {
             PullRequestSubject pr = requirePullRequest(prId);
             if (pr.published()) {
                 if (!"GITHUB".equals(pr.provider())
@@ -1069,7 +1232,8 @@ public final class FlowRuntime
                 return pr;
             }
             Task task = requireTask(pr.taskId());
-            if (!expectedLocalHead.equals(task.currentHeadSha())) {
+            if (requireCurrentLocalHead
+                    && !expectedLocalHead.equals(task.currentHeadSha())) {
                 throw new StaleOwnerRevisionException(
                         "publication head is not current");
             }
@@ -1116,7 +1280,389 @@ public final class FlowRuntime
                         "PR remote identity changed while binding");
             }
             return requirePullRequest(prId);
+    }
+
+    /** Consumes only a GitHub-owner settlement capability in the outer tx. */
+    public synchronized void applyInitialSettlement(
+            Claim claim, Settlement settlement)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(settlement, "settlement is null");
+        inTransaction(() -> {
+            assertPublishClaim(claim);
+            List<Object[]> owners = jdbc.query(
+                    """
+                    SELECT p.pr_id, pr.task_id, p.authorization_id,
+                           p.action_digest, p.required_ci_policy_revision_id,
+                           p.ready_policy, p.proposed_head,
+                           p.base_repository_external_id,
+                           p.base_repository_owner, p.base_repository_name,
+                           p.head_repository_external_id,
+                           p.head_repository_owner, p.head_repository_name,
+                           d.pr_number, d.pr_node_id, d.html_url,
+                           COALESCE(fr.receipt_id, xr.partial_receipt_id),
+                           COALESCE(fr.pr_step_receipt_id,
+                                    xr.pr_step_receipt_id),
+                           xr.reason_code
+                    FROM flow_github_initial_publish_plan p
+                    JOIN flow_runtime_pr pr ON pr.pr_id = p.pr_id
+                    LEFT JOIN flow_github_initial_publish_receipt fr
+                      ON fr.operation_id = p.operation_id
+                     AND fr.plan_id = p.plan_id
+                    LEFT JOIN flow_github_initial_publish_partial_receipt xr
+                      ON xr.operation_id = p.operation_id
+                     AND xr.plan_id = p.plan_id
+                    LEFT JOIN flow_github_initial_publish_step_receipt sr
+                      ON sr.receipt_id = COALESCE(
+                            fr.pr_step_receipt_id, xr.pr_step_receipt_id)
+                     AND sr.operation_id = p.operation_id
+                     AND sr.plan_id = p.plan_id
+                    LEFT JOIN flow_github_initial_pr_receipt_detail d
+                      ON d.receipt_id = sr.receipt_id
+                     AND d.operation_id = sr.operation_id
+                     AND d.plan_id = sr.plan_id
+                    WHERE p.operation_id = ? AND p.plan_id = ?
+                    """,
+                    (result, row) -> new Object[] {
+                            result.getString(1), result.getString(2),
+                            result.getString(3), result.getString(4),
+                            result.getString(5), result.getString(6),
+                            result.getString(7), result.getString(8),
+                            result.getString(9), result.getString(10),
+                            result.getString(11), result.getString(12),
+                            result.getString(13), result.getLong(14),
+                            result.getString(15), result.getString(16),
+                            result.getString(17), result.getString(18),
+                            result.getString(19)},
+                    settlement.operationId(), settlement.planId());
+            if (owners.size() != 1) {
+                throw new IllegalStateException(
+                        "initial settlement owner graph is invalid");
+            }
+            Object[] owner = owners.getFirst();
+            String resultId = (String) owner[16];
+            String prStepReceiptId = (String) owner[17];
+            if (!settlement.operationId().equals(claim.operationId())
+                    || !settlement.resultId().equals(resultId)
+                    || !settlement.proposedHead().equals(owner[6])
+                    || settlement.bindsIdentity()
+                            != (prStepReceiptId != null)) {
+                throw new StaleClaimException(
+                        "initial settlement capability is inconsistent");
+            }
+            String prId = (String) owner[0];
+            String taskId = (String) owner[1];
+            if (settlement.bindsIdentity()) {
+                String publicationProof = settlement.succeeded()
+                        ? settlement.resultId() : prStepReceiptId;
+                bindGitHubRemoteIdentity0(
+                        prId, settlement.proposedHead(),
+                        new GitHubRepositoryLocator(
+                                (String) owner[7], (String) owner[8],
+                                (String) owner[9]),
+                        new GitHubRepositoryLocator(
+                                (String) owner[10], (String) owner[11],
+                                (String) owner[12]),
+                        (Long) owner[13], (String) owner[14],
+                        (String) owner[15], publicationProof, false);
+            }
+            if (settlement.succeeded()) {
+                Integer existingPolicies = jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM "
+                                + "flow_runtime_pr_ready_policy_revision "
+                                + "WHERE pr_id = ?",
+                        Integer.class, prId);
+                if (requireNonNull(existingPolicies,
+                        "ready policy count is null") != 0) {
+                    throw new IllegalStateException(
+                            "initial ready policy is not set-once");
+                }
+                long sequence = 1;
+                String policyDigest = stableId(
+                        "initial-ready-policy:v1", prId,
+                        Long.toString(sequence), (String) owner[5],
+                        (String) owner[4], (String) owner[2],
+                        settlement.operationId(), settlement.planId(),
+                        (String) owner[3], settlement.proposedHead(),
+                        settlement.resultId());
+                jdbc.update(
+                        """
+                        INSERT INTO flow_runtime_pr_ready_policy_revision (
+                            ready_policy_revision_id, pr_id, sequence, policy,
+                            required_ci_policy_revision_id, authorization_id,
+                            operation_id, effect_plan_id, action_digest,
+                            proposed_head, publication_receipt_id,
+                            publication_receipt_digest, policy_digest,
+                            created_at
+                        ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, r.receipt_id,
+                                 r.receipt_digest, ?, ?
+                          FROM flow_github_initial_publish_receipt r
+                          WHERE r.receipt_id = ? AND r.operation_id = ?
+                            AND r.plan_id = ?
+                        """,
+                        stableId("initial-ready-policy-id:v1", policyDigest),
+                        prId, sequence, owner[5], owner[4], owner[2],
+                        settlement.operationId(), settlement.planId(), owner[3],
+                        settlement.proposedHead(), policyDigest,
+                        clock.instant().toEpochMilli(), settlement.resultId(),
+                        settlement.operationId(), settlement.planId());
+                ensureCiObservationWatch(settlement.resultId());
+                settleDispatch(claim.operationId(), OperationState.SUCCEEDED,
+                        settlement.resultId());
+            }
+            else {
+                Task task = requireTask(taskId);
+                String reason = "INITIAL_PUBLISH_"
+                        + settlement.attentionReason();
+                TaskLifecycleRevision lifecycle = appendLifecycle(
+                        task, TaskStatus.NEEDS_ATTENTION, reason,
+                        settlement.resultId(), claim.operationId(),
+                        clock.instant());
+                int updated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_task
+                        SET status = 'NEEDS_ATTENTION',
+                            current_lifecycle_revision_id = ?
+                        WHERE task_id = ? AND status = 'ACTIVE'
+                          AND current_lifecycle_revision_id = ?
+                        """,
+                        lifecycle.lifecycleRevisionId(), taskId,
+                        task.currentLifecycleRevisionId());
+                if (updated != 1) {
+                    throw new StaleOwnerRevisionException(
+                            "initial partial settlement lost Task ownership");
+                }
+                settleDispatch(claim.operationId(), OperationState.CANCELED,
+                        settlement.resultId());
+            }
+            ensureReconciliation(taskId);
+            resumeWaitingReconciliation(taskId);
+            return Boolean.TRUE;
         });
+    }
+
+    /** Validates response-loss replay against every terminal runtime owner. */
+    public synchronized void assertInitialSettlementReplay(
+            Claim claim, Settlement settlement)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(settlement, "settlement is null");
+        String state = settlement.succeeded() ? "SUCCEEDED" : "CANCELED";
+        Integer exact = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                WHERE o.operation_id = ? AND o.task_id = ?
+                  AND o.kind = 'PUBLISH' AND o.state = ?
+                  AND o.result_ref = ? AND d.delivery_state = 'DONE'
+                  AND d.claim_generation = ? AND d.claim_token = ?
+                  AND d.claim_owner = ?
+                """,
+                Integer.class, claim.operationId(), claim.taskId(), state,
+                settlement.resultId(), claim.generation(), claim.claimToken(),
+                claim.workerId());
+        if (requireNonNull(exact,
+                "initial settlement replay count is null") != 1) {
+            throw new StaleClaimException(
+                    "initial settlement replay authority is invalid");
+        }
+        if (!settlement.succeeded() && !settlement.bindsIdentity()) {
+            Integer preflight = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*)
+                    FROM flow_github_initial_publish_partial_receipt r
+                    LEFT JOIN flow_github_initial_base_preflight b
+                      ON b.preflight_id = r.base_preflight_id
+                     AND b.operation_id = r.operation_id
+                     AND b.plan_id = r.plan_id
+                     AND b.preflight_digest = r.base_preflight_digest
+                    WHERE r.partial_receipt_id = ?
+                      AND r.operation_id = ? AND r.plan_id = ?
+                      AND (r.kind = 'BRANCH_ONLY_STALE'
+                           OR (r.kind = 'BRANCH_ONLY_BASE_DRIFT'
+                               AND b.claim_generation = ?
+                               AND b.claim_token_digest = ?))
+                    """,
+                    Integer.class, settlement.resultId(),
+                    settlement.operationId(), settlement.planId(),
+                    claim.generation(), stableId(
+                            "publish-claim-token:v1", claim.claimToken()));
+            if (requireNonNull(preflight,
+                    "initial preflight replay count is null") != 1) {
+                throw new StaleClaimException(
+                        "initial base preflight replay is invalid");
+            }
+        }
+        Integer graph = jdbc.queryForObject(
+                settlement.succeeded()
+                        ? """
+                          SELECT COUNT(*)
+                          FROM flow_github_initial_publish_receipt r
+                          JOIN flow_github_initial_publish_plan p
+                            ON p.plan_id = r.plan_id
+                           AND p.operation_id = r.operation_id
+                          JOIN flow_runtime_pr pr ON pr.pr_id = p.pr_id
+                          JOIN flow_runtime_remote_identity i
+                            ON i.remote_identity_id = pr.remote_identity_id
+                           AND i.publication_receipt_id = r.receipt_id
+                          JOIN flow_runtime_pr_ready_policy_revision rp
+                            ON rp.publication_receipt_id = r.receipt_id
+                           AND rp.operation_id = r.operation_id
+                           AND rp.effect_plan_id = r.plan_id
+                           AND rp.authorization_id = p.authorization_id
+                           AND rp.action_digest = p.action_digest
+                           AND rp.proposed_head = p.proposed_head
+                           AND rp.required_ci_policy_revision_id =
+                                p.required_ci_policy_revision_id
+                           AND rp.policy = p.ready_policy
+                          JOIN flow_runtime_operation w
+                            ON w.owner_kind = 'GITHUB_EFFECT_RECEIPT'
+                           AND w.owner_id = r.receipt_id
+                           AND w.kind = 'OBSERVE_CI'
+                          JOIN flow_runtime_dispatch_ticket wd
+                            ON wd.operation_id = w.operation_id
+                          WHERE r.receipt_id = ? AND r.operation_id = ?
+                            AND r.plan_id = ?
+                          """
+                        : """
+                          SELECT COUNT(*)
+                          FROM flow_github_initial_publish_partial_receipt r
+                          JOIN flow_github_initial_publish_plan p
+                            ON p.plan_id = r.plan_id
+                           AND p.operation_id = r.operation_id
+                          JOIN flow_runtime_pr pr ON pr.pr_id = p.pr_id
+                          JOIN flow_runtime_task_lifecycle_revision l
+                            ON l.task_id = pr.task_id
+                           AND l.operation_id = r.operation_id
+                           AND l.to_status = 'NEEDS_ATTENTION'
+                           AND l.from_status = 'ACTIVE'
+                           AND l.evidence_ref = r.partial_receipt_id
+                           AND l.reason_code =
+                                'INITIAL_PUBLISH_' || r.attention_detail
+                          WHERE r.partial_receipt_id = ?
+                            AND r.operation_id = ? AND r.plan_id = ?
+                            AND NOT EXISTS (
+                                SELECT 1 FROM flow_github_initial_publish_receipt f
+                                WHERE f.operation_id = r.operation_id)
+                            AND NOT EXISTS (
+                                SELECT 1 FROM flow_runtime_pr_ready_policy_revision rp
+                                WHERE rp.operation_id = r.operation_id)
+                            AND (r.pr_step_receipt_id IS NULL OR EXISTS (
+                                SELECT 1
+                                FROM flow_runtime_remote_identity i
+                                JOIN flow_github_initial_pr_receipt_detail pd
+                                  ON pd.receipt_id = r.pr_step_receipt_id
+                                 AND pd.operation_id = r.operation_id
+                                 AND pd.plan_id = r.plan_id
+                                 AND pd.pr_number = i.pr_number
+                                 AND pd.pr_node_id = i.pr_node_id
+                                 AND pd.html_url = i.html_url
+                                WHERE i.remote_identity_id = pr.remote_identity_id
+                                  AND i.publication_receipt_id =
+                                        r.pr_step_receipt_id
+                                  AND i.repository_external_id =
+                                        p.base_repository_external_id
+                                  AND i.repository_owner =
+                                        p.base_repository_owner
+                                  AND i.repository_name =
+                                        p.base_repository_name
+                                  AND i.head_repository_external_id =
+                                        p.head_repository_external_id
+                                  AND i.head_repository_owner =
+                                        p.head_repository_owner
+                                  AND i.head_repository_name =
+                                        p.head_repository_name))
+                          """,
+                Integer.class, settlement.resultId(),
+                settlement.operationId(), settlement.planId());
+        if (requireNonNull(graph,
+                "initial settlement replay graph count is null") != 1) {
+            throw new IllegalStateException(
+                    "initial settlement terminal graph is inconsistent");
+        }
+        if (settlement.succeeded()) {
+            assertInitialSuccessReplayDetails(settlement);
+        }
+    }
+
+    private void assertInitialSuccessReplayDetails(Settlement settlement)
+    {
+        List<Object[]> policies = jdbc.query(
+                """
+                SELECT rp.pr_id, rp.sequence, rp.policy,
+                       rp.required_ci_policy_revision_id,
+                       rp.authorization_id, rp.action_digest,
+                       rp.publication_receipt_digest, rp.policy_digest,
+                       rp.ready_policy_revision_id
+                FROM flow_runtime_pr_ready_policy_revision rp
+                JOIN flow_github_initial_publish_receipt r
+                  ON r.receipt_id = rp.publication_receipt_id
+                 AND r.operation_id = rp.operation_id
+                 AND r.plan_id = rp.effect_plan_id
+                WHERE rp.publication_receipt_id = ?
+                """,
+                (result, row) -> new Object[] {
+                        result.getString(1), result.getLong(2),
+                        result.getString(3), result.getString(4),
+                        result.getString(5), result.getString(6),
+                        result.getString(7), result.getString(8),
+                        result.getString(9)},
+                settlement.resultId());
+        if (policies.size() != 1) {
+            throw new IllegalStateException(
+                    "initial ready-policy replay is ambiguous");
+        }
+        Object[] policy = policies.getFirst();
+        String digest = stableId("initial-ready-policy:v1",
+                (String) policy[0], Long.toString((long) policy[1]),
+                (String) policy[2], (String) policy[3], (String) policy[4],
+                settlement.operationId(), settlement.planId(),
+                (String) policy[5], settlement.proposedHead(),
+                settlement.resultId());
+        if ((long) policy[1] != 1
+                || !digest.equals(policy[7])
+                || !stableId("initial-ready-policy-id:v1", digest)
+                        .equals(policy[8])) {
+            throw new IllegalStateException(
+                    "initial ready-policy replay identity is corrupt");
+        }
+        CiObservationOwner owner = ciObservationOwner(settlement.resultId());
+        if (!owner.receiptDigest().equals(policy[6])) {
+            throw new IllegalStateException(
+                    "initial ready policy owns another receipt digest");
+        }
+        String operationId = stableId(
+                "github-ci-observation", settlement.resultId());
+        Operation watch = requireOperation(operationId);
+        if (!watch.ownerKind().equals("GITHUB_EFFECT_RECEIPT")
+                || !watch.ownerId().equals(settlement.resultId())
+                || !watch.taskId().equals(owner.taskId())
+                || watch.kind() != OperationKind.OBSERVE_CI
+                || !watch.inputRef().equals(settlement.resultId())
+                || !watch.subjectDigest().equals(
+                        ciObservationSubjectDigest(owner))) {
+            throw new IllegalStateException(
+                    "initial CI watch replay identity is corrupt");
+        }
+        Integer coherent = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_dispatch_ticket d
+                WHERE d.operation_id = ? AND (
+                    (? IN ('READY', 'RETRYABLE')
+                        AND d.delivery_state = 'AVAILABLE')
+                    OR (? = 'CLAIMED' AND d.delivery_state = 'CLAIMED')
+                    OR (? IN ('WAITING', 'SUCCEEDED', 'FAILED', 'CANCELED')
+                        AND d.delivery_state = 'DONE'))
+                """,
+                Integer.class, operationId, watch.state().name(),
+                watch.state().name(), watch.state().name());
+        if (requireNonNull(coherent,
+                "initial CI watch replay count is null") != 1) {
+            throw new IllegalStateException(
+                    "initial CI watch replay lifecycle is corrupt");
+        }
     }
 
     /** Records a program-observed remote-head compare-and-set. */
@@ -1215,6 +1761,26 @@ public final class FlowRuntime
             }
             return requirePullRequest(prId);
         });
+    }
+
+    /** Locks the exact local PR shape required by a typed publication plan. */
+    private PullRequestSubject lockPullRequestForPublish(
+            String prId, String kind)
+    {
+        requireText(prId, "prId");
+        requireText(kind, "kind");
+        int locked = jdbc.update(
+                "UPDATE flow_runtime_pr SET pr_id = pr_id "
+                        + "WHERE pr_id = ? AND ((? = 'CI_UPDATE' "
+                        + "AND remote_identity_id IS NOT NULL) OR "
+                        + "(? = 'INITIAL_PUBLISH' "
+                        + "AND remote_identity_id IS NULL))",
+                prId, kind, kind);
+        if (locked != 1) {
+            throw new StaleOwnerRevisionException(
+                    "publication PR shape is unavailable");
+        }
+        return requirePullRequest(prId);
     }
 
     /** Reserves one exact GitHub-owned publication operation and barrier. */
@@ -1316,10 +1882,11 @@ public final class FlowRuntime
                       AND state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
                       AND owner_id IN (
                           SELECT old_receipt.receipt_id
-                          FROM flow_github_external_effect_receipt old_receipt
-                          JOIN flow_github_external_effect_plan old_plan
+                          FROM flow_github_effect_receipt_envelope old_receipt
+                          JOIN flow_github_effect_plan_envelope old_plan
                             ON old_plan.plan_id = old_receipt.plan_id
                            AND old_plan.operation_id = old_receipt.operation_id
+                           AND old_plan.kind = old_receipt.kind
                           WHERE old_plan.pr_id = ?
                       )
                     """,
@@ -1809,18 +2376,39 @@ public final class FlowRuntime
     public synchronized Optional<Claim> claimNextPublish(
             String workerId, Duration claimTtl)
     {
+        return claimNextPublish(workerId, claimTtl, null, Integer.MAX_VALUE);
+    }
+
+    /** Claims only an INITIAL plan for its bounded owner-specific lane. */
+    public synchronized Optional<Claim> claimNextInitialPublish(
+            String workerId, Duration claimTtl, int capacity)
+    {
+        if (capacity < 1) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
+        return claimNextPublish(
+                workerId, claimTtl, "INITIAL_PUBLISH", capacity);
+    }
+
+    private Optional<Claim> claimNextPublish(
+            String workerId, Duration claimTtl, String requiredKind,
+            int capacity)
+    {
         requireText(workerId, "workerId");
         requirePositive(claimTtl, "claimTtl");
         return inTransaction(() -> {
+            if (activeDispatchCount() >= capacity) {
+                return Optional.empty();
+            }
             Instant now = clock.instant();
             List<PublishClaimCandidate> candidates = jdbc.query(
                     """
-                    SELECT o.operation_id, o.task_id, p.pr_id,
+                    SELECT o.operation_id, o.task_id, p.pr_id, p.kind,
                            d.claim_generation
                     FROM flow_runtime_operation o
                     JOIN flow_runtime_dispatch_ticket d
                       ON d.operation_id = o.operation_id
-                    JOIN flow_github_external_effect_plan p
+                    JOIN flow_github_effect_plan_envelope p
                       ON p.operation_id = o.operation_id
                      AND p.plan_id = o.owner_id
                      AND p.plan_id = o.input_ref
@@ -1832,6 +2420,7 @@ public final class FlowRuntime
                      AND a.pr_id = p.pr_id
                      AND a.action_digest = p.action_digest
                     WHERE o.kind = 'PUBLISH'
+                      AND (? IS NULL OR p.kind = ?)
                       AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
                       AND o.state IN ('READY', 'RETRYABLE')
                       AND d.delivery_state = 'AVAILABLE'
@@ -1848,6 +2437,11 @@ public final class FlowRuntime
                                     FROM flow_github_external_effect_attempt x
                                     WHERE x.operation_id = o.operation_id
                                       AND x.plan_id = p.plan_id
+                                    UNION ALL
+                                    SELECT 1
+                                    FROM flow_github_initial_publish_attempt x
+                                    WHERE x.operation_id = o.operation_id
+                                      AND x.plan_id = p.plan_id
                                 )))
                             AND t.sequence = (
                                 SELECT MAX(t2.sequence)
@@ -1858,7 +2452,7 @@ public final class FlowRuntime
                       )
                       AND NOT EXISTS (
                           SELECT 1
-                          FROM flow_github_external_effect_plan earlier
+                          FROM flow_github_effect_plan_envelope earlier
                           JOIN flow_runtime_operation earlier_operation
                             ON earlier_operation.operation_id =
                                 earlier.operation_id
@@ -1875,10 +2469,11 @@ public final class FlowRuntime
                             result.getString("operation_id"),
                             result.getString("task_id"),
                             result.getString("pr_id"),
+                            result.getString("kind"),
                             result.getLong("claim_generation")),
-                    now.toEpochMilli());
+                    requiredKind, requiredKind, now.toEpochMilli());
             for (PublishClaimCandidate candidate : candidates) {
-                lockPublishedPullRequest(candidate.prId());
+                lockPullRequestForPublish(candidate.prId(), candidate.kind());
                 if (!publishCandidateStillEligible(candidate, now)) {
                     continue;
                 }
@@ -1933,9 +2528,21 @@ public final class FlowRuntime
     public synchronized Optional<Claim> claimNextCiObservation(
             String workerId, Duration claimTtl)
     {
+        return claimNextCiObservation(workerId, claimTtl, Integer.MAX_VALUE);
+    }
+
+    public synchronized Optional<Claim> claimNextCiObservation(
+            String workerId, Duration claimTtl, int capacity)
+    {
         requireText(workerId, "workerId");
         requirePositive(claimTtl, "claimTtl");
+        if (capacity < 1) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
         return inTransaction(() -> {
+            if (activeDispatchCount() >= capacity) {
+                return Optional.empty();
+            }
             Instant now = clock.instant();
             List<ClaimCandidate> candidates = jdbc.query(
                     """
@@ -1944,7 +2551,7 @@ public final class FlowRuntime
                     FROM flow_runtime_operation o
                     JOIN flow_runtime_dispatch_ticket d
                       ON d.operation_id = o.operation_id
-                    JOIN flow_github_external_effect_receipt r
+                    JOIN flow_github_effect_receipt_envelope r
                       ON r.receipt_id = o.owner_id
                      AND r.receipt_id = o.input_ref
                     WHERE o.kind = 'OBSERVE_CI'
@@ -2574,12 +3181,44 @@ public final class FlowRuntime
     {
         requireNonNull(claim, "claim is null");
         requireText(attemptId, "attemptId");
+        PublishExecutionReservation reservation =
+                reservePublishExecutionHandle(claim, attemptId);
+        return mintPublishExecutionHandle(
+                claim, attemptId, reservation, reservation.tokenDigest());
+    }
+
+    public synchronized PublishExecutionReservation reservePublishExecutionHandle(
+            Claim claim, String attemptId)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(attemptId, "attemptId");
         assertPublishClaim(claim);
-        return new PublishExecutionHandle(
-                claim.operationId(),
-                claim.generation(),
-                attemptId,
+        return new PublishExecutionReservation(
+                claim.operationId(), claim.generation(), attemptId,
                 stableId("publish-execution-token", UUID.randomUUID().toString()));
+    }
+
+    /** Mints only from the original one-use precursor after owner persistence. */
+    public synchronized PublishExecutionHandle mintPublishExecutionHandle(
+            Claim claim, String attemptId,
+            PublishExecutionReservation reservation,
+            String expectedTokenDigest)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(attemptId, "attemptId");
+        requireNonNull(reservation, "reservation is null");
+        requireText(expectedTokenDigest, "expectedTokenDigest");
+        assertPublishClaim(claim);
+        if (!reservation.operationId.equals(claim.operationId())
+                || reservation.generation != claim.generation()
+                || !reservation.attemptId.equals(attemptId)
+                || !reservation.tokenDigest.equals(expectedTokenDigest)
+                || !reservation.minted.compareAndSet(false, true)) {
+            throw new StaleClaimException(
+                    "publication execution reservation is invalid or consumed");
+        }
+        return new PublishExecutionHandle(claim.operationId(),
+                claim.generation(), attemptId, expectedTokenDigest);
     }
 
     public synchronized void consumePublishExecutionHandle(
@@ -2701,6 +3340,108 @@ public final class FlowRuntime
         assertPublishTerminalReplay(claim, receiptId);
     }
 
+    /** Validates response-loss replay of one nonterminal initial step receipt. */
+    public synchronized void assertInitialStepReceiptReplay(
+            Claim claim, String receiptId, String attemptId,
+            String expectedClaimTokenDigest)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(receiptId, "receiptId");
+        requireText(attemptId, "attemptId");
+        requireText(expectedClaimTokenDigest, "expectedClaimTokenDigest");
+        if (claim.kind() != OperationKind.PUBLISH) {
+            throw new StaleClaimException(
+                    "initial receipt replay claim kind is invalid");
+        }
+        List<Object[]> matches = jdbc.query(
+                """
+                SELECT q.claim_generation AS probe_generation,
+                       q.claim_token_digest, r.step_ordinal,
+                       o.state, o.result_ref,
+                       d.claim_generation AS ticket_generation,
+                       d.delivery_state, d.claim_owner, d.claim_token
+                FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                JOIN flow_github_initial_publish_step_receipt r
+                  ON r.operation_id = o.operation_id
+                 AND r.receipt_id = ?
+                JOIN flow_github_initial_publish_plan p
+                  ON p.plan_id = r.plan_id
+                 AND p.operation_id = r.operation_id
+                 AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
+                 AND o.owner_id = p.plan_id AND o.input_ref = p.plan_id
+                 AND o.subject_digest = p.plan_digest
+                JOIN flow_github_initial_publish_attempt a
+                  ON a.attempt_id = ?
+                 AND a.attempt_id = r.attempt_id
+                 AND a.operation_id = r.operation_id
+                 AND a.plan_id = r.plan_id
+                 AND a.step_id = r.step_id
+                JOIN flow_github_initial_publish_probe q
+                  ON q.probe_id = r.probe_id
+                 AND q.operation_id = r.operation_id
+                 AND q.plan_id = r.plan_id
+                 AND q.step_id = r.step_id
+                 AND q.attempt_id = r.attempt_id
+                WHERE o.operation_id = ? AND o.task_id = ?
+                  AND o.kind = 'PUBLISH'
+                """,
+                (result, row) -> new Object[] {
+                        result.getLong("probe_generation"),
+                        result.getString("claim_token_digest"),
+                        result.getInt("step_ordinal"),
+                        result.getString("state"),
+                        result.getString("result_ref"),
+                        result.getLong("ticket_generation"),
+                        result.getString("delivery_state"),
+                        result.getString("claim_owner"),
+                        result.getString("claim_token")},
+                receiptId, attemptId, claim.operationId(), claim.taskId());
+        if (matches.size() != 1) {
+            throw new StaleClaimException(
+                    "initial receipt replay authority is invalid");
+        }
+        Object[] exact = matches.getFirst();
+        long probeGeneration = (long) exact[0];
+        String probeTokenDigest = (String) exact[1];
+        int ordinal = (int) exact[2];
+        OperationState operationState = OperationState.valueOf((String) exact[3]);
+        String resultRef = (String) exact[4];
+        long ticketGeneration = (long) exact[5];
+        String delivery = (String) exact[6];
+        String owner = (String) exact[7];
+        String token = (String) exact[8];
+        boolean currentBranchReplay = ordinal == 1
+                && ticketGeneration == claim.generation()
+                && operationState == OperationState.RETRYABLE
+                && Objects.equals(resultRef,
+                        "INITIAL_STEP_RECEIPT:" + receiptId)
+                && delivery.equals("AVAILABLE")
+                && owner == null && token == null;
+        boolean laterBranchReplay = ordinal == 1
+                && ticketGeneration > claim.generation();
+        boolean currentPrReplay = ordinal == 2
+                && ticketGeneration == claim.generation()
+                && operationState == OperationState.CLAIMED
+                && delivery.equals("CLAIMED")
+                && Objects.equals(owner, claim.workerId())
+                && Objects.equals(token, claim.claimToken());
+        if (probeGeneration != claim.generation()
+                || !probeTokenDigest.equals(expectedClaimTokenDigest)
+                || ticketGeneration < claim.generation()
+                || !(currentBranchReplay
+                        || laterBranchReplay || currentPrReplay)) {
+            throw new StaleClaimException(
+                    "initial receipt replay authority is invalid: probe="
+                            + probeGeneration + ", claim=" + claim.generation()
+                            + ", ordinal=" + ordinal + ", ticket="
+                            + ticketGeneration + ", operation="
+                            + operationState + ", delivery=" + delivery
+                            + ", result=" + resultRef);
+        }
+    }
+
     /** Applies only a disposition minted by the owning UserGates transaction. */
     public synchronized void settleClaimedPublish(
             Claim claim,
@@ -2775,6 +3516,21 @@ public final class FlowRuntime
             throw new StaleClaimException(
                     "publication changed during retry scheduling");
         }
+    }
+
+    /** Releases only the current claim so the same PUBLISH can run its next step. */
+    public synchronized void rearmClaimedPublishStep(
+            Claim claim, String stepReceiptId, Instant notBefore)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(stepReceiptId, "stepReceiptId");
+        requireNonNull(notBefore, "notBefore is null");
+        inTransaction(() -> {
+            assertPublishClaim(claim);
+            retryPublishDispatch(claim,
+                    "INITIAL_STEP_RECEIPT:" + stepReceiptId, notBefore);
+            return Boolean.TRUE;
+        });
     }
 
     /** Reads one exact canceled disposition for response-loss replay. */
@@ -2874,9 +3630,24 @@ public final class FlowRuntime
         inTransaction(() -> {
             Operation operation = requireOperation(operationId);
             Integer attempts = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM flow_github_external_effect_attempt "
-                            + "WHERE operation_id = ?",
+                    """
+                    SELECT COUNT(*) FROM (
+                        SELECT attempt_id
+                        FROM flow_github_external_effect_attempt
+                        WHERE operation_id = ?
+                        UNION ALL
+                        SELECT a.attempt_id
+                        FROM flow_github_initial_publish_attempt a
+                        WHERE a.operation_id = ?
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM flow_github_initial_publish_step_receipt r
+                              WHERE r.step_id = a.step_id
+                          )
+                    ) current_attempt
+                    """,
                     Integer.class,
+                    operationId,
                     operationId);
             if (operation.kind() != OperationKind.PUBLISH
                     || requireNonNull(attempts,
@@ -9113,14 +9884,82 @@ public final class FlowRuntime
     {
         CiObservationOwner owner = jdbc.query(
                 """
-                SELECT r.receipt_id, r.operation_id AS receipt_operation_id,
+                WITH receipt_owner AS (
+                    SELECT r.receipt_id,
+                           r.operation_id AS receipt_operation_id,
+                           r.plan_id, r.step_id, r.probe_id,
+                           r.branch_ref, r.expected_remote_head,
+                           r.proposed_head, r.receipt_digest,
+                           r.head_repository_external_id AS receipt_head_external_id,
+                           r.head_repository_owner AS receipt_head_owner,
+                           r.head_repository_name AS receipt_head_name,
+                           p.pr_id, p.required_ci_policy_revision_id
+                    FROM flow_github_external_effect_receipt r
+                    JOIN flow_github_external_effect_plan p
+                      ON p.plan_id = r.plan_id
+                     AND p.operation_id = r.operation_id
+                    WHERE r.receipt_id = ?
+                    UNION ALL
+                    SELECT r.receipt_id,
+                           r.operation_id AS receipt_operation_id,
+                           r.plan_id, sr.step_id, d.probe_id,
+                           p.branch_ref, p.proposed_head AS expected_remote_head,
+                           r.proposed_head, r.receipt_digest,
+                           p.head_repository_external_id AS receipt_head_external_id,
+                           p.head_repository_owner AS receipt_head_owner,
+                           p.head_repository_name AS receipt_head_name,
+                           p.pr_id, p.required_ci_policy_revision_id
+                    FROM flow_github_initial_publish_receipt r
+                    JOIN flow_github_initial_publish_plan p
+                      ON p.plan_id = r.plan_id
+                     AND p.operation_id = r.operation_id
+                    JOIN flow_github_initial_publish_step_receipt sr
+                      ON sr.receipt_id = r.pr_step_receipt_id
+                     AND sr.operation_id = r.operation_id
+                     AND sr.plan_id = r.plan_id
+                    JOIN flow_github_initial_pr_receipt_detail d
+                      ON d.receipt_id = sr.receipt_id
+                     AND d.operation_id = sr.operation_id
+                     AND d.plan_id = sr.plan_id
+                    JOIN flow_runtime_pr_ready_policy_revision rp
+                      ON rp.publication_receipt_id = r.receipt_id
+                     AND rp.operation_id = r.operation_id
+                     AND rp.effect_plan_id = r.plan_id
+                     AND rp.authorization_id = p.authorization_id
+                     AND rp.action_digest = p.action_digest
+                     AND rp.proposed_head = p.proposed_head
+                     AND rp.required_ci_policy_revision_id =
+                            p.required_ci_policy_revision_id
+                     AND rp.policy = p.ready_policy
+                    JOIN flow_runtime_pr initial_pr
+                      ON initial_pr.pr_id = p.pr_id
+                    JOIN flow_runtime_remote_identity initial_identity
+                      ON initial_identity.remote_identity_id =
+                            initial_pr.remote_identity_id
+                     AND initial_identity.publication_receipt_id = r.receipt_id
+                     AND initial_identity.repository_external_id =
+                            p.base_repository_external_id
+                     AND initial_identity.repository_owner =
+                            p.base_repository_owner
+                     AND initial_identity.repository_name =
+                            p.base_repository_name
+                     AND initial_identity.head_repository_external_id =
+                            p.head_repository_external_id
+                     AND initial_identity.head_repository_owner =
+                            p.head_repository_owner
+                     AND initial_identity.head_repository_name =
+                            p.head_repository_name
+                     AND initial_identity.pr_number = r.pr_number
+                     AND initial_identity.pr_node_id = r.pr_node_id
+                     AND initial_identity.html_url = r.html_url
+                    WHERE r.receipt_id = ?
+                )
+                SELECT r.receipt_id, r.receipt_operation_id,
                        r.plan_id, r.step_id, r.probe_id,
                        r.branch_ref, r.expected_remote_head, r.proposed_head,
-                       r.receipt_digest,
-                       r.head_repository_external_id AS receipt_head_external_id,
-                       r.head_repository_owner AS receipt_head_owner,
-                       r.head_repository_name AS receipt_head_name,
-                       p.pr_id, p.required_ci_policy_revision_id,
+                       r.receipt_digest, r.receipt_head_external_id,
+                       r.receipt_head_owner, r.receipt_head_name,
+                       r.pr_id, r.required_ci_policy_revision_id,
                        pr.task_id, pr.repository_id, pr.target_base_ref,
                        pr.scope_key, pr.branch_name,
                        i.provider, i.repository_external_id,
@@ -9128,12 +9967,8 @@ public final class FlowRuntime
                        i.head_repository_external_id,
                        i.head_repository_owner, i.head_repository_name,
                        i.pr_number, i.pr_node_id
-                FROM flow_github_external_effect_receipt r
-                JOIN flow_github_external_effect_plan p
-                  ON p.plan_id = r.plan_id
-                 AND p.operation_id = r.operation_id
-                 AND p.kind = 'CI_UPDATE'
-                JOIN flow_runtime_pr pr ON pr.pr_id = p.pr_id
+                FROM receipt_owner r
+                JOIN flow_runtime_pr pr ON pr.pr_id = r.pr_id
                 JOIN flow_runtime_remote_identity i
                   ON i.remote_identity_id = pr.remote_identity_id
                 WHERE r.receipt_id = ?
@@ -9167,9 +10002,10 @@ public final class FlowRuntime
                         result.getString("expected_remote_head"),
                         result.getString("receipt_digest"),
                         result.getString("required_ci_policy_revision_id")),
-                receiptId).stream().findFirst().orElseThrow(() ->
+                receiptId, receiptId, receiptId).stream().findFirst()
+                .orElseThrow(() ->
                         new IllegalArgumentException(
-                                "Unknown CI_UPDATE receipt: " + receiptId));
+                                "Unknown publication receipt: " + receiptId));
         if (!owner.provider().equals("GITHUB")
                 || !owner.branchRef().equals(
                         "refs/heads/" + owner.branchName())
@@ -9226,7 +10062,7 @@ public final class FlowRuntime
                 FROM flow_runtime_operation o
                 JOIN flow_runtime_dispatch_ticket d
                   ON d.operation_id = o.operation_id
-                JOIN flow_github_external_effect_plan p
+                JOIN flow_github_effect_plan_envelope p
                   ON p.operation_id = o.operation_id
                  AND p.plan_id = o.owner_id
                  AND p.plan_id = o.input_ref
@@ -9238,6 +10074,7 @@ public final class FlowRuntime
                  AND a.pr_id = p.pr_id
                  AND a.action_digest = p.action_digest
                 WHERE o.operation_id = ? AND o.task_id = ?
+                  AND p.kind = ?
                   AND o.kind = 'PUBLISH'
                   AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
                   AND o.state IN ('READY', 'RETRYABLE')
@@ -9254,6 +10091,11 @@ public final class FlowRuntime
                                 FROM flow_github_external_effect_attempt x
                                 WHERE x.operation_id = o.operation_id
                                   AND x.plan_id = p.plan_id
+                                UNION ALL
+                                SELECT 1
+                                FROM flow_github_initial_publish_attempt x
+                                WHERE x.operation_id = o.operation_id
+                                  AND x.plan_id = p.plan_id
                             )))
                         AND t.sequence = (
                             SELECT MAX(t2.sequence)
@@ -9264,7 +10106,7 @@ public final class FlowRuntime
                   )
                   AND NOT EXISTS (
                       SELECT 1
-                      FROM flow_github_external_effect_plan earlier
+                      FROM flow_github_effect_plan_envelope earlier
                       JOIN flow_runtime_operation earlier_operation
                         ON earlier_operation.operation_id = earlier.operation_id
                       WHERE earlier.pr_id = p.pr_id
@@ -9277,6 +10119,7 @@ public final class FlowRuntime
                 Integer.class,
                 candidate.operationId(),
                 candidate.taskId(),
+                candidate.kind(),
                 candidate.generation(),
                 now.toEpochMilli());
         return requireNonNull(count,
@@ -11230,6 +12073,7 @@ public final class FlowRuntime
                 result.getString("branch_name"),
                 result.getString("created_from_change_set_revision_id"),
                 result.getString("created_from_head_sha"),
+                result.getString("current_draft_revision_id"),
                 result.getString("remote_identity_id"),
                 result.getString("provider"),
                 result.getString("repository_external_id"),
@@ -11240,6 +12084,22 @@ public final class FlowRuntime
                 result.getString("head_repository_name"),
                 number,
                 result.getString("current_remote_head"));
+    }
+
+    private static PrDraftRevision readPrDraftRevision(ResultSet result)
+            throws SQLException
+    {
+        return new PrDraftRevision(
+                result.getString("draft_revision_id"),
+                result.getString("pr_id"),
+                result.getLong("sequence"),
+                result.getString("change_set_revision_id"),
+                result.getString("head_sha"),
+                result.getString("title"),
+                result.getString("body"),
+                result.getString("draft_digest"),
+                result.getString("created_by_run_id"),
+                instant(result, "created_at"));
     }
 
     private static AgentSession readSession(ResultSet result)
@@ -11517,7 +12377,21 @@ public final class FlowRuntime
             String operationId,
             String taskId,
             String prId,
+            String kind,
             long generation) {}
+
+    private record InitialPublicationIdentity(
+            String prId,
+            String proposedHead,
+            String baseExternalId,
+            String baseOwner,
+            String baseName,
+            String headExternalId,
+            String headOwner,
+            String headName,
+            long prNumber,
+            String prNodeId,
+            String htmlUrl) {}
 
     private record CiObservationOwner(
             String receiptId,

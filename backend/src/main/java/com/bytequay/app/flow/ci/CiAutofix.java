@@ -286,7 +286,8 @@ public final class CiAutofix
                 scopeKey).stream().findFirst();
     }
 
-    boolean lockCurrentPolicy(RequiredCiPolicyRevision policy)
+    /** Takes the policy-pointer transaction lock for a gate that freezes it. */
+    public boolean lockCurrentPolicy(RequiredCiPolicyRevision policy)
     {
         requireNonNull(policy, "policy is null");
         return jdbc.update(

@@ -191,6 +191,9 @@ final class TestGitHubProvider
         assertThat(new GitHubProvider.DirectRepositoryHttp().proxies(
                 URI.create("https://api.github.com/repos/head/repo")))
                 .containsExactly(Proxy.NO_PROXY);
+        assertThat(new GitHubProvider.DirectInitialHttp().proxies(
+                URI.create("https://api.github.com/repos/base/repo/pulls")))
+                .containsExactly(Proxy.NO_PROXY);
     }
 
     @Test
@@ -428,6 +431,40 @@ final class TestGitHubProvider
     }
 
     @Test
+    void initialCreateUsesOnlyTheAtomicEmptyOldLease()
+            throws IOException
+    {
+        Path repository = temporaryDirectory.resolve("initial-repository");
+        Path remote = temporaryDirectory.resolve("initial-remote.git");
+        runGit(repository.getParent(), "init", repository.toString());
+        runGit(repository, "config", "user.email", "test@example.com");
+        runGit(repository, "config", "user.name", "Test User");
+        Files.writeString(repository.resolve("value.txt"), "first\n");
+        runGit(repository, "add", "value.txt");
+        runGit(repository, "commit", "-m", "first");
+        String first = runGitOutput(repository, "rev-parse", "HEAD");
+        Files.writeString(repository.resolve("value.txt"), "second\n");
+        runGit(repository, "commit", "-am", "second");
+        String second = runGitOutput(repository, "rev-parse", "HEAD");
+        runGit(repository.getParent(), "init", "--bare", remote.toString());
+        String ref = "refs/heads/task/initial";
+
+        List<String> firstCreate = GitHubProvider.initialCreateRefArguments(
+                ref, first, remote.toString());
+        assertThat(runGitExit(repository, firstCreate)).isZero();
+        assertThat(runGitOutput(remote, "rev-parse", ref)).isEqualTo(first);
+
+        List<String> racedCreate = GitHubProvider.initialCreateRefArguments(
+                ref, second, remote.toString());
+        assertThat(runGitExit(repository, racedCreate)).isNotZero();
+        assertThat(runGitOutput(remote, "rev-parse", ref)).isEqualTo(first);
+        assertThat(racedCreate).contains(
+                "--force-with-lease=" + ref + ":",
+                second + ":" + ref);
+        assertThat(racedCreate).doesNotContain("--force");
+    }
+
+    @Test
     void legacyGraftCannotFabricateFastForwardAuthority()
             throws IOException
     {
@@ -481,9 +518,18 @@ final class TestGitHubProvider
                 .isTrue();
         assertThat(GitHubEffectRecords.ProviderFailure.class.isSealed())
                 .isTrue();
+        assertThat(InitialPublishRecords.ProviderFailure.class.isSealed())
+                .isTrue();
+        assertThat(InitialPublishRecords.RepositoryObservation.class.isSealed())
+                .isTrue();
         assertThat(List.of(
                 GitHubEffects.ActivatedAttempt.class,
+                GitHubEffects.ActivatedInitialAttempt.class,
                 GitHubProvider.PreparedPush.class,
+                GitHubProvider.PreparedInitialMutation.class,
+                GitHubProvider.ExactInitialFailure.class,
+                GitHubProvider.ExactInitialRepositoryObservation.class,
+                GitHubInitialPublishExecutor.SettlementRequired.class,
                 UserGates.PublishDisposition.class))
                 .allSatisfy(type -> assertThat(List.of(
                         type.getDeclaredConstructors()))

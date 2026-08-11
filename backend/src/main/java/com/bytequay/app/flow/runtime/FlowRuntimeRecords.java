@@ -489,6 +489,7 @@ public final class FlowRuntimeRecords
             String branchName,
             String createdFromChangeSetRevisionId,
             String createdFromHeadSha,
+            String currentDraftRevisionId,
             String remoteIdentityId,
             String provider,
             String repositoryExternalId,
@@ -533,6 +534,87 @@ public final class FlowRuntimeRecords
         public boolean published()
         {
             return remoteIdentityId != null;
+        }
+    }
+
+    /** Immutable, exact-head local title/body proposed for first publication. */
+    public record PrDraftRevision(
+            String draftRevisionId,
+            String prId,
+            long sequence,
+            String changeSetRevisionId,
+            String headSha,
+            String title,
+            String body,
+            String draftDigest,
+            String createdByRunId,
+            Instant createdAt)
+    {
+        public PrDraftRevision
+        {
+            requireNonNull(draftRevisionId, "draftRevisionId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(changeSetRevisionId,
+                    "changeSetRevisionId is null");
+            requireNonNull(headSha, "headSha is null");
+            requireNonNull(title, "title is null");
+            requireNonNull(body, "body is null");
+            requireNonNull(draftDigest, "draftDigest is null");
+            requireNonNull(createdByRunId, "createdByRunId is null");
+            requireNonNull(createdAt, "createdAt is null");
+            if (sequence < 1 || title.isBlank() || title.length() > 256
+                    || body.length() > 65_536) {
+                throw new IllegalArgumentException("invalid PR draft revision");
+            }
+        }
+    }
+
+    public enum ReadyPolicy
+    {
+        KEEP_DRAFT,
+        MARK_READY_ON_EXACT_GREEN
+    }
+
+    /** Set-once policy established by the consumed initial authorization. */
+    public record PrReadyPolicyRevision(
+            String readyPolicyRevisionId,
+            String prId,
+            long sequence,
+            ReadyPolicy policy,
+            String requiredCiPolicyRevisionId,
+            String authorizationId,
+            String operationId,
+            String effectPlanId,
+            String actionDigest,
+            String proposedHead,
+            String publicationReceiptId,
+            String publicationReceiptDigest,
+            String policyDigest,
+            Instant createdAt)
+    {
+        public PrReadyPolicyRevision
+        {
+            requireNonNull(readyPolicyRevisionId,
+                    "readyPolicyRevisionId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(policy, "policy is null");
+            requireNonNull(requiredCiPolicyRevisionId,
+                    "requiredCiPolicyRevisionId is null");
+            requireNonNull(authorizationId, "authorizationId is null");
+            requireNonNull(operationId, "operationId is null");
+            requireNonNull(effectPlanId, "effectPlanId is null");
+            requireNonNull(actionDigest, "actionDigest is null");
+            requireNonNull(proposedHead, "proposedHead is null");
+            requireNonNull(publicationReceiptId,
+                    "publicationReceiptId is null");
+            requireNonNull(publicationReceiptDigest,
+                    "publicationReceiptDigest is null");
+            requireNonNull(policyDigest, "policyDigest is null");
+            requireNonNull(createdAt, "createdAt is null");
+            if (sequence < 1) {
+                throw new IllegalArgumentException(
+                        "ready-policy sequence must be positive");
+            }
         }
     }
 

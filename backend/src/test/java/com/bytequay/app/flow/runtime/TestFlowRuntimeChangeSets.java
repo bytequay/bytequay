@@ -265,7 +265,7 @@ final class TestFlowRuntimeChangeSets
         var localPr = runtime.materializePullRequest(
                 task.taskId(), initial.get().changeSetRevisionId(),
                 "main", "main", "main");
-        var publishedPr = runtime.bindGitHubRemoteIdentity(
+        var publishedPr = FlowRuntimeTestSupport.bindGitHubFixture(runtime,
                 localPr.prId(), initial.get().headSha(),
                 new GitHubRepositoryLocator(
                         "repo", "octocat", "bytequay"),

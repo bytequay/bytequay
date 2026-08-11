@@ -22,6 +22,8 @@ import javax.sql.DataSource;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,6 +38,39 @@ import static java.util.Objects.requireNonNull;
 public final class FlowRuntimeTestSupport
 {
     private FlowRuntimeTestSupport() {}
+
+    public static FlowRuntimeRecords.PullRequestSubject bindGitHubFixture(
+            FlowRuntime runtime,
+            String prId,
+            String head,
+            FlowRuntimeRecords.GitHubRepositoryLocator base,
+            FlowRuntimeRecords.GitHubRepositoryLocator headRepository,
+            long number,
+            String nodeId,
+            String url,
+            String receiptId)
+    {
+        try {
+            Method method = FlowRuntime.class.getDeclaredMethod(
+                    "bindGitHubRemoteIdentity", String.class, String.class,
+                    FlowRuntimeRecords.GitHubRepositoryLocator.class,
+                    FlowRuntimeRecords.GitHubRepositoryLocator.class,
+                    long.class, String.class, String.class, String.class);
+            method.setAccessible(true);
+            return (FlowRuntimeRecords.PullRequestSubject) method.invoke(
+                    runtime, prId, head, base, headRepository, number, nodeId,
+                    url, receiptId);
+        }
+        catch (InvocationTargetException failure) {
+            if (failure.getCause() instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            throw new IllegalStateException(failure.getCause());
+        }
+        catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
 
     public static Task startTask(
             FlowRuntime runtime,
@@ -151,6 +186,97 @@ public final class FlowRuntimeTestSupport
             throw new IllegalStateException(failure);
         }
     }
+
+    /**
+     * TEST-ONLY fixture. It supplies the deferred INITIAL_PUBLISH reviewer
+     * lineage without exposing a production runtime bypass.
+     */
+    public static InitialPublishLineage seedInitialPublishLineage(
+            FlowRuntime runtime, String prId)
+    {
+        try {
+            JdbcTemplate jdbc = new JdbcTemplate(dataSource(runtime));
+            var pr = runtime.pullRequest(prId).orElseThrow();
+            Task task = runtime.task(pr.taskId()).orElseThrow();
+            var change = runtime.currentChangeSet(task.taskId()).orElseThrow();
+            var base = runtime.currentBaseRevision(task.taskId()).orElseThrow();
+            var parent = jdbc.query("SELECT run_id, operation_id FROM flow_runtime_agent_run "
+                            + "WHERE operation_id = (SELECT operation_id FROM flow_runtime_change_set_revision "
+                            + "WHERE change_set_revision_id = ?) AND role = 'TASK_AGENT'",
+                    (row, number) -> new String[] {row.getString("run_id"), row.getString("operation_id")},
+                    change.changeSetRevisionId()).getFirst();
+            String localPolicy = jdbc.queryForObject("SELECT policy_revision_id "
+                    + "FROM flow_runtime_local_check_policy_current WHERE repository_id = ?",
+                    String.class, task.repositoryId());
+            String profile = jdbc.queryForObject("SELECT profile_id FROM flow_runtime_local_check_profile "
+                    + "WHERE policy_revision_id = ? ORDER BY profile_id LIMIT 1", String.class, localPolicy);
+            String ciPolicy = stableId("test-initial-ci-policy", task.taskId());
+            jdbc.update("INSERT OR IGNORE INTO flow_ci_policy_revision "
+                            + "(policy_revision_id, repository_id, scope_key, target_base_ref, sequence, resolution, source_ref, source_digest, unavailable_reason_ref, required_check_selectors_json, accepted_conclusions_json, recorded_at) "
+                            + "VALUES (?, ?, ?, ?, 1, 'RESOLVED', 'test', 'test', NULL, '[]', '[\"SUCCESS\"]', 0)",
+                    ciPolicy, task.repositoryId(), pr.scopeKey(), pr.targetBaseRef());
+            jdbc.update("INSERT OR IGNORE INTO flow_ci_policy_current "
+                            + "(repository_id, scope_key, policy_revision_id) VALUES (?, ?, ?)",
+                    task.repositoryId(), pr.scopeKey(), ciPolicy);
+            String draftDigest = stableId("pr-draft:v1", prId, "1",
+                    change.changeSetRevisionId(), change.headSha(), "Initial draft", "body");
+            String draftId = stableId("pr-draft-revision:v1", draftDigest);
+            String priorIdentity = pr.remoteIdentityId();
+            jdbc.update("UPDATE flow_runtime_pr SET remote_identity_id = NULL, current_remote_head = NULL, current_draft_revision_id = NULL WHERE pr_id = ?", prId);
+            if (priorIdentity != null) {
+                jdbc.update("DELETE FROM flow_runtime_remote_identity "
+                        + "WHERE remote_identity_id = ?", priorIdentity);
+            }
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_pr_draft_revision "
+                            + "(draft_revision_id, pr_id, sequence, change_set_revision_id, head_sha, title, body, draft_digest, created_by_run_id, created_at) "
+                            + "VALUES (?, ?, 1, ?, ?, 'Initial draft', 'body', ?, ?, 0)",
+                    draftId, prId, change.changeSetRevisionId(), change.headSha(), draftDigest, parent[0]);
+            jdbc.update("UPDATE flow_runtime_pr SET current_draft_revision_id = ? WHERE pr_id = ?", draftId, prId);
+            String checkId = stableId("test-initial-check", task.taskId());
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_local_check_run "
+                            + "(check_run_id, task_id, change_set_revision_id, policy_revision_id, profile_id, operation_id, agent_run_id, attempt_sequence, observed_start_head, observed_end_head, started_at, completed_at, conclusion, exit_code, unavailable_reason_code, output_ref, output_text, output_truncated, tracked_tree_clean_before, tracked_tree_clean_after) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 0, 'PASSED', 0, NULL, ?, '', 0, 1, 1)",
+                    checkId, task.taskId(), change.changeSetRevisionId(), localPolicy, profile,
+                    parent[1], parent[0], change.headSha(), change.headSha(), "output:" + checkId);
+            String session = stableId("test-initial-reviewer-session", task.taskId());
+            String request = stableId("test-initial-review-request", task.taskId());
+            String reviewerOperation = stableId("test-initial-review-operation", task.taskId());
+            String reviewerRun = stableId("test-initial-review-run", task.taskId());
+            String reviewerResult = stableId("test-initial-review-result", task.taskId());
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_agent_session "
+                            + "(session_id, task_id, role, state, last_run_id, close_reason, created_at, updated_at) VALUES (?, ?, 'ADVERSARIAL_REVIEWER', 'IDLE', ?, NULL, 0, 0)",
+                    session, task.taskId(), reviewerRun);
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_operation "
+                            + "(operation_id, owner_kind, owner_id, task_id, kind, subject_digest, input_ref, work_watermark, state, attempt, result_ref, created_at) "
+                            + "VALUES (?, 'REVIEW_REQUEST', ?, ?, 'RUN_REVIEWER', ?, ?, NULL, 'SUCCEEDED', 1, ?, 0)",
+                    reviewerOperation, request, task.taskId(), "review-subject:" + request,
+                    "review-request:" + request, reviewerResult);
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_agent_run "
+                            + "(run_id, operation_id, session_id, role, head_sha, prompt_manifest_ref, capability_set_ref, input_ref, input_change_set_revision_id, input_remote_head_sha, wake_kind, intended_gate_kind, state, failure_reason_code, created_at, started_at, completed_at) "
+                            + "VALUES (?, ?, ?, 'ADVERSARIAL_REVIEWER', ?, 'prompt', 'capability', 'review', NULL, NULL, NULL, NULL, 'COMPLETED', NULL, 0, 0, 0)",
+                    reviewerRun, reviewerOperation, session, change.headSha());
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_agent_result "
+                            + "(result_id, run_id, terminal_outcome, final_content, error_ref, stop_proof_ref, stored_at) VALUES (?, ?, 'COMPLETED', '', NULL, 'test-stop', 0)",
+                    reviewerResult, reviewerRun);
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_reviewer_request "
+                            + "(request_id, task_id, parent_operation_id, parent_run_id, reviewer_operation_id, repository_root, base_head_sha, reviewed_head_sha, remote_head_sha, origin_ci_fix_pending_id, origin_ci_fix_source_kind, origin_ci_fix_source_id, change_set_revision_id, local_check_policy_revision_id, head_tree_digest, diff_digest, intended_gate_kind, created_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'initial', 'REPAIR_ATTEMPT', 'initial', ?, ?, ?, ?, 'INITIAL_PUBLISH', 0)",
+                    request, task.taskId(), parent[1], parent[0], reviewerOperation,
+                    task.repositoryRoot(), base.baseSha(), change.headSha(), base.baseSha(),
+                    change.changeSetRevisionId(), localPolicy, change.headTreeDigest(), change.diffDigest());
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_reviewer_check_ref "
+                            + "(request_id, ordinal, check_run_ref) VALUES (?, 0, ?)", request, checkId);
+            return new InitialPublishLineage(parent[0], request, reviewerRun,
+                    reviewerResult, draftId, checkId, ciPolicy);
+        }
+        catch (Exception error) {
+            throw new IllegalStateException(error);
+        }
+    }
+
+    public record InitialPublishLineage(String parentRunId, String requestId,
+            String reviewerRunId, String reviewerResultId, String draftRevisionId,
+            String checkRunId, String requiredCiPolicyRevisionId) {}
 
     private static DataSource dataSource(FlowRuntime runtime)
             throws ReflectiveOperationException

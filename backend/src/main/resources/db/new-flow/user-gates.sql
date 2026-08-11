@@ -13,6 +13,22 @@ CREATE TABLE flow_user_gate_local_review_binding (
         REFERENCES flow_runtime_change_set_revision (change_set_revision_id)
 );
 
+CREATE TABLE flow_user_gate_subject_manifest (
+    subject_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')),
+    subject_digest TEXT NOT NULL UNIQUE,
+    UNIQUE (subject_id, subject_digest),
+    UNIQUE (subject_id, kind, subject_digest)
+);
+
+CREATE TABLE flow_user_gate_action_manifest (
+    action_ref TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')),
+    action_digest TEXT NOT NULL UNIQUE,
+    UNIQUE (action_ref, action_digest),
+    UNIQUE (action_ref, kind, action_digest)
+);
+
 CREATE TABLE flow_user_gate_subject (
     subject_id TEXT PRIMARY KEY,
     subject_digest TEXT NOT NULL,
@@ -104,7 +120,11 @@ CREATE TABLE flow_user_gate_subject (
         binding_id, pr_id, candidate_change_set_revision_id, binding_digest
     ),
     FOREIGN KEY (created_by_run_id)
-        REFERENCES flow_runtime_agent_run (run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (subject_id, subject_digest)
+        REFERENCES flow_user_gate_subject_manifest (
+            subject_id, subject_digest
+        )
 );
 
 CREATE TABLE flow_user_gate_subject_local_check (
@@ -171,42 +191,213 @@ CREATE TABLE flow_user_gate_ci_update_action (
         action_ref, head_repository_external_id, head_repository_owner,
         head_repository_name, branch_ref, expected_remote_head,
         proposed_head, force_push, action_digest
+    ),
+    FOREIGN KEY (action_ref, action_digest)
+        REFERENCES flow_user_gate_action_manifest (action_ref, action_digest)
+);
+
+CREATE TABLE flow_user_gate_initial_publish_subject (
+    subject_id TEXT PRIMARY KEY,
+    subject_digest TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    pr_id TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    launch_digest TEXT NOT NULL,
+    change_set_revision_id TEXT NOT NULL,
+    base_revision_id TEXT NOT NULL,
+    expected_base_sha TEXT NOT NULL,
+    proposed_head TEXT NOT NULL,
+    head_tree_digest TEXT NOT NULL,
+    diff_digest TEXT NOT NULL,
+    draft_revision_id TEXT NOT NULL,
+    draft_digest TEXT NOT NULL,
+    required_ci_policy_revision_id TEXT NOT NULL,
+    local_check_policy_revision_id TEXT NOT NULL,
+    reviewer_request_id TEXT NOT NULL,
+    reviewer_run_id TEXT NOT NULL,
+    reviewer_result_id TEXT NOT NULL,
+    local_review_binding_id TEXT NOT NULL,
+    local_review_digest TEXT NOT NULL,
+    base_repository_external_id TEXT NOT NULL,
+    base_repository_owner TEXT NOT NULL,
+    base_repository_name TEXT NOT NULL,
+    head_repository_external_id TEXT NOT NULL,
+    head_repository_owner TEXT NOT NULL,
+    head_repository_name TEXT NOT NULL,
+    branch_ref TEXT NOT NULL,
+    target_base_ref TEXT NOT NULL,
+    target_snapshot_id TEXT NOT NULL,
+    target_snapshot_digest TEXT NOT NULL,
+    created_by_run_id TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (subject_id, subject_digest)
+        REFERENCES flow_user_gate_subject_manifest (
+            subject_id, subject_digest
+        ),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    FOREIGN KEY (task_id, launch_digest)
+        REFERENCES flow_runtime_task (task_id, launch_digest),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
+    FOREIGN KEY (base_revision_id)
+        REFERENCES flow_runtime_task_base_revision (base_revision_id),
+    FOREIGN KEY (
+        draft_revision_id, pr_id, change_set_revision_id,
+        proposed_head, draft_digest
+    ) REFERENCES flow_runtime_pr_draft_revision (
+        draft_revision_id, pr_id, change_set_revision_id,
+        head_sha, draft_digest
+    ),
+    FOREIGN KEY (local_check_policy_revision_id)
+        REFERENCES flow_runtime_local_check_policy_revision (
+            policy_revision_id
+        ),
+    FOREIGN KEY (required_ci_policy_revision_id)
+        REFERENCES flow_ci_policy_revision (policy_revision_id),
+    FOREIGN KEY (reviewer_request_id)
+        REFERENCES flow_runtime_reviewer_request (request_id),
+    FOREIGN KEY (reviewer_run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (reviewer_result_id)
+        REFERENCES flow_runtime_agent_result (result_id),
+    FOREIGN KEY (
+        local_review_binding_id, pr_id, change_set_revision_id,
+        local_review_digest
+    ) REFERENCES flow_user_gate_local_review_binding (
+        binding_id, pr_id, candidate_change_set_revision_id, binding_digest
+    ),
+    FOREIGN KEY (created_by_run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    FOREIGN KEY (
+        target_snapshot_id, pr_id, launch_digest, proposed_head,
+        required_ci_policy_revision_id, target_snapshot_digest
     )
+        REFERENCES flow_github_initial_publish_target_snapshot (
+            target_snapshot_id, pr_id, launch_digest, proposed_head,
+            required_ci_policy_revision_id, target_snapshot_digest
+        )
+);
+
+CREATE TABLE flow_user_gate_initial_publish_subject_local_check (
+    subject_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    check_run_id TEXT NOT NULL,
+    profile_id TEXT NOT NULL,
+    conclusion TEXT NOT NULL CHECK (
+        conclusion IN ('PASSED', 'FAILED', 'UNAVAILABLE')
+    ),
+    PRIMARY KEY (subject_id, ordinal),
+    UNIQUE (subject_id, check_run_id),
+    FOREIGN KEY (subject_id)
+        REFERENCES flow_user_gate_initial_publish_subject (subject_id),
+    FOREIGN KEY (check_run_id)
+        REFERENCES flow_runtime_local_check_run (check_run_id)
+);
+
+CREATE TABLE flow_user_gate_initial_publish_action (
+    action_ref TEXT PRIMARY KEY,
+    action_digest TEXT NOT NULL,
+    pr_id TEXT NOT NULL,
+    change_set_revision_id TEXT NOT NULL,
+    base_repository_external_id TEXT NOT NULL,
+    base_repository_owner TEXT NOT NULL,
+    base_repository_name TEXT NOT NULL,
+    head_repository_external_id TEXT NOT NULL,
+    head_repository_owner TEXT NOT NULL,
+    head_repository_name TEXT NOT NULL,
+    branch_ref TEXT NOT NULL,
+    target_base_ref TEXT NOT NULL,
+    expected_base_sha TEXT NOT NULL,
+    proposed_head TEXT NOT NULL,
+    draft_revision_id TEXT NOT NULL,
+    draft_digest TEXT NOT NULL,
+    required_ci_policy_revision_id TEXT NOT NULL,
+    ready_policy TEXT NOT NULL CHECK (
+        ready_policy IN ('KEEP_DRAFT', 'MARK_READY_ON_EXACT_GREEN')
+    ),
+    target_snapshot_id TEXT NOT NULL,
+    target_snapshot_digest TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (action_ref, action_digest),
+    UNIQUE (
+        action_ref, pr_id, change_set_revision_id, proposed_head,
+        draft_revision_id, draft_digest, action_digest
+    ),
+    UNIQUE (
+        action_ref, action_digest, pr_id, change_set_revision_id,
+        base_repository_external_id, base_repository_owner,
+        base_repository_name, head_repository_external_id,
+        head_repository_owner, head_repository_name, branch_ref,
+        target_base_ref, expected_base_sha, proposed_head,
+        draft_revision_id, draft_digest, required_ci_policy_revision_id,
+        ready_policy, target_snapshot_id, target_snapshot_digest
+    ),
+    FOREIGN KEY (action_ref, action_digest)
+        REFERENCES flow_user_gate_action_manifest (action_ref, action_digest),
+    FOREIGN KEY (
+        draft_revision_id, pr_id, change_set_revision_id,
+        proposed_head, draft_digest
+    )
+        REFERENCES flow_runtime_pr_draft_revision (
+            draft_revision_id, pr_id, change_set_revision_id,
+            head_sha, draft_digest
+        ),
+    FOREIGN KEY (required_ci_policy_revision_id)
+        REFERENCES flow_ci_policy_revision (policy_revision_id),
+    FOREIGN KEY (
+        target_snapshot_id, pr_id, target_snapshot_digest
+    )
+        REFERENCES flow_github_initial_publish_target_snapshot (
+            target_snapshot_id, pr_id, target_snapshot_digest
+        )
 );
 
 CREATE TABLE flow_user_gate (
     gate_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
     pr_id TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind = 'CI_UPDATE'),
+    kind TEXT NOT NULL CHECK (kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')),
     current_revision INTEGER NOT NULL CHECK (current_revision > 0),
     created_at INTEGER NOT NULL,
     UNIQUE (pr_id, kind),
+    UNIQUE (gate_id, kind),
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
     FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id)
 );
 
 CREATE TABLE flow_user_gate_revision (
     gate_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('INITIAL_PUBLISH', 'CI_UPDATE')),
     revision INTEGER NOT NULL CHECK (revision > 0),
     subject_manifest_ref TEXT NOT NULL,
     subject_digest TEXT NOT NULL,
     action_manifest_ref TEXT NOT NULL,
     action_digest TEXT NOT NULL,
-    readiness_evidence_ref TEXT NOT NULL,
+    -- Only CI_UPDATE is produced by the existing ready-for-review terminal
+    -- command. INITIAL_PUBLISH deliberately has no model terminal source.
+    readiness_evidence_ref TEXT,
     created_by_run_id TEXT NOT NULL UNIQUE,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (gate_id, revision),
     UNIQUE (gate_id, revision, subject_digest, action_digest),
-    FOREIGN KEY (gate_id) REFERENCES flow_user_gate (gate_id),
-    FOREIGN KEY (subject_manifest_ref)
-        REFERENCES flow_user_gate_subject (subject_id),
-    FOREIGN KEY (action_manifest_ref)
-        REFERENCES flow_user_gate_ci_update_action (action_ref),
+    FOREIGN KEY (gate_id, kind) REFERENCES flow_user_gate (gate_id, kind),
+    FOREIGN KEY (subject_manifest_ref, kind, subject_digest)
+        REFERENCES flow_user_gate_subject_manifest (
+            subject_id, kind, subject_digest
+        ),
+    FOREIGN KEY (action_manifest_ref, kind, action_digest)
+        REFERENCES flow_user_gate_action_manifest (
+            action_ref, kind, action_digest
+        ),
     FOREIGN KEY (readiness_evidence_ref)
         REFERENCES flow_runtime_ready_for_review_request (request_id),
     FOREIGN KEY (created_by_run_id)
-        REFERENCES flow_runtime_agent_run (run_id)
+        REFERENCES flow_runtime_agent_run (run_id),
+    CHECK (
+        (kind = 'CI_UPDATE' AND readiness_evidence_ref IS NOT NULL)
+        OR (kind = 'INITIAL_PUBLISH' AND readiness_evidence_ref IS NULL)
+    )
 );
 
 CREATE TABLE flow_user_gate_ci_consent_revision (
@@ -368,7 +559,9 @@ CREATE TABLE flow_user_gate_transition (
             AND actor_type = 'PROGRAM'
             AND reason_code IN (
                 'EFFECT_UNKNOWN', 'EFFECT_PREPARATION_UNAVAILABLE',
-                'EFFECT_PROBE_UNAVAILABLE')
+                'EFFECT_PROBE_UNAVAILABLE',
+                'EFFECT_PREPARATION_INVALID', 'EFFECT_DIVERGED',
+                'EFFECT_ATTEMPT_LIMIT')
             AND detail_ref IS NOT NULL)
         OR (from_state = 'AUTHORIZED' AND to_state = 'NEEDS_ATTENTION'
             AND actor_type = 'PROGRAM'

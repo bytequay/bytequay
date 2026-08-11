@@ -39,20 +39,22 @@ failed integrity check. The existing application data source, JPA/Flyway
 history, and legacy readers/writers remain separate and unchanged.
 
 This is a composition foundation, not live Task admission or flow cutover. The
-only wired greenfield handler is local `PROVISION_TASK`. It can consume only a
+generic dispatcher wires only local `PROVISION_TASK`. It can consume only a
 durable Task launch already accepted in the dedicated new-flow database; no
 controller, Trunk tool, or existing Task creator currently creates that launch.
 The handler resolves the frozen configured remote ref from the already-local
 object store, binds the exact SHA before mutation, and creates one derived
 branch/worktree without fetch, credentials, provider calls, or model calls.
 
-One synchronous worker selects the highest-priority eligible durable ticket
-across only the wired kind set in the same immediate transaction that enforces
-capacity one. Durable polling is the correctness path; an after-commit wake is
-only a latency hint, and expired provisioning uses its exact owner recovery.
-All other operation kinds remain unclaimed here. Old execution beans remain
-active until a later explicit cutover proves the complete greenfield command
-and body graph.
+The generic worker selects only its wired kind set under capacity one. Separate
+bounded GitHub owner lanes claim exact `INITIAL_PUBLISH` plans and receipt-owned
+`OBSERVE_CI` work; each uses durable polling, cooperative shutdown,
+owner-specific expiry recovery, and the same global capacity predicate. They
+read only the configured `REPO` credential for the frozen canonical owner/name
+and perform a fresh authenticated numeric-ID/owner/name check before provider
+use. The generic dispatcher continues to reject `PUBLISH` and `OBSERVE_CI`.
+Old execution beans remain active until a later explicit cutover proves the
+complete greenfield command and body graph.
 
 ## System in one sentence
 
@@ -153,12 +155,15 @@ scoped standing consent. The authorization freezes the relevant head,
 revisions, action digest, and policy revision. A changed subject makes it
 stale.
 
-The current executable subset implements this boundary for manual local
-`CI_UPDATE` and one fixed-local-user, one-shot Task consent lasting at most 24
-hours. Consent is considered only while a stopped-ready transaction opens a new
-all-`PASSED` exact gate revision; it never scans an existing gate. Either exact
-decision atomically creates one immutable one-step push plan and its runtime
-`PUBLISH` operation/ticket, installing the barrier. Claim
+The current executable subset implements this boundary for manual
+`INITIAL_PUBLISH`, manual local `CI_UPDATE`, and one fixed-local-user, one-shot
+Task consent lasting at most 24 hours. INITIAL uses two ordered proven steps,
+atomic final/partial settlement, and currently only `KEEP_DRAFT`. Consent is
+considered only while a stopped-ready transaction opens a new
+all-`PASSED` exact gate revision; it never scans an existing gate. Each
+authorization atomically creates its exact immutable plan and runtime
+`PUBLISH` operation/ticket, installing the barrier: CI update has one push step
+and INITIAL has two ordered create-ref/create-draft-PR steps. Claim
 locks the PR and admits the exact stored graph at the oldest nonterminal
 sequence; begin performs current-owner freshness revalidation but makes no Git
 or provider call. The concrete GitHub executor commits an attempt before its
@@ -206,6 +211,11 @@ progress now, not a scripted semantic pipeline. Remote/CI/gate waiting is
 projected from its owner records while the Task remains `ACTIVE`.
 
 ## End-to-end flow
+
+This is the normative product flow. The current production subset composes the
+manual KEEP_DRAFT initial-publication and CI-observation portions described
+above; Trunk admission, local-comment commands, ready effects, feedback, merge,
+and cutover remain deferred.
 
 1. A background Project Intelligence job learns source-cited project knowledge.
 2. The Trunk Agent clarifies the request and may read that knowledge.

@@ -19,9 +19,12 @@ import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
+import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
 import com.bytequay.app.flow.github.GitHubEffects;
+import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.timeline.PrTimelineProjection;
+import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -131,6 +134,21 @@ public class NewFlowConfiguration
                 clock);
     }
 
+    @Bean(initMethod = "start", destroyMethod = "close")
+    public GitHubInitialPublishDispatcher newFlowInitialPublishDispatcher(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            CredentialStore credentials,
+            @Qualifier("newFlowClock") Clock clock)
+    {
+        return new GitHubInitialPublishDispatcher(
+                runtime, gates, effects, credentials, clock,
+                new GitHubInitialPublishDispatcher.Config(
+                        "new-flow-initial-publish",
+                        CLAIM_TTL, POLL_INTERVAL, CAPACITY));
+    }
+
     @Bean
     public CiAutofixCoordinator newFlowCiAutofixCoordinator(
             @Qualifier("newFlowDataSource") DataSource dataSource,
@@ -141,6 +159,19 @@ public class NewFlowConfiguration
     {
         return new CiAutofixCoordinator(
                 dataSource, autofix, runtime, userGates, clock);
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "close")
+    public GitHubCiObservationDispatcher newFlowCiObservationDispatcher(
+            FlowRuntime runtime,
+            CiAutofixCoordinator coordinator,
+            CredentialStore credentials,
+            @Qualifier("newFlowClock") Clock clock)
+    {
+        return new GitHubCiObservationDispatcher(
+                runtime, coordinator, credentials, clock,
+                "new-flow-github-ci-observation",
+                Duration.ofMinutes(3), POLL_INTERVAL, CAPACITY);
     }
 
     @Bean

@@ -724,11 +724,12 @@ are not inputs to this owner graph.
 
 The composed `NewFlowDispatcher` wires exactly the local `PROVISION_TASK`
 handler and never claims an unsupported kind merely to make the queue look
-active. The runtime atomically chooses the highest-priority eligible ticket from
-that exact wired-kind set and enforces fixed single-worker capacity. Polling
-observes committed tickets even when a wake is lost or arrives early; shutdown
-interrupts the live handler and leaves any unfinished claim to typed owner
-recovery.
+active. Two concrete owner lanes separately claim only GitHub
+`INITIAL_PUBLISH` plans and receipt-owned `OBSERVE_CI` operations. All three
+paths use the runtime's shared capacity bound. Polling observes committed work
+even when a wake is lost or arrives early; shutdown interrupts the lane and
+leaves unfinished claims to the matching typed owner recovery. The generic
+dispatcher still rejects `PUBLISH` and `OBSERVE_CI`.
 
 Provisioning recovery is convergent and owner-specific: a proven exact
 worktree is rearmed for a fresh claim to finalize, proven absence is rearmed for
@@ -736,13 +737,21 @@ the same bound mutation, and partial/mismatched or stable unsafe state moves the
 Task to attention without cleanup. Incomplete local proof is retryable; every
 individual command and observation attempt is time/output bounded.
 
+INITIAL recovery classifies the exact ordered step graph: never-started work is
+rearmed, post-attempt uncertainty remains probe-only with its barrier retained,
+and a fully receipted expired claim is redriven solely for final settlement.
+CI-observation recovery validates its immutable receipt owner and cancels a
+stale head/watch rather than reconstructing authority from mutable state. Both
+GitHub lanes select only the canonical owner/name `REPO` credential and require
+the provider's fresh authenticated numeric repository identity check.
+
 The current production catalog supports only an app-configured primary managed
 clone with a real `.git` directory. A linked-worktree `.git` file is rejected at
 this boundary. Supporting another repository layout requires a later typed
 catalog contract; this checkpoint performs no migration or fetch.
 
-This checkpoint still does not admit a live Task, expose `start_task`, fetch,
-invoke a model/provider, disable old beans, or claim cutover. Those changes
+This checkpoint still does not admit a live Task, expose `start_task`, invoke a
+model, disable old beans, or claim cutover. Those changes
 require their own complete composition and acceptance boundary.
 
 ## 7. Agent-to-agent protocol

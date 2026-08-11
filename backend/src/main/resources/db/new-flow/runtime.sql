@@ -165,15 +165,88 @@ CREATE TABLE flow_runtime_pr (
     created_from_head_sha TEXT NOT NULL,
     remote_identity_id TEXT UNIQUE,
     current_remote_head TEXT,
+    current_draft_revision_id TEXT UNIQUE,
     created_at INTEGER NOT NULL,
     UNIQUE (
         pr_id, task_id, repository_id, branch_name, remote_identity_id
     ),
+    UNIQUE (pr_id, task_id, repository_id, branch_name),
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
     FOREIGN KEY (created_from_change_set_revision_id)
         REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
     FOREIGN KEY (remote_identity_id)
-        REFERENCES flow_runtime_remote_identity (remote_identity_id)
+        REFERENCES flow_runtime_remote_identity (remote_identity_id),
+    FOREIGN KEY (current_draft_revision_id, pr_id)
+        REFERENCES flow_runtime_pr_draft_revision (
+            draft_revision_id, pr_id
+        )
+);
+
+CREATE TABLE flow_runtime_pr_draft_revision (
+    draft_revision_id TEXT PRIMARY KEY,
+    pr_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    change_set_revision_id TEXT NOT NULL,
+    head_sha TEXT NOT NULL,
+    title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
+    body TEXT NOT NULL CHECK (length(body) <= 65536),
+    draft_digest TEXT NOT NULL UNIQUE,
+    created_by_run_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (pr_id, sequence),
+    UNIQUE (draft_revision_id, pr_id),
+    UNIQUE (draft_revision_id, draft_digest),
+    UNIQUE (
+        draft_revision_id, pr_id, change_set_revision_id,
+        head_sha, draft_digest
+    ),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (change_set_revision_id)
+        REFERENCES flow_runtime_change_set_revision (change_set_revision_id),
+    FOREIGN KEY (created_by_run_id)
+        REFERENCES flow_runtime_agent_run (run_id)
+);
+
+CREATE TABLE flow_runtime_pr_ready_policy_revision (
+    ready_policy_revision_id TEXT PRIMARY KEY,
+    pr_id TEXT NOT NULL,
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    policy TEXT NOT NULL CHECK (
+        policy IN ('KEEP_DRAFT', 'MARK_READY_ON_EXACT_GREEN')
+    ),
+    required_ci_policy_revision_id TEXT NOT NULL,
+    authorization_id TEXT NOT NULL UNIQUE,
+    operation_id TEXT NOT NULL UNIQUE,
+    effect_plan_id TEXT NOT NULL UNIQUE,
+    action_digest TEXT NOT NULL,
+    proposed_head TEXT NOT NULL,
+    publication_receipt_id TEXT NOT NULL UNIQUE,
+    publication_receipt_digest TEXT NOT NULL,
+    policy_digest TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    UNIQUE (pr_id, sequence),
+    FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (
+        authorization_id, effect_plan_id, operation_id, pr_id, action_digest
+    ) REFERENCES flow_user_gate_authorization (
+        authorization_id, effect_plan_ref, operation_id, pr_id, action_digest
+    ),
+    FOREIGN KEY (
+        publication_receipt_id, operation_id, effect_plan_id,
+        proposed_head, publication_receipt_digest
+    ) REFERENCES flow_github_initial_publish_receipt (
+        receipt_id, operation_id, plan_id, proposed_head, receipt_digest
+    ),
+    FOREIGN KEY (
+        effect_plan_id, operation_id, authorization_id, pr_id,
+        action_digest, proposed_head, required_ci_policy_revision_id, policy
+    ) REFERENCES flow_github_initial_publish_plan (
+        plan_id, operation_id, authorization_id, pr_id,
+        action_digest, proposed_head, required_ci_policy_revision_id,
+        ready_policy
+    ),
+    FOREIGN KEY (required_ci_policy_revision_id)
+        REFERENCES flow_ci_policy_revision (policy_revision_id)
 );
 
 CREATE TABLE flow_runtime_operation (

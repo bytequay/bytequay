@@ -34,7 +34,7 @@ statement: a PR-scoped CTE, twelve explicit owner queries combined with
 statement supplies the consistent read snapshot; the projector performs no
 write before, during, or after it.
 
-The cursor is bound to the PR, projection schema version, total event count,
+The cursor is bound to the PR, projection schema version (currently `2`), total event count,
 and last ordered tuple. If any fact was inserted since the cursor was issued,
 if the projection version changed, or if the last tuple is not retained, the
 result is `RESTART_REQUIRED` with no events. The caller restarts from a null
@@ -70,7 +70,11 @@ The fixed ranks are tie-breakers, not causal or workflow priority.
 A Task-base event intentionally has no `headSha`: its base is not a candidate
 head. A local-check event uses its immutable observed-start head, even if an
 unavailable or mutating process ended elsewhere. A gate event joins its exact
-`(gateId, gateRevision)` subject and never reads the gate's current revision.
+`(gateId, gateRevision)` typed INITIAL or CI-update subject and never reads the
+gate's current revision. Applied effect events read the generic plan/receipt
+envelopes, so successful initial publication and CI-update receipts share the
+existing event kind. Partial initial receipts are not reported as applied
+effects; their immutable gate transitions remain visible.
 Manual authorization is attributed to the local user; automatic authorization
 is the separate bounded `CI_UPDATE_CONSENT` actor.
 

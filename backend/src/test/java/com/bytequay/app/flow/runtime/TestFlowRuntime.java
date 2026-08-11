@@ -132,14 +132,14 @@ class TestFlowRuntime
         PullRequestSubject local = runtime.materializePullRequest(
                 first.taskId(), adoptedTask.currentChangeSetRevisionId(),
                 "main", "main", "main");
-        PullRequestSubject published = runtime.bindGitHubRemoteIdentity(
+        PullRequestSubject published = FlowRuntimeTestSupport.bindGitHubFixture(runtime,
                 local.prId(), adoptedTask.currentHeadSha(),
                 new GitHubRepositoryLocator(
                         "repo-external-1", "octocat", "bytequay"),
                 new GitHubRepositoryLocator(
                         "head-repo-external-1", "octocat", "bytequay"), 42,
                 "PR_node", "https://example.test/pr/42", "receipt:publish");
-        PullRequestSubject redelivery = runtime.bindGitHubRemoteIdentity(
+        PullRequestSubject redelivery = FlowRuntimeTestSupport.bindGitHubFixture(runtime,
                 local.prId(), adoptedTask.currentHeadSha(),
                 new GitHubRepositoryLocator(
                         "repo-external-1", "octocat", "bytequay"),
@@ -618,7 +618,7 @@ class TestFlowRuntime
         PullRequestSubject local = runtime.materializePullRequest(
                 task.taskId(), task.currentChangeSetRevisionId(),
                 "main", "main", "main");
-        PullRequestSubject published = runtime.bindGitHubRemoteIdentity(
+        PullRequestSubject published = FlowRuntimeTestSupport.bindGitHubFixture(runtime,
                 local.prId(), task.currentHeadSha(),
                 new GitHubRepositoryLocator(
                         "repo-external-" + suffix, "octocat", "bytequay"),

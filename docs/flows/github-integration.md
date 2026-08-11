@@ -61,12 +61,14 @@ review prose passed, or whether the user should approve an effect.
 - GitHub payload text is untrusted display data. It is never treated as an agent
   instruction.
 
-The currently implemented `CI_UPDATE` boundary accepts an exact authenticated
-manual decision for the current OPEN revision and atomically creates one
-immutable plan, exactly one ordinal-1 `PUSH_EXACT` step, and the linked runtime
-`PUBLISH` operation/ticket. Claim admits only the oldest nonterminal
-`prSequence`; typed begin revalidates freshness and records `EXECUTING`. This
-component now executes that one step through an exact GitHub-only transport.
+The implemented publication boundary accepts an exact authenticated manual
+decision for the current OPEN revision and atomically creates one immutable
+`CI_UPDATE` or `INITIAL_PUBLISH` plan and the linked runtime `PUBLISH`
+operation/ticket. CI update has one `PUSH_EXACT` step; initial publication has
+ordered `CREATE_REF_EXACT` and `CREATE_DRAFT_PR` steps. Claim admits only the
+oldest nonterminal `prSequence`; typed begin revalidates freshness and records
+`EXECUTING`. The component executes those bounded steps through the exact
+GitHub-only transport.
 It commits a distinct immutable attempt before each possible mutation call
 (maximum two), pushes the
 literal proposed commit to the literal full ref with an exact-old-SHA lease,
@@ -156,9 +158,10 @@ authorization, runtime `Operation`, and `DispatchTicket`. A unique
 
 The enclosing `Operation`, claim state, retry time, fence, and unique
 `DispatchTicket` belong to [workflow-runtime.md](./workflow-runtime.md). This
-implemented component owns only the immutable one-step `CI_UPDATE` plan tied to
-that `operationId`, its bounded attempts and remote probes, and its exact
-receipt. Other effect kinds remain deferred.
+implemented component owns the immutable one-step `CI_UPDATE` and two-step
+`INITIAL_PUBLISH` plans tied to that `operationId`, their bounded attempts,
+remote probes, and exact receipts. Feedback, ready-effect, and merge plans
+remain deferred.
 
 ### Effect steps and evidence
 
@@ -264,11 +267,13 @@ cannot supply an `APPLIED` enum/head pair or an arbitrary runtime result ref.
 ### Provider adapter
 
 The current implementation uses one direct package-private `GitHubProvider`,
-not a provider framework. Its executable surface is only:
+not a provider framework. Its executable surface is bounded to:
 
 ```text
 probe(exact authorized CI_UPDATE activation)
 pushExactFastForward(exact durable attempt capability, prepared target)
+probeInitial(exact INITIAL_PUBLISH step target)
+mutateInitial(exact durable branch-or-draft-PR attempt capability)
 ```
 
 Preparation proves both commit objects, expected-as-ancestor-of-proposed,
@@ -280,11 +285,12 @@ whose stable repository ID and canonical owner/name equal the frozen head
 locator. For this owner, `repositoryExternalId` is the canonical decimal REST
 repository database `id`, not a GraphQL node ID or `owner/name`. An
 authenticated exact mismatch is invalid; `404`, authentication,
-transport, malformed, oversized, timed-out reads, or a credential attested to
-a different repository ID are unavailable. The
-credential source must attest that the returned credential is restricted to
-the requested stable repository ID; a broad classic PAT cannot satisfy this
-executor boundary, and production credential-source wiring remains deferred.
+transport, malformed, oversized, or timed-out reads are unavailable. Production
+selects only the existing exact `REPO` credential keyed by canonical owner/name;
+there is no account, command-line, or default-repository fallback. The
+credential store does not prove provider-side token scope. The fresh
+authenticated lookup must still match the frozen numeric repository ID and
+canonical owner/name.
 
 The repository-identity read and Git ref update are sequential, not one
 provider-atomic operation. The repository-scoped credential preserves target
@@ -304,11 +310,10 @@ mutable token buffers are wiped after use. Derived Java strings cannot be
 reliably wiped, so they are never persisted or logged. URLs, arguments, and
 durable evidence contain no credentials.
 
-Initial publication, feedback/reply, ready, merge, general observation,
-webhook, timeline, and multi-provider adapters remain deferred.
-Production secret-source and dispatcher wiring/cutover are also deferred; this
-checkpoint supplies the concrete owner/executor boundary and deterministic
-transport tests only. `cancelAttention` is intentionally absent: an `UNKNOWN`
+Feedback/reply, ready effects, merge, webhooks, multi-provider adapters, and
+cutover remain deferred. Production composes bounded INITIAL publication and
+GitHub CI-observation lanes using the exact repository-scoped credential source.
+`cancelAttention` is intentionally absent: an `UNKNOWN`
 attempt retains the oldest-plan barrier until an exact later probe settles it.
 
 ## Agent-facing read tools
@@ -329,9 +334,9 @@ There is no `push`, `post_reply`, `resolve_thread`, or `merge` agent tool.
 
 ### 1. Initial publication
 
-1. The user authorizes an `INITIAL_PUBLISH` gate for exact local head `H1`,
-   exact PR draft revision `D1`, and one visible ready policy:
-   `KEEP_DRAFT` or `MARK_READY_ON_EXACT_GREEN`.
+1. The user authorizes an `INITIAL_PUBLISH` gate for exact local head `H1` and
+   exact PR draft revision `D1`. The current implementation freezes
+   `KEEP_DRAFT`; `MARK_READY_ON_EXACT_GREEN` remains a normative deferred policy.
 2. `GateCommands.authorize(...)` atomically creates the authorization, frozen
    `ExternalEffectPlan`, runtime `Operation`, and `DispatchTicket`.
 3. The runtime claims the operation; the executor rechecks the linked
@@ -341,27 +346,37 @@ There is no `push`, `post_reply`, `resolve_thread`, or `merge` agent tool.
 5. Immediately before create, it resolves the base ref again. If it differs,
    retain the proven branch-push receipt, stale the gate, cancel the operation
    with a typed partial result, and create no PR; fresh base integration/review
-   is required. Otherwise it opens a draft PR with exactly `D1` and the frozen
-   base ref/expected SHA.
+   is required. Stable local authority or policy drift after the branch receipt
+   takes the same typed branch-only partial path without a PR call. Otherwise it
+   opens a draft PR with exactly `D1` and the frozen base ref/expected SHA.
 6. If the open call times out, it searches by repository/head branch before
    retrying; it must not create a duplicate PR.
-7. A fresh PR read proves the number, head, and observed base SHA. The executor
-   calls `PrRecords.bindRemoteIdentity` so the PR owner attaches the identity to
-   the existing `prId`.
+7. A fresh PR read proves the number, node, URL, head, and observed base SHA.
+   The executor hands a private sealed settlement capability to User Gates.
 8. If the base moved in the unavoidable provider race between the final preflight
    and PR creation, bind that one proven identity to prevent duplicates, retain
    the push/create receipts, stale the gate, cancel the runtime operation with a
    typed partial-publication result, and set the Task `NEEDS_ATTENTION`. No ready,
    reply, or merge effect may follow. After the user chooses base reconciliation
-   and the Task gets fresh checks/review/local approval, a new
-   `INITIAL_PUBLISH` revision targets the already-bound draft PR; it never creates
-   a second PR.
-9. The observer starts webhook/poll reconciliation for that identity.
+   and the Task gets fresh checks/review/local approval, the normative recovery
+   flow uses a new `INITIAL_PUBLISH` revision targeting the already-bound draft
+   PR. That recovery command/executor is not implemented here.
+9. With the exact expected base and unchanged local owners, one shared database
+   transaction inserts the final receipt, binds the set-once identity, freezes
+   sequence-1 ready policy, consumes the gate, succeeds the operation/ticket,
+   releases the publication barrier, wakes reconciliation, and installs exactly
+   one final-receipt-owned CI watch. Replay validates and returns that immutable
+   graph even after later policy/head/watch evolution; no provider is called.
 
 No local comments, agent transcripts, reviewer findings, tool logs, or Project
 Intelligence records are sent to GitHub.
 
 ### Partial initial-publication recovery
+
+This section is the normative deferred recovery design. The current owner
+terminally records partial evidence, binds a proven created-PR identity when
+present, marks attention, and releases the old barrier; it does not create or
+execute a recovery plan.
 
 A partial remote publication does not let the old authorization follow a new
 head or base. After the Task reconciles the intended base and repeats exact-head
@@ -393,6 +408,9 @@ not permission to force-push or select an ad hoc remote object.
 
 ### Ready transition
 
+Only `KEEP_DRAFT` is currently executable. The green-driven ready evaluator and
+GitHub ready effect described below remain deferred.
+
 The initial-publish authorization freezes and establishes one narrow,
 user-owned ready-policy revision for this Task PR.
 
@@ -412,7 +430,8 @@ feedback-driven head.
 
 ### 2. Head-bound CI observation loop
 
-1. An `APPLIED` `CI_UPDATE` receipt atomically installs one read-only
+1. An applied `CI_UPDATE` receipt or successful initial-publication final receipt
+   atomically installs one read-only
    receipt-owned `OBSERVE_CI` operation/ticket. A newer receipt cancels older
    same-PR watches, including claimed reads; their late batches cannot commit.
 2. Claim renews the read lease for the complete bounded poll. Begin binds the
@@ -439,8 +458,8 @@ feedback-driven head.
 
 This is exhaustive only for head-bound GitHub check runs on exact
 `proposedHead`; it is not branch-protection or merge-readiness proof. Test-merge
-checks, legacy commit statuses, webhooks, a generic event bus, timeline
-projection, readiness/merge consumption of GREEN, and cutover remain deferred.
+checks, legacy commit statuses, webhooks, a generic event bus,
+readiness/merge consumption of GREEN, and cutover remain deferred.
 An accepted nonempty exact source-bound GREEN may atomically reserve the
 receipt-owned read-only learner defined by
 [ci-autofix.md](./ci-autofix.md); it grants no provider or merge authority.

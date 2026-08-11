@@ -48,7 +48,7 @@ CREATE TABLE flow_ci_check_observation (
     FOREIGN KEY (source_operation_id)
         REFERENCES flow_runtime_operation (operation_id),
     FOREIGN KEY (source_receipt_id)
-        REFERENCES flow_github_external_effect_receipt (receipt_id)
+        REFERENCES flow_github_effect_receipt_envelope (receipt_id)
 );
 
 CREATE INDEX flow_ci_observation_head_idx
@@ -111,7 +111,7 @@ CREATE TABLE flow_ci_round (
     FOREIGN KEY (source_observation_operation_id)
         REFERENCES flow_runtime_operation (operation_id),
     FOREIGN KEY (source_receipt_id)
-        REFERENCES flow_github_external_effect_receipt (receipt_id),
+        REFERENCES flow_github_effect_receipt_envelope (receipt_id),
     FOREIGN KEY (superseded_by)
         REFERENCES flow_ci_round (round_id)
 );

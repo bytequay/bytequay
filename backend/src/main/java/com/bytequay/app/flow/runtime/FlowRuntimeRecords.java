@@ -763,7 +763,11 @@ public final class FlowRuntimeRecords
             boolean completeTaskInput = wakeKind != null
                     && intendedGateKind != null
                     && ((intendedGateKind == GateIntent.INITIAL_PUBLISH
-                            && inputChangeSetRevisionId == null)
+                            && inputRemoteHeadSha == null
+                            && ((wakeKind == WakeKind.INITIAL_TASK
+                                    && inputChangeSetRevisionId == null)
+                                || (wakeKind == WakeKind.AGENT_RESULT_READY
+                                    && inputChangeSetRevisionId != null)))
                         || (intendedGateKind == GateIntent.CI_UPDATE
                             && inputChangeSetRevisionId != null
                             && inputRemoteHeadSha != null));
@@ -940,13 +944,6 @@ public final class FlowRuntimeRecords
             requireNonNull(repositoryRoot, "repositoryRoot is null");
             requireNonNull(baseHeadSha, "baseHeadSha is null");
             requireNonNull(reviewedHeadSha, "reviewedHeadSha is null");
-            requireNonNull(remoteHeadSha, "remoteHeadSha is null");
-            requireNonNull(originCiFixPendingId,
-                    "originCiFixPendingId is null");
-            requireNonNull(originCiFixSourceKind,
-                    "originCiFixSourceKind is null");
-            requireNonNull(originCiFixSourceId,
-                    "originCiFixSourceId is null");
             requireNonNull(changeSetRevisionId,
                     "changeSetRevisionId is null");
             requireNonNull(localCheckPolicyRevisionId,
@@ -956,6 +953,20 @@ public final class FlowRuntimeRecords
             checkRunRefs = List.copyOf(checkRunRefs);
             requireNonNull(intendedGateKind,
                     "intendedGateKind is null");
+            boolean initial = intendedGateKind == GateIntent.INITIAL_PUBLISH;
+            boolean noRemoteOrCiOrigin = remoteHeadSha == null
+                    && originCiFixPendingId == null
+                    && originCiFixSourceKind == null
+                    && originCiFixSourceId == null;
+            boolean completeRemoteAndCiOrigin = remoteHeadSha != null
+                    && originCiFixPendingId != null
+                    && originCiFixSourceKind != null
+                    && originCiFixSourceId != null;
+            if ((initial && !noRemoteOrCiOrigin)
+                    || (!initial && !completeRemoteAndCiOrigin)) {
+                throw new IllegalArgumentException(
+                        "reviewer request remote/CI origin does not match gate intent");
+            }
             requireNonNull(createdAt, "createdAt is null");
         }
     }

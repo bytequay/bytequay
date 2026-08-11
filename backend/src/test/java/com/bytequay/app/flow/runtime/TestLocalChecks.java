@@ -98,7 +98,8 @@ final class TestLocalChecks
         assertThat(runtime.selectNext(reconciliation).orElseThrow().kind())
                 .isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
-        WriterFence fence = runtime.acquireWriterLease(
+        WriterFence fence = FlowRuntimeTestSupport.acquireWriterFixture(
+                runtime,
                 turn,
                 AgentRole.TASK_AGENT,
                 new WorktreeSnapshot(
@@ -351,7 +352,8 @@ final class TestLocalChecks
         AtomicReference<Throwable> failure = new AtomicReference<>();
         InProcessWriterAgentSupervisor supervisor =
                 new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
+        var handle = FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -391,7 +393,8 @@ final class TestLocalChecks
         CountDownLatch release = new CountDownLatch(1);
         InProcessWriterAgentSupervisor supervisor =
                 new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
+        var handle = FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -405,7 +408,8 @@ final class TestLocalChecks
         assertThat(renewed.await(5, TimeUnit.SECONDS)).isTrue();
         clock.advance(Duration.ofMinutes(6));
 
-        assertThat(supervisor.launch(
+        assertThat(FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -420,7 +424,8 @@ final class TestLocalChecks
                 writer.claim().claimToken(),
                 writer.claim().workerId(),
                 NOW.plus(Duration.ofHours(1)));
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 futureClaim,
                 writer.fence(),
@@ -438,7 +443,8 @@ final class TestLocalChecks
                 writer.fence().treeDigest(),
                 writer.fence().snapshotEvidenceRef(),
                 NOW.plus(Duration.ofHours(1)));
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 futureFence,
@@ -452,7 +458,8 @@ final class TestLocalChecks
                 "changed-token",
                 writer.claim().workerId(),
                 writer.claim().expiresAt());
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 changedToken,
                 writer.fence(),
@@ -466,7 +473,8 @@ final class TestLocalChecks
                 writer.claim().claimToken(),
                 writer.claim().workerId(),
                 writer.claim().expiresAt());
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 changedGeneration,
                 writer.fence(),
@@ -484,7 +492,8 @@ final class TestLocalChecks
                 writer.fence().treeDigest(),
                 writer.fence().snapshotEvidenceRef(),
                 writer.fence().expiresAt());
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 changedHead,
@@ -495,7 +504,8 @@ final class TestLocalChecks
         assertThat(supervisor.awaitAndFinish(handle, TTL).terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
         clock.advance(Duration.ofHours(1));
-        assertThatThrownBy(() -> supervisor.launch(
+        assertThatThrownBy(() -> FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),
@@ -510,7 +520,8 @@ final class TestLocalChecks
         AtomicReference<T> result = new AtomicReference<>();
         InProcessWriterAgentSupervisor supervisor =
                 new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
+        var handle = FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor, runtime,
                 writer.run().runId(),
                 writer.claim(),
                 writer.fence(),

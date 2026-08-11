@@ -38,10 +38,12 @@ digest, and fails closed on a partial install, drift, foreign-key violation, or
 failed integrity check. The existing application data source, JPA/Flyway
 history, and legacy readers/writers remain separate and unchanged.
 
-This is a composition foundation, not live Task admission or flow cutover. The
-generic dispatcher wires only local `PROVISION_TASK`. It can consume only a
-durable Task launch already accepted in the dedicated new-flow database; no
-controller, Trunk tool, or existing Task creator currently creates that launch.
+This is an executable greenfield composition, not live product cutover. A
+program-owned `TaskCommands` bean accepts a bounded request key, repository ID,
+and self-contained goal, calls the durable Task provisioning owner, and wakes
+the polling lanes after commit. No controller, Trunk tool, frontend, flag, old
+service adapter, or dual write calls that bean yet.
+The generic dispatcher wires only local `PROVISION_TASK`.
 The handler resolves the frozen configured remote ref from the already-local
 object store, binds the exact SHA before mutation, and creates one derived
 branch/worktree without fetch, credentials, provider calls, or model calls.
@@ -57,7 +59,11 @@ observations and repair work can preempt it. All other lanes share the runtime's
 global capacity predicate. Agent
 runs freeze the exact provider transport/model/limits, prompt content, tool
 manifest, and AI credential revision before the first request; secrets remain
-ephemeral. The GitHub lanes
+ephemeral. One disjoint INITIAL Task lane claims only the provisioned first
+turn and its exact initial-review continuations. It owns bounded workspace
+editing, fixed commit/adoption, local PR/draft/check evidence, fresh read-only
+reviewer lineage, and the stopped-finalizer request for a manual initial gate.
+The GitHub lanes
 read only the configured `REPO` credential for the frozen canonical owner/name
 and perform a fresh authenticated numeric-ID/owner/name check before provider
 use. The generic dispatcher continues to reject `PUBLISH` and `OBSERVE_CI`.
@@ -220,10 +226,14 @@ projected from its owner records while the Task remains `ACTIVE`.
 
 ## End-to-end flow
 
-This is the normative product flow. The current production subset composes the
-manual KEEP_DRAFT initial-publication, CI update publication/observation, and
-CI-autofix agent portions described above. Trunk admission, local-comment
-commands, ready effects, feedback, merge, and cutover remain deferred.
+This is the normative product flow. The current production subset composes a
+programmatic `TaskCommands` entry, ordinary INITIAL Task/reviewer work, manual
+KEEP_DRAFT initial publication, CI update publication/observation, and the
+CI-autofix agent portions described above. A production-composition acceptance
+trace proves INITIAL publication, exact-head RED repair/review, manual CI update,
+GREEN observation, and candidate learning without consulting legacy state.
+Trunk/controller admission, Task questions, local-comment commands, ready
+effects, feedback, merge, frontend exposure, and cutover remain deferred.
 
 1. A background Project Intelligence job learns source-cited project knowledge.
 2. The Trunk Agent clarifies the request and may read that knowledge.
@@ -367,9 +377,10 @@ then lets the Task Agent judge its applicability to the new code.
   sequencer/dirty state reserves the exact successor operation. The old lease
   is released, but no unrelated writer may acquire before that successor
   succeeds, restores cleanly, or quarantines the Task.
-- `request_user_input` uses the same safety idea: it stores a question plus a
-  sealed worktree/sequencer state and admits no writer until an exact
-  answer-bound successor resumes it.
+- The normative deferred `request_user_input` design uses the same safety idea:
+  a future Task-question owner would store a question plus sealed
+  worktree/sequencer state and admit no writer until an exact answer-bound
+  successor resumes it. No current manifest exposes that tool.
 - The runtime stores raw execution evidence before releasing a writer lease.
 - A child result is immutable. A retry creates another run linked to the failed
   run; it never overwrites history.

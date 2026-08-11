@@ -68,6 +68,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckEvidence;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.LocalCheckRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingWork;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PrDraftRevision;
@@ -379,6 +380,55 @@ public final class UserGates
         }
     }
 
+    public static final class PreparedInitialReadyRequest
+    {
+        private final Claim claim;
+        private final WriterFence fence;
+        private final InitialGateBundle bundle;
+        private final Inspection inspection;
+
+        private PreparedInitialReadyRequest(
+                Claim claim,
+                WriterFence fence,
+                InitialGateBundle bundle,
+                Inspection inspection)
+        {
+            this.claim = claim;
+            this.fence = fence;
+            this.bundle = bundle;
+            this.inspection = inspection;
+        }
+    }
+
+    public static final class PreparedInitialFinalization
+    {
+        private final ReadyForReviewRequest request;
+        private final Claim claim;
+        private final WriterFence fence;
+        private final InitialPublishSubject subject;
+        private final InitialPublishAction action;
+        private final Inspection inspection;
+        private final String blockerCode;
+
+        private PreparedInitialFinalization(
+                ReadyForReviewRequest request,
+                Claim claim,
+                WriterFence fence,
+                InitialPublishSubject subject,
+                InitialPublishAction action,
+                Inspection inspection,
+                String blockerCode)
+        {
+            this.request = request;
+            this.claim = claim;
+            this.fence = fence;
+            this.subject = subject;
+            this.action = action;
+            this.inspection = inspection;
+            this.blockerCode = blockerCode;
+        }
+    }
+
     private record AuthorityInspection(
             Inspection inspection, String blockerCode) {}
 
@@ -394,7 +444,8 @@ public final class UserGates
     private record InitialGateBundle(
             LocalReviewBinding localReviewBinding,
             InitialPublishSubject subject,
-            InitialPublishAction action) {}
+            InitialPublishAction action,
+            TargetSnapshot target) {}
 
     private record BeginOutcome(
             CiUpdateEffectActivation activation,
@@ -512,6 +563,222 @@ public final class UserGates
         requireSubject(request.subjectRef());
         requireAction(request.actionRef());
         return new ReadyForReviewAcceptance("ACCEPTED_SEALED");
+    }
+
+    /**
+     * Consumes the fresh repository observation while the terminal Task tool
+     * is live and derives the complete immutable INITIAL publication bundle.
+     * A durable replay never calls the provider again.
+     */
+    public PreparedInitialReadyRequest prepareInitialReadyRequest(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            Path repositoryRoot,
+            Supplier<InitialPublishRecords.RepositoryObservation> observation)
+    {
+        requireText(runId, "runId");
+        requireNonNull(claim, "claim is null");
+        requireNonNull(fence, "fence is null");
+        requireNonNull(repositoryRoot, "repositoryRoot is null");
+        requireNonNull(observation, "observation is null");
+        Optional<ReadyForReviewRequest> replay =
+                runtime.readyForReviewRequestForRun(runId);
+        if (replay.isPresent()) {
+            return new PreparedInitialReadyRequest(
+                    claim,
+                    fence,
+                    requireInitialReadyBundle(replay.orElseThrow()),
+                    null);
+        }
+        runtime.assertWriterFence(claim, fence);
+        InitialGateBundle bundle = deriveInitialPublish(
+                runId,
+                requireNonNull(observation.get(),
+                        "repository observation is null"));
+        Inspection inspection = inspect(repositoryRoot, bundle.subject());
+        return new PreparedInitialReadyRequest(
+                claim, fence, bundle, inspection);
+    }
+
+    /** Stores the complete INITIAL bundle and terminal request in one tx. */
+    public ReadyForReviewAcceptance reserveInitialReadyRequest(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            String processAttemptId,
+            String capabilityId,
+            PreparedInitialReadyRequest prepared)
+    {
+        requireText(runId, "runId");
+        requireNonNull(prepared, "prepared is null");
+        return inTransaction(() -> {
+            Optional<ReadyForReviewRequest> replay =
+                    runtime.readyForReviewRequestForRun(runId);
+            if (replay.isPresent()) {
+                InitialGateBundle stored = requireInitialReadyBundle(
+                        replay.orElseThrow());
+                if (!stored.equals(prepared.bundle)) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "INITIAL ready replay changed its sealed bundle");
+                }
+                return new ReadyForReviewAcceptance("ACCEPTED_SEALED");
+            }
+            if (!sameClaim(prepared.claim, claim)
+                    || !sameFence(prepared.fence, fence)) {
+                throw new FlowRuntime.StaleCapabilityException(
+                        "INITIAL ready authority changed after observation");
+            }
+            runtime.assertWriterFence(claim, fence);
+            InitialPublishSubject subject = prepared.bundle.subject();
+            InitialGateBundle current = deriveInitialPublish(
+                    runId,
+                    subject.baseRepositoryExternalId(),
+                    subject.baseRepositoryOwner(),
+                    subject.baseRepositoryName(),
+                    subject.createdAt());
+            if (!current.equals(prepared.bundle)
+                    || prepared.inspection == null
+                    || !inspectionMatches(
+                            prepared.inspection, subject)) {
+                throw new FlowRuntime.StaleOwnerRevisionException(
+                        "INITIAL ready subject changed after observation");
+            }
+            githubEffects.storeInitialTargetSnapshot(
+                    prepared.bundle.target());
+            insertLocalReviewBinding(prepared.bundle.localReviewBinding());
+            insertInitialSubject(subject);
+            insertInitialAction(prepared.bundle.action());
+            String requestId = stableId(
+                    "ready-request", runId, subject.subjectId());
+            runtime.reserveReadyForReviewRequest(
+                    runId,
+                    claim,
+                    fence,
+                    processAttemptId,
+                    capabilityId,
+                    requestId,
+                    subject.prId(),
+                    subject.subjectId(),
+                    subject.subjectDigest(),
+                    prepared.bundle.action().actionRef(),
+                    prepared.bundle.action().actionDigest(),
+                    subject.createdAt());
+            return new ReadyForReviewAcceptance("ACCEPTED_SEALED");
+        });
+    }
+
+    public ReadyForReviewAcceptance replayInitialReadyRequest(String runId)
+    {
+        ReadyForReviewRequest request = runtime.readyForReviewRequestForRun(
+                runId).orElseThrow(() -> new IllegalStateException(
+                        "INITIAL ready request is not durable"));
+        requireInitialReadyBundle(request);
+        return new ReadyForReviewAcceptance("ACCEPTED_SEALED");
+    }
+
+    /** Provider-free preparation for the durable STOPPED finalizer. */
+    public PreparedInitialFinalization prepareInitialFinalization(
+            String runId,
+            Claim claim,
+            WriterFence fence)
+    {
+        ReadyForReviewRequest request = runtime.readyForReviewRequestForRun(
+                runId).orElseThrow(() -> new IllegalArgumentException(
+                        "unknown INITIAL ready request"));
+        InitialGateBundle bundle = requireInitialReadyBundle(request);
+        Optional<AgentResult> existing = runtime.resultForRun(runId);
+        if (existing.isPresent()) {
+            Optional<GateRevision> revision = revisionForRun(runId);
+            String durableFailure = runtime.readyAttentionReasonForRun(runId)
+                    .orElse(null);
+            if (revision.isPresent() == (durableFailure != null)) {
+                throw new IllegalStateException(
+                        "INITIAL ready replay has no single disposition");
+            }
+            return new PreparedInitialFinalization(
+                    request, claim, fence, bundle.subject(), bundle.action(),
+                    null, durableFailure);
+        }
+        try {
+            runtime.assertWriterRunStopped(runId, claim);
+            assertInitialSubjectCurrent(
+                    bundle.subject(), bundle.action(), claim, fence);
+            ReviewerRequest reviewer = runtime.reviewerRequest(
+                    bundle.subject().reviewerRequestId()).orElseThrow();
+            Inspection inspection = inspect(
+                    Path.of(reviewer.repositoryRoot()), bundle.subject());
+            return new PreparedInitialFinalization(
+                    request, claim, fence, bundle.subject(), bundle.action(),
+                    inspection, null);
+        }
+        catch (InspectionFailure failure) {
+            if (transientFailure(failure.code())) {
+                throw failure;
+            }
+            return new PreparedInitialFinalization(
+                    request, claim, fence, bundle.subject(), bundle.action(),
+                    null, "INITIAL_READINESS_" + failure.code().name());
+        }
+        catch (ReadyRejectedException | FlowRuntime.StaleOwnerRevisionException
+                failure) {
+            return new PreparedInitialFinalization(
+                    request, claim, fence, bundle.subject(), bundle.action(),
+                    null, "INITIAL_READINESS_STALE");
+        }
+    }
+
+    /** Opens the INITIAL gate and settles the Task owner in one outer tx. */
+    public AgentResult finalizeInitialReady(
+            String runId,
+            Claim claim,
+            WriterFence fence,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            PreparedInitialFinalization prepared)
+    {
+        requireNonNull(prepared, "prepared is null");
+        return inTransaction(() -> {
+            ReadyForReviewRequest current =
+                    runtime.readyForReviewRequestForRun(runId).orElseThrow();
+            if (!current.equals(prepared.request)
+                    || !sameClaim(prepared.claim, claim)
+                    || !sameFence(prepared.fence, fence)) {
+                throw new FlowRuntime.StaleOwnerRevisionException(
+                        "INITIAL ready finalization authority changed");
+            }
+            InitialGateBundle stored = requireInitialReadyBundle(current);
+            if (!stored.subject().equals(prepared.subject)
+                    || !stored.action().equals(prepared.action)) {
+                throw new FlowRuntime.StaleOwnerRevisionException(
+                        "INITIAL ready finalization bundle changed");
+            }
+            Optional<GateRevision> replay = revisionForRun(runId);
+            if (replay.isPresent()) {
+                return runtime.finishTaskAgentReadyTurn(
+                        runId, claim, fence, terminalOutcome, finalContent,
+                        errorRef, gateRevisionRef(replay.orElseThrow()), null);
+            }
+            if (prepared.blockerCode != null) {
+                return runtime.finishTaskAgentReadyTurn(
+                        runId, claim, fence, terminalOutcome, finalContent,
+                        errorRef, null, prepared.blockerCode);
+            }
+            assertInitialSubjectCurrent(
+                    prepared.subject, prepared.action, claim, fence);
+            if (prepared.inspection == null
+                    || !inspectionMatches(
+                            prepared.inspection, prepared.subject)) {
+                throw new FlowRuntime.StaleOwnerRevisionException(
+                        "INITIAL ready final inspection changed");
+            }
+            GateRevision revision = openInitialGate(
+                    runId, stored.subject(), stored.action());
+            return runtime.finishTaskAgentReadyTurn(
+                    runId, claim, fence, terminalOutcome, finalContent,
+                    errorRef, gateRevisionRef(revision), null);
+        });
     }
 
     public PreparedReadyFinalization prepareFinalization(
@@ -943,77 +1210,58 @@ public final class UserGates
                 "authorization result is null");
     }
 
-    /**
-     * Opens the manual-only first-publication gate from durable Task evidence.
-     * It replays first; otherwise one provider-sealed repository read occurs
-     * outside the owner transaction. No subject, target, or action field is
-     * model supplied.
-     */
-    public GateRevision openInitialPublish(
+    private GateRevision openInitialGate(
             String runId,
-            Supplier<InitialPublishRecords.RepositoryObservation> observation)
+            InitialPublishSubject subject,
+            InitialPublishAction action)
     {
-        requireText(runId, "runId");
-        requireNonNull(observation, "observation is null");
-        Optional<GateRevision> existingReplay = inTransaction(() ->
-                initialPublishReplay(runId));
-        if (existingReplay.isPresent()) {
-            return existingReplay.orElseThrow();
+        Optional<GateRevision> replay = initialPublishReplay(runId);
+        if (replay.isPresent()) {
+            return replay.orElseThrow();
         }
-        InitialPublishRecords.RepositoryObservation observed = requireNonNull(
-                observation.get(), "repository observation is null");
-        return inTransaction(() -> {
-            Optional<GateRevision> replay = initialPublishReplay(runId);
-            if (replay.isPresent()) {
-                return replay.orElseThrow();
-            }
-            InitialGateBundle bundle = deriveInitialPublish(runId, observed);
-            insertLocalReviewBinding(bundle.localReviewBinding());
-            insertInitialSubject(bundle.subject());
-            insertInitialAction(bundle.action());
-            Optional<UserGate> existing = initialGate(bundle.subject().prId());
-            String gateId = existing.map(UserGate::gateId).orElseGet(() ->
-                    stableId("user-gate", bundle.subject().prId(),
-                            GateKind.INITIAL_PUBLISH.name()));
-            long revision = existing.map(UserGate::currentRevision).orElse(0L) + 1;
-            Instant now = clock.instant();
-            if (existing.isEmpty()) {
-                jdbc.update(
+        Optional<UserGate> existing = initialGate(subject.prId());
+        String gateId = existing.map(UserGate::gateId).orElseGet(() ->
+                stableId("user-gate", subject.prId(),
+                        GateKind.INITIAL_PUBLISH.name()));
+        long revision = existing.map(UserGate::currentRevision).orElse(0L) + 1;
+        Instant now = clock.instant();
+        if (existing.isEmpty()) {
+            jdbc.update(
                         """
                         INSERT INTO flow_user_gate (
                             gate_id, task_id, pr_id, kind,
                             current_revision, created_at
                         ) VALUES (?, ?, ?, 'INITIAL_PUBLISH', 1, ?)
                         """,
-                        gateId, bundle.subject().taskId(),
-                        bundle.subject().prId(), now.toEpochMilli());
+                    gateId, subject.taskId(), subject.prId(),
+                    now.toEpochMilli());
+        }
+        else {
+            UserGate gate = existing.orElseThrow();
+            GateState state = currentState(gate.gateId(),
+                    gate.currentRevision());
+            if (state != GateState.OPEN && state != GateState.STALE
+                    && state != GateState.CONSUMED) {
+                throw new IllegalStateException(
+                        "authorized initial gate may not be revised");
             }
-            else {
-                UserGate gate = existing.orElseThrow();
-                GateState state = currentState(gate.gateId(),
-                        gate.currentRevision());
-                if (state != GateState.OPEN && state != GateState.STALE
-                        && state != GateState.CONSUMED) {
-                    throw new IllegalStateException(
-                            "authorized initial gate may not be revised");
-                }
-                if (state == GateState.OPEN) {
-                    appendTransition(gateId, gate.currentRevision(),
-                            nextTransitionSequence(gateId), GateState.OPEN,
-                            GateState.STALE, "SUPERSEDED_BY_READY",
-                            "initial-subject:" + bundle.subject().subjectId(),
-                            now);
-                }
-                int advanced = jdbc.update(
-                        "UPDATE flow_user_gate SET current_revision = ? "
-                                + "WHERE gate_id = ? AND current_revision = ?",
-                        revision, gateId, gate.currentRevision());
-                if (advanced != 1) {
-                    throw new FlowRuntime.StaleOwnerRevisionException(
-                            "initial gate changed during revision");
-                }
+            if (state == GateState.OPEN) {
+                appendTransition(gateId, gate.currentRevision(),
+                        nextTransitionSequence(gateId), GateState.OPEN,
+                        GateState.STALE, "SUPERSEDED_BY_READY",
+                        "initial-subject:" + subject.subjectId(),
+                        now);
             }
-            jdbc.update(
+            int advanced = jdbc.update(
+                    "UPDATE flow_user_gate SET current_revision = ? "
+                            + "WHERE gate_id = ? AND current_revision = ?",
+                    revision, gateId, gate.currentRevision());
+            if (advanced != 1) {
+                throw new FlowRuntime.StaleOwnerRevisionException(
+                        "initial gate changed during revision");
+            }
+        }
+        jdbc.update(
                     """
                     INSERT INTO flow_user_gate_revision (
                         gate_id, kind, revision, subject_manifest_ref,
@@ -1021,15 +1269,14 @@ public final class UserGates
                         readiness_evidence_ref, created_by_run_id, created_at
                     ) VALUES (?, 'INITIAL_PUBLISH', ?, ?, ?, ?, ?, NULL, ?, ?)
                     """,
-                    gateId, revision, bundle.subject().subjectId(),
-                    bundle.subject().subjectDigest(), bundle.action().actionRef(),
-                    bundle.action().actionDigest(), runId, now.toEpochMilli());
-            appendTransition(gateId, revision, nextTransitionSequence(gateId),
-                    null, GateState.OPEN, "READY", null, now);
-            GateRevision opened = requireRevision(gateId, revision);
-            assertInitialRevisionGraph(opened);
-            return opened;
-        });
+                gateId, revision, subject.subjectId(),
+                subject.subjectDigest(), action.actionRef(),
+                action.actionDigest(), runId, now.toEpochMilli());
+        appendTransition(gateId, revision, nextTransitionSequence(gateId),
+                null, GateState.OPEN, "READY", null, now);
+        GateRevision opened = requireRevision(gateId, revision);
+        assertInitialRevisionGraph(opened);
+        return opened;
     }
 
     private Optional<GateRevision> initialPublishReplay(String runId)
@@ -2814,21 +3061,65 @@ public final class UserGates
                         "[1-9][0-9]*")) {
             throw rejected("INITIAL_REPOSITORY_IDENTITY_STALE");
         }
+        return deriveInitialPublish(
+                runId,
+                observation.repositoryExternalId(),
+                observation.owner(),
+                observation.name(),
+                clock.instant());
+    }
+
+    private InitialGateBundle deriveInitialPublish(
+            String runId,
+            String repositoryExternalId,
+            String repositoryOwner,
+            String repositoryName,
+            Instant createdAt)
+    {
+        AgentRun run = runtime.run(runId).orElseThrow(() ->
+                new ReadyRejectedException(List.of("INITIAL_RUN_MISSING")));
+        Operation operation = runtime.operation(run.operationId()).orElseThrow();
+        Task task = runtime.task(operation.taskId()).orElseThrow();
         PullRequestSubject pr = task.prId() == null ? null
                 : runtime.pullRequest(task.prId()).orElse(null);
         ChangeSetRevision changeSet = runtime.currentChangeSet(task.taskId())
                 .orElse(null);
         TaskBaseRevision base = runtime.currentBaseRevision(task.taskId())
                 .orElse(null);
-        ReviewerRequest review = runtime.reviewerRequestForParentRun(runId)
-                .orElse(null);
+        PendingWork input = runtime.pendingWork(task.taskId()).stream()
+                .filter(item -> Objects.equals(
+                        item.selectedByOperationId(), operation.operationId()))
+                .findFirst().orElse(null);
+        AgentResult reviewerResult = input == null ? null
+                : runtime.resultForRun(input.externalKey()).orElse(null);
+        ReviewerRequest review = input == null ? null
+                : runtime.reviewerRequestForReviewerRun(input.externalKey())
+                        .orElse(null);
+        AgentRun parent = review == null ? null
+                : runtime.run(review.parentRunId()).orElse(null);
         if (pr == null || changeSet == null || base == null || review == null
+                || input == null || reviewerResult == null || parent == null
                 || task.status() != TaskStatus.ACTIVE || pr.published()
                 || run.role() != AgentRole.TASK_AGENT
+                || run.state() != RunState.RUNNING
+                || run.wakeKind() != WakeKind.AGENT_RESULT_READY
                 || run.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || !Objects.equals(run.inputChangeSetRevisionId(),
+                        changeSet.changeSetRevisionId())
+                || input.kind() != PendingKind.AGENT_RESULT_READY
+                || input.intendedGateKind()
+                        != GateIntent.INITIAL_PUBLISH
+                || !input.externalKey().equals(reviewerResult.runId())
+                || !Objects.equals(
+                        input.agentResultId(), reviewerResult.resultId())
+                || !input.payloadRef().equals(reviewerResultPayload(
+                        review.requestId(), reviewerResult.resultId()))
                 || !review.intendedGateKind().equals(GateIntent.INITIAL_PUBLISH)
                 || !review.taskId().equals(task.taskId())
-                || !review.parentRunId().equals(runId)
+                || parent.role() != AgentRole.TASK_AGENT
+                || parent.state() == RunState.QUEUED
+                || parent.state() == RunState.RUNNING
+                || !parent.operationId().equals(review.parentOperationId())
                 || !review.changeSetRevisionId().equals(
                         changeSet.changeSetRevisionId())
                 || !review.reviewedHeadSha().equals(changeSet.headSha())
@@ -2840,9 +3131,9 @@ public final class UserGates
         }
         AgentRun reviewerRun = runtime.runForOperation(review.reviewerOperationId())
                 .orElseThrow(() -> rejected("EXACT_HEAD_REVIEW_MISSING"));
-        AgentResult reviewerResult = runtime.resultForRun(reviewerRun.runId())
-                .orElseThrow(() -> rejected("EXACT_HEAD_REVIEW_MISSING"));
         if (reviewerRun.state() != RunState.COMPLETED
+                || !reviewerRun.runId().equals(input.externalKey())
+                || !reviewerResult.runId().equals(reviewerRun.runId())
                 || reviewerResult.terminalOutcome() != TerminalOutcome.COMPLETED) {
             throw rejected("EXACT_HEAD_REVIEW_MISSING");
         }
@@ -2876,34 +3167,33 @@ public final class UserGates
         if (!policy.targetBaseRef().equals(pr.targetBaseRef())) {
             throw rejected("REQUIRED_CI_POLICY_STALE");
         }
-        Instant now = clock.instant();
         String localDigest = stableId("local-review-binding:v1", pr.prId(),
                 changeSet.changeSetRevisionId(), "batch-count:0",
                 "revision-count:0");
         LocalReviewBinding local = new LocalReviewBinding(stableId(
                 "local-review-binding-id:v1", pr.prId(),
                 changeSet.changeSetRevisionId()), pr.prId(),
-                changeSet.changeSetRevisionId(), localDigest, now);
+                changeSet.changeSetRevisionId(), localDigest, createdAt);
         CodePublicationReviewBinding reviewBinding =
                 new CodePublicationReviewBinding(changeSet.changeSetRevisionId(),
                         local.bindingId(), true, List.of(), List.of(), localDigest);
         String branchRef = "refs/heads/" + task.branchName();
         String targetDigest = GitHubEffects.initialTargetSnapshotDigest(task.taskId(),
                 pr.prId(), task.repositoryId(), task.launchDigest(),
-                observation.repositoryExternalId(), observation.owner(),
-                observation.name(), observation.repositoryExternalId(),
-                observation.owner(), observation.name(),
+                repositoryExternalId, repositoryOwner,
+                repositoryName, repositoryExternalId,
+                repositoryOwner, repositoryName,
                 task.branchName(), branchRef, pr.targetBaseRef(), base.baseSha(),
                 changeSet.headSha(), policy.policyRevisionId());
-        TargetSnapshot target = githubEffects.storeInitialTargetSnapshot(
-                new TargetSnapshot(GitHubEffects.initialTargetSnapshotId(targetDigest),
-                        task.taskId(), pr.prId(), task.repositoryId(),
-                        task.launchDigest(), observation.repositoryExternalId(),
-                        observation.owner(), observation.name(),
-                        observation.repositoryExternalId(), observation.owner(),
-                        observation.name(), task.branchName(),
-                        branchRef, pr.targetBaseRef(), base.baseSha(),
-                        changeSet.headSha(), policy.policyRevisionId(), targetDigest, now));
+        TargetSnapshot target = new TargetSnapshot(
+                GitHubEffects.initialTargetSnapshotId(targetDigest),
+                task.taskId(), pr.prId(), task.repositoryId(),
+                task.launchDigest(), repositoryExternalId,
+                repositoryOwner, repositoryName,
+                repositoryExternalId, repositoryOwner,
+                repositoryName, task.branchName(), branchRef,
+                pr.targetBaseRef(), base.baseSha(), changeSet.headSha(),
+                policy.policyRevisionId(), targetDigest, createdAt);
         List<LocalCheckBinding> bindings = checks.runs().stream().map(check ->
                 new LocalCheckBinding(check.checkRunId(), check.profileId(),
                         check.conclusion())).toList();
@@ -2922,7 +3212,7 @@ public final class UserGates
                 target.baseRepositoryName(), target.headRepositoryExternalId(),
                 target.headRepositoryOwner(), target.headRepositoryName(), branchRef,
                 target.targetBaseRef(), target.targetSnapshotId(),
-                target.targetSnapshotDigest(), subjectDigest, runId, now);
+                target.targetSnapshotDigest(), subjectDigest, runId, createdAt);
         String actionDigest = initialActionDigest(subject, "KEEP_DRAFT");
         InitialPublishAction action = new InitialPublishAction(stableId(
                 "initial-publish-action:v1", subject.subjectId(), actionDigest),
@@ -2933,8 +3223,80 @@ public final class UserGates
                 subject.branchRef(), subject.targetBaseRef(), subject.expectedBaseSha(),
                 subject.proposedHead(), subject.draftRevisionId(), subject.draftDigest(),
                 subject.requiredCiPolicyRevisionId(), "KEEP_DRAFT",
-                subject.targetSnapshotId(), subject.targetSnapshotDigest(), now);
-        return new InitialGateBundle(local, subject, action);
+                subject.targetSnapshotId(), subject.targetSnapshotDigest(), createdAt);
+        return new InitialGateBundle(local, subject, action, target);
+    }
+
+    private InitialGateBundle requireInitialReadyBundle(
+            ReadyForReviewRequest request)
+    {
+        InitialPublishSubject subject = requireInitialSubject(
+                request.subjectRef());
+        InitialPublishAction action = requireInitialAction(
+                request.actionRef());
+        if (!request.runId().equals(subject.createdByRunId())
+                || !request.taskId().equals(subject.taskId())
+                || !request.prId().equals(subject.prId())
+                || !request.subjectDigest().equals(subject.subjectDigest())
+                || !request.actionDigest().equals(action.actionDigest())
+                || !actionMatchesInitialSubject(action, subject)) {
+            throw new IllegalStateException(
+                    "INITIAL ready request changed its sealed bundle");
+        }
+        assertStoredInitialSubject(subject);
+        TargetSnapshot target = githubEffects.initialTargetSnapshot(
+                subject.targetSnapshotId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "INITIAL ready target is missing"));
+        LocalReviewBinding local = localReviewBinding(
+                subject.localReview().bindingId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "INITIAL ready local review is missing"));
+        return new InitialGateBundle(local, subject, action, target);
+    }
+
+    private void assertInitialSubjectCurrent(
+            InitialPublishSubject subject,
+            InitialPublishAction action,
+            Claim claim,
+            WriterFence fence)
+    {
+        runtime.assertWriterFence(claim, fence);
+        InitialGateBundle current = deriveInitialPublish(
+                subject.createdByRunId(),
+                subject.baseRepositoryExternalId(),
+                subject.baseRepositoryOwner(),
+                subject.baseRepositoryName(),
+                subject.createdAt());
+        if (!current.subject().equals(subject)
+                || !current.action().equals(action)
+                || !current.target().targetSnapshotId().equals(
+                        subject.targetSnapshotId())) {
+            throw new FlowRuntime.StaleOwnerRevisionException(
+                    "INITIAL ready subject is no longer current");
+        }
+    }
+
+    private Inspection inspect(
+            Path repositoryRoot, InitialPublishSubject subject)
+    {
+        Task task = runtime.task(subject.taskId()).orElseThrow();
+        return worktreeInspector.inspect(
+                repositoryRoot,
+                Path.of(task.worktreePath()),
+                task.branchName(),
+                subject.expectedBaseSha(),
+                subject.proposedHead());
+    }
+
+    private static boolean inspectionMatches(
+            Inspection inspection, InitialPublishSubject subject)
+    {
+        return inspection.headSha().equals(subject.proposedHead())
+                && inspection.headTreeDigest().equals(
+                        subject.headTreeDigest())
+                && inspection.baseToHeadDiffDigest().equals(
+                        subject.diffDigest());
     }
 
     private void assertSubjectCurrent(
@@ -4482,19 +4844,79 @@ public final class UserGates
             throw new IllegalStateException("initial gate revision is inconsistent");
         }
         assertStoredInitialSubject(subject);
-        AgentRun parent = runtime.run(subject.createdByRunId()).orElseThrow(() ->
-                new IllegalStateException("initial parent run is missing"));
+        ReadyForReviewRequest ready = runtime.readyForReviewRequestForRun(
+                subject.createdByRunId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "initial ready request is missing"));
+        AgentRun readyRun = runtime.run(subject.createdByRunId()).orElseThrow(() ->
+                new IllegalStateException("initial ready run is missing"));
+        Operation readyOperation = runtime.operation(readyRun.operationId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "initial ready operation is missing"));
+        PendingWork readyInput = runtime.pendingWork(subject.taskId()).stream()
+                .filter(input -> Objects.equals(
+                        input.selectedByOperationId(), readyOperation.operationId()))
+                .findFirst().orElseThrow(() -> new IllegalStateException(
+                        "initial ready input is missing"));
         ReviewerRequest request = runtime.reviewerRequest(subject.reviewerRequestId())
                 .orElseThrow(() -> new IllegalStateException("initial reviewer request is missing"));
+        AgentRun parent = runtime.run(request.parentRunId()).orElseThrow(() ->
+                new IllegalStateException("initial reviewer parent is missing"));
         AgentRun reviewer = runtime.run(subject.reviewerRunId()).orElseThrow(() ->
                 new IllegalStateException("initial reviewer run is missing"));
         AgentResult result = runtime.resultForRun(subject.reviewerRunId()).orElseThrow(() ->
                 new IllegalStateException("initial reviewer result is missing"));
+        AgentResult parentResult = runtime.resultForRun(parent.runId()).orElseThrow(() ->
+                new IllegalStateException("initial reviewer parent result is missing"));
         Operation parentOperation = runtime.operation(parent.operationId()).orElseThrow(() ->
                 new IllegalStateException("initial parent operation is missing"));
         Operation reviewerOperation = runtime.operation(reviewer.operationId()).orElseThrow(() ->
                 new IllegalStateException("initial reviewer operation is missing"));
-        if (parent.role() != AgentRole.TASK_AGENT
+        Integer readyTransition = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_user_gate_transition
+                WHERE gate_id = ? AND gate_revision = ?
+                  AND from_state IS NULL AND to_state = 'OPEN'
+                  AND actor_type = 'PROGRAM'
+                  AND actor_id = ? AND reason_code = 'READY'
+                """,
+                Integer.class,
+                revision.gateId(), revision.revision(), READY_ACTOR);
+        if (!ready.requestId().equals(stableId(
+                        "ready-request", readyRun.runId(), subject.subjectId()))
+                || !ready.subjectRef().equals(subject.subjectId())
+                || !ready.subjectDigest().equals(subject.subjectDigest())
+                || !ready.actionRef().equals(action.actionRef())
+                || !ready.actionDigest().equals(action.actionDigest())
+                || !ready.operationId().equals(readyOperation.operationId())
+                || !ready.taskId().equals(subject.taskId())
+                || !ready.prId().equals(subject.prId())
+                || readyRun.role() != AgentRole.TASK_AGENT
+                || readyRun.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || readyRun.wakeKind() != WakeKind.AGENT_RESULT_READY
+                || readyRun.state() == RunState.QUEUED
+                || !readyRun.sessionId().equals(parent.sessionId())
+                || !readyRun.inputRef().equals(
+                        "inbox:" + readyInput.pendingId())
+                || !Objects.equals(readyRun.inputChangeSetRevisionId(),
+                        subject.changeSetRevisionId())
+                || readyRun.inputRemoteHeadSha() != null
+                || !readyRun.headSha().equals(subject.proposedHead())
+                || readyOperation.kind() != OperationKind.RUN_TASK_TURN
+                || !readyOperation.taskId().equals(subject.taskId())
+                || !readyOperation.ownerKind().equals("AGENT_RUN")
+                || !readyOperation.ownerId().equals(reviewer.runId())
+                || !readyOperation.inputRef().equals(
+                        "inbox:" + readyInput.pendingId())
+                || readyInput.kind() != PendingKind.AGENT_RESULT_READY
+                || readyInput.intendedGateKind() != GateIntent.INITIAL_PUBLISH
+                || !readyInput.externalKey().equals(reviewer.runId())
+                || !readyInput.subjectHead().equals(subject.proposedHead())
+                || !Objects.equals(
+                        readyInput.agentResultId(), result.resultId())
+                || !readyInput.payloadRef().equals(reviewerResultPayload(
+                        request.requestId(), result.resultId()))
+                || parent.role() != AgentRole.TASK_AGENT
                 || parent.intendedGateKind() != GateIntent.INITIAL_PUBLISH
                 || parentOperation.kind() != OperationKind.RUN_TASK_TURN
                 || !parentOperation.taskId().equals(subject.taskId())
@@ -4513,6 +4935,12 @@ public final class UserGates
                 || result.terminalOutcome() != TerminalOutcome.COMPLETED
                 || parent.state() == RunState.QUEUED
                 || parent.state() == RunState.RUNNING
+                || parentOperation.state() == OperationState.READY
+                || parentOperation.state() == OperationState.CLAIMED
+                || parentOperation.state() == OperationState.WAITING
+                || parentOperation.state() == OperationState.RETRYABLE
+                || !Objects.equals(parentOperation.resultRef(),
+                        parentResult.resultId())
                 || !result.runId().equals(reviewer.runId())
                 || !result.resultId().equals(subject.reviewerResultId())
                 || !request.changeSetRevisionId().equals(subject.changeSetRevisionId())
@@ -4523,7 +4951,9 @@ public final class UserGates
                 || !request.localCheckPolicyRevisionId().equals(
                         subject.localCheckPolicyRevisionId())
                 || !request.checkRunRefs().equals(subject.localChecks().stream()
-                        .map(LocalCheckBinding::checkRunId).toList())) {
+                        .map(LocalCheckBinding::checkRunId).toList())
+                || requireNonNull(readyTransition,
+                        "initial ready transition count is null") != 1) {
             throw new IllegalStateException("initial reviewer graph is inconsistent");
         }
     }

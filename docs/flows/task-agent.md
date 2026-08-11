@@ -175,6 +175,16 @@ These are narrative lifecycle steps, not persisted phases or stages.
    reference/excerpt, conclusion, policy revision, attempt sequence, and
    measured start/end head. Environment values are never hashed into evidence.
 
+The current ordinary-INITIAL implementation is narrower than this normative
+surface. Its first body exposes bounded read/edit, a fixed commit-and-adopt tool,
+and `request_initial_review(title, body)`. That terminal command mechanically
+materializes/reuses the one local unpublished PR, appends the exact draft, runs
+the program-selected INITIAL check profiles, and seals a fresh reviewer request.
+The exact reviewer-result successor may correct and commit another descendant,
+request a fresh review, or call `ready_for_initial_publish()` after a completed
+same-head review. It does not expose a generic shell, raw Git, owner IDs, or a
+question tool.
+
 ### Adversarial review
 
 8. When Task intends to present or publish the current committed change, it calls
@@ -182,9 +192,10 @@ These are narrative lifecycle steps, not persisted phases or stages.
 9. Runtime freezes the current head/diff/evidence, parks Task's mutation activity,
    starts a fresh read-only reviewer, and automatically stores its result.
 10. Runtime resumes Task with `AgentResultReady`; Task reads the opaque prose.
-11. Task decides which observations are actionable. It fixes accepted issues, reruns
-    checks, commits, and requests another exact-head review. If it materially
-    disagrees or needs a product choice, it calls `request_user_input`.
+11. Task decides which observations are actionable. It fixes accepted issues,
+    reruns checks, commits, and requests another exact-head review. The normative
+    future surface calls `request_user_input` for a material product choice; that
+    tool and its owner are not exposed in the current checkpoint.
 12. No program branch asks whether “findings exist.” Completion against the current
     head is the only objective reviewer fact.
 
@@ -268,6 +279,8 @@ cannot bypass it.
 | `run_checks(profile?)` | With no profile, derives the active gate kind and runs all policy-required profiles; an optional allowed profile runs only that focused check. Returns stored `LocalCheckRun` references, not agent-authored evidence |
 | `save_pr_draft(title, body)` | Before first publication only: on a clean committed non-empty diff, materializes the stable Local PR if absent and stores a title/body revision. Reject once remote identity exists; v1 has no post-publication metadata-edit effect |
 | `spawn_agent(role="adversarial_reviewer")` | Successful call returns `reviewRequestId`, seals/ends the parent turn, and durably queues the one allowed exact-head read-only reviewer request; the claimed reviewer operation later creates the child session/run |
+| `request_initial_review(title, body)` | Current ordinary-INITIAL terminal tool. After a fixed commit/adoption it materializes or reuses the one local unpublished PR, appends the bounded draft, records exact INITIAL checks, and seals the fresh read-only reviewer request. No owner IDs are accepted or returned. |
+| `ready_for_initial_publish()` | Current INITIAL reviewer-result terminal tool. It accepts no arguments, consumes one fresh authenticated repository observation into a stored target/subject/action/request bundle, and stops. Only the STOPPED finalizer may atomically open the manual INITIAL gate and settle the run/session/input/pointer/lease. |
 | `read_agent_result(run_id)` | Reads an already persisted result, primarily for recovery/history; normal completion is delivered automatically |
 | `list_local_review_items(batch_id?)` | Lists private local review items and current revision IDs; omission selects the authenticated active batch |
 | `read_local_review_item(revision_id)` | Returns one exact immutable local comment/thread revision |
@@ -280,16 +293,18 @@ cannot bypass it.
 | `propose_thread_resolution(content_revision_id, rationale?)` | Stores intent bound to the current observation for the next exact user gate; never resolves remotely |
 | `propose_keep_open(content_revision_id, rationale)` | Makes a deliberate non-resolution proposal visible to the user |
 | `ready_for_review()` | Zero-argument terminal declaration. Currently bound only to the CI-fix `AGENT_RESULT_READY` continuation: success freezes program-derived exact evidence, revokes tools, and lets the stopped finalizer open/revise a local `CI_UPDATE` gate. Rejection leaves tools live. It never authorizes an effect. |
-| `request_user_input(question)` | Successful call is terminal: stores the question plus a program-measured sealed worktree/sequencer state and blocks all writers until the exact user-answer successor resumes it |
+| `request_user_input(question)` | Normative deferred tool. It is not present in any current manifest; `TaskQuestions` has no production owner/bean in this checkpoint. |
 
 There is no timeline, push, mark-ready, GitHub-comment, GitHub-resolve, merge,
 Task-complete, arbitrary subagent, or direct CI-Fixer spawn tool.
 
 Current implementation note: `run_checks` is exposed only by the specialized
-`CI_FIX_READY`/changed-reviewer-result Task wrapper. Ordinary initial, upstream,
-feedback, and local-review Task wrappers remain deferred until their finalizer
-can durably convert an unproven process boundary into typed attention without
-releasing a successor writer.
+`CI_FIX_READY`/changed-reviewer-result Task wrapper. Ordinary INITIAL instead
+runs its program-selected check profiles inside the sealed reviewer-request
+command. Its private finalizer supports exact STOPPED recovery and converts a
+review-result continuation with no accepted terminal command into typed
+`MISSING_INITIAL_TERMINAL_REQUEST` attention. Upstream, feedback, local-review,
+and Task-question wrappers remain deferred.
 
 When the Task has an authenticated `UpstreamSyncRun`, runtime adds only the bounded
 `UPSTREAM_SYNC` capabilities defined by [Upstream Sync](./upstream-sync.md):
@@ -334,6 +349,10 @@ The Task Agent's standing instruction is short and explicit:
 | `GateSubjects.buildCurrent(taskId)` | Build the exact gate subject from current owner records after the run is sealed |
 | `GateReadiness.evaluate(subject)` | Return objective blockers without reading agent prose |
 | `GateCommands.openOrRevise(subject, actionManifest, evidence)` | Open/revise the appropriate exact user gate |
+
+`TaskQuestions.ask/answer` in this table are normative deferred contracts, not
+current production commands. No current prompt or tool manifest contains
+`request_user_input`.
 
 ## 8. Contracts with other components
 
@@ -396,11 +415,11 @@ The Task Agent's standing instruction is short and explicit:
 - The implemented CI binding references one User Gates-owned deterministic
   complete-empty local-review fact for the exact PR/change set and freezes an
   empty CI-memory reference list because no memory owner exists yet. Private
-  local-review comments/threads and initial/upstream/feedback/local-review Task
-  bindings remain deferred rather than consulting legacy state.
-- The initial gate freezes `KEEP_DRAFT` or `MARK_READY_ON_EXACT_GREEN`; only the
-  program applies that policy after publication and exact-head CI observation. It
-  may carry only across program-authorized `CI_UPDATE` heads.
+  local-review comments/threads and upstream/feedback/local-review Task bindings
+  remain deferred rather than consulting legacy state.
+- The implemented ordinary INITIAL binding freezes only `KEEP_DRAFT`. Its exact
+  stopped reviewer-result finalizer opens the manual gate; `MARK_READY_ON_EXACT_GREEN`
+  and partial-publication recovery gates remain deferred.
 - Any new head, check/review revision, PR draft, feedback revision, or applicable
   policy change stales the current gate mechanically.
 - GitHub effects execute only from a fresh user/standing authorization and produce

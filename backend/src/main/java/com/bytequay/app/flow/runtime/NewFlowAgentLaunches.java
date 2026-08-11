@@ -48,6 +48,33 @@ public final class NewFlowAgentLaunches
 {
     enum Program
     {
+        TASK_INITIAL(
+                AgentRole.TASK_AGENT,
+                "task-initial-prompt:v1",
+                "task-initial-capabilities:v1",
+                "task-initial-turn:v1",
+                "Implement the exact Task goal in the current worktree. "
+                        + "Use only supplied tools, commit the change, then "
+                        + "request exact review with a bounded PR draft. "
+                        + "Final prose is opaque.",
+                List.of("read_initial_task_context", "list_repository",
+                        "read_file", "search_repository", "write_file",
+                        "delete_file", "commit_initial_change",
+                        "request_initial_review")),
+        TASK_INITIAL_REVIEW_RESULT(
+                AgentRole.TASK_AGENT,
+                "task-initial-review-prompt:v1",
+                "task-initial-review-capabilities:v1",
+                "task-initial-review-turn:v1",
+                "Inspect the exact initial adversarial review against the "
+                        + "Task goal. Correct and request a fresh review, or "
+                        + "accept it with the terminal publish-readiness tool. "
+                        + "Final prose is opaque.",
+                List.of("read_initial_review_context", "read_candidate_diff",
+                        "list_repository", "read_file", "search_repository",
+                        "write_file", "delete_file", "commit_initial_change",
+                        "request_initial_review",
+                        "ready_for_initial_publish")),
         CI_REPAIR(
                 AgentRole.CI_FIXER,
                 "ci-fix-prompt:v1",
@@ -560,6 +587,12 @@ public final class NewFlowAgentLaunches
                 required.add("title");
                 required.add("markdown");
             }
+            case "request_initial_review" -> {
+                properties.putObject("title").put("type", "string");
+                properties.putObject("body").put("type", "string");
+                required.add("title");
+                required.add("body");
+            }
             default -> {
                 // Zero-argument program-owned subject.
             }
@@ -578,6 +611,11 @@ public final class NewFlowAgentLaunches
             case "run_checks" -> "Run the program-owned local check policy.";
             case "commit_repair" -> "Commit the current CI repair with a fixed message.";
             case "commit_task_change" -> "Commit and mechanically adopt a Task correction.";
+            case "commit_initial_change" -> "Commit and mechanically adopt the INITIAL Task change.";
+            case "read_initial_task_context" -> "Read the exact Task goal and immutable initial base.";
+            case "read_initial_review_context" -> "Read the exact Task goal and completed initial review.";
+            case "request_initial_review" -> "Save the local PR draft, run checks, and request exact review.";
+            case "ready_for_initial_publish" -> "Accept the exact initial review for manual publication.";
             case "inspect_cleanup" -> "Read the sealed cleanup state.";
             case "finish_cleanup" -> "Finish deterministic cleanup inspection.";
             case "read_ci_failure_context" -> "Read exact failing-check summaries.";

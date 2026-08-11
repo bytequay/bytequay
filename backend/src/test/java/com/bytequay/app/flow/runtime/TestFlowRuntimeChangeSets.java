@@ -51,6 +51,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -504,7 +505,17 @@ final class TestFlowRuntimeChangeSets
     {
         Claim claim = claim(kind);
         Task current = runtime.task(claim.taskId()).orElseThrow();
-        WriterFence fence = runtime.acquireWriterLease(
+        WriterFence fence = kind == OperationKind.RUN_TASK_TURN
+                ? FlowRuntimeTestSupport.acquireWriterFixture(
+                        runtime,
+                        claim,
+                        role,
+                        new WorktreeSnapshot(
+                                current.currentHeadSha(),
+                                "admission-tree:" + current.currentHeadSha(),
+                                "admission:" + current.currentHeadSha()),
+                        TTL)
+                : runtime.acquireWriterLease(
                 claim,
                 role,
                 new WorktreeSnapshot(
@@ -520,15 +531,20 @@ final class TestFlowRuntimeChangeSets
     private void run(ActiveWriter writer, Runnable body)
     {
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
-                writer.run().runId(),
-                writer.claim(),
-                writer.fence(),
-                capability -> {
+        var bodyCall = (Function<
+                InProcessWriterAgentSupervisor.WriterToolCapability,
+                InProcessWriterAgentSupervisor.AgentCompletion>) capability -> {
                     body.run();
                     return new InProcessWriterAgentSupervisor.AgentCompletion(
                             TerminalOutcome.COMPLETED, "done", null);
-                });
+                };
+        var handle = writer.run().role() == AgentRole.TASK_AGENT
+                ? FlowRuntimeTestSupport.launchWriterFixture(
+                        supervisor, runtime, writer.run().runId(),
+                        writer.claim(), writer.fence(), bodyCall)
+                : supervisor.launch(
+                        writer.run().runId(), writer.claim(), writer.fence(),
+                        bodyCall);
         assertThat(supervisor.awaitAndFinish(handle, TTL).terminalOutcome())
                 .isEqualTo(TerminalOutcome.COMPLETED);
     }

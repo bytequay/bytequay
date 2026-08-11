@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
@@ -29,8 +30,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
@@ -38,6 +41,119 @@ import static java.util.Objects.requireNonNull;
 public final class FlowRuntimeTestSupport
 {
     private FlowRuntimeTestSupport() {}
+
+    /** Test-only legacy fixture behind the private inspected-admission flag. */
+    public static FlowRuntimeRecords.WriterFence acquireWriterFixture(
+            FlowRuntime runtime,
+            Claim claim,
+            FlowRuntimeRecords.AgentRole role,
+            FlowRuntimeRecords.WorktreeSnapshot snapshot,
+            Duration ttl)
+    {
+        try {
+            Method method = FlowRuntime.class.getDeclaredMethod(
+                    "acquireWriterLease", Claim.class,
+                    FlowRuntimeRecords.AgentRole.class,
+                    FlowRuntimeRecords.WorktreeSnapshot.class,
+                    Duration.class, boolean.class);
+            method.setAccessible(true);
+            return (FlowRuntimeRecords.WriterFence) method.invoke(
+                    runtime, claim, role, snapshot, ttl, true);
+        }
+        catch (InvocationTargetException failure) {
+            if (failure.getCause() instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            throw new IllegalStateException(failure.getCause());
+        }
+        catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    public static InProcessWriterAgentSupervisor.ExecutionHandle
+            launchWriterFixture(
+                    InProcessWriterAgentSupervisor supervisor,
+                    FlowRuntime runtime,
+                    String runId,
+                    Claim claim,
+                    FlowRuntimeRecords.WriterFence fence,
+                    Function<InProcessWriterAgentSupervisor.WriterToolCapability,
+                            InProcessWriterAgentSupervisor.AgentCompletion>
+                            body)
+    {
+        return supervisor.launch(
+                runId, claim, fence, "RUNTIME_AGENT_RESULT",
+                (stoppedRun, stoppedClaim, stoppedFence, completion) ->
+                        finishWriterFixture(
+                                runtime, stoppedRun, stoppedClaim,
+                                stoppedFence, completion),
+                body);
+    }
+
+    public static InProcessWriterAgentSupervisor.ExecutionHandle
+            launchWriterFixture(
+                    InProcessWriterAgentSupervisor supervisor,
+                    FlowRuntime runtime,
+                    String runId,
+                    Claim claim,
+                    FlowRuntimeRecords.WriterFence fence,
+                    String finalizerKind,
+                    InProcessWriterAgentSupervisor.StoppedFinalizer finalizer,
+                    Function<InProcessWriterAgentSupervisor.WriterToolCapability,
+                            InProcessWriterAgentSupervisor.AgentCompletion>
+                            body)
+    {
+        return supervisor.launch(
+                runId, claim, fence, finalizerKind, finalizer, body);
+    }
+
+    public static FlowRuntimeRecords.AgentResult finishWriterFixture(
+            FlowRuntime runtime,
+            String runId,
+            Claim claim,
+            FlowRuntimeRecords.WriterFence fence,
+            InProcessWriterAgentSupervisor.AgentCompletion completion)
+    {
+        try {
+            Method method = FlowRuntime.class.getDeclaredMethod(
+                    "finishWriterAgentRun",
+                    String.class,
+                    Claim.class,
+                    FlowRuntimeRecords.WriterFence.class,
+                    FlowRuntimeRecords.TerminalOutcome.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    String.class,
+                    CiFixOutcome.class,
+                    String.class,
+                    String.class);
+            method.setAccessible(true);
+            return (FlowRuntimeRecords.AgentResult) method.invoke(
+                    runtime,
+                    runId,
+                    claim,
+                    fence,
+                    completion.terminalOutcome(),
+                    completion.finalContent(),
+                    completion.errorRef(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
+        }
+        catch (InvocationTargetException failure) {
+            if (failure.getCause() instanceof RuntimeException runtimeFailure) {
+                throw runtimeFailure;
+            }
+            throw new IllegalStateException(failure.getCause());
+        }
+        catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
 
     public static FlowRuntimeRecords.PullRequestSubject bindGitHubFixture(
             FlowRuntime runtime,
@@ -154,8 +270,8 @@ public final class FlowRuntimeTestSupport
                     """
                     INSERT OR IGNORE INTO flow_runtime_provision_subject (
                         operation_id, task_id, launch_digest, base_sha,
-                        mutation_digest, bound_at
-                    ) VALUES (?, ?, ?, ?, ?, 0)
+                        target_base_ref, mutation_digest, bound_at
+                    ) VALUES (?, ?, ?, ?, 'refs/heads/main', ?, 0)
                     """,
                     operation.operationId(),
                     task.taskId(),
@@ -168,6 +284,7 @@ public final class FlowRuntimeTestSupport
                             task.taskId(),
                             task.launchDigest(),
                             baseSha,
+                            "refs/heads/main",
                             "test-mutation:" + baseSha,
                             Instant.EPOCH);
             Constructor<TaskProvisioning.ProvisionedWorktree> constructor =
@@ -200,10 +317,13 @@ public final class FlowRuntimeTestSupport
             Task task = runtime.task(pr.taskId()).orElseThrow();
             var change = runtime.currentChangeSet(task.taskId()).orElseThrow();
             var base = runtime.currentBaseRevision(task.taskId()).orElseThrow();
-            var parent = jdbc.query("SELECT run_id, operation_id FROM flow_runtime_agent_run "
+            var parent = jdbc.query("SELECT run_id, operation_id, session_id FROM flow_runtime_agent_run "
                             + "WHERE operation_id = (SELECT operation_id FROM flow_runtime_change_set_revision "
                             + "WHERE change_set_revision_id = ?) AND role = 'TASK_AGENT'",
-                    (row, number) -> new String[] {row.getString("run_id"), row.getString("operation_id")},
+                    (row, number) -> new String[] {
+                        row.getString("run_id"),
+                        row.getString("operation_id"),
+                        row.getString("session_id")},
                     change.changeSetRevisionId()).getFirst();
             String localPolicy = jdbc.queryForObject("SELECT policy_revision_id "
                     + "FROM flow_runtime_local_check_policy_current WHERE repository_id = ?",
@@ -260,13 +380,54 @@ public final class FlowRuntimeTestSupport
                     reviewerResult, reviewerRun);
             jdbc.update("INSERT OR IGNORE INTO flow_runtime_reviewer_request "
                             + "(request_id, task_id, parent_operation_id, parent_run_id, reviewer_operation_id, repository_root, base_head_sha, reviewed_head_sha, remote_head_sha, origin_ci_fix_pending_id, origin_ci_fix_source_kind, origin_ci_fix_source_id, change_set_revision_id, local_check_policy_revision_id, head_tree_digest, diff_digest, intended_gate_kind, created_at) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'initial', 'REPAIR_ATTEMPT', 'initial', ?, ?, ?, ?, 'INITIAL_PUBLISH', 0)",
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, 'INITIAL_PUBLISH', 0)",
                     request, task.taskId(), parent[1], parent[0], reviewerOperation,
-                    task.repositoryRoot(), base.baseSha(), change.headSha(), base.baseSha(),
+                    task.repositoryRoot(), base.baseSha(), change.headSha(),
                     change.changeSetRevisionId(), localPolicy, change.headTreeDigest(), change.diffDigest());
             jdbc.update("INSERT OR IGNORE INTO flow_runtime_reviewer_check_ref "
                             + "(request_id, ordinal, check_run_ref) VALUES (?, 0, ?)", request, checkId);
-            return new InitialPublishLineage(parent[0], request, reviewerRun,
+            String readyInbox = stableId(
+                    "test-initial-ready-inbox", task.taskId());
+            String readyOperation = stableId(
+                    "test-initial-ready-operation", task.taskId());
+            String readyRun = stableId(
+                    "test-initial-ready-run", task.taskId());
+            long watermark = jdbc.queryForObject(
+                    "SELECT COALESCE(MAX(work_watermark), 0) + 1 "
+                            + "FROM flow_runtime_inbox WHERE task_id = ?",
+                    Long.class, task.taskId());
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_operation "
+                            + "(operation_id, owner_kind, owner_id, task_id, kind, subject_digest, input_ref, work_watermark, state, attempt, result_ref, created_at) "
+                            + "VALUES (?, 'AGENT_RUN', ?, ?, 'RUN_TASK_TURN', ?, ?, ?, 'CLAIMED', 1, NULL, 0)",
+                    readyOperation, reviewerRun, task.taskId(),
+                    "test-initial-ready-subject:" + reviewerResult,
+                    "inbox:" + readyInbox, watermark);
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_dispatch_ticket "
+                            + "(operation_id, not_before, claim_owner, claim_expires_at, claim_generation, claim_token, priority, delivery_state) "
+                            + "VALUES (?, 0, 'test-initial-ready', 60000, 1, 'test-initial-ready-token', 100, 'CLAIMED')",
+                    readyOperation);
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_inbox "
+                            + "(inbox_id, task_id, pr_id, source, external_key, revision, kind, subject_head, payload_ref, agent_result_id, intended_gate_kind, work_watermark, observed_at, selected_by_operation_id, handled_by_operation_id, terminal_reason) "
+                            + "VALUES (?, ?, ?, 'REVIEWER', ?, '1', 'AGENT_RESULT_READY', ?, ?, ?, 'INITIAL_PUBLISH', ?, 0, ?, NULL, NULL)",
+                    readyInbox, task.taskId(), prId, reviewerRun,
+                    change.headSha(),
+                    "reviewer-request:" + request + ":result:"
+                            + reviewerResult,
+                    reviewerResult, watermark, readyOperation);
+            jdbc.update("INSERT OR IGNORE INTO flow_runtime_agent_run "
+                            + "(run_id, operation_id, session_id, role, head_sha, prompt_manifest_ref, capability_set_ref, input_ref, input_change_set_revision_id, input_remote_head_sha, wake_kind, intended_gate_kind, state, failure_reason_code, created_at, started_at, completed_at) "
+                            + "VALUES (?, ?, ?, 'TASK_AGENT', ?, 'prompt:initial-ready', 'capability:initial-ready', ?, ?, NULL, 'AGENT_RESULT_READY', 'INITIAL_PUBLISH', 'RUNNING', NULL, 0, 0, NULL)",
+                    readyRun, readyOperation, parent[2], change.headSha(),
+                    "inbox:" + readyInbox, change.changeSetRevisionId());
+            jdbc.update("UPDATE flow_runtime_agent_session "
+                            + "SET state = 'RUNNING', last_run_id = ?, updated_at = 0 "
+                            + "WHERE session_id = ? AND state = 'IDLE'",
+                    readyRun, parent[2]);
+            jdbc.update("UPDATE flow_runtime_task "
+                            + "SET selected_writer_operation_id = ? "
+                            + "WHERE task_id = ? AND selected_writer_operation_id IS NULL",
+                    readyOperation, task.taskId());
+            return new InitialPublishLineage(readyRun, request, reviewerRun,
                     reviewerResult, draftId, checkId, ciPolicy);
         }
         catch (Exception error) {

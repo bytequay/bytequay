@@ -139,7 +139,10 @@ semantic launch contract.
 
 ### `WaitingMutationState`
 
-`request_user_input` may be called while the Task worktree or an upstream Git
+This is the normative deferred question-owner contract. The current production
+manifests do not expose `request_user_input`, and no `TaskQuestions` bean is
+composed. When implemented, `request_user_input` may be called while the Task
+worktree or an upstream Git
 sequencer is intentionally non-clean. The runtime therefore stores an immutable
 barrier instead of assuming that “waiting” means clean:
 
@@ -520,7 +523,7 @@ shapes.
 
 | Method | Caller | Required behavior |
 |---|---|---|
-| `TaskCommands.startTask(requestKey, repositoryId, goalText)` | `start_task` Trunk tool | Require a self-contained `goalText`. In one transaction create `Task`, initial lifecycle revision, `PROVISION_TASK` operation, and ticket. Return `task_id` immediately; normal conversation storage remains audit only. |
+| `TaskCommands.startTask(requestKey, repositoryId, goalText)` | Current internal program command seam; future `start_task` Trunk adapter is deferred | Require bounded request key/repository/goal text. In one transaction create `Task`, initial lifecycle revision, `PROVISION_TASK` operation, and ticket, then best-effort wake the generic and INITIAL lanes after commit. Return the Task immediately; normal conversation storage remains audit only. |
 | `TaskProvisioning.execute(claim)` | dispatcher | For a normal Task, validate the exact current claim and frozen repository/remote/ref/path graph, resolve the already-local configured ref, and durably bind its exact SHA before one replayable `git worktree add -b` with the derived branch/path. Revalidate repository identity and safe Git state on every generation. Exact worktree proof atomically appends the initial `TaskBaseRevision`, creates the idle Task Agent session, appends `CREATED -> ACTIVE`, persists `INITIAL`, ensures reconciliation, and settles once. It performs no fetch, provider/model call, or shared-checkout fallback. |
 | `WorkflowCommands.enqueueTurn(taskId, kind, subjectManifest)` | domain coordinators | Persist/deduplicate the pending inbox fact, then call `Reconciliation.ensure`; never make a second writer operation directly eligible. |
 | `DispatchQueue.claim(workerId, now)` | dispatcher | Atomically claim one eligible ticket and issue its expiring monotonic `claimToken`. A writer ticket is eligible only when its operation matches the Task's selected or reserved writer pointer. A `RUN_REVIEWER` ticket is eligible only when its exact parent has a durable `AgentResult`, that parent session is `PARKED_CHILD`, its selected-writer pointer is clear, and no writer lease remains; this predicate is the enforceable representation of “parent-blocked.” A reconciliation ticket waits while `selected_writer_operation_id` is live, but may run ahead of a parked reservation when a terminal/effect/recovery cause outranks it. A reserved ticket's direct eligibility predicate—not `WorkSelector`—checks predecessor result/pointer/lease plus those higher blockers. A CI cleanup successor is different: its mandatory handoff swaps it directly into `selected_writer_operation_id`, and a newly observed terminal fact cannot admit unrelated work ahead of consuming or quarantining that exact seal. A GitHub effect claim also locks its `prId` and permits only that PR's oldest eligible nonterminal `ExternalEffectPlan.prSequence`. An expired agent claim is not eligible for a new generation until `stopAndProve` records the prior generation dead. |
@@ -567,6 +570,9 @@ shapes.
 | `TaskCommands.cancel(taskId, expectedEpoch)` | authenticated user | Increment epoch, revoke future admission, and enqueue idempotent cleanup. It cannot undo proven external effects. |
 | `TaskLifecycle.acceptRemoteTerminal(taskId, observationRevision)` | GitHub observer owner command | From a fresh observation, mark a merge `COMPLETED` or an unmerged remote close `CANCELED`, then enqueue cleanup. |
 | `WorkflowRecovery.redrive(now)` | bounded scheduled maintenance | Expire claims/leases, make retryable tickets eligible, and ask GitHub integration to reconcile uncertain effect operations. |
+
+The two `TaskQuestions` rows above are normative deferred APIs. They are not
+production beans or callable tools in this checkpoint.
 
 `run_checks()` reads the program-owned `AgentRun.intendedGateKind` and runs every
 profile required by the current policy. Scheduling derives that value
@@ -624,15 +630,28 @@ revision. Formal check evidence is produced later against that adopted revision
 by the Task review/gate path; intermediate cleanup revisions are not supported.
 
 The current executable binding is deliberately narrower than the eventual Task
-surface: only `CI_FIX_READY` and its changed `AGENT_RESULT_READY` review turns
-launched by `CiFixReviewCoordinator` expose `run_checks`. Their specialized
-no-request finalizer converts an in-memory process-boundary seal into durable
-typed attention with no successor writer. Initial/upstream/feedback/local-review
-Task bindings remain deferred until they provide the same finalizer-aware
-attention/quarantine contract; the generic Task finalizer is not sufficient.
+surface. `CI_FIX_READY` and its changed `AGENT_RESULT_READY` review turns expose
+`run_checks` through `CiFixReviewCoordinator`. The disjoint INITIAL Task lane
+also owns the provisioned `INITIAL_TASK` first turn and exact
+`AGENT_RESULT_READY` initial-review successors. It supplies role-specific frozen
+manifests, bounded workspace tools, fixed commit/adoption, local PR/draft/check
+materialization, read-only reviewer lineage, and a private stopped finalizer.
+An INITIAL review-result run with no accepted fresh-review or ready command
+settles typed `MISSING_INITIAL_TERMINAL_REQUEST` attention without Git inspection.
+Upstream, feedback, local-review, and Task-question bindings remain deferred;
+the generic Task finalizer rejects every Task Agent run.
 
-`ready_for_review()` is implemented only on the `AGENT_RESULT_READY`
-continuation of the CI-fix review loop. It is a zero-argument semantic
+`ready_for_review()` remains the CI-fix `AGENT_RESULT_READY` declaration.
+Ordinary INITIAL uses the distinct zero-argument
+`ready_for_initial_publish()` declaration. Its live tool consumes a fresh
+authenticated repository observation into an immutable publication
+target/subject/action plus ReadyRequest seal, but opens no gate. After exact
+STOPPED proof, the INITIAL finalizer revalidates the successor input, predecessor
+reviewer request/result, draft/check/current-change-set graph, opens the manual
+INITIAL gate, and settles result/session/input/pointer/lease in one transaction.
+Restart uses only the stored bundle and never calls the provider again.
+
+The CI `ready_for_review()` tool is a zero-argument semantic
 declaration, not approval. Preflight derives the current clean change set,
 complete current Local Checks evidence, completed same-head reviewer request and
 result, current PR remote/branch, and current actionable CI round/policy. A
@@ -645,7 +664,7 @@ result/session/input/pointer/lease in one transaction. The binding contains no
 thread, comment, batch, status, or current pointer and grants no authority.
 Stable drift becomes typed `NEEDS_ATTENTION` with no gate;
 transient transaction failure rolls back for stopped-finalizer retry without
-rerunning the body. Initial/upstream/feedback/local-review ready bindings remain
+rerunning the body. Upstream, feedback, and local-review ready bindings remain
 deferred.
 
 For a current OPEN local `CI_UPDATE` revision, manual authorization atomically
@@ -721,7 +740,12 @@ are not inputs to this owner graph.
 
 The composed `NewFlowDispatcher` wires exactly the local `PROVISION_TASK`
 handler and never claims an unsupported kind merely to make the queue look
-active. Concrete owner lanes separately claim only GitHub `INITIAL_PUBLISH`,
+active. A small program-owned `TaskCommands` bean validates a bounded request
+key/repository/goal, delegates to `TaskProvisioning.startTask`, and wakes the
+generic and INITIAL lanes after commit. It is not exposed by a controller,
+frontend, Trunk tool, old service, or dual write. The INITIAL Task lane claims
+only exact provisioned first turns and initial-review/reviewer continuations.
+Concrete owner lanes separately claim only GitHub `INITIAL_PUBLISH`,
 GitHub `CI_UPDATE`, receipt-owned `OBSERVE_CI`, and the bounded greenfield CI
 agent graph (`RECONCILE_TASK`, fixer/cleanup, CI Task continuations, reviewer,
 learner). The optional read-only learner is serialized by that sole lane but
@@ -751,10 +775,12 @@ clone with a real `.git` directory. A linked-worktree `.git` file is rejected at
 this boundary. Supporting another repository layout requires a later typed
 catalog contract; this checkpoint performs no migration or fetch.
 
-This checkpoint still does not admit a live Task, expose `start_task`, disable
-old beans, or claim cutover. The CI owner lane can invoke the neutral
-`TurnRunner` only for already-durable greenfield CI work. The remaining changes
-require their own complete composition and acceptance boundary.
+This checkpoint admits a Task only through the internal program-owned
+`TaskCommands` bean and proves that path in production composition. It does not
+expose a controller/frontend/Trunk `start_task`, disable old beans, dual-write,
+or claim cutover. `TaskQuestions`/`request_user_input`, upstream, feedback,
+mark-ready, merge, and legacy removal require later complete acceptance
+boundaries.
 
 ## 7. Agent-to-agent protocol
 

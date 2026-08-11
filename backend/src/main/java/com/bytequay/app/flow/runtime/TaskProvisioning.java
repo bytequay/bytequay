@@ -135,6 +135,7 @@ public final class TaskProvisioning
             String taskId,
             String launchDigest,
             String baseSha,
+            String targetBaseRef,
             String mutationDigest,
             Instant boundAt)
     {
@@ -144,6 +145,7 @@ public final class TaskProvisioning
             requireText(taskId, "taskId");
             requireText(launchDigest, "launchDigest");
             requireObjectId(baseSha, "baseSha");
+            requireFullRef(targetBaseRef, "targetBaseRef");
             requireText(mutationDigest, "mutationDigest");
             requireNonNull(boundAt, "boundAt is null");
         }
@@ -287,9 +289,9 @@ public final class TaskProvisioning
     public Task startTask(
             String requestKey, String repositoryId, String goalText)
     {
-        requireText(requestKey, "requestKey");
-        requireText(repositoryId, "repositoryId");
-        requireText(goalText, "goalText");
+        requireBoundedText(requestKey, "requestKey", 256, false);
+        requireBoundedText(repositoryId, "repositoryId", 256, false);
+        requireBoundedText(goalText, "goalText", 16_384, true);
         Optional<Task> replay = runtime.taskForRequestKey(requestKey);
         if (replay.isPresent()) {
             Task existing = replay.orElseThrow();
@@ -478,9 +480,9 @@ public final class TaskProvisioning
 
     private ResolvedSubject resolveAndBind(Claim claim, Task task)
     {
-        String baseSha;
+        ResolvedBase base;
         try {
-            baseSha = preflight(task);
+            base = preflight(task);
         }
         catch (TransientProvisioningFailure unavailable) {
             rearmClaimed(claim, "PROVISION_UNAVAILABLE");
@@ -490,6 +492,7 @@ public final class TaskProvisioning
             failBeforeSubject(claim, task, failure.code);
             throw new TerminalProvisioningDisposition();
         }
+        String baseSha = base.baseSha();
         String mutationDigest = stableId(
                 "provision-mutation-v1",
                 task.repositoryRoot(),
@@ -498,6 +501,7 @@ public final class TaskProvisioning
                 task.branchName(),
                 branchRef(task),
                 task.worktreePath(),
+                base.targetBaseRef(),
                 baseSha);
         return requireNonNull(transactions.execute(ignored -> {
             assertClaimedGraph(claim, task);
@@ -505,6 +509,8 @@ public final class TaskProvisioning
             if (replay.isPresent()) {
                 ResolvedSubject existing = replay.orElseThrow();
                 if (!existing.baseSha().equals(baseSha)
+                        || !existing.targetBaseRef().equals(
+                                base.targetBaseRef())
                         || !existing.mutationDigest().equals(mutationDigest)) {
                     throw new IllegalStateException(
                             "provisioning subject changed during binding");
@@ -515,25 +521,28 @@ public final class TaskProvisioning
                     """
                     INSERT INTO flow_runtime_provision_subject (
                         operation_id, task_id, launch_digest, base_sha,
+                        target_base_ref,
                         mutation_digest, bound_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     claim.operationId(),
                     task.taskId(),
                     task.launchDigest(),
                     baseSha,
+                    base.targetBaseRef(),
                     mutationDigest,
                     clock.instant().toEpochMilli());
             return requireSubject(claim.operationId());
         }), "subject transaction returned null");
     }
 
-    private String preflight(Task task)
+    private ResolvedBase preflight(Task task)
     {
         validateRepository(task, true);
         Path root = Path.of(task.repositoryRoot());
+        ResolvedTarget target = targetBaseRef(task, root);
         ProcessResult base = command(root,
-                "rev-parse", "--verify", "--quiet", task.baseRef());
+                "rev-parse", "--verify", "--quiet", target.remoteRef());
         requireComplete(base);
         if (base.exitCode() != 0) {
             throw new StableProvisioningFailure("BASE_REF_UNAVAILABLE");
@@ -546,7 +555,40 @@ public final class TaskProvisioning
             throw new StableProvisioningFailure("BASE_REF_INVALID");
         }
         validateBoundBase(task, baseSha);
-        return baseSha;
+        if (task.baseRef().endsWith("/HEAD")
+                && !targetBaseRef(task, root).equals(target)) {
+            throw new TransientProvisioningFailure();
+        }
+        return new ResolvedBase(baseSha, target.targetBaseRef());
+    }
+
+    private ResolvedTarget targetBaseRef(Task task, Path root)
+    {
+        String prefix = "refs/remotes/" + task.remoteName() + "/";
+        String remoteRef = task.baseRef();
+        if (remoteRef.equals(prefix + "HEAD")) {
+            ProcessResult symbolic = command(
+                    root, "symbolic-ref", "--quiet", remoteRef);
+            requireComplete(symbolic);
+            if (symbolic.exitCode() != 0) {
+                throw new StableProvisioningFailure(
+                        "BASE_TARGET_UNAVAILABLE");
+            }
+            remoteRef = symbolic.stdout().strip();
+        }
+        if (!remoteRef.startsWith(prefix)
+                || remoteRef.length() == prefix.length()
+                || remoteRef.equals(prefix + "HEAD")) {
+            throw new StableProvisioningFailure("BASE_TARGET_INVALID");
+        }
+        String target = "refs/heads/" + remoteRef.substring(prefix.length());
+        try {
+            requireFullRef(target, "target base");
+        }
+        catch (IllegalArgumentException malformed) {
+            throw new StableProvisioningFailure("BASE_TARGET_INVALID");
+        }
+        return new ResolvedTarget(remoteRef, target);
     }
 
     private void validateRepository(Task task, boolean worktreeMustBeAbsent)
@@ -1101,6 +1143,7 @@ public final class TaskProvisioning
                 task.branchName(),
                 branchRef(task),
                 task.worktreePath(),
+                subject.targetBaseRef(),
                 subject.baseSha());
         if (!operation.operationId().equals(subject.operationId())
                 || !operation.taskId().equals(task.taskId())
@@ -1218,6 +1261,7 @@ public final class TaskProvisioning
                         result.getString("task_id"),
                         result.getString("launch_digest"),
                         result.getString("base_sha"),
+                        result.getString("target_base_ref"),
                         result.getString("mutation_digest"),
                         Instant.ofEpochMilli(result.getLong("bound_at"))),
                 operationId).stream().findFirst();
@@ -1227,6 +1271,31 @@ public final class TaskProvisioning
     {
         return subject(operationId).orElseThrow();
     }
+
+    String targetBaseRef(String taskId)
+    {
+        requireText(taskId, "taskId");
+        List<ResolvedSubject> matches = jdbc.query(
+                "SELECT * FROM flow_runtime_provision_subject WHERE task_id = ?",
+                (result, row) -> new ResolvedSubject(
+                        result.getString("operation_id"),
+                        result.getString("task_id"),
+                        result.getString("launch_digest"),
+                        result.getString("base_sha"),
+                        result.getString("target_base_ref"),
+                        result.getString("mutation_digest"),
+                        Instant.ofEpochMilli(result.getLong("bound_at"))),
+                taskId);
+        if (matches.size() != 1) {
+            throw new IllegalStateException(
+                    "Task does not own one provisioning target base");
+        }
+        return matches.getFirst().targetBaseRef();
+    }
+
+    private record ResolvedBase(String baseSha, String targetBaseRef) {}
+
+    private record ResolvedTarget(String remoteRef, String targetBaseRef) {}
 
     private static List<String> mutationArguments(Task task, String baseSha)
     {
@@ -1531,6 +1600,21 @@ public final class TaskProvisioning
     {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
+    private static void requireBoundedText(
+            String value, String name, int maxLength,
+            boolean allowLayoutWhitespace)
+    {
+        requireText(value, name);
+        boolean invalidControl = value.chars().anyMatch(character ->
+                Character.isISOControl(character)
+                        && (!allowLayoutWhitespace
+                            || (character != '\n' && character != '\r'
+                                && character != '\t')));
+        if (value.length() > maxLength || invalidControl) {
+            throw new IllegalArgumentException(name + " is invalid or too long");
         }
     }
 

@@ -225,14 +225,15 @@ class TestCiAutofixCoordinator
 
         char[] credential = "initial-secret".toCharArray();
         AtomicInteger lookups = new AtomicInteger();
-        GateRevision opened = userGates.openInitialPublish(
-                lineage.parentRunId(), () -> initialRepositoryObservation(
+        GateRevision opened = openInitialPublish(
+                runtime, userGates, lineage.parentRunId(),
+                () -> initialRepositoryObservation(
                         runtime, lineage.parentRunId(), "101", "101",
                         credential, lookups));
         var subject = userGates.initialSubject(opened.subjectManifestRef()).orElseThrow();
         var action = userGates.initialAction(opened.actionManifestRef()).orElseThrow();
-        GateRevision openReplay = userGates.openInitialPublish(
-                lineage.parentRunId(), () -> {
+        GateRevision openReplay = openInitialPublish(
+                runtime, userGates, lineage.parentRunId(), () -> {
                     throw new AssertionError(
                             "durable gate replay performed provider lookup");
                 });
@@ -283,8 +284,8 @@ class TestCiAutofixCoordinator
         for (String[] ids : List.<String[]>of(
                 new String[] {"not-numeric", "not-numeric"})) {
             char[] token = "invalid-secret".toCharArray();
-            assertThatThrownBy(() -> userGates.openInitialPublish(
-                    lineage.parentRunId(), () ->
+            assertThatThrownBy(() -> openInitialPublish(
+                    runtime, userGates, lineage.parentRunId(), () ->
                             initialRepositoryObservation(
                                     runtime, lineage.parentRunId(), ids[0],
                                     ids[1], token, new AtomicInteger())))
@@ -300,13 +301,13 @@ class TestCiAutofixCoordinator
                 .isEqualTo(gates);
 
         AtomicReference<GateRevision> winner = new AtomicReference<>();
-        GateRevision outer = userGates.openInitialPublish(
-                lineage.parentRunId(), () -> {
+        GateRevision outer = openInitialPublish(
+                runtime, userGates, lineage.parentRunId(), () -> {
                     var losing = initialRepositoryObservation(
                             runtime, lineage.parentRunId(), "202", "202",
                             "loser".toCharArray(), new AtomicInteger());
-                    winner.set(userGates.openInitialPublish(
-                            lineage.parentRunId(), () ->
+                    winner.set(openInitialPublish(
+                            runtime, userGates, lineage.parentRunId(), () ->
                                     initialRepositoryObservation(
                                             runtime, lineage.parentRunId(),
                                             "101", "101",
@@ -322,6 +323,13 @@ class TestCiAutofixCoordinator
         assertThat(count(
                 "flow_github_initial_publish_target_snapshot", "1 = 1"))
                 .isEqualTo(targets + 1);
+        assertThat(count(
+                "flow_user_gate_initial_publish_subject",
+                "created_by_run_id = '" + lineage.parentRunId() + "'"))
+                .isEqualTo(1);
+        assertThat(count(
+                "flow_user_gate_initial_publish_action", "1 = 1"))
+                .isEqualTo(1);
     }
 
     @Test
@@ -340,8 +348,8 @@ class TestCiAutofixCoordinator
                         + "WHERE target_snapshot_id = ?",
                 subject.targetSnapshotId());
 
-        assertThatThrownBy(() -> userGates.openInitialPublish(
-                lineage.parentRunId(), () -> {
+        assertThatThrownBy(() -> openInitialPublish(
+                runtime, userGates, lineage.parentRunId(), () -> {
                     throw new AssertionError(
                             "corrupt replay performed provider lookup");
                 }))
@@ -3355,8 +3363,10 @@ class TestCiAutofixCoordinator
                     runtime.advanceRemoteHead(
                             pr.prId(), publishedHead, movedDuringParent);
                     request.set(capability.spawnAdversarialReviewer());
-                    assertThat(capability.spawnAdversarialReviewer())
-                            .isEqualTo(request.get());
+                    assertThatThrownBy(
+                            capability::spawnAdversarialReviewer)
+                            .isInstanceOf(FlowRuntime
+                                    .StaleCapabilityException.class);
                     assertThatThrownBy(() -> capability.runTool(() -> {}))
                             .isInstanceOf(
                                     FlowRuntime.StaleCapabilityException.class);
@@ -3641,8 +3651,9 @@ class TestCiAutofixCoordinator
                         capability -> {
                             acceptance.set(
                                     capability.readyForReview().status());
-                            assertThat(capability.readyForReview().status())
-                                    .isEqualTo("ACCEPTED_SEALED");
+                            assertThatThrownBy(capability::readyForReview)
+                                    .isInstanceOf(FlowRuntime
+                                            .StaleCapabilityException.class);
                             assertThatThrownBy(
                                     capability::spawnAdversarialReviewer)
                                     .isInstanceOf(FlowRuntime
@@ -6250,7 +6261,7 @@ class TestCiAutofixCoordinator
     }
 
     @Test
-    void realExecutorCommitsAttemptBeforeItsOnlyProviderCall()
+    void realExecutorCommitsAttemptBeforeItsOnlyProviderCallAndReplaysSystemClock()
     {
         CompletedReady ready = openReadyGate("executor-attempt-boundary");
         GateRevision revision = ready.revision();
@@ -6269,7 +6280,7 @@ class TestCiAutofixCoordinator
                 githubEffects,
                 claim,
                 step,
-                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                Clock.systemUTC(),
                 () -> assertThat(count(
                         "flow_github_external_effect_attempt",
                         "operation_id = '" + claim.operationId() + "'"))
@@ -6280,6 +6291,9 @@ class TestCiAutofixCoordinator
         assertThat(count(
                 "flow_github_external_effect_receipt", "1 = 1"))
                 .isEqualTo(1);
+        assertThat(receipt.recordedAt().getNano() % 1_000_000).isZero();
+        assertThat(githubEffects.exactReceipt(authorized.planId()))
+                .contains(receipt);
 
         restart();
         assertThat(executeApplied(
@@ -6288,7 +6302,7 @@ class TestCiAutofixCoordinator
                 githubEffects,
                 claim,
                 githubEffects.steps(authorized.planId()).getFirst(),
-                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                Clock.systemUTC(),
                 () -> {
                     throw new AssertionError(
                             "terminal replay must not call the provider");
@@ -8943,7 +8957,8 @@ class TestCiAutofixCoordinator
         assertThat(selected.kind()).isEqualTo(OperationKind.RUN_TASK_TURN);
         Claim turn = claim(OperationKind.RUN_TASK_TURN);
         Task current = runtime.task(turn.taskId()).orElseThrow();
-        WriterFence fence = runtime.acquireWriterLease(
+        WriterFence fence = FlowRuntimeTestSupport.acquireWriterFixture(
+                runtime,
                 turn,
                 AgentRole.TASK_AGENT,
                 new WorktreeSnapshot(
@@ -8954,7 +8969,9 @@ class TestCiAutofixCoordinator
         AgentRun run = runtime.startWriterAgent(
                 turn, fence, "prompt:task", "capabilities:task");
         var supervisor = new InProcessWriterAgentSupervisor(runtime);
-        var handle = supervisor.launch(
+        var handle = FlowRuntimeTestSupport.launchWriterFixture(
+                supervisor,
+                runtime,
                 run.runId(),
                 turn,
                 fence,

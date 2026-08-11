@@ -17,10 +17,12 @@ import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
+import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
 import com.bytequay.app.flow.github.GitHubEffects;
 import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.agents.TurnRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -64,6 +66,7 @@ class TestNewFlowConfiguration
                         () -> mock(WatchedRepoStore.class))
                 .withBean(CredentialStore.class,
                         () -> mock(CredentialStore.class))
+                .withBean(TurnRunner.class, () -> mock(TurnRunner.class))
                 .withPropertyValues(
                         "bytequay.new-flow.database-path=" + newFlowPath,
                         "bytequay.new-flow.worktree-root="
@@ -91,6 +94,10 @@ class TestNewFlowConfiguration
                             GitHubInitialPublishDispatcher.class);
                     GitHubCiObservationDispatcher observation = context.getBean(
                             GitHubCiObservationDispatcher.class);
+                    GitHubCiUpdateDispatcher ciUpdate = context.getBean(
+                            GitHubCiUpdateDispatcher.class);
+                    CiAutofixDispatcher ciAgents = context.getBean(
+                            CiAutofixDispatcher.class);
 
                     assertThat(ReflectionTestUtils.getField(checks, "runtime"))
                             .isSameAs(runtime);
@@ -124,6 +131,14 @@ class TestNewFlowConfiguration
                             .isSameAs(effects);
                     assertThat(ReflectionTestUtils.getField(
                             observation, "runtime")).isSameAs(runtime);
+                    assertThat(ReflectionTestUtils.getField(
+                            ciUpdate, "runtime")).isSameAs(runtime);
+                    assertThat(ReflectionTestUtils.getField(
+                            ciUpdate, "gates")).isSameAs(gates);
+                    assertThat(ReflectionTestUtils.getField(
+                            ciAgents, "runtime")).isSameAs(runtime);
+                    assertThat(ReflectionTestUtils.getField(
+                            ciAgents, "coordinator")).isSameAs(coordinator);
                     assertThat(newFlowPath).exists();
                 });
         assertThat(Files.readAllBytes(primaryPath))

@@ -14,8 +14,11 @@
 package com.bytequay.app.flow.github;
 
 import com.bytequay.app.flow.ci.CiAutofixCoordinator;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.InitialPublishRecords.Plan;
+import com.bytequay.app.flow.runtime.CiAutofixDispatcher;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
@@ -23,6 +26,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.repository.CredentialStore;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -121,6 +125,7 @@ class TestGitHubOwnerDispatchers
         GitHubCiObservationDispatcher dispatcher =
                 new GitHubCiObservationDispatcher(
                         runtime, mock(CiAutofixCoordinator.class),
+                        mock(CiAutofixDispatcher.class),
                         mock(CredentialStore.class), fixedClock(),
                         "ci-observer", Duration.ofSeconds(1),
                         Duration.ofMillis(10), 1);
@@ -129,6 +134,45 @@ class TestGitHubOwnerDispatchers
 
         verify(runtime).recoverExpiredCiObservation("bad", 1);
         verify(runtime).recoverExpiredCiObservation("good", 1);
+    }
+
+    @Test
+    void onlyCommittedQueuedRedSignalsRepairPreemption()
+    {
+        FlowRuntime runtime = mock(FlowRuntime.class);
+        CiAutofixDispatcher ciAgents = mock(CiAutofixDispatcher.class);
+        Claim first = new Claim(
+                "observation-1", "task", OperationKind.OBSERVE_CI,
+                1, "token-1", "observer", NOW.plusSeconds(60));
+        Claim second = new Claim(
+                "observation-2", "task", OperationKind.OBSERVE_CI,
+                1, "token-2", "observer", NOW.plusSeconds(60));
+        when(runtime.expiredClaims()).thenReturn(List.of());
+        when(runtime.claimNextCiObservation(
+                anyString(), any(Duration.class), anyInt()))
+                .thenReturn(Optional.of(first), Optional.of(second));
+        GitHubCiObservationDispatcher dispatcher =
+                new GitHubCiObservationDispatcher(
+                        runtime, mock(CiAutofixCoordinator.class), ciAgents,
+                        mock(CredentialStore.class), fixedClock(),
+                        "ci-observer", Duration.ofSeconds(1),
+                        Duration.ofMillis(10), 1);
+        GitHubCiObservationExecutor executor =
+                mock(GitHubCiObservationExecutor.class);
+        ReflectionTestUtils.setField(dispatcher, "executor", executor);
+        CiRound queued = mock(CiRound.class);
+        when(queued.state()).thenReturn(RoundState.QUEUED);
+        CiRound green = mock(CiRound.class);
+        when(green.state()).thenReturn(RoundState.GREEN);
+        when(executor.execute(first)).thenReturn(Optional.of(queued));
+        when(executor.execute(second)).thenReturn(Optional.of(green));
+
+        assertThat(dispatcher.dispatchOnce()).isTrue();
+        assertThat(dispatcher.dispatchOnce()).isTrue();
+
+        verify(ciAgents).repairAvailable();
+        verify(executor).execute(first);
+        verify(executor).execute(second);
     }
 
     @Test
@@ -156,6 +200,29 @@ class TestGitHubOwnerDispatchers
         assertThat(dispatcher.dispatchOnce()).isTrue();
 
         verify(gates).recoverExpiredInitialPublish("good", 1);
+    }
+
+    @Test
+    void ciUpdateLaneClaimsOnlyItsDisjointPublishOwner()
+    {
+        FlowRuntime runtime = mock(FlowRuntime.class);
+        when(runtime.expiredClaims()).thenReturn(List.of());
+        when(runtime.claimNextCiUpdatePublish(
+                anyString(), any(Duration.class), anyInt()))
+                .thenReturn(Optional.empty());
+        GitHubCiUpdateDispatcher dispatcher =
+                new GitHubCiUpdateDispatcher(
+                        runtime, mock(UserGates.class),
+                        mock(GitHubEffects.class),
+                        mock(CredentialStore.class), fixedClock(),
+                        new GitHubCiUpdateDispatcher.Config(
+                                "ci-update-worker", Duration.ofSeconds(1),
+                                Duration.ofMillis(10), 1));
+
+        assertThat(dispatcher.dispatchOnce()).isFalse();
+
+        verify(runtime).claimNextCiUpdatePublish(
+                "ci-update-worker", Duration.ofSeconds(1), 1);
     }
 
     private static GitHubInitialPublishDispatcher initial(FlowRuntime runtime)

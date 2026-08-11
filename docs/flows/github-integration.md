@@ -311,8 +311,9 @@ reliably wiped, so they are never persisted or logged. URLs, arguments, and
 durable evidence contain no credentials.
 
 Feedback/reply, ready effects, merge, webhooks, multi-provider adapters, and
-cutover remain deferred. Production composes bounded INITIAL publication and
-GitHub CI-observation lanes using the exact repository-scoped credential source.
+cutover remain deferred. Production composes disjoint bounded INITIAL and
+CI_UPDATE publication lanes plus the GitHub CI-observation lane using the exact
+repository-scoped credential source.
 `cancelAttention` is intentionally absent: an `UNKNOWN`
 attempt retains the oldest-plan barrier until an exact later probe settles it.
 

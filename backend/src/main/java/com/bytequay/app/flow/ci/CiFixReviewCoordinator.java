@@ -46,6 +46,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.flow.runtime.ImmutableGitObjectReader;
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor;
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.AgentCompletion;
 import com.bytequay.app.flow.runtime.InProcessReviewerAgentSupervisor.ExecutionHandle;
@@ -151,7 +152,7 @@ public final class CiFixReviewCoordinator
         private final Path repositoryRoot;
         private final String taskId;
         private final String runId;
-        private final String changeSetRevisionId;
+        private String changeSetRevisionId;
         private final GateIntent intendedGateKind;
         private final CiFixReviewOrigin origin;
         private final UserGates userGates;
@@ -238,6 +239,14 @@ public final class CiFixReviewCoordinator
                     localChecks, repositoryRoot, profileName);
         }
 
+        /** Program-only adoption after the fixed local commit tool returns. */
+        public void adoptCurrentChangeSet()
+        {
+            ChangeSetRevision adopted = writer.adoptChangeSet(
+                    repositoryRoot, changeSetRevisionId);
+            changeSetRevisionId = adopted.changeSetRevisionId();
+        }
+
         /** Terminal command over the exact program-owned review subject. */
         public ReviewerRequest spawnAdversarialReviewer()
         {
@@ -303,6 +312,127 @@ public final class CiFixReviewCoordinator
             requireNonNull(fence, "fence is null");
             requireNonNull(run, "run is null");
         }
+    }
+
+    /** Exact CI aggregate and immutable diff behind two zero-choice tools. */
+    public final class TaskToolContext
+    {
+        private final AgentRun run;
+        private final Path repositoryRoot;
+        private final String taskId;
+        private final String goalText;
+        private final String baseHead;
+        private final String reviewedHead;
+        private final String summary;
+
+        private TaskToolContext(
+                AgentRun run,
+                Path repositoryRoot,
+                String taskId,
+                String goalText,
+                String baseHead,
+                String reviewedHead,
+                String summary)
+        {
+            this.run = run;
+            this.repositoryRoot = repositoryRoot;
+            this.taskId = taskId;
+            this.goalText = goalText;
+            this.baseHead = baseHead;
+            this.reviewedHead = reviewedHead;
+            this.summary = summary;
+        }
+
+        public String readCiFixContext()
+        {
+            assertTaskToolContext(this);
+            return "taskGoal=" + goalText + "\n" + summary;
+        }
+
+        public byte[] readCandidateDiff()
+        {
+            assertTaskToolContext(this);
+            return new ImmutableGitObjectReader(
+                    repositoryRoot, baseHead, reviewedHead).readDiff();
+        }
+    }
+
+    public TaskToolContext taskToolContext(TaskInspectionBinding binding)
+    {
+        requireNonNull(binding, "binding is null");
+        AgentResult result = binding.projection().fixerResult();
+        return taskToolContext(
+                binding.run(),
+                binding.repositoryRoot(),
+                binding.projection().output().baseSha(),
+                binding.projection().output().headSha(),
+                "fixerOutcome=" + result.terminalOutcome()
+                        + "\nfixerError="
+                        + Objects.toString(result.errorRef(), "")
+                        + "\nfixerSummary="
+                        + bounded(result.finalContent()));
+    }
+
+    public TaskToolContext taskToolContext(ReviewerResultBinding binding)
+    {
+        requireNonNull(binding, "binding is null");
+        return taskToolContext(
+                binding.run(),
+                binding.repositoryRoot(),
+                binding.request().baseHeadSha(),
+                binding.request().reviewedHeadSha(),
+                "reviewOutcome=" + binding.result().terminalOutcome()
+                        + "\nreviewError="
+                        + Objects.toString(binding.result().errorRef(), "")
+                        + "\nreviewSummary="
+                        + bounded(binding.result().finalContent()));
+    }
+
+    private TaskToolContext taskToolContext(
+            AgentRun run,
+            Path repositoryRoot,
+            String baseHead,
+            String reviewedHead,
+            String summary)
+    {
+        Operation operation = runtime.operation(run.operationId())
+                .orElseThrow();
+        Task task = runtime.task(operation.taskId()).orElseThrow();
+        TaskToolContext context = new TaskToolContext(
+                run, repositoryRoot, task.taskId(), task.goalText(),
+                baseHead, reviewedHead, summary);
+        assertTaskToolContext(context);
+        return context;
+    }
+
+    private void assertTaskToolContext(TaskToolContext context)
+    {
+        AgentRun current = runtime.run(context.run.runId()).orElseThrow();
+        Operation operation = runtime.operation(current.operationId())
+                .orElseThrow();
+        Task task = runtime.task(context.taskId).orElseThrow();
+        if (!current.runId().equals(context.run.runId())
+                || !current.operationId().equals(context.run.operationId())
+                || !current.sessionId().equals(context.run.sessionId())
+                || !current.headSha().equals(context.run.headSha())
+                || !current.inputRef().equals(context.run.inputRef())
+                || !operation.taskId().equals(context.taskId)
+                || !task.goalText().equals(context.goalText)
+                || current.role() != AgentRole.TASK_AGENT
+                || (current.state() != RunState.QUEUED
+                    && current.state() != RunState.RUNNING)) {
+            throw new IllegalStateException(
+                    "Task tool context changed after binding");
+        }
+    }
+
+    private static String bounded(String content)
+    {
+        if (content == null) {
+            return "";
+        }
+        return content.length() <= 16_384
+                ? content : content.substring(0, 16_384);
     }
 
     /** Cross-validates the CI aggregate, then consumes inspected admission. */
@@ -566,6 +696,42 @@ public final class CiFixReviewCoordinator
         requireNonNull(binding, "binding is null");
         return supervisor.awaitAndFinalize(
                 handle, timeout, taskFinalizerKey(binding.run().runId()));
+    }
+
+    /** Replays only the exact durable STOPPED Task completion. */
+    public AgentResult recoverExpiredStoppedTaskTurn(
+            String operationId, long generation, Duration ttl)
+    {
+        FlowRuntime.StoppedWriterRecovery recovery =
+                runtime.reviveExpiredStoppedWriter(
+                        operationId, generation, ttl);
+        Operation operation = runtime.operation(operationId).orElseThrow();
+        if (operation.kind() != OperationKind.RUN_TASK_TURN
+                || (!operation.ownerKind().equals("CI_ATTEMPT")
+                    && !operation.ownerKind().equals("AGENT_RUN"))) {
+            throw new IllegalArgumentException(
+                    "stopped Task turn is not a CI continuation");
+        }
+        return finishTaskTurn(
+                recovery.run().runId(), recovery.claim(), recovery.fence(),
+                new InProcessWriterAgentSupervisor.AgentCompletion(
+                        recovery.completion().terminalOutcome(),
+                        recovery.completion().finalContent(),
+                        recovery.completion().errorRef()));
+    }
+
+    /** Replays only the exact durable STOPPED read-only reviewer completion. */
+    public AgentResult recoverExpiredStoppedReviewer(
+            String operationId, long generation, Duration ttl)
+    {
+        FlowRuntime.StoppedReviewerRecovery recovery =
+                runtime.reviveExpiredStoppedReviewer(
+                        operationId, generation, ttl);
+        return runtime.finishReviewerAgentRun(
+                recovery.run().runId(), recovery.claim(),
+                recovery.completion().terminalOutcome(),
+                recovery.completion().finalContent(),
+                recovery.completion().errorRef());
     }
 
     private AgentResult finishTaskTurn(

@@ -499,6 +499,32 @@ CREATE TABLE flow_runtime_agent_result (
     FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id)
 );
 
+-- Set-once launch authority for the neutral TurnRunner. Secrets never enter
+-- this database; credential_id/updated_at name the exact main-store revision
+-- that must still exist immediately before the first provider request.
+CREATE TABLE flow_runtime_agent_launch_binding (
+    run_id TEXT PRIMARY KEY,
+    provider_name TEXT NOT NULL,
+    transport TEXT NOT NULL CHECK (
+        transport IN ('ANTHROPIC', 'OPENAI_COMPAT')
+    ),
+    endpoint TEXT NOT NULL,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    credential_id INTEGER NOT NULL,
+    credential_name TEXT NOT NULL,
+    credential_instance TEXT NOT NULL,
+    credential_updated_at TEXT NOT NULL,
+    prompt_revision TEXT NOT NULL,
+    prompt_digest TEXT NOT NULL,
+    tool_manifest_digest TEXT NOT NULL,
+    max_output_tokens INTEGER NOT NULL CHECK (max_output_tokens > 0),
+    max_tool_iterations INTEGER NOT NULL CHECK (max_tool_iterations > 0),
+    binding_digest TEXT NOT NULL,
+    bound_at INTEGER NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES flow_runtime_agent_run (run_id)
+);
+
 CREATE TABLE flow_runtime_agent_process_attempt (
     process_attempt_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -522,6 +548,12 @@ CREATE TABLE flow_runtime_agent_process_attempt (
     ),
     stop_proof_ref TEXT,
     stopped_at INTEGER,
+    completion_outcome TEXT CHECK (
+        completion_outcome IN ('COMPLETED', 'FAILED', 'CANCELED')
+    ),
+    completion_content TEXT,
+    completion_error_ref TEXT,
+    completion_digest TEXT,
     quarantine_reason TEXT CHECK (
         quarantine_reason IN (
             'UNCOOPERATIVE_CANCELLATION',
@@ -552,7 +584,11 @@ CREATE TABLE flow_runtime_agent_process_attempt (
             AND capability_revoked_at IS NOT NULL
             AND stop_type IS NOT NULL
             AND stop_proof_ref IS NOT NULL
-            AND stopped_at IS NOT NULL)
+            AND stopped_at IS NOT NULL
+            AND completion_outcome IS NOT NULL
+            AND completion_digest IS NOT NULL
+            AND ((completion_outcome = 'COMPLETED')
+                OR completion_error_ref IS NOT NULL))
     ),
     CHECK (
         (quarantine_reason IS NULL AND quarantined_at IS NULL)

@@ -13,10 +13,9 @@
  */
 package com.bytequay.app.flow.github;
 
-import com.bytequay.app.flow.ci.CiAutofixCoordinator;
-import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
-import com.bytequay.app.flow.runtime.CiAutofixDispatcher;
+import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.runtime.FlowRuntime;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.repository.CredentialStore;
 import org.slf4j.Logger;
@@ -30,59 +29,59 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static java.util.Objects.requireNonNull;
 
-/** Bounded owner lane for durable receipt-owned GitHub CI reads. */
-public final class GitHubCiObservationDispatcher
+/** Bounded owner lane for exact one-step CI_UPDATE publication plans. */
+public final class GitHubCiUpdateDispatcher
         implements AutoCloseable
 {
     private static final Logger log = LoggerFactory.getLogger(
-            GitHubCiObservationDispatcher.class);
+            GitHubCiUpdateDispatcher.class);
+
+    public record Config(
+            String workerId, Duration claimTtl, Duration pollInterval,
+            int capacity)
+    {
+        public Config
+        {
+            if (workerId == null || workerId.isBlank()
+                    || claimTtl == null || claimTtl.isNegative()
+                    || claimTtl.isZero()
+                    || pollInterval == null || pollInterval.isNegative()
+                    || pollInterval.isZero() || capacity < 1) {
+                throw new IllegalArgumentException(
+                        "CI update dispatcher config is invalid");
+            }
+        }
+    }
 
     private final FlowRuntime runtime;
-    private final GitHubCiObservationExecutor executor;
-    private final CiAutofixDispatcher ciAgents;
-    private final String workerId;
-    private final Duration claimTtl;
-    private final Duration pollInterval;
-    private final int capacity;
+    private final UserGates gates;
+    private final GitHubEffects effects;
+    private final GitHubCiUpdateExecutor executor;
+    private final Config config;
     private final AtomicBoolean running = new AtomicBoolean();
     private final ReentrantLock wakeLock = new ReentrantLock();
     private final Condition wakeSignal = wakeLock.newCondition();
     private volatile Thread thread;
 
-    public GitHubCiObservationDispatcher(
+    public GitHubCiUpdateDispatcher(
             FlowRuntime runtime,
-            CiAutofixCoordinator coordinator,
-            CiAutofixDispatcher ciAgents,
+            UserGates gates,
+            GitHubEffects effects,
             CredentialStore credentials,
             Clock clock,
-            String workerId,
-            Duration claimTtl,
-            Duration pollInterval,
-            int capacity)
+            Config config)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
-        requireNonNull(coordinator, "coordinator is null");
-        this.ciAgents = requireNonNull(ciAgents, "ciAgents is null");
-        requireNonNull(credentials, "credentials is null");
-        requireNonNull(clock, "clock is null");
-        if (workerId == null || workerId.isBlank()
-                || claimTtl == null || claimTtl.isNegative()
-                || claimTtl.isZero()
-                || pollInterval == null || pollInterval.isNegative()
-                || pollInterval.isZero() || capacity < 1) {
-            throw new IllegalArgumentException(
-                    "CI observation dispatcher config is invalid");
-        }
-        this.workerId = workerId;
-        this.claimTtl = claimTtl;
-        this.pollInterval = pollInterval;
-        this.capacity = capacity;
-        this.executor = new GitHubCiObservationExecutor(
-                runtime, coordinator,
-                new GitHubCiProvider(
-                        GitHubInitialPublishDispatcher.repoSecrets(credentials),
-                        clock),
-                clock);
+        this.gates = requireNonNull(gates, "gates is null");
+        this.effects = requireNonNull(effects, "effects is null");
+        this.config = requireNonNull(config, "config is null");
+        GitHubProvider provider = new GitHubProvider(
+                runtime,
+                GitHubInitialPublishDispatcher.repoSecrets(
+                        requireNonNull(credentials, "credentials is null")));
+        this.executor = new GitHubCiUpdateExecutor(
+                gates, effects, provider,
+                requireNonNull(clock, "clock is null"));
     }
 
     public void start()
@@ -90,8 +89,8 @@ public final class GitHubCiObservationDispatcher
         if (!running.compareAndSet(false, true)) {
             return;
         }
-        Thread worker = Thread.ofPlatform().daemon(true).name(workerId)
-                .unstarted(this::run);
+        Thread worker = Thread.ofPlatform().daemon(true)
+                .name(config.workerId()).unstarted(this::run);
         thread = worker;
         worker.start();
     }
@@ -120,32 +119,30 @@ public final class GitHubCiObservationDispatcher
         }
         worker.interrupt();
         try {
-            worker.join(pollInterval.plusSeconds(1).toMillis());
+            worker.join(config.pollInterval().plusSeconds(1).toMillis());
         }
         catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
         }
         if (worker.isAlive()) {
             throw new IllegalStateException(
-                    "CI observation handler ignored interruption");
+                    "CI update publication ignored interruption");
         }
     }
 
     boolean dispatchOnce()
     {
         boolean changed = recoverExpired();
-        var claim = runtime.claimNextCiObservation(
-                workerId, claimTtl, capacity);
+        var claim = runtime.claimNextCiUpdatePublish(
+                config.workerId(), config.claimTtl(), config.capacity());
         if (claim.isEmpty()) {
             return changed;
         }
         try {
-            executor.execute(claim.orElseThrow())
-                    .filter(round -> round.state() == RoundState.QUEUED)
-                    .ifPresent(ignored -> ciAgents.repairAvailable());
+            executor.execute(claim.orElseThrow());
         }
         catch (RuntimeException failure) {
-            log.warn("GitHub CI observation failed; recovery owns retry",
+            log.warn("CI_UPDATE publication failed; recovery owns retry",
                     failure);
         }
         return true;
@@ -154,18 +151,33 @@ public final class GitHubCiObservationDispatcher
     private boolean recoverExpired()
     {
         boolean changed = false;
-        for (var expired : runtime.expiredClaims()) {
-            if (expired.kind() != OperationKind.OBSERVE_CI) {
+        for (ExpiredClaim expired : runtime.expiredClaims()) {
+            if (expired.kind() != OperationKind.PUBLISH) {
                 continue;
             }
             try {
-                runtime.recoverExpiredCiObservation(
-                        expired.operationId(), expired.generation());
+                var operation = runtime.operation(expired.operationId());
+                if (operation.isEmpty()) {
+                    continue;
+                }
+                var plan = effects.plan(operation.orElseThrow().inputRef());
+                if (plan.isEmpty()
+                        || !plan.orElseThrow().operationId().equals(
+                                expired.operationId())) {
+                    continue;
+                }
+                if (effects.attempts(plan.orElseThrow().planId()).isEmpty()) {
+                    gates.recoverExpiredCiUpdateEffect(
+                            expired.operationId(), expired.generation());
+                }
+                else {
+                    gates.recoverExpiredCiUpdateProbe(
+                            expired.operationId(), expired.generation());
+                }
                 changed = true;
             }
             catch (RuntimeException failure) {
-                log.warn("GitHub CI observation recovery failed for {}",
-                        expired.operationId(), failure);
+                log.warn("CI_UPDATE publication recovery failed", failure);
             }
         }
         return changed;
@@ -174,13 +186,13 @@ public final class GitHubCiObservationDispatcher
     private void run()
     {
         while (running.get()) {
-            boolean changed = false;
+            boolean changed;
             try {
                 changed = dispatchOnce();
             }
             catch (RuntimeException failure) {
-                log.warn("GitHub CI observation poll failed; retrying",
-                        failure);
+                log.warn("CI_UPDATE publication poll failed; retrying", failure);
+                changed = false;
             }
             if (!changed) {
                 awaitWake();
@@ -193,7 +205,7 @@ public final class GitHubCiObservationDispatcher
         wakeLock.lock();
         try {
             if (running.get()) {
-                wakeSignal.awaitNanos(pollInterval.toNanos());
+                wakeSignal.awaitNanos(config.pollInterval().toNanos());
             }
         }
         catch (InterruptedException interrupted) {

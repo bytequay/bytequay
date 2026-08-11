@@ -28,6 +28,28 @@ flow.
 The shortest correct replacement is preferred. Do not recreate the former
 stage graph under new names.
 
+### Current production composition foundation
+
+The application now composes the greenfield owners on one qualified,
+non-primary SQLite data source at `new-flow.db`. Startup installs the four
+tracked new-flow schema resources in one `BEGIN IMMEDIATE` transaction, records
+a length/path-framed resource digest and a recomputed `sqlite_schema` catalog
+digest, and fails closed on a partial install, drift, foreign-key violation, or
+failed integrity check. The existing application data source, JPA/Flyway
+history, and legacy readers/writers remain separate and unchanged.
+
+This is a composition foundation, not Task admission or flow cutover. The
+greenfield dispatcher has no production handlers yet, so it claims and executes
+no operation. Once an exact handler is wired, one synchronous worker selects
+the highest-priority eligible durable ticket across only those wired kinds in
+the same immediate transaction that enforces capacity one. Committed claims
+and unproven `ACTIVATED` process attempts consume that capacity. Durable polling
+is the correctness path; an after-commit wake is only a latency hint, and
+expired work is routed through its kind-specific recovery. No controller,
+Trunk tool, existing Task creator, provider/model call, or old dispatcher is
+connected to this foundation. Old execution beans remain active until a later
+explicit cutover proves the complete greenfield command and body graph.
+
 ## System in one sentence
 
 One Task owns one branch, one worktree, one persistent Task Agent, at most one

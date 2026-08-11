@@ -71,10 +71,13 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -1585,12 +1588,62 @@ public final class FlowRuntime
     public synchronized Optional<Claim> claimNext(
             String workerId, Duration claimTtl)
     {
+        return claimNext(workerId, claimTtl, null, Integer.MAX_VALUE);
+    }
+
+    /**
+     * Claims one exact wired local-runtime kind under the durable capacity
+     * bound. The production data source begins this transaction IMMEDIATE.
+     */
+    public synchronized Optional<Claim> claimNextForDispatch(
+            Set<OperationKind> kinds,
+            String workerId,
+            Duration claimTtl,
+            int capacity)
+    {
+        requireNonNull(kinds, "kinds is null");
+        if (kinds.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<OperationKind> exactKinds = Set.copyOf(kinds);
+        if (exactKinds.contains(OperationKind.PUBLISH)
+                || exactKinds.contains(OperationKind.OBSERVE_CI)
+                || exactKinds.contains(OperationKind.RUN_CI_LEARNING)) {
+            throw new IllegalArgumentException(
+                    "owner-specific kinds require their own claim path");
+        }
+        if (capacity < 1) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
+        return claimNext(workerId, claimTtl, exactKinds, capacity);
+    }
+
+    private Optional<Claim> claimNext(
+            String workerId,
+            Duration claimTtl,
+            Set<OperationKind> exactKinds,
+            int capacity)
+    {
         requireText(workerId, "workerId");
         requirePositive(claimTtl, "claimTtl");
         return inTransaction(() -> {
+            if (activeDispatchCount() >= capacity) {
+                return Optional.empty();
+            }
             Instant now = clock.instant();
-            List<ClaimCandidate> candidates = jdbc.query(
-                    """
+            List<String> kindNames = exactKinds == null
+                    ? List.of()
+                    : exactKinds.stream()
+                            .map(Enum::name)
+                            .sorted()
+                            .toList();
+            String kindFilter = kindNames.isEmpty()
+                    ? ""
+                    : "AND o.kind IN ("
+                            + String.join(", ", Collections.nCopies(
+                                    kindNames.size(), "?"))
+                            + ")";
+            String claimSql = """
                     SELECT o.operation_id, o.task_id, o.kind,
                            d.claim_generation
                     FROM flow_runtime_operation o
@@ -1602,6 +1655,7 @@ public final class FlowRuntime
                     WHERE o.state = 'READY'
                       AND d.delivery_state = 'AVAILABLE'
                       AND d.not_before <= ?
+                      %s
                       AND (
                           o.kind = 'PROVISION_TASK'
                           OR (o.kind = 'RECONCILE_TASK'
@@ -1665,13 +1719,18 @@ public final class FlowRuntime
                       )
                     ORDER BY d.priority DESC, d.not_before, o.operation_id
                     LIMIT 32
-                    """,
+                    """.formatted(kindFilter);
+            List<Object> parameters = new ArrayList<>();
+            parameters.add(now.toEpochMilli());
+            parameters.addAll(kindNames);
+            List<ClaimCandidate> candidates = jdbc.query(
+                    claimSql,
                     (result, row) -> new ClaimCandidate(
                             result.getString("operation_id"),
                             result.getString("task_id"),
                             OperationKind.valueOf(result.getString("kind")),
                             result.getLong("claim_generation")),
-                    now.toEpochMilli());
+                    parameters.toArray());
             for (ClaimCandidate candidate : candidates) {
                 long generation = candidate.generation() + 1;
                 String token = UUID.randomUUID().toString();
@@ -1717,6 +1776,29 @@ public final class FlowRuntime
             }
             return Optional.empty();
         });
+    }
+
+    /** Counts claimed work and every process whose death is still unproven. */
+    private int activeDispatchCount()
+    {
+        Integer active = jdbc.queryForObject(
+                """
+                SELECT COUNT(DISTINCT operation_id)
+                FROM (
+                    SELECT o.operation_id
+                    FROM flow_runtime_operation o
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    WHERE o.state = 'CLAIMED'
+                      AND d.delivery_state = 'CLAIMED'
+                    UNION ALL
+                    SELECT p.operation_id
+                    FROM flow_runtime_agent_process_attempt p
+                    WHERE p.state = 'ACTIVATED'
+                ) active
+                """,
+                Integer.class);
+        return requireNonNull(active, "active dispatch count is null");
     }
 
     /** Claims the oldest exact authorized publication plan for one PR. */

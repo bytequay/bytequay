@@ -682,6 +682,31 @@ Every asynchronous command follows one durable boundary:
 No process is started before transaction commit. A crash after commit can lose only a
 best-effort notification; the durable ticket is still claimable.
 
+### Current production composition boundary
+
+`NewFlowConfiguration` creates one shared runtime/Local Checks/CI/User Gates/
+GitHub-effects owner graph on the qualified, non-primary `newFlowDataSource`.
+`NewFlowDatabase` installs `runtime.sql`, `ci-autofix.sql`, `user-gates.sql`, and
+`github-effects.sql`, in that order, in one `BEGIN IMMEDIATE` transaction. Its
+singleton marker binds the framed resource bundle and the sorted, framed
+`sqlite_schema` catalog; every reopen revalidates those digests, foreign keys,
+and SQLite integrity before use. A failed install leaves neither a partial
+schema nor an accepted marker; concurrent starters serialize to one complete
+accepted marker. The legacy primary data source and its Flyway/JPA lifecycle
+are not inputs to this owner graph.
+
+The composed `NewFlowDispatcher` is deliberately inert because this foundation
+wires no operation handler. It never claims an unsupported kind merely to make
+the queue look active. When a concrete handler is added, the runtime atomically
+chooses the highest-priority eligible ticket from the exact wired-kind set and
+enforces the fixed single-worker capacity from distinct claimed operations plus
+unproven `ACTIVATED` process attempts. Polling observes committed tickets even
+when a wake is lost or arrives early; shutdown interrupts the live handler and
+leaves any unfinished claim to typed owner recovery. This checkpoint does not
+admit a Task, expose `start_task`, invoke a model/provider, disable old beans, or
+claim cutover. Those changes require their own complete composition and
+acceptance boundary.
+
 ## 7. Agent-to-agent protocol
 
 Only the Task Agent creates an adversarial reviewer child:

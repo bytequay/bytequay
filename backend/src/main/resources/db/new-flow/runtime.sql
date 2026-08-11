@@ -133,6 +133,10 @@ CREATE TABLE flow_runtime_remote_identity (
     publication_receipt_id TEXT NOT NULL,
     bound_at INTEGER NOT NULL,
     UNIQUE (provider, repository_external_id, pr_number),
+    UNIQUE (
+        remote_identity_id, provider, head_repository_external_id,
+        head_repository_owner, head_repository_name
+    ),
     CHECK (provider = 'GITHUB'),
     CHECK (
         repository_owner <> '' AND repository_name <> ''
@@ -154,6 +158,9 @@ CREATE TABLE flow_runtime_pr (
     remote_identity_id TEXT UNIQUE,
     current_remote_head TEXT,
     created_at INTEGER NOT NULL,
+    UNIQUE (
+        pr_id, task_id, repository_id, branch_name, remote_identity_id
+    ),
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
     FOREIGN KEY (created_from_change_set_revision_id)
         REFERENCES flow_runtime_change_set_revision (change_set_revision_id),

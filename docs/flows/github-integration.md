@@ -480,8 +480,9 @@ Unexpected changes include:
 - PR draft/action digest;
 - referenced semantic content or thread eligibility, except the narrowly proven
   own-push anchor-only observation above;
-- authorization revision, or revocation of an unclaimed automatic
-  authorization before execution starts;
+- authorization revision, or revocation of an automatic authorization with no
+  prior committed exact `EFFECT_BEGIN` (a claimed ticket alone is not frozen
+  authority; recovered post-begin execution is);
 - PR lifecycle or repository identity; or
 - required-check policy.
 

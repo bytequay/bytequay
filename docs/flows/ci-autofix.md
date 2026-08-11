@@ -565,15 +565,18 @@ does not rerun the agent body.
 
 The implemented manual command supplies the local user's semantic review for an
 exact current OPEN `CI_UPDATE` revision and rejects a historical absent binding.
-It atomically stores the immutable authorization, one-step GitHub push plan,
+A fixed-local-user one-shot Task consent lasting at most 24 hours can authorize
+only a newly opened exact revision whose local checks are all `PASSED`;
+manual-only `UNAVAILABLE` remains manual. Granting consent never scans an
+existing gate. Both paths atomically store the immutable authorization, one-step GitHub push plan,
 runtime `PUBLISH` operation, and ticket; that commit installs the publication
 barrier. Claim locks the PR and admits the exact stored graph only at its oldest
 nonterminal sequence. Begin revalidates all current owners and records
 `EXECUTING` without calling Git or GitHub. The concrete GitHub executor then
 commits a distinct immutable attempt before each possible exact-lease call
-(maximum two) and accepts only an exact remote probe as success proof. Standing
-consent, general observation
-routing, and timeline events remain deferred.
+(maximum two) and accepts only an exact remote probe as success proof.
+Configurable/multi-use consent, consent UI, general observation routing, and
+timeline events remain deferred.
 
 ### 4. Authorize and push
 
@@ -586,10 +589,11 @@ For a CI-only candidate:
 
 - `GateCommands.openOrRevise(...)` persists the exact `CI_UPDATE` gate revision;
 - without standing consent, the user calls the canonical exact-digest
-  `GateCommands.authorize(...)` defined by [User Gates](./user-gates.md); and
-- with current Task-scoped `CI_UPDATE` standing consent,
-  `ConsentEvaluator.maybeAuthorize(...)` may authorize that same exact revision
-  only after all normal readiness facts are rechecked.
+  `UserGates.authorizeCiUpdate(...)` defined by
+  [User Gates](./user-gates.md); and
+- with a current unused one-shot Task-scoped `CI_UPDATE` consent, the
+  stopped-ready transaction may authorize the newly opened exact revision only
+  after all normal readiness facts are rechecked.
 
 Either authorization path atomically persists the authorization, frozen GitHub
 effect plan, runtime `Operation`, and unique `DispatchTicket`. A best-effort

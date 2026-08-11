@@ -621,11 +621,16 @@ deferred.
 
 For a current OPEN local `CI_UPDATE` revision, manual authorization atomically
 adds the immutable authorization, GitHub-owned one-step plan, and one `PUBLISH`
-operation/ticket. That nonterminal operation is the Task publication barrier:
+operation/ticket. A current one-shot Task consent can create that identical
+graph only while the stopped-ready transaction opens a new fully eligible
+revision; there is no scan of existing OPEN gates. That nonterminal operation
+is the Task publication barrier:
 reconciliation parks, writer claim/lease/fence and Task lifecycle changes reject.
 `claimNextPublish` locks the PR and admits only its oldest nonterminal
 `prSequence`; `beginCiUpdateEffect` records `AUTHORIZED -> EXECUTING` after exact
-revalidation but makes no provider call. The GitHub executor runs outside owner
+revalidation but makes no provider call. An automatic authorization also
+requires its exact consent revision to remain current, enabled, and unexpired
+until this transition; later revocation cannot undo `EXECUTING`. The GitHub executor runs outside owner
 transactions, commits the exact attempt before the mutation call, and settles
 only from a sealed exact remote observation. Stable drift records terminal
 STALE only before any attempt; later uncertainty retains the barrier in

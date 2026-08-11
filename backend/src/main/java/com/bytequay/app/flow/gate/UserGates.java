@@ -17,6 +17,7 @@ import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiUpdateGateEvidence;
 import com.bytequay.app.flow.gate.UserGateRecords.AuthorizedCiUpdate;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateAction;
+import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateConsentRevision;
 import com.bytequay.app.flow.gate.UserGateRecords.CiUpdateEffectActivation;
 import com.bytequay.app.flow.gate.UserGateRecords.CodePublicationReviewBinding;
 import com.bytequay.app.flow.gate.UserGateRecords.GateAuthorization;
@@ -102,6 +103,8 @@ public final class UserGates
     private static final String AUTHORIZATION_ACTOR =
             "USER_GATES_AUTHORIZATION";
     private static final String MANUAL_ACTOR = "LOCAL_DESKTOP_USER";
+    private static final String CONSENT_ACTOR = "USER_GATES_CI_CONSENT";
+    private static final Duration MAX_CONSENT_DURATION = Duration.ofHours(24);
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -169,6 +172,15 @@ public final class UserGates
         public String reasonCode()
         {
             return reasonCode;
+        }
+    }
+
+    public static final class ConsentRejectedException
+            extends IllegalStateException
+    {
+        private ConsentRejectedException(String reasonCode)
+        {
+            super(reasonCode);
         }
     }
 
@@ -523,7 +535,7 @@ public final class UserGates
             assertPreparedFinalization(prepared, claim, fence);
             GateRevision revision = openOrRevise(
                     prepared.request, prepared.subject, prepared.action);
-            return runtime.finishTaskAgentReadyTurn(
+            AgentResult result = runtime.finishTaskAgentReadyTurn(
                     runId,
                     claim,
                     fence,
@@ -532,7 +544,182 @@ public final class UserGates
                     errorRef,
                     gateRevisionRef(revision),
                     null);
+            maybeAuthorizeNewCiUpdate(
+                    revision,
+                    prepared.subject,
+                    prepared.action,
+                    prepared.inspection);
+            return result;
         });
+    }
+
+    /** Grants one future automatic CI_UPDATE use for at most 24 hours. */
+    public synchronized CiUpdateConsentRevision grantCiUpdateConsent(
+            String taskId,
+            Instant expiresAt,
+            String idempotencyKey)
+    {
+        requireText(taskId, "taskId");
+        requireText(idempotencyKey, "idempotencyKey");
+        requireNonNull(expiresAt, "expiresAt is null");
+        Instant now = clock.instant();
+        if (!expiresAt.equals(Instant.ofEpochMilli(expiresAt.toEpochMilli()))
+                || !expiresAt.isAfter(now)
+                || expiresAt.isAfter(now.plus(MAX_CONSENT_DURATION))
+                || idempotencyKey.length() > 256) {
+            throw new IllegalArgumentException(
+                    "consent expiry/idempotency key is invalid");
+        }
+        CiUpdateConsentRevision replay = grantReplay(
+                consentByKey(idempotencyKey), taskId, expiresAt);
+        if (replay != null) {
+            return replay;
+        }
+        return inTransaction(() -> {
+            if (!expiresAt.isAfter(clock.instant())) {
+                throw new ConsentRejectedException("CONSENT_EXPIRED");
+            }
+            Task task = runtime.task(taskId).orElseThrow(() ->
+                    new ConsentRejectedException("CONSENT_TASK_MISSING"));
+            if (task.status() != TaskStatus.ACTIVE || task.prId() == null) {
+                throw new ConsentRejectedException(
+                        "CONSENT_TASK_INELIGIBLE");
+            }
+            String consentId = stableId("ci-update-consent:v1", taskId);
+            Optional<CiUpdateConsentRevision> current =
+                    currentConsentForTask(taskId);
+            if (current.isPresent()) {
+                lockCurrentConsent(
+                        consentId, current.orElseThrow().revision());
+            }
+            PullRequestSubject pr = runtime.pullRequest(task.prId())
+                    .orElseThrow(() -> new ConsentRejectedException(
+                            "CONSENT_PR_MISSING"));
+            runtime.assertAndLockCiUpdatePr(pr);
+            CiUpdateConsentRevision lockedReplay = grantReplay(
+                    consentByKey(idempotencyKey), taskId, expiresAt);
+            if (lockedReplay != null) {
+                return lockedReplay;
+            }
+            if (!pr.published()
+                    || !pr.taskId().equals(task.taskId())
+                    || !pr.repositoryId().equals(task.repositoryId())
+                    || !pr.branchName().equals(task.branchName())) {
+                throw new ConsentRejectedException(
+                        "CONSENT_SCOPE_STALE");
+            }
+            current = currentConsentForTask(taskId);
+            if (hasNonterminalConsentEffect(taskId)) {
+                throw new ConsentRejectedException(
+                        "CONSENT_EFFECT_ACTIVE");
+            }
+            if (current.isPresent()) {
+                CiUpdateConsentRevision existing = current.orElseThrow();
+                if (existing.enabled()
+                        && existing.expiresAt().isAfter(now)
+                        && !consentUsed(existing)) {
+                    throw new ConsentRejectedException(
+                            "CONSENT_ALREADY_ACTIVE");
+                }
+            }
+            long revision = current.map(
+                    CiUpdateConsentRevision::revision).orElse(0L) + 1;
+            CiUpdateConsentRevision consent = consentRevision(
+                    consentId, revision, task, pr, true, expiresAt,
+                    idempotencyKey, now);
+            insertConsentRevision(consent);
+            if (current.isEmpty()) {
+                jdbc.update(
+                        "INSERT INTO flow_user_gate_ci_consent_current "
+                                + "(consent_id, task_id, current_revision) "
+                                + "VALUES (?, ?, ?)",
+                        consentId, taskId, revision);
+            }
+            else {
+                int advanced = jdbc.update(
+                        "UPDATE flow_user_gate_ci_consent_current "
+                                + "SET current_revision = ? "
+                                + "WHERE consent_id = ? "
+                                + "AND current_revision = ?",
+                        revision,
+                        consentId,
+                        current.orElseThrow().revision());
+                if (advanced != 1) {
+                    throw new ConsentRejectedException(
+                            "CONSENT_REVISION_CHANGED");
+                }
+            }
+            return assertConsentRevision(consent);
+        });
+    }
+
+    /** Revokes future use; an already executing exact effect remains frozen. */
+    public synchronized CiUpdateConsentRevision revokeCiUpdateConsent(
+            String consentId,
+            long expectedRevision,
+            String idempotencyKey)
+    {
+        requireText(consentId, "consentId");
+        requireText(idempotencyKey, "idempotencyKey");
+        if (expectedRevision < 1 || idempotencyKey.length() > 256) {
+            throw new IllegalArgumentException(
+                    "consent revision/idempotency key is invalid");
+        }
+        CiUpdateConsentRevision replay = revokeReplay(
+                consentByKey(idempotencyKey), consentId, expectedRevision);
+        if (replay != null) {
+            return replay;
+        }
+        return inTransaction(() -> {
+            lockCurrentConsent(consentId, expectedRevision);
+            CiUpdateConsentRevision lockedReplay = revokeReplay(
+                    consentByKey(idempotencyKey), consentId, expectedRevision);
+            if (lockedReplay != null) {
+                return lockedReplay;
+            }
+            CiUpdateConsentRevision current = currentConsent(consentId)
+                    .orElseThrow();
+            if (current.revision() != expectedRevision
+                    || !current.enabled()) {
+                throw new ConsentRejectedException(
+                        "CONSENT_REVISION_CHANGED");
+            }
+            Instant now = clock.instant();
+            CiUpdateConsentRevision revoked = consentRevision(
+                    consentId,
+                    expectedRevision + 1,
+                    current.taskId(),
+                    current.prId(),
+                    current.repositoryId(),
+                    current.remoteIdentityId(),
+                    current.headRepositoryExternalId(),
+                    current.headRepositoryOwner(),
+                    current.headRepositoryName(),
+                    current.branchName(),
+                    current.branchRef(),
+                    false,
+                    current.expiresAt(),
+                    idempotencyKey,
+                    now);
+            insertConsentRevision(revoked);
+            int advanced = jdbc.update(
+                    "UPDATE flow_user_gate_ci_consent_current "
+                            + "SET current_revision = ? "
+                            + "WHERE consent_id = ? AND current_revision = ?",
+                    revoked.revision(), consentId, expectedRevision);
+            if (advanced != 1) {
+                throw new ConsentRejectedException(
+                        "CONSENT_REVISION_CHANGED");
+            }
+            return assertConsentRevision(revoked);
+        });
+    }
+
+    public Optional<CiUpdateConsentRevision> currentCiUpdateConsent(
+            String taskId)
+    {
+        requireText(taskId, "taskId");
+        return currentConsentForTask(taskId).map(this::assertConsentRevision);
     }
 
     /** Authorizes exactly one displayed local CI_UPDATE gate revision. */
@@ -554,6 +741,7 @@ public final class UserGates
         Optional<GateAuthorization> replay = authorizationByKey(
                 MANUAL_ACTOR, idempotencyKey);
         if (replay.isPresent()) {
+            requireManualAuthorization(replay.orElseThrow());
             return assertAuthorizationGraph(
                     replay.orElseThrow(), gateId, gateRevision,
                     expectedSubjectDigest, expectedActionDigest,
@@ -563,6 +751,7 @@ public final class UserGates
                 gateId, gateRevision);
         if (revisionReplay.isPresent()) {
             GateAuthorization existing = revisionReplay.orElseThrow();
+            requireManualAuthorization(existing);
             if (!existing.idempotencyKey().equals(idempotencyKey)) {
                 throw new AuthorizationRejectedException(
                         "IDEMPOTENCY_KEY_CONFLICT");
@@ -596,6 +785,8 @@ public final class UserGates
             Optional<GateAuthorization> transactionalReplay =
                     authorizationByKey(MANUAL_ACTOR, idempotencyKey);
             if (transactionalReplay.isPresent()) {
+                requireManualAuthorization(
+                        transactionalReplay.orElseThrow());
                 return new AuthorizationOutcome(
                         assertAuthorizationGraph(
                                 transactionalReplay.orElseThrow(), gateId,
@@ -608,6 +799,7 @@ public final class UserGates
             if (transactionalRevisionReplay.isPresent()) {
                 GateAuthorization existing =
                         transactionalRevisionReplay.orElseThrow();
+                requireManualAuthorization(existing);
                 if (!existing.idempotencyKey().equals(idempotencyKey)) {
                     throw new AuthorizationRejectedException(
                             "IDEMPOTENCY_KEY_CONFLICT");
@@ -635,68 +827,14 @@ public final class UserGates
                 staleOpenAuthorization(gateId, gateRevision, blocker);
                 return new AuthorizationOutcome(null, blocker);
             }
-            Instant now = clock.instant();
-            String authorizationId = stableId(
-                    "gate-authorization:v1",
-                    gateId,
-                    Long.toString(gateRevision),
-                    expectedSubjectDigest,
-                    expectedActionDigest);
-            String operationId = stableId(
-                    "publish-operation:v1", authorizationId);
-            PreparedCiUpdatePlan prepared = githubEffects.prepareCiUpdatePlan(
-                    authorizationId,
-                    operationId,
-                    subject.prId(),
-                    action.headRepositoryExternalId(),
-                    action.headRepositoryOwner(),
-                    action.headRepositoryName(),
-                    action.branchRef(),
-                    action.expectedRemoteHead(),
-                    action.proposedHead(),
-                    action.actionRef(),
-                    action.actionDigest(),
-                    subject.requiredCiPolicyRevisionId(),
-                    now);
-            String planId = prepared.plan().planId();
-            runtime.reservePublishOperation(
-                    operationId,
-                    planId,
-                    subject.taskId(),
-                    subject.changeSetRevisionId(),
-                    prepared.plan().planDigest(),
-                    now);
-            GateAuthorization authorization = new GateAuthorization(
-                    authorizationId,
-                    gateId,
-                    gateRevision,
-                    subject.prId(),
-                    subject.subjectDigest(),
-                    action.actionDigest(),
-                    "USER",
-                    MANUAL_ACTOR,
-                    idempotencyKey,
-                    operationId,
-                    planId,
-                    now);
-            insertAuthorization(authorization);
-            githubEffects.insert(prepared);
-            appendTransition(
-                    gateId,
-                    gateRevision,
-                    nextTransitionSequence(gateId),
-                    GateState.OPEN,
-                    GateState.AUTHORIZED,
-                    "USER",
-                    MANUAL_ACTOR,
-                    "MANUAL_AUTHORIZATION",
-                    authorizationId,
-                    now);
             return new AuthorizationOutcome(
-                    assertAuthorizationGraph(
-                            authorization, gateId, gateRevision,
-                            expectedSubjectDigest, expectedActionDigest,
-                            idempotencyKey),
+                    createAuthorizationLocked(
+                            gateId,
+                            gateRevision,
+                            subject,
+                            action,
+                            idempotencyKey,
+                            null),
                     null);
         });
         if (outcome.blockerCode() != null) {
@@ -820,7 +958,11 @@ public final class UserGates
                 throw new IllegalStateException(
                         "authorization changed before effect begin");
             }
-            String blocker = inspected.blockerCode();
+            String blocker = consentBeginBlocker(
+                    authorization, clock.instant());
+            if (blocker == null) {
+                blocker = inspected.blockerCode();
+            }
             if (blocker == null) {
                 blocker = authorizationBlocker(
                         authorization.gateId(),
@@ -896,6 +1038,62 @@ public final class UserGates
         }
         return requireNonNull(outcome.activation(),
                 "effect activation is null");
+    }
+
+    private String consentBeginBlocker(
+            GateAuthorization authorization,
+            Instant now)
+    {
+        if (!authorization.authority().equals("CI_UPDATE_CONSENT")) {
+            return null;
+        }
+        Integer priorBegin = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_user_gate_transition
+                WHERE gate_id = ? AND gate_revision = ?
+                  AND from_state = 'AUTHORIZED'
+                  AND to_state = 'EXECUTING'
+                  AND actor_type = 'PROGRAM' AND actor_id = ?
+                  AND reason_code = 'EFFECT_BEGIN'
+                  AND detail_ref = ?
+                """,
+                Integer.class,
+                authorization.gateId(),
+                authorization.gateRevision(),
+                authorization.operationId(),
+                authorization.operationId());
+        int beginCount = requireNonNull(
+                priorBegin, "consent effect-begin count is null");
+        if (beginCount > 0) {
+            return null;
+        }
+        CiUpdateConsentRevision authorized = jdbc.query(
+                """
+                SELECT * FROM flow_user_gate_ci_consent_revision
+                WHERE consent_id = ? AND revision = ?
+                """,
+                (result, row) -> readConsentRevision(result),
+                authorization.consentId(),
+                authorization.consentRevision()).stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "authorization consent is missing"));
+        assertConsentRevision(authorized);
+        CiUpdateConsentRevision current = currentConsent(
+                authorized.consentId()).orElseThrow(() ->
+                        new IllegalStateException(
+                                "current authorization consent is missing"));
+        lockCurrentConsent(current.consentId(), current.revision());
+        current = currentConsent(current.consentId()).orElseThrow();
+        if (current.revision() != authorized.revision()
+                || !current.revisionDigest().equals(
+                        authorized.revisionDigest())
+                || !current.enabled()) {
+            return "CI_UPDATE_CONSENT_REVOKED";
+        }
+        if (!current.expiresAt().isAfter(now)) {
+            return "CI_UPDATE_CONSENT_EXPIRED";
+        }
+        return null;
     }
 
     /** Applies only a remote probe; provider return values are never proof. */
@@ -2186,6 +2384,9 @@ public final class UserGates
                 result.getString("action_digest"),
                 result.getString("authority"),
                 result.getString("actor_id"),
+                result.getString("consent_id"),
+                nullableLong(result, "consent_revision"),
+                result.getString("consent_digest"),
                 result.getString("idempotency_key"),
                 result.getString("operation_id"),
                 result.getString("effect_plan_ref"),
@@ -2199,9 +2400,10 @@ public final class UserGates
                 INSERT INTO flow_user_gate_authorization (
                     authorization_id, gate_id, gate_revision, pr_id,
                     subject_digest, action_digest, authority, actor_id,
+                    consent_id, consent_revision, consent_digest,
                     idempotency_key, operation_id, effect_plan_ref,
                     authorized_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'USER', ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 authorization.authorizationId(),
                 authorization.gateId(),
@@ -2209,11 +2411,459 @@ public final class UserGates
                 authorization.prId(),
                 authorization.subjectDigest(),
                 authorization.actionDigest(),
+                authorization.authority(),
                 authorization.actorId(),
+                authorization.consentId(),
+                authorization.consentRevision(),
+                authorization.consentDigest(),
                 authorization.idempotencyKey(),
                 authorization.operationId(),
                 authorization.effectPlanRef(),
                 authorization.authorizedAt().toEpochMilli());
+    }
+
+    private void maybeAuthorizeNewCiUpdate(
+            GateRevision revision,
+            GateSubject subject,
+            CiUpdateAction action,
+            Inspection inspection)
+    {
+        Optional<CiUpdateConsentRevision> found = currentConsentForTask(
+                subject.taskId());
+        if (found.isEmpty()) {
+            return;
+        }
+        CiUpdateConsentRevision consent = found.orElseThrow();
+        lockCurrentConsent(consent.consentId(), consent.revision());
+        consent = currentConsentForTask(subject.taskId()).orElseThrow();
+        if (!consentEligible(consent, subject, action, clock.instant())
+                || authorizationForRevision(
+                        revision.gateId(), revision.revision()).isPresent()
+                || currentState(revision.gateId(), revision.revision())
+                        != GateState.OPEN
+                || authorizationBlocker(
+                        revision.gateId(),
+                        revision.revision(),
+                        revision,
+                        subject,
+                        action,
+                        inspection) != null) {
+            return;
+        }
+        String idempotencyKey = stableId(
+                "ci-update-consent-authorization:v1",
+                consent.consentId(),
+                Long.toString(consent.revision()),
+                revision.gateId(),
+                Long.toString(revision.revision()),
+                revision.subjectDigest(),
+                revision.actionDigest());
+        createAuthorizationLocked(
+                revision.gateId(),
+                revision.revision(),
+                subject,
+                action,
+                idempotencyKey,
+                consent);
+    }
+
+    private boolean consentEligible(
+            CiUpdateConsentRevision consent,
+            GateSubject subject,
+            CiUpdateAction action,
+            Instant now)
+    {
+        return consent.enabled()
+                && consent.expiresAt().isAfter(now)
+                && !consentUsed(consent)
+                && consent.taskId().equals(subject.taskId())
+                && consent.prId().equals(subject.prId())
+                && consent.repositoryId().equals(subject.repositoryId())
+                && consent.headRepositoryExternalId().equals(
+                        subject.headRepositoryExternalId())
+                && consent.headRepositoryOwner().equals(
+                        subject.headRepositoryOwner())
+                && consent.headRepositoryName().equals(
+                        subject.headRepositoryName())
+                && consent.branchRef().equals(subject.branchRef())
+                && !subject.manualOnly()
+                && subject.localChecks().stream().allMatch(check ->
+                        check.conclusion() == LocalCheckConclusion.PASSED)
+                && subject.localReview().ownerPresent()
+                && subject.localReview().bindingId() != null
+                && action.headRepositoryExternalId().equals(
+                        consent.headRepositoryExternalId())
+                && action.headRepositoryOwner().equals(
+                        consent.headRepositoryOwner())
+                && action.headRepositoryName().equals(
+                        consent.headRepositoryName())
+                && action.branchRef().equals(consent.branchRef())
+                && !action.forcePush();
+    }
+
+    private Optional<CiUpdateConsentRevision> consentByKey(String key)
+    {
+        return jdbc.query(
+                "SELECT * FROM flow_user_gate_ci_consent_revision "
+                        + "WHERE actor_id = ? AND idempotency_key = ?",
+                (result, row) -> readConsentRevision(result),
+                MANUAL_ACTOR,
+                key).stream().findFirst().map(this::assertConsentRevision);
+    }
+
+    private CiUpdateConsentRevision grantReplay(
+            Optional<CiUpdateConsentRevision> replay,
+            String taskId,
+            Instant expiresAt)
+    {
+        if (replay.isEmpty()) {
+            return null;
+        }
+        CiUpdateConsentRevision stored = replay.orElseThrow();
+        if (!stored.taskId().equals(taskId)
+                || !stored.expiresAt().equals(expiresAt)
+                || !stored.enabled()) {
+            throw new ConsentRejectedException("CONSENT_REPLAY_CONFLICT");
+        }
+        return assertConsentRevision(stored);
+    }
+
+    private CiUpdateConsentRevision revokeReplay(
+            Optional<CiUpdateConsentRevision> replay,
+            String consentId,
+            long expectedRevision)
+    {
+        if (replay.isEmpty()) {
+            return null;
+        }
+        CiUpdateConsentRevision stored = replay.orElseThrow();
+        if (!stored.consentId().equals(consentId)
+                || stored.enabled()
+                || stored.revision() != expectedRevision + 1) {
+            throw new ConsentRejectedException("CONSENT_REPLAY_CONFLICT");
+        }
+        return assertConsentRevision(stored);
+    }
+
+    private Optional<CiUpdateConsentRevision> currentConsentForTask(
+            String taskId)
+    {
+        return jdbc.query(
+                """
+                SELECT r.* FROM flow_user_gate_ci_consent_current c
+                JOIN flow_user_gate_ci_consent_revision r
+                  ON r.consent_id = c.consent_id
+                 AND r.revision = c.current_revision
+                WHERE c.task_id = ?
+                """,
+                (result, row) -> readConsentRevision(result),
+                taskId).stream().findFirst().map(this::assertConsentRevision);
+    }
+
+    private Optional<CiUpdateConsentRevision> currentConsent(
+            String consentId)
+    {
+        return jdbc.query(
+                """
+                SELECT r.* FROM flow_user_gate_ci_consent_current c
+                JOIN flow_user_gate_ci_consent_revision r
+                  ON r.consent_id = c.consent_id
+                 AND r.revision = c.current_revision
+                WHERE c.consent_id = ?
+                """,
+                (result, row) -> readConsentRevision(result),
+                consentId).stream().findFirst().map(this::assertConsentRevision);
+    }
+
+    private void lockCurrentConsent(String consentId, long revision)
+    {
+        int locked = jdbc.update(
+                "UPDATE flow_user_gate_ci_consent_current "
+                        + "SET consent_id = consent_id "
+                        + "WHERE consent_id = ? AND current_revision = ?",
+                consentId,
+                revision);
+        if (locked != 1) {
+            throw new ConsentRejectedException(
+                    "CONSENT_REVISION_CHANGED");
+        }
+    }
+
+    private boolean consentUsed(CiUpdateConsentRevision consent)
+    {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flow_user_gate_authorization "
+                        + "WHERE consent_id = ? AND consent_revision = ?",
+                Integer.class,
+                consent.consentId(),
+                consent.revision());
+        return requireNonNull(count, "consent use count is null") != 0;
+    }
+
+    private boolean hasNonterminalConsentEffect(String taskId)
+    {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*)
+                FROM flow_user_gate_authorization a
+                JOIN flow_runtime_operation o
+                  ON o.operation_id = a.operation_id
+                JOIN flow_user_gate_revision r
+                  ON r.gate_id = a.gate_id
+                 AND r.revision = a.gate_revision
+                JOIN flow_user_gate_subject s
+                  ON s.subject_id = r.subject_manifest_ref
+                WHERE a.authority = 'CI_UPDATE_CONSENT'
+                  AND s.task_id = ?
+                  AND o.state IN ('READY', 'CLAIMED', 'WAITING', 'RETRYABLE')
+                """,
+                Integer.class,
+                taskId);
+        return requireNonNull(count,
+                "nonterminal consent effect count is null") != 0;
+    }
+
+    private CiUpdateConsentRevision consentRevision(
+            String consentId,
+            long revision,
+            Task task,
+            PullRequestSubject pr,
+            boolean enabled,
+            Instant expiresAt,
+            String idempotencyKey,
+            Instant recordedAt)
+    {
+        return consentRevision(
+                consentId,
+                revision,
+                task.taskId(),
+                pr.prId(),
+                task.repositoryId(),
+                pr.remoteIdentityId(),
+                pr.headRepositoryExternalId(),
+                pr.headRepositoryOwner(),
+                pr.headRepositoryName(),
+                task.branchName(),
+                "refs/heads/" + task.branchName(),
+                enabled,
+                expiresAt,
+                idempotencyKey,
+                recordedAt);
+    }
+
+    private CiUpdateConsentRevision consentRevision(
+            String consentId,
+            long revision,
+            String taskId,
+            String prId,
+            String repositoryId,
+            String remoteIdentityId,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
+            String branchName,
+            String branchRef,
+            boolean enabled,
+            Instant expiresAt,
+            String idempotencyKey,
+            Instant recordedAt)
+    {
+        String digest = stableId(
+                "ci-update-consent-revision:v1",
+                consentId,
+                Long.toString(revision),
+                taskId,
+                prId,
+                repositoryId,
+                remoteIdentityId,
+                headRepositoryExternalId,
+                headRepositoryOwner,
+                headRepositoryName,
+                branchName,
+                branchRef,
+                Boolean.toString(enabled),
+                expiresAt.toString(),
+                MANUAL_ACTOR);
+        return new CiUpdateConsentRevision(
+                consentId,
+                revision,
+                taskId,
+                prId,
+                repositoryId,
+                remoteIdentityId,
+                headRepositoryExternalId,
+                headRepositoryOwner,
+                headRepositoryName,
+                branchName,
+                branchRef,
+                enabled,
+                expiresAt,
+                MANUAL_ACTOR,
+                idempotencyKey,
+                digest,
+                recordedAt);
+    }
+
+    private void insertConsentRevision(CiUpdateConsentRevision consent)
+    {
+        jdbc.update(
+                """
+                INSERT INTO flow_user_gate_ci_consent_revision (
+                    consent_id, revision, task_id, pr_id, repository_id,
+                    remote_identity_id, provider,
+                    head_repository_external_id, head_repository_owner,
+                    head_repository_name, branch_name, branch_ref, enabled,
+                    expires_at, actor_id, idempotency_key, revision_digest,
+                    recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'GITHUB', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                consent.consentId(),
+                consent.revision(),
+                consent.taskId(),
+                consent.prId(),
+                consent.repositoryId(),
+                consent.remoteIdentityId(),
+                consent.headRepositoryExternalId(),
+                consent.headRepositoryOwner(),
+                consent.headRepositoryName(),
+                consent.branchName(),
+                consent.branchRef(),
+                consent.enabled() ? 1 : 0,
+                consent.expiresAt().toEpochMilli(),
+                consent.actorId(),
+                consent.idempotencyKey(),
+                consent.revisionDigest(),
+                consent.recordedAt().toEpochMilli());
+    }
+
+    private static CiUpdateConsentRevision readConsentRevision(
+            ResultSet result)
+            throws SQLException
+    {
+        return new CiUpdateConsentRevision(
+                result.getString("consent_id"),
+                result.getLong("revision"),
+                result.getString("task_id"),
+                result.getString("pr_id"),
+                result.getString("repository_id"),
+                result.getString("remote_identity_id"),
+                result.getString("head_repository_external_id"),
+                result.getString("head_repository_owner"),
+                result.getString("head_repository_name"),
+                result.getString("branch_name"),
+                result.getString("branch_ref"),
+                result.getInt("enabled") == 1,
+                instant(result, "expires_at"),
+                result.getString("actor_id"),
+                result.getString("idempotency_key"),
+                result.getString("revision_digest"),
+                instant(result, "recorded_at"));
+    }
+
+    private CiUpdateConsentRevision assertConsentRevision(
+            CiUpdateConsentRevision consent)
+    {
+        CiUpdateConsentRevision expected = consentRevision(
+                consent.consentId(),
+                consent.revision(),
+                consent.taskId(),
+                consent.prId(),
+                consent.repositoryId(),
+                consent.remoteIdentityId(),
+                consent.headRepositoryExternalId(),
+                consent.headRepositoryOwner(),
+                consent.headRepositoryName(),
+                consent.branchName(),
+                consent.branchRef(),
+                consent.enabled(),
+                consent.expiresAt(),
+                consent.idempotencyKey(),
+                consent.recordedAt());
+        if (!expected.revisionDigest().equals(consent.revisionDigest())) {
+            throw new IllegalStateException(
+                    "CI_UPDATE consent digest is inconsistent");
+        }
+        return consent;
+    }
+
+    private AuthorizedCiUpdate createAuthorizationLocked(
+            String gateId,
+            long gateRevision,
+            GateSubject subject,
+            CiUpdateAction action,
+            String idempotencyKey,
+            CiUpdateConsentRevision consent)
+    {
+        Instant now = clock.instant();
+        String authorizationId = stableId(
+                "gate-authorization:v1",
+                gateId,
+                Long.toString(gateRevision),
+                subject.subjectDigest(),
+                action.actionDigest());
+        String operationId = stableId(
+                "publish-operation:v1", authorizationId);
+        PreparedCiUpdatePlan prepared = githubEffects.prepareCiUpdatePlan(
+                authorizationId,
+                operationId,
+                subject.prId(),
+                action.headRepositoryExternalId(),
+                action.headRepositoryOwner(),
+                action.headRepositoryName(),
+                action.branchRef(),
+                action.expectedRemoteHead(),
+                action.proposedHead(),
+                action.actionRef(),
+                action.actionDigest(),
+                subject.requiredCiPolicyRevisionId(),
+                now);
+        String planId = prepared.plan().planId();
+        runtime.reservePublishOperation(
+                operationId,
+                planId,
+                subject.taskId(),
+                subject.changeSetRevisionId(),
+                prepared.plan().planDigest(),
+                now);
+        boolean automatic = consent != null;
+        GateAuthorization authorization = new GateAuthorization(
+                authorizationId,
+                gateId,
+                gateRevision,
+                subject.prId(),
+                subject.subjectDigest(),
+                action.actionDigest(),
+                automatic ? "CI_UPDATE_CONSENT" : "USER",
+                automatic ? CONSENT_ACTOR : MANUAL_ACTOR,
+                automatic ? consent.consentId() : null,
+                automatic ? consent.revision() : null,
+                automatic ? consent.revisionDigest() : null,
+                idempotencyKey,
+                operationId,
+                planId,
+                now);
+        insertAuthorization(authorization);
+        githubEffects.insert(prepared);
+        appendTransition(
+                gateId,
+                gateRevision,
+                nextTransitionSequence(gateId),
+                GateState.OPEN,
+                GateState.AUTHORIZED,
+                automatic ? "PROGRAM" : "USER",
+                automatic ? CONSENT_ACTOR : MANUAL_ACTOR,
+                automatic
+                        ? "CI_UPDATE_CONSENT_AUTHORIZATION"
+                        : "MANUAL_AUTHORIZATION",
+                authorizationId,
+                now);
+        return assertAuthorizationGraph(
+                authorization,
+                gateId,
+                gateRevision,
+                subject.subjectDigest(),
+                action.actionDigest(),
+                idempotencyKey);
     }
 
     private AuthorityInspection inspectAuthority(
@@ -2246,8 +2896,6 @@ public final class UserGates
                         expectedSubjectDigest)
                 || !authorization.actionDigest().equals(
                         expectedActionDigest)
-                || !authorization.authority().equals("USER")
-                || !authorization.actorId().equals(MANUAL_ACTOR)
                 || !authorization.idempotencyKey().equals(
                         expectedIdempotencyKey)) {
             throw new AuthorizationRejectedException(
@@ -2278,15 +2926,21 @@ public final class UserGates
                 SELECT COUNT(*) FROM flow_user_gate_transition
                 WHERE gate_id = ? AND gate_revision = ?
                   AND from_state = 'OPEN' AND to_state = 'AUTHORIZED'
-                  AND actor_type = 'USER' AND actor_id = ?
-                  AND reason_code = 'MANUAL_AUTHORIZATION'
+                  AND actor_type = ? AND actor_id = ?
+                  AND reason_code = ?
                   AND detail_ref = ?
                 """,
                 Integer.class,
                 authorization.gateId(),
                 authorization.gateRevision(),
-                MANUAL_ACTOR,
+                authorization.authority().equals("USER")
+                        ? "USER" : "PROGRAM",
+                authorization.actorId(),
+                authorization.authority().equals("USER")
+                        ? "MANUAL_AUTHORIZATION"
+                        : "CI_UPDATE_CONSENT_AUTHORIZATION",
                 authorization.authorizationId());
+        assertAuthorizationAuthority(authorization, subject, action);
         boolean dispatchState = switch (operation.state()) {
             case READY, RETRYABLE -> dispatchTicketInState(
                     operation.operationId(), "AVAILABLE");
@@ -2344,6 +2998,71 @@ public final class UserGates
                 plan.planId(),
                 operation.operationId(),
                 plan.prSequence());
+    }
+
+    private static void requireManualAuthorization(
+            GateAuthorization authorization)
+    {
+        if (!authorization.authority().equals("USER")
+                || !authorization.actorId().equals(MANUAL_ACTOR)
+                || authorization.consentId() != null
+                || authorization.consentRevision() != null
+                || authorization.consentDigest() != null) {
+            throw new AuthorizationRejectedException(
+                    "AUTHORIZATION_AUTHORITY_CONFLICT");
+        }
+    }
+
+    private void assertAuthorizationAuthority(
+            GateAuthorization authorization,
+            GateSubject subject,
+            CiUpdateAction action)
+    {
+        if (authorization.authority().equals("USER")) {
+            requireManualAuthorization(authorization);
+            return;
+        }
+        if (!authorization.authority().equals("CI_UPDATE_CONSENT")
+                || !authorization.actorId().equals(CONSENT_ACTOR)
+                || authorization.consentId() == null
+                || authorization.consentRevision() == null
+                || authorization.consentDigest() == null) {
+            throw new IllegalStateException(
+                    "authorization authority is inconsistent");
+        }
+        CiUpdateConsentRevision consent = jdbc.query(
+                """
+                SELECT * FROM flow_user_gate_ci_consent_revision
+                WHERE consent_id = ? AND revision = ?
+                """,
+                (result, row) -> readConsentRevision(result),
+                authorization.consentId(),
+                authorization.consentRevision()).stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "authorization consent is missing"));
+        assertConsentRevision(consent);
+        if (!authorization.consentDigest().equals(
+                    consent.revisionDigest())
+                || !consent.taskId().equals(subject.taskId())
+                || !consent.prId().equals(subject.prId())
+                || !consent.repositoryId().equals(subject.repositoryId())
+                || !consent.headRepositoryExternalId().equals(
+                        subject.headRepositoryExternalId())
+                || !consent.headRepositoryOwner().equals(
+                        subject.headRepositoryOwner())
+                || !consent.headRepositoryName().equals(
+                        subject.headRepositoryName())
+                || !consent.branchRef().equals(subject.branchRef())
+                || !action.headRepositoryExternalId().equals(
+                        consent.headRepositoryExternalId())
+                || !action.headRepositoryOwner().equals(
+                        consent.headRepositoryOwner())
+                || !action.headRepositoryName().equals(
+                        consent.headRepositoryName())
+                || !action.branchRef().equals(consent.branchRef())) {
+            throw new IllegalStateException(
+                    "authorization consent use is inconsistent");
+        }
     }
 
     private AuthorizedCiUpdate assertStoredAuthorizationGraph(
@@ -3026,6 +3745,13 @@ public final class UserGates
             throws SQLException
     {
         return Instant.ofEpochMilli(result.getLong(column));
+    }
+
+    private static Long nullableLong(ResultSet result, String column)
+            throws SQLException
+    {
+        long value = result.getLong(column);
+        return result.wasNull() ? null : value;
     }
 
     private <T> T inTransaction(Supplier<T> work)

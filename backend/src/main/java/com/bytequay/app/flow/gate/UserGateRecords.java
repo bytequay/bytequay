@@ -282,6 +282,55 @@ public final class UserGateRecords
         }
     }
 
+    /** One immutable revision of the one-shot Task CI_UPDATE consent. */
+    public record CiUpdateConsentRevision(
+            String consentId,
+            long revision,
+            String taskId,
+            String prId,
+            String repositoryId,
+            String remoteIdentityId,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
+            String branchName,
+            String branchRef,
+            boolean enabled,
+            Instant expiresAt,
+            String actorId,
+            String idempotencyKey,
+            String revisionDigest,
+            Instant recordedAt)
+    {
+        public CiUpdateConsentRevision
+        {
+            requireNonNull(consentId, "consentId is null");
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(prId, "prId is null");
+            requireNonNull(repositoryId, "repositoryId is null");
+            requireNonNull(remoteIdentityId, "remoteIdentityId is null");
+            requireNonNull(headRepositoryExternalId,
+                    "headRepositoryExternalId is null");
+            requireNonNull(headRepositoryOwner,
+                    "headRepositoryOwner is null");
+            requireNonNull(headRepositoryName,
+                    "headRepositoryName is null");
+            requireNonNull(branchName, "branchName is null");
+            requireNonNull(branchRef, "branchRef is null");
+            requireNonNull(expiresAt, "expiresAt is null");
+            requireNonNull(actorId, "actorId is null");
+            requireNonNull(idempotencyKey, "idempotencyKey is null");
+            requireNonNull(revisionDigest, "revisionDigest is null");
+            requireNonNull(recordedAt, "recordedAt is null");
+            if (revision < 1
+                    || !actorId.equals("LOCAL_DESKTOP_USER")
+                    || !branchRef.equals("refs/heads/" + branchName)) {
+                throw new IllegalArgumentException(
+                        "CI_UPDATE consent identity is invalid");
+            }
+        }
+    }
+
     public record GateAuthorization(
             String authorizationId,
             String gateId,
@@ -291,6 +340,9 @@ public final class UserGateRecords
             String actionDigest,
             String authority,
             String actorId,
+            String consentId,
+            Long consentRevision,
+            String consentDigest,
             String idempotencyKey,
             String operationId,
             String effectPlanRef,
@@ -310,11 +362,20 @@ public final class UserGateRecords
             requireNonNull(operationId, "operationId is null");
             requireNonNull(effectPlanRef, "effectPlanRef is null");
             requireNonNull(authorizedAt, "authorizedAt is null");
-            if (gateRevision < 1
-                    || !authority.equals("USER")
-                    || !actorId.equals("LOCAL_DESKTOP_USER")) {
+            boolean manual = authority.equals("USER")
+                    && actorId.equals("LOCAL_DESKTOP_USER")
+                    && consentId == null
+                    && consentRevision == null
+                    && consentDigest == null;
+            boolean automatic = authority.equals("CI_UPDATE_CONSENT")
+                    && actorId.equals("USER_GATES_CI_CONSENT")
+                    && consentId != null
+                    && consentRevision != null
+                    && consentRevision > 0
+                    && consentDigest != null;
+            if (gateRevision < 1 || !manual && !automatic) {
                 throw new IllegalArgumentException(
-                        "manual authorization identity is invalid");
+                        "authorization identity is invalid");
             }
         }
     }

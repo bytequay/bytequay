@@ -209,6 +209,55 @@ CREATE TABLE flow_user_gate_revision (
         REFERENCES flow_runtime_agent_run (run_id)
 );
 
+CREATE TABLE flow_user_gate_ci_consent_revision (
+    consent_id TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    task_id TEXT NOT NULL,
+    pr_id TEXT NOT NULL,
+    repository_id TEXT NOT NULL,
+    remote_identity_id TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK (provider = 'GITHUB'),
+    head_repository_external_id TEXT NOT NULL,
+    head_repository_owner TEXT NOT NULL,
+    head_repository_name TEXT NOT NULL,
+    branch_name TEXT NOT NULL,
+    branch_ref TEXT NOT NULL,
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+    expires_at INTEGER NOT NULL,
+    actor_id TEXT NOT NULL CHECK (actor_id = 'LOCAL_DESKTOP_USER'),
+    idempotency_key TEXT NOT NULL,
+    revision_digest TEXT NOT NULL,
+    recorded_at INTEGER NOT NULL,
+    PRIMARY KEY (consent_id, revision),
+    UNIQUE (actor_id, idempotency_key),
+    UNIQUE (consent_id, revision, revision_digest),
+    UNIQUE (consent_id, revision, task_id),
+    FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id),
+    CHECK (branch_ref = 'refs/heads/' || branch_name),
+    FOREIGN KEY (
+        pr_id, task_id, repository_id, branch_name, remote_identity_id
+    ) REFERENCES flow_runtime_pr (
+        pr_id, task_id, repository_id, branch_name, remote_identity_id
+    ),
+    FOREIGN KEY (
+        remote_identity_id, provider, head_repository_external_id,
+        head_repository_owner, head_repository_name
+    ) REFERENCES flow_runtime_remote_identity (
+        remote_identity_id, provider, head_repository_external_id,
+        head_repository_owner, head_repository_name
+    )
+);
+
+CREATE TABLE flow_user_gate_ci_consent_current (
+    consent_id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE,
+    current_revision INTEGER NOT NULL CHECK (current_revision > 0),
+    FOREIGN KEY (consent_id, current_revision, task_id)
+        REFERENCES flow_user_gate_ci_consent_revision (
+            consent_id, revision, task_id
+        )
+);
+
 CREATE TABLE flow_user_gate_authorization (
     authorization_id TEXT PRIMARY KEY,
     gate_id TEXT NOT NULL,
@@ -216,22 +265,44 @@ CREATE TABLE flow_user_gate_authorization (
     pr_id TEXT NOT NULL,
     subject_digest TEXT NOT NULL,
     action_digest TEXT NOT NULL,
-    authority TEXT NOT NULL CHECK (authority = 'USER'),
-    actor_id TEXT NOT NULL CHECK (actor_id = 'LOCAL_DESKTOP_USER'),
+    authority TEXT NOT NULL CHECK (
+        authority IN ('USER', 'CI_UPDATE_CONSENT')
+    ),
+    actor_id TEXT NOT NULL,
+    consent_id TEXT,
+    consent_revision INTEGER,
+    consent_digest TEXT,
     idempotency_key TEXT NOT NULL,
     operation_id TEXT NOT NULL UNIQUE,
     effect_plan_ref TEXT NOT NULL UNIQUE,
     authorized_at INTEGER NOT NULL,
     UNIQUE (actor_id, idempotency_key),
     UNIQUE (gate_id, gate_revision),
+    UNIQUE (consent_id, consent_revision),
     UNIQUE (
         authorization_id, effect_plan_ref, operation_id, pr_id, action_digest
+    ),
+    CHECK (
+        (authority = 'USER'
+            AND actor_id = 'LOCAL_DESKTOP_USER'
+            AND consent_id IS NULL
+            AND consent_revision IS NULL
+            AND consent_digest IS NULL)
+        OR (authority = 'CI_UPDATE_CONSENT'
+            AND actor_id = 'USER_GATES_CI_CONSENT'
+            AND consent_id IS NOT NULL
+            AND consent_revision IS NOT NULL
+            AND consent_digest IS NOT NULL)
     ),
     FOREIGN KEY (gate_id, gate_revision, subject_digest, action_digest)
         REFERENCES flow_user_gate_revision (
             gate_id, revision, subject_digest, action_digest
         ),
     FOREIGN KEY (pr_id) REFERENCES flow_runtime_pr (pr_id),
+    FOREIGN KEY (consent_id, consent_revision, consent_digest)
+        REFERENCES flow_user_gate_ci_consent_revision (
+            consent_id, revision, revision_digest
+        ),
     FOREIGN KEY (operation_id)
         REFERENCES flow_runtime_operation (operation_id)
 );
@@ -272,8 +343,10 @@ CREATE TABLE flow_user_gate_transition (
                 'SUPERSEDED_BY_READY', 'AUTHORIZATION_STALE'
             ))
         OR (from_state = 'OPEN' AND to_state = 'AUTHORIZED'
-            AND actor_type = 'USER'
-            AND reason_code = 'MANUAL_AUTHORIZATION'
+            AND ((actor_type = 'USER'
+                    AND reason_code = 'MANUAL_AUTHORIZATION')
+                OR (actor_type = 'PROGRAM'
+                    AND reason_code = 'CI_UPDATE_CONSENT_AUTHORIZATION'))
             AND detail_ref IS NOT NULL)
         OR (from_state = 'AUTHORIZED' AND to_state = 'EXECUTING'
             AND actor_type = 'PROGRAM'

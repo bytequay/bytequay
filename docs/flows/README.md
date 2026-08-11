@@ -143,8 +143,11 @@ passes for the exact proposed head and feeds one private source-bound batch into
 the existing CI round/red-fixer loop. Green and collecting only rearm the watch.
 Configurable/multi-use consent, consent UI, webhooks, generic observation
 routing, test-merge/legacy-status readiness, downstream ready/merge green
-consumers, and timeline projection remain deferred. The sole implemented green
-consumer is the optional isolated receipt-owned learner described below.
+consumers, and timeline UI/details remain deferred. The sole implemented green
+consumer is the optional isolated receipt-owned learner described below. The
+implemented PR timeline is one read-only, schema-free projection of twelve
+immutable greenfield owner facts; an event-count/version cursor forces a full
+restart after any late insert.
 
 ### 6. Record a fact once
 

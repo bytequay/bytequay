@@ -35,6 +35,8 @@ public final class UserGateRecords
         OPEN,
         AUTHORIZED,
         EXECUTING,
+        NEEDS_ATTENTION,
+        CONSUMED,
         STALE
     }
 
@@ -101,6 +103,9 @@ public final class UserGateRecords
             String taskId,
             String prId,
             String repositoryId,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
             String branchRef,
             String expectedRemoteHead,
             String changeSetRevisionId,
@@ -140,6 +145,12 @@ public final class UserGateRecords
             requireNonNull(taskId, "taskId is null");
             requireNonNull(prId, "prId is null");
             requireNonNull(repositoryId, "repositoryId is null");
+            requireNonNull(headRepositoryExternalId,
+                    "headRepositoryExternalId is null");
+            requireNonNull(headRepositoryOwner,
+                    "headRepositoryOwner is null");
+            requireNonNull(headRepositoryName,
+                    "headRepositoryName is null");
             requireNonNull(branchRef, "branchRef is null");
             requireNonNull(expectedRemoteHead,
                     "expectedRemoteHead is null");
@@ -193,6 +204,9 @@ public final class UserGateRecords
 
     public record CiUpdateAction(
             String actionRef,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
             String branchRef,
             String expectedRemoteHead,
             String proposedHead,
@@ -203,6 +217,12 @@ public final class UserGateRecords
         public CiUpdateAction
         {
             requireNonNull(actionRef, "actionRef is null");
+            requireNonNull(headRepositoryExternalId,
+                    "headRepositoryExternalId is null");
+            requireNonNull(headRepositoryOwner,
+                    "headRepositoryOwner is null");
+            requireNonNull(headRepositoryName,
+                    "headRepositoryName is null");
             requireNonNull(branchRef, "branchRef is null");
             requireNonNull(expectedRemoteHead,
                     "expectedRemoteHead is null");
@@ -323,9 +343,14 @@ public final class UserGateRecords
             String operationId,
             String prId,
             long prSequence,
+            String repositoryRoot,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
             String branchRef,
             String expectedRemoteHead,
             String proposedHead,
+            boolean mutationAllowed,
             String planDigest)
     {
         public CiUpdateEffectActivation
@@ -335,6 +360,13 @@ public final class UserGateRecords
             requireNonNull(planId, "planId is null");
             requireNonNull(operationId, "operationId is null");
             requireNonNull(prId, "prId is null");
+            requireNonNull(repositoryRoot, "repositoryRoot is null");
+            requireNonNull(headRepositoryExternalId,
+                    "headRepositoryExternalId is null");
+            requireNonNull(headRepositoryOwner,
+                    "headRepositoryOwner is null");
+            requireNonNull(headRepositoryName,
+                    "headRepositoryName is null");
             requireNonNull(branchRef, "branchRef is null");
             requireNonNull(expectedRemoteHead,
                     "expectedRemoteHead is null");

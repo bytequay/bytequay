@@ -569,8 +569,11 @@ It atomically stores the immutable authorization, one-step GitHub push plan,
 runtime `PUBLISH` operation, and ticket; that commit installs the publication
 barrier. Claim locks the PR and admits the exact stored graph only at its oldest
 nonterminal sequence. Begin revalidates all current owners and records
-`EXECUTING` without calling Git or GitHub. Provider execution/proof, push,
-standing consent, and timeline events remain deferred.
+`EXECUTING` without calling Git or GitHub. The concrete GitHub executor then
+commits a distinct immutable attempt before each possible exact-lease call
+(maximum two) and accepts only an exact remote probe as success proof. Standing
+consent, general observation
+routing, and timeline events remain deferred.
 
 ### 4. Authorize and push
 

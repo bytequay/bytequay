@@ -19,6 +19,9 @@ CREATE TABLE flow_user_gate_subject (
     task_id TEXT NOT NULL,
     pr_id TEXT NOT NULL,
     repository_id TEXT NOT NULL,
+    head_repository_external_id TEXT NOT NULL,
+    head_repository_owner TEXT NOT NULL,
+    head_repository_name TEXT NOT NULL,
     branch_ref TEXT NOT NULL,
     expected_remote_head TEXT NOT NULL,
     change_set_revision_id TEXT NOT NULL,
@@ -155,6 +158,9 @@ CREATE TABLE flow_user_gate_subject_warning (
 
 CREATE TABLE flow_user_gate_ci_update_action (
     action_ref TEXT PRIMARY KEY,
+    head_repository_external_id TEXT NOT NULL,
+    head_repository_owner TEXT NOT NULL,
+    head_repository_name TEXT NOT NULL,
     branch_ref TEXT NOT NULL,
     expected_remote_head TEXT NOT NULL,
     proposed_head TEXT NOT NULL,
@@ -162,8 +168,9 @@ CREATE TABLE flow_user_gate_ci_update_action (
     action_digest TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     UNIQUE (
-        action_ref, branch_ref, expected_remote_head, proposed_head,
-        force_push, action_digest
+        action_ref, head_repository_external_id, head_repository_owner,
+        head_repository_name, branch_ref, expected_remote_head,
+        proposed_head, force_push, action_digest
     )
 );
 
@@ -234,10 +241,16 @@ CREATE TABLE flow_user_gate_transition (
     gate_revision INTEGER NOT NULL,
     sequence INTEGER NOT NULL CHECK (sequence > 0),
     from_state TEXT CHECK (
-        from_state IN ('OPEN', 'AUTHORIZED', 'EXECUTING', 'STALE')
+        from_state IN (
+            'OPEN', 'AUTHORIZED', 'EXECUTING', 'NEEDS_ATTENTION',
+            'CONSUMED', 'STALE'
+        )
     ),
     to_state TEXT NOT NULL CHECK (
-        to_state IN ('OPEN', 'AUTHORIZED', 'EXECUTING', 'STALE')
+        to_state IN (
+            'OPEN', 'AUTHORIZED', 'EXECUTING', 'NEEDS_ATTENTION',
+            'CONSUMED', 'STALE'
+        )
     ),
     actor_type TEXT NOT NULL CHECK (actor_type IN ('PROGRAM', 'USER')),
     actor_id TEXT NOT NULL,
@@ -268,12 +281,33 @@ CREATE TABLE flow_user_gate_transition (
             AND detail_ref IS NOT NULL)
         OR (from_state = 'EXECUTING' AND to_state = 'AUTHORIZED'
             AND actor_type = 'PROGRAM'
-            AND reason_code = 'NEVER_STARTED_REDRIVE'
+            AND reason_code IN ('NEVER_STARTED_REDRIVE', 'EFFECT_RETRY')
             AND detail_ref IS NOT NULL)
-        OR (from_state IN ('AUTHORIZED', 'EXECUTING')
+        OR (from_state = 'NEEDS_ATTENTION' AND to_state = 'AUTHORIZED'
+            AND actor_type = 'PROGRAM'
+            AND reason_code = 'EFFECT_RETRY'
+            AND detail_ref IS NOT NULL)
+        OR (from_state = 'EXECUTING' AND to_state = 'NEEDS_ATTENTION'
+            AND actor_type = 'PROGRAM'
+            AND reason_code IN (
+                'EFFECT_UNKNOWN', 'EFFECT_PREPARATION_UNAVAILABLE',
+                'EFFECT_PROBE_UNAVAILABLE')
+            AND detail_ref IS NOT NULL)
+        OR (from_state = 'AUTHORIZED' AND to_state = 'NEEDS_ATTENTION'
+            AND actor_type = 'PROGRAM'
+            AND reason_code = 'EFFECT_AUTHORITY_UNPROVEN'
+            AND detail_ref IS NOT NULL)
+        OR (from_state IN ('AUTHORIZED', 'EXECUTING', 'NEEDS_ATTENTION')
             AND to_state = 'STALE'
             AND actor_type = 'PROGRAM'
-            AND reason_code = 'EFFECT_STALE'
+            AND reason_code IN (
+                'EFFECT_STALE', 'EFFECT_PREPARATION_INVALID',
+                'EFFECT_DIVERGED')
+            AND detail_ref IS NOT NULL)
+        OR (from_state IN ('EXECUTING', 'NEEDS_ATTENTION')
+            AND to_state = 'CONSUMED'
+            AND actor_type = 'PROGRAM'
+            AND reason_code = 'EFFECT_APPLIED'
             AND detail_ref IS NOT NULL)
     )
 );

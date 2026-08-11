@@ -20,6 +20,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GitHubRepositoryLocator;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationState;
@@ -131,11 +132,19 @@ class TestFlowRuntime
         PullRequestSubject local = runtime.materializePullRequest(
                 first.taskId(), adoptedTask.currentChangeSetRevisionId(),
                 "main", "main", "main");
-        PullRequestSubject published = runtime.bindRemoteIdentity(
-                local.prId(), adoptedTask.currentHeadSha(), "GITHUB", "repo-external-1", 42,
+        PullRequestSubject published = runtime.bindGitHubRemoteIdentity(
+                local.prId(), adoptedTask.currentHeadSha(),
+                new GitHubRepositoryLocator(
+                        "repo-external-1", "octocat", "bytequay"),
+                new GitHubRepositoryLocator(
+                        "head-repo-external-1", "octocat", "bytequay"), 42,
                 "PR_node", "https://example.test/pr/42", "receipt:publish");
-        PullRequestSubject redelivery = runtime.bindRemoteIdentity(
-                local.prId(), adoptedTask.currentHeadSha(), "GITHUB", "repo-external-1", 42,
+        PullRequestSubject redelivery = runtime.bindGitHubRemoteIdentity(
+                local.prId(), adoptedTask.currentHeadSha(),
+                new GitHubRepositoryLocator(
+                        "repo-external-1", "octocat", "bytequay"),
+                new GitHubRepositoryLocator(
+                        "head-repo-external-1", "octocat", "bytequay"), 42,
                 "PR_node", "https://example.test/pr/42", "receipt:publish");
 
         assertThatThrownBy(() -> runtime.materializePullRequest(
@@ -610,9 +619,13 @@ class TestFlowRuntime
         PullRequestSubject local = runtime.materializePullRequest(
                 task.taskId(), task.currentChangeSetRevisionId(),
                 "main", "main", "main");
-        PullRequestSubject published = runtime.bindRemoteIdentity(
-                local.prId(), task.currentHeadSha(), "GITHUB",
-                "repo-external-" + suffix, prNumber, "PR_" + suffix,
+        PullRequestSubject published = runtime.bindGitHubRemoteIdentity(
+                local.prId(), task.currentHeadSha(),
+                new GitHubRepositoryLocator(
+                        "repo-external-" + suffix, "octocat", "bytequay"),
+                new GitHubRepositoryLocator(
+                        "head-repo-external-" + suffix,
+                        "octocat", "bytequay"), prNumber, "PR_" + suffix,
                 "https://example.test/pr/" + prNumber,
                 "receipt:" + suffix);
         return runtime.task(published.taskId()).orElseThrow();

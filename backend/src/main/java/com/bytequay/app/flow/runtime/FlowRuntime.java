@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.flow.gate.UserGates.PublishDisposition;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
@@ -26,6 +27,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ExpiredClaim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.FinalRedRegistration;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GateIntent;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GitHubRepositoryLocator;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Operation;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
@@ -74,6 +76,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
@@ -99,6 +102,33 @@ public final class FlowRuntime
     private final TransactionTemplate transactions;
     private final Clock clock;
     private final FlowWorktreeInspector worktreeInspector = new FlowWorktreeInspector();
+
+    /** One live-JVM permission for exactly one provider mutation call. */
+    public static final class PublishExecutionHandle
+    {
+        private final String operationId;
+        private final long generation;
+        private final String attemptId;
+        private final String tokenDigest;
+        private final AtomicBoolean consumed = new AtomicBoolean();
+
+        private PublishExecutionHandle(
+                String operationId,
+                long generation,
+                String attemptId,
+                String tokenDigest)
+        {
+            this.operationId = operationId;
+            this.generation = generation;
+            this.attemptId = attemptId;
+            this.tokenDigest = tokenDigest;
+        }
+
+        public String tokenDigest()
+        {
+            return tokenDigest;
+        }
+    }
 
     /** Unforgeable result of mechanical Git inspection awaiting owner CAS. */
     public static final class PreparedChangeSet
@@ -945,11 +975,11 @@ public final class FlowRuntime
     }
 
     /** Adds the set-once provider identity to the same local PR record. */
-    public synchronized PullRequestSubject bindRemoteIdentity(
+    public synchronized PullRequestSubject bindGitHubRemoteIdentity(
             String prId,
             String expectedLocalHead,
-            String provider,
-            String repositoryExternalId,
+            GitHubRepositoryLocator baseRepository,
+            GitHubRepositoryLocator headRepository,
             long prNumber,
             String prNodeId,
             String htmlUrl,
@@ -957,8 +987,16 @@ public final class FlowRuntime
     {
         requireText(prId, "prId");
         requireText(expectedLocalHead, "expectedLocalHead");
-        requireText(provider, "provider");
-        requireText(repositoryExternalId, "repositoryExternalId");
+        requireNonNull(baseRepository, "baseRepository is null");
+        requireNonNull(headRepository, "headRepository is null");
+        requireText(baseRepository.repositoryExternalId(),
+                "baseRepository.repositoryExternalId");
+        requireText(headRepository.repositoryExternalId(),
+                "headRepository.repositoryExternalId");
+        requireGitHubRepositoryLocator(
+                baseRepository.owner(), baseRepository.name());
+        requireGitHubRepositoryLocator(
+                headRepository.owner(), headRepository.name());
         requireText(prNodeId, "prNodeId");
         requireText(htmlUrl, "htmlUrl");
         requireText(publicationReceiptId, "publicationReceiptId");
@@ -968,9 +1006,17 @@ public final class FlowRuntime
         return inTransaction(() -> {
             PullRequestSubject pr = requirePullRequest(prId);
             if (pr.published()) {
-                if (!provider.equals(pr.provider())
-                        || !repositoryExternalId.equals(
+                if (!"GITHUB".equals(pr.provider())
+                        || !baseRepository.repositoryExternalId().equals(
                                 pr.repositoryExternalId())
+                        || !baseRepository.owner().equals(pr.repositoryOwner())
+                        || !baseRepository.name().equals(pr.repositoryName())
+                        || !headRepository.repositoryExternalId().equals(
+                                pr.headRepositoryExternalId())
+                        || !headRepository.owner().equals(
+                                pr.headRepositoryOwner())
+                        || !headRepository.name().equals(
+                                pr.headRepositoryName())
                         || !Long.valueOf(prNumber).equals(pr.prNumber())
                         || !expectedLocalHead.equals(pr.currentRemoteHead())) {
                     throw new IllegalStateException(
@@ -978,8 +1024,13 @@ public final class FlowRuntime
                 }
                 assertRemoteIdentityMatches(
                         pr.remoteIdentityId(),
-                        provider,
-                        repositoryExternalId,
+                        "GITHUB",
+                        baseRepository.repositoryExternalId(),
+                        baseRepository.owner(),
+                        baseRepository.name(),
+                        headRepository.repositoryExternalId(),
+                        headRepository.owner(),
+                        headRepository.name(),
                         prNumber,
                         prNodeId,
                         htmlUrl,
@@ -993,19 +1044,28 @@ public final class FlowRuntime
             }
 
             String identityId = stableId(
-                    "remote-pr", provider, repositoryExternalId,
+                    "remote-pr", "GITHUB",
+                    baseRepository.repositoryExternalId(),
                     Long.toString(prNumber));
             jdbc.update(
                     """
                     INSERT INTO flow_runtime_remote_identity (
                         remote_identity_id, provider, repository_external_id,
+                        repository_owner, repository_name,
+                        head_repository_external_id,
+                        head_repository_owner, head_repository_name,
                         pr_number, pr_node_id, html_url,
                         publication_receipt_id, bound_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     identityId,
-                    provider,
-                    repositoryExternalId,
+                    "GITHUB",
+                    baseRepository.repositoryExternalId(),
+                    baseRepository.owner(),
+                    baseRepository.name(),
+                    headRepository.repositoryExternalId(),
+                    headRepository.owner(),
+                    headRepository.name(),
                     prNumber,
                     prNodeId,
                     htmlUrl,
@@ -1051,6 +1111,29 @@ public final class FlowRuntime
                         "remote PR head changed concurrently");
             }
             return requirePullRequest(prId);
+        });
+    }
+
+    /** Accepts one exact provider receipt despite an equal prior observation. */
+    public synchronized PullRequestSubject acceptAppliedRemoteHead(
+            String prId, String expectedRemoteHead, String appliedRemoteHead)
+    {
+        requireText(prId, "prId");
+        requireText(expectedRemoteHead, "expectedRemoteHead");
+        requireText(appliedRemoteHead, "appliedRemoteHead");
+        return inTransaction(() -> {
+            PullRequestSubject current = requirePullRequest(prId);
+            if (Objects.equals(current.currentRemoteHead(), appliedRemoteHead)) {
+                assertAndLockCiUpdatePr(current);
+                return current;
+            }
+            if (!Objects.equals(
+                    current.currentRemoteHead(), expectedRemoteHead)) {
+                throw new StaleOwnerRevisionException(
+                        "remote PR head differs from receipt precondition");
+            }
+            return advanceRemoteHead(
+                    prId, expectedRemoteHead, appliedRemoteHead);
         });
     }
 
@@ -1508,7 +1591,7 @@ public final class FlowRuntime
                      AND a.action_digest = p.action_digest
                     WHERE o.kind = 'PUBLISH'
                       AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
-                      AND o.state = 'READY'
+                      AND o.state IN ('READY', 'RETRYABLE')
                       AND d.delivery_state = 'AVAILABLE'
                       AND d.not_before <= ?
                       AND EXISTS (
@@ -1516,8 +1599,14 @@ public final class FlowRuntime
                           FROM flow_user_gate_transition t
                           WHERE t.gate_id = a.gate_id
                             AND t.gate_revision = a.gate_revision
-                            AND t.to_state = 'AUTHORIZED'
-                            AND t.detail_ref = a.authorization_id
+                            AND (t.to_state IN (
+                                    'AUTHORIZED', 'NEEDS_ATTENTION'
+                                ) OR (t.to_state = 'EXECUTING' AND EXISTS (
+                                    SELECT 1
+                                    FROM flow_github_external_effect_attempt x
+                                    WHERE x.operation_id = o.operation_id
+                                      AND x.plan_id = p.plan_id
+                                )))
                             AND t.sequence = (
                                 SELECT MAX(t2.sequence)
                                 FROM flow_user_gate_transition t2
@@ -1577,7 +1666,8 @@ public final class FlowRuntime
                         """
                         UPDATE flow_runtime_operation
                         SET state = 'CLAIMED', attempt = attempt + 1
-                        WHERE operation_id = ? AND state = 'READY'
+                        WHERE operation_id = ?
+                          AND state IN ('READY', 'RETRYABLE')
                         """,
                         candidate.operationId());
                 if (operationUpdated != 1) {
@@ -1618,19 +1708,212 @@ public final class FlowRuntime
         });
     }
 
-    /** Cancels a claimed publication before any provider attempt can exist. */
-    public synchronized void cancelClaimedPublish(
-            Claim claim, String resultRef)
+    public synchronized PublishExecutionHandle mintPublishExecutionHandle(
+            Claim claim, String attemptId)
     {
         requireNonNull(claim, "claim is null");
-        requireText(resultRef, "resultRef");
+        requireText(attemptId, "attemptId");
+        assertPublishClaim(claim);
+        return new PublishExecutionHandle(
+                claim.operationId(),
+                claim.generation(),
+                attemptId,
+                stableId("publish-execution-token", UUID.randomUUID().toString()));
+    }
+
+    public synchronized void consumePublishExecutionHandle(
+            PublishExecutionHandle handle,
+            Claim claim,
+            String attemptId,
+            String expectedTokenDigest)
+    {
+        requireNonNull(handle, "handle is null");
+        requireNonNull(claim, "claim is null");
+        requireText(attemptId, "attemptId");
+        requireText(expectedTokenDigest, "expectedTokenDigest");
+        assertPublishClaim(claim);
+        if (!handle.operationId.equals(claim.operationId())
+                || handle.generation != claim.generation()
+                || !handle.attemptId.equals(attemptId)
+                || !handle.tokenDigest.equals(expectedTokenDigest)
+                || !handle.consumed.compareAndSet(false, true)) {
+            throw new StaleClaimException(
+                    "publication execution permission is invalid or consumed");
+        }
+    }
+
+    public synchronized Operation assertPublishAttemptResult(
+            PublishExecutionHandle handle,
+            Claim claim,
+            String attemptId,
+            String expectedTokenDigest)
+    {
+        requireNonNull(handle, "handle is null");
+        requireNonNull(claim, "claim is null");
+        requireText(attemptId, "attemptId");
+        requireText(expectedTokenDigest, "expectedTokenDigest");
+        if (!handle.operationId.equals(claim.operationId())
+                || handle.generation != claim.generation()
+                || !handle.attemptId.equals(attemptId)
+                || !handle.tokenDigest.equals(expectedTokenDigest)
+                || !handle.consumed.get()) {
+            throw new StaleClaimException(
+                    "publication result permission is invalid");
+        }
+        Integer exact = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                WHERE o.operation_id = ? AND o.task_id = ?
+                  AND o.kind = 'PUBLISH' AND o.state = 'CLAIMED'
+                  AND d.delivery_state = 'CLAIMED'
+                  AND d.claim_generation = ? AND d.claim_token = ?
+                  AND d.claim_owner = ?
+                """,
+                Integer.class,
+                claim.operationId(),
+                claim.taskId(),
+                claim.generation(),
+                claim.claimToken(),
+                claim.workerId());
+        if (requireNonNull(exact,
+                "publication result authority count is null") != 1) {
+            throw new StaleClaimException(
+                    "publication result generation was already settled");
+        }
+        return requireOperation(claim.operationId());
+    }
+
+    public synchronized void assertPublishTerminalReplay(
+            Claim claim, String receiptId)
+    {
+        requireNonNull(claim, "claim is null");
+        requireText(receiptId, "receiptId");
+        if (claim.kind() != OperationKind.PUBLISH) {
+            throw new StaleClaimException(
+                    "publication terminal replay claim kind is invalid");
+        }
+        Integer exact = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM flow_runtime_operation o
+                JOIN flow_runtime_dispatch_ticket d
+                  ON d.operation_id = o.operation_id
+                WHERE o.operation_id = ? AND o.task_id = ?
+                  AND o.kind = 'PUBLISH' AND o.state = 'SUCCEEDED'
+                  AND o.result_ref = ? AND d.delivery_state = 'DONE'
+                  AND d.claim_generation = ? AND d.claim_token = ?
+                  AND d.claim_owner = ?
+                """,
+                Integer.class,
+                claim.operationId(),
+                claim.taskId(),
+                receiptId,
+                claim.generation(),
+                claim.claimToken(),
+                claim.workerId());
+        if (requireNonNull(exact,
+                "publication replay authority count is null") != 1) {
+            throw new StaleClaimException(
+                    "publication terminal replay authority is invalid");
+        }
+    }
+
+    public synchronized void assertPublishAttemptTerminalReplay(
+            PublishExecutionHandle handle,
+            Claim claim,
+            String attemptId,
+            String tokenDigest,
+            String receiptId)
+    {
+        requireNonNull(handle, "handle is null");
+        requireText(attemptId, "attemptId");
+        requireText(tokenDigest, "tokenDigest");
+        if (!handle.operationId.equals(claim.operationId())
+                || handle.generation != claim.generation()
+                || !handle.attemptId.equals(attemptId)
+                || !handle.tokenDigest.equals(tokenDigest)
+                || !handle.consumed.get()) {
+            throw new StaleClaimException(
+                    "publication terminal result handle is invalid");
+        }
+        assertPublishTerminalReplay(claim, receiptId);
+    }
+
+    /** Applies only a disposition minted by the owning UserGates transaction. */
+    public synchronized void settleClaimedPublish(
+            Claim claim,
+            PublishExecutionHandle handle,
+            String attemptId,
+            String tokenDigest,
+            PublishDisposition disposition)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(disposition, "disposition is null");
+        if (!disposition.operationId().equals(claim.operationId())) {
+            throw new StaleClaimException(
+                    "publication disposition owns another operation");
+        }
         inTransaction(() -> {
-            assertPublishClaim(claim);
-            settleDispatch(
-                    claim.operationId(), OperationState.CANCELED, resultRef);
-            resumeWaitingReconciliation(claim.taskId());
+            if (handle == null) {
+                assertPublishClaim(claim);
+            }
+            else {
+                assertPublishAttemptResult(
+                        handle, claim, attemptId, tokenDigest);
+            }
+            switch (disposition.kind()) {
+                case SUCCEEDED -> {
+                    settleDispatch(
+                            claim.operationId(),
+                            OperationState.SUCCEEDED,
+                            disposition.resultRef());
+                    resumeWaitingReconciliation(claim.taskId());
+                }
+                case CANCELED -> {
+                    settleDispatch(
+                            claim.operationId(),
+                            OperationState.CANCELED,
+                            disposition.resultRef());
+                    resumeWaitingReconciliation(claim.taskId());
+                }
+                case RETRY -> retryPublishDispatch(
+                        claim,
+                        disposition.resultRef(),
+                        disposition.retryAt());
+            }
             return Boolean.TRUE;
         });
+    }
+
+    private void retryPublishDispatch(
+            Claim claim, String resultRef, Instant notBefore)
+    {
+        int operationUpdated = jdbc.update(
+                """
+                UPDATE flow_runtime_operation
+                SET state = 'RETRYABLE', result_ref = ?
+                WHERE operation_id = ? AND state = 'CLAIMED'
+                """,
+                resultRef,
+                claim.operationId());
+        int ticketUpdated = jdbc.update(
+                """
+                UPDATE flow_runtime_dispatch_ticket
+                SET delivery_state = 'AVAILABLE', not_before = ?,
+                    claim_owner = NULL, claim_expires_at = NULL,
+                    claim_token = NULL
+                WHERE operation_id = ? AND delivery_state = 'CLAIMED'
+                  AND claim_generation = ? AND claim_token = ?
+                """,
+                notBefore.toEpochMilli(),
+                claim.operationId(),
+                claim.generation(),
+                claim.claimToken());
+        if (operationUpdated != 1 || ticketUpdated != 1) {
+            throw new StaleClaimException(
+                    "publication changed during retry scheduling");
+        }
     }
 
     /** Reads one exact canceled disposition for response-loss replay. */
@@ -1716,6 +1999,75 @@ public final class FlowRuntime
             if (operationUpdated != 1 || ticketUpdated != 1) {
                 throw new StaleClaimException(
                         "expired PUBLISH changed during redrive");
+            }
+            return Boolean.TRUE;
+        });
+    }
+
+    /** Redrives an activated publication only for remote probing. */
+    public synchronized void redriveExpiredPublishProbeOnly(
+            String operationId, long generation, Instant notBefore)
+    {
+        requireText(operationId, "operationId");
+        requireNonNull(notBefore, "notBefore is null");
+        inTransaction(() -> {
+            Operation operation = requireOperation(operationId);
+            Integer attempts = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM flow_github_external_effect_attempt "
+                            + "WHERE operation_id = ?",
+                    Integer.class,
+                    operationId);
+            if (operation.kind() != OperationKind.PUBLISH
+                    || requireNonNull(attempts,
+                            "publication attempt count is null") == 0) {
+                throw new IllegalStateException(
+                        "probe-only recovery requires a provider attempt");
+            }
+            Integer replay = jdbc.queryForObject(
+                    """
+                    SELECT COUNT(*) FROM flow_runtime_dispatch_ticket
+                    WHERE operation_id = ? AND claim_generation = ?
+                      AND delivery_state = 'AVAILABLE'
+                      AND claim_owner IS NULL AND claim_expires_at IS NULL
+                      AND claim_token IS NULL
+                    """,
+                    Integer.class,
+                    operationId,
+                    generation);
+            if (operation.state() == OperationState.RETRYABLE
+                    && operation.resultRef().equals("PROBE_REQUIRED")
+                    && requireNonNull(replay,
+                            "probe recovery replay count is null") == 1) {
+                return Boolean.TRUE;
+            }
+            ExpiredClaim expired = requireExpiredClaim(
+                    operationId, generation);
+            if (expired.processAttemptId() != null) {
+                throw new IllegalStateException(
+                        "PUBLISH cannot have an agent process attempt");
+            }
+            int operationUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_operation
+                    SET state = 'RETRYABLE', result_ref = 'PROBE_REQUIRED'
+                    WHERE operation_id = ? AND state = 'CLAIMED'
+                    """,
+                    operationId);
+            int ticketUpdated = jdbc.update(
+                    """
+                    UPDATE flow_runtime_dispatch_ticket
+                    SET delivery_state = 'AVAILABLE', not_before = ?,
+                        claim_owner = NULL, claim_expires_at = NULL,
+                        claim_token = NULL
+                    WHERE operation_id = ? AND delivery_state = 'CLAIMED'
+                      AND claim_generation = ?
+                    """,
+                    notBefore.toEpochMilli(),
+                    operationId,
+                    generation);
+            if (operationUpdated != 1 || ticketUpdated != 1) {
+                throw new StaleClaimException(
+                        "expired PUBLISH changed during probe-only redrive");
             }
             return Boolean.TRUE;
         });
@@ -7363,15 +7715,21 @@ public final class FlowRuntime
                 WHERE o.operation_id = ? AND o.task_id = ?
                   AND o.kind = 'PUBLISH'
                   AND o.owner_kind = 'GITHUB_EFFECT_PLAN'
-                  AND o.state = 'READY'
+                  AND o.state IN ('READY', 'RETRYABLE')
                   AND d.delivery_state = 'AVAILABLE'
                   AND d.claim_generation = ? AND d.not_before <= ?
                   AND EXISTS (
                       SELECT 1 FROM flow_user_gate_transition t
                       WHERE t.gate_id = a.gate_id
                         AND t.gate_revision = a.gate_revision
-                        AND t.to_state = 'AUTHORIZED'
-                        AND t.detail_ref = a.authorization_id
+                        AND (t.to_state IN (
+                                'AUTHORIZED', 'NEEDS_ATTENTION'
+                            ) OR (t.to_state = 'EXECUTING' AND EXISTS (
+                                SELECT 1
+                                FROM flow_github_external_effect_attempt x
+                                WHERE x.operation_id = o.operation_id
+                                  AND x.plan_id = p.plan_id
+                            )))
                         AND t.sequence = (
                             SELECT MAX(t2.sequence)
                             FROM flow_user_gate_transition t2
@@ -8316,6 +8674,11 @@ public final class FlowRuntime
             String identityId,
             String provider,
             String repositoryExternalId,
+            String repositoryOwner,
+            String repositoryName,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
             long prNumber,
             String prNodeId,
             String htmlUrl,
@@ -8325,7 +8688,11 @@ public final class FlowRuntime
                 """
                 SELECT COUNT(*) FROM flow_runtime_remote_identity
                 WHERE remote_identity_id = ? AND provider = ?
-                  AND repository_external_id = ? AND pr_number = ?
+                  AND repository_external_id = ?
+                  AND repository_owner = ? AND repository_name = ?
+                  AND head_repository_external_id = ?
+                  AND head_repository_owner = ?
+                  AND head_repository_name = ? AND pr_number = ?
                   AND pr_node_id = ? AND html_url = ?
                   AND publication_receipt_id = ?
                 """,
@@ -8333,6 +8700,11 @@ public final class FlowRuntime
                 identityId,
                 provider,
                 repositoryExternalId,
+                repositoryOwner,
+                repositoryName,
+                headRepositoryExternalId,
+                headRepositoryOwner,
+                headRepositoryName,
                 prNumber,
                 prNodeId,
                 htmlUrl,
@@ -9094,6 +9466,11 @@ public final class FlowRuntime
                 result.getString("remote_identity_id"),
                 result.getString("provider"),
                 result.getString("repository_external_id"),
+                result.getString("repository_owner"),
+                result.getString("repository_name"),
+                result.getString("head_repository_external_id"),
+                result.getString("head_repository_owner"),
+                result.getString("head_repository_name"),
                 number,
                 result.getString("current_remote_head"));
     }
@@ -9233,7 +9610,11 @@ public final class FlowRuntime
     private static String prSubjectSql()
     {
         return """
-                SELECT p.*, r.provider, r.repository_external_id, r.pr_number
+                SELECT p.*, r.provider, r.repository_external_id,
+                       r.repository_owner, r.repository_name,
+                       r.head_repository_external_id,
+                       r.head_repository_owner, r.head_repository_name,
+                       r.pr_number
                 FROM flow_runtime_pr p
                 LEFT JOIN flow_runtime_remote_identity r
                   ON r.remote_identity_id = p.remote_identity_id
@@ -9295,6 +9676,16 @@ public final class FlowRuntime
     {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
+    private static void requireGitHubRepositoryLocator(
+            String owner, String name)
+    {
+        if (!owner.matches("[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
+                || !name.matches("[A-Za-z0-9_.-]{1,100}")) {
+            throw new IllegalArgumentException(
+                    "GitHub repository owner/name is invalid");
         }
     }
 

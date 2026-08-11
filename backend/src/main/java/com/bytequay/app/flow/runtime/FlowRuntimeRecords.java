@@ -446,6 +446,21 @@ public final class FlowRuntimeRecords
     }
 
     /** The stable local PR plus its optional set-once GitHub identity. */
+    public record GitHubRepositoryLocator(
+            String repositoryExternalId,
+            String owner,
+            String name)
+    {
+        public GitHubRepositoryLocator
+        {
+            requireNonNull(repositoryExternalId,
+                    "repositoryExternalId is null");
+            requireNonNull(owner, "owner is null");
+            requireNonNull(name, "name is null");
+        }
+    }
+
+    /** The stable local PR plus its optional set-once GitHub identity. */
     public record PullRequestSubject(
             String prId,
             String taskId,
@@ -460,6 +475,11 @@ public final class FlowRuntimeRecords
             String remoteIdentityId,
             String provider,
             String repositoryExternalId,
+            String repositoryOwner,
+            String repositoryName,
+            String headRepositoryExternalId,
+            String headRepositoryOwner,
+            String headRepositoryName,
             Long prNumber,
             String currentRemoteHead)
     {
@@ -477,6 +497,20 @@ public final class FlowRuntimeRecords
                     "createdFromChangeSetRevisionId is null");
             requireNonNull(createdFromHeadSha,
                     "createdFromHeadSha is null");
+            boolean hasIdentity = remoteIdentityId != null;
+            if (hasIdentity != (provider != null)
+                    || hasIdentity != (repositoryExternalId != null)
+                    || hasIdentity != (repositoryOwner != null)
+                    || hasIdentity != (repositoryName != null)
+                    || hasIdentity != (headRepositoryExternalId != null)
+                    || hasIdentity != (headRepositoryOwner != null)
+                    || hasIdentity != (headRepositoryName != null)
+                    || hasIdentity != (prNumber != null)
+                    || hasIdentity != (currentRemoteHead != null)
+                    || hasIdentity && !provider.equals("GITHUB")) {
+                throw new IllegalArgumentException(
+                        "published PR GitHub identity is incomplete");
+            }
         }
 
         public boolean published()

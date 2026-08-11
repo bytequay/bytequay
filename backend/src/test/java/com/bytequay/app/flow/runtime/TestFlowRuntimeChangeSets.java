@@ -22,6 +22,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetSource;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.GitHubRepositoryLocator;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PendingKind;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
@@ -265,8 +266,12 @@ final class TestFlowRuntimeChangeSets
         var localPr = runtime.materializePullRequest(
                 task.taskId(), initial.get().changeSetRevisionId(),
                 "main", "main", "main");
-        var publishedPr = runtime.bindRemoteIdentity(
-                localPr.prId(), initial.get().headSha(), "GITHUB", "repo", 42,
+        var publishedPr = runtime.bindGitHubRemoteIdentity(
+                localPr.prId(), initial.get().headSha(),
+                new GitHubRepositoryLocator(
+                        "repo", "octocat", "bytequay"),
+                new GitHubRepositoryLocator(
+                        "head-repo", "octocat", "bytequay"), 42,
                 "PR_42", "https://example.test/42", "receipt:42");
         runtime.registerFinalRed(
                 "round-1", task.taskId(), localPr.prId(),

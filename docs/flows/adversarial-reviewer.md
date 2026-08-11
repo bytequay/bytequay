@@ -230,6 +230,11 @@ Semantic subject projection, text search, Project Intelligence, and
 `read_check_evidence` remain deferred. The current supervisor does not expose
 shell, filesystem, worktree, or remote access.
 
+Production CI review uses this exact read-only surface through the neutral
+`TurnRunner`. Its launch freezes prompt/tool digests, provider transport,
+model/limits, and the exact AI credential revision before HTTP; the reviewer
+still receives no writer fence or mutable worktree capability.
+
 There are no filesystem-write, shell-execution, Git-write, test-execution, parent
 message, user-input, subagent, timeline, gate, or GitHub tools.
 

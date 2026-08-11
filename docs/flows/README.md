@@ -47,9 +47,17 @@ object store, binds the exact SHA before mutation, and creates one derived
 branch/worktree without fetch, credentials, provider calls, or model calls.
 
 The generic worker selects only its wired kind set under capacity one. Separate
-bounded GitHub owner lanes claim exact `INITIAL_PUBLISH` plans and receipt-owned
-`OBSERVE_CI` work; each uses durable polling, cooperative shutdown,
-owner-specific expiry recovery, and the same global capacity predicate. They
+bounded GitHub owner lanes claim exact `INITIAL_PUBLISH`, `CI_UPDATE`, and
+receipt-owned `OBSERVE_CI` work. A fourth owner lane handles only greenfield CI
+reconciliation, fixer/cleanup, CI Task continuations, read-only reviewer, and
+isolated learner operations. Each uses durable polling, cooperative shutdown,
+and owner-specific expiry recovery. The optional read-only learner is serialized
+by its sole CI lane but consumes no shared writer/effect capacity, so committed
+observations and repair work can preempt it. All other lanes share the runtime's
+global capacity predicate. Agent
+runs freeze the exact provider transport/model/limits, prompt content, tool
+manifest, and AI credential revision before the first request; secrets remain
+ephemeral. The GitHub lanes
 read only the configured `REPO` credential for the frozen canonical owner/name
 and perform a fresh authenticated numeric-ID/owner/name check before provider
 use. The generic dispatcher continues to reject `PUBLISH` and `OBSERVE_CI`.
@@ -213,9 +221,9 @@ projected from its owner records while the Task remains `ACTIVE`.
 ## End-to-end flow
 
 This is the normative product flow. The current production subset composes the
-manual KEEP_DRAFT initial-publication and CI-observation portions described
-above; Trunk admission, local-comment commands, ready effects, feedback, merge,
-and cutover remain deferred.
+manual KEEP_DRAFT initial-publication, CI update publication/observation, and
+CI-autofix agent portions described above. Trunk admission, local-comment
+commands, ready effects, feedback, merge, and cutover remain deferred.
 
 1. A background Project Intelligence job learns source-cited project knowledge.
 2. The Trunk Agent clarifies the request and may read that knowledge.

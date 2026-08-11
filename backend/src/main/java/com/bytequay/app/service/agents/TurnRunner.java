@@ -32,9 +32,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import static java.util.Objects.requireNonNull;
 
@@ -58,6 +58,11 @@ public final class TurnRunner
 
     private static final String ANTHROPIC_VERSION = "2023-06-01";
     private static final Duration REQUEST_TIMEOUT = Duration.ofMinutes(5);
+    private static final int MAX_RESPONSE_CHARS = 16 * 1024 * 1024;
+    private static final int MAX_SSE_LINE_CHARS = 1024 * 1024;
+    private static final int MAX_TEXT_CHARS = 8 * 1024 * 1024;
+    private static final int MAX_TOOL_ARGUMENT_CHARS = 1024 * 1024;
+    private static final int MAX_TOOL_CALLS_PER_ROUND = 64;
 
     private final HttpClient httpClient;
     private final ObjectMapper mapper;
@@ -96,6 +101,11 @@ public final class TurnRunner
             rounds++;
             totalTokensIn += round.tokensIn;
             totalTokensOut += round.tokensOut;
+            if (hooks.interrupted()) {
+                return result(
+                        finalText, totalTokensIn, totalTokensOut, rounds,
+                        spec.modelId(), TurnResult.End.INTERRUPTED);
+            }
             // Keep the last NON-EMPTY round text: a model often answers in
             // one round and then makes a final verifying tool call, whose
             // (text-less) follow-up round would otherwise overwrite the
@@ -142,6 +152,11 @@ public final class TurnRunner
         rounds++;
         totalTokensIn += wrap.tokensIn;
         totalTokensOut += wrap.tokensOut;
+        if (hooks.interrupted()) {
+            return result(
+                    finalText, totalTokensIn, totalTokensOut, rounds,
+                    spec.modelId(), TurnResult.End.INTERRUPTED);
+        }
         if (!wrap.text.isBlank()) {
             finalText = wrap.text;
         }
@@ -211,28 +226,34 @@ public final class TurnRunner
                 .build();
 
         StringBuilder accumulated = new StringBuilder();
-        List<ToolCall> toolCalls = new ArrayList<>();
+        Map<Integer, ToolCall> completedToolCalls = new TreeMap<>();
         long roundTokensIn = 0;
         long roundTokensOut = 0;
+        boolean terminalMarker = false;
 
         // Anthropic indexes content blocks within a single response;
         // tool_use input arrives as input_json_delta chunks under the
         // same index. Track per open index so text + tool_use don't
         // interleave.
-        Map<Integer, OpenBlock> openToolBlocks = new HashMap<>();
+        Map<Integer, OpenBlock> openToolBlocks = new TreeMap<>();
 
         try {
             HttpResponse<InputStream> response = httpClient.send(
                     httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() / 100 != 2) {
-                String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+                response.body().close();
                 throw new IllegalStateException(
-                        "Anthropic API returned " + response.statusCode() + ": " + errBody);
+                        "Anthropic API returned HTTP " + response.statusCode());
             }
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
                 String line;
-                while ((line = reader.readLine()) != null) {
+                int responseChars = 0;
+                stream:
+                while ((line = readBoundedLine(reader)) != null) {
+                    responseChars = addBounded(
+                            responseChars, line.length() + 1,
+                            MAX_RESPONSE_CHARS, "provider response");
                     if (hooks.interrupted()) {
                         break;
                     }
@@ -256,6 +277,13 @@ public final class TurnRunner
                             int index = frame.path("index").asInt(0);
                             String blockType = frame.path("content_block").path("type").asText("");
                             if ("tool_use".equals(blockType)) {
+                                if (completedToolCalls.size()
+                                        + openToolBlocks.size()
+                                        >= MAX_TOOL_CALLS_PER_ROUND
+                                        || completedToolCalls.containsKey(index)
+                                        || openToolBlocks.containsKey(index)) {
+                                    throw limit("provider tool calls");
+                                }
                                 String id = frame.path("content_block").path("id").asText("");
                                 String toolName = frame.path("content_block").path("name").asText("");
                                 openToolBlocks.put(index, new OpenBlock(id, toolName));
@@ -267,7 +295,9 @@ public final class TurnRunner
                             if ("text_delta".equals(deltaType)) {
                                 String chunk = delta.path("text").asText("");
                                 if (!chunk.isEmpty()) {
-                                    accumulated.append(chunk);
+                                    appendBounded(
+                                            accumulated, chunk,
+                                            MAX_TEXT_CHARS, "provider text");
                                     hooks.onTextDelta(frame.path("index").asInt(0), chunk);
                                 }
                             }
@@ -275,7 +305,8 @@ public final class TurnRunner
                                 int index = frame.path("index").asInt(0);
                                 OpenBlock block = openToolBlocks.get(index);
                                 if (block != null) {
-                                    block.partial.append(delta.path("partial_json").asText(""));
+                                    block.append(delta.path(
+                                            "partial_json").asText(""));
                                 }
                             }
                         }
@@ -283,7 +314,7 @@ public final class TurnRunner
                             int index = frame.path("index").asInt(0);
                             OpenBlock block = openToolBlocks.remove(index);
                             if (block != null) {
-                                toolCalls.add(toolCall(block));
+                                completedToolCalls.put(index, toolCall(block));
                             }
                         }
                         case "message_delta" -> {
@@ -302,6 +333,14 @@ public final class TurnRunner
                                 roundTokensIn = usage.path("input_tokens").asLong(roundTokensIn);
                             }
                         }
+                        case "message_stop" -> {
+                            if (!openToolBlocks.isEmpty()) {
+                                throw new IllegalStateException(
+                                        "Anthropic terminal marker arrived with an incomplete tool call");
+                            }
+                            terminalMarker = true;
+                            break stream;
+                        }
                         default -> { /* ping, message_stop, etc — nothing to do */ }
                     }
                 }
@@ -314,7 +353,16 @@ public final class TurnRunner
             throw new IllegalStateException("Anthropic streaming failed: " + e.getMessage(), e);
         }
 
-        return new Round(accumulated.toString(), toolCalls, roundTokensIn, roundTokensOut);
+        if (!terminalMarker && !hooks.interrupted()) {
+            throw new IllegalStateException(
+                    "Anthropic streaming ended without a terminal marker");
+        }
+
+        return new Round(
+                accumulated.toString(),
+                List.copyOf(completedToolCalls.values()),
+                roundTokensIn,
+                roundTokensOut);
     }
 
     // ── OpenAI-compatible transport (OpenAI + DeepSeek) ───────────────
@@ -367,22 +415,28 @@ public final class TurnRunner
 
         StringBuilder accumulated = new StringBuilder();
         // Tool call accumulation indexed by the provider's tool_calls[i].index.
-        Map<Integer, OpenBlock> openToolCalls = new HashMap<>();
+        Map<Integer, OpenBlock> openToolCalls = new TreeMap<>();
         long roundTokensIn = 0;
         long roundTokensOut = 0;
+        boolean terminalMarker = false;
 
         try {
             HttpResponse<InputStream> response = httpClient.send(
                     httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() / 100 != 2) {
-                String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+                response.body().close();
                 throw new IllegalStateException(
-                        "OpenAI-compatible API returned " + response.statusCode() + ": " + errBody);
+                        "OpenAI-compatible API returned HTTP "
+                                + response.statusCode());
             }
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
                 String line;
-                while ((line = reader.readLine()) != null) {
+                int responseChars = 0;
+                while ((line = readBoundedLine(reader)) != null) {
+                    responseChars = addBounded(
+                            responseChars, line.length() + 1,
+                            MAX_RESPONSE_CHARS, "provider response");
                     if (hooks.interrupted()) {
                         break;
                     }
@@ -394,6 +448,7 @@ public final class TurnRunner
                     }
                     String data = line.substring("data: ".length()).trim();
                     if ("[DONE]".equals(data)) {
+                        terminalMarker = true;
                         break;
                     }
                     JsonNode frame;
@@ -427,7 +482,9 @@ public final class TurnRunner
                     if (delta.has("content") && !delta.path("content").isNull()) {
                         String chunk = delta.path("content").asText("");
                         if (!chunk.isEmpty()) {
-                            accumulated.append(chunk);
+                            appendBounded(
+                                    accumulated, chunk,
+                                    MAX_TEXT_CHARS, "provider text");
                             hooks.onTextDelta(0, chunk);
                         }
                     }
@@ -441,6 +498,10 @@ public final class TurnRunner
                             int tcIndex = tc.path("index").asInt(0);
                             OpenBlock block = openToolCalls.get(tcIndex);
                             if (block == null) {
+                                if (openToolCalls.size()
+                                        >= MAX_TOOL_CALLS_PER_ROUND) {
+                                    throw limit("provider tool calls");
+                                }
                                 String id = tc.path("id").asText("");
                                 String name = tc.path("function").path("name").asText("");
                                 block = new OpenBlock(id, name);
@@ -448,7 +509,7 @@ public final class TurnRunner
                             }
                             String argChunk = tc.path("function").path("arguments").asText("");
                             if (!argChunk.isEmpty()) {
-                                block.partial.append(argChunk);
+                                block.append(argChunk);
                             }
                         }
                     }
@@ -460,6 +521,11 @@ public final class TurnRunner
                 Thread.currentThread().interrupt();
             }
             throw new IllegalStateException("OpenAI-compatible streaming failed: " + e.getMessage(), e);
+        }
+
+        if (!terminalMarker && !hooks.interrupted()) {
+            throw new IllegalStateException(
+                    "OpenAI-compatible streaming ended without a terminal marker");
         }
 
         List<ToolCall> toolCalls = new ArrayList<>();
@@ -677,6 +743,57 @@ public final class TurnRunner
             this.id = id;
             this.name = name;
         }
+
+        private void append(String value)
+        {
+            appendBounded(
+                    partial, value, MAX_TOOL_ARGUMENT_CHARS,
+                    "provider tool arguments");
+        }
+    }
+
+    private static String readBoundedLine(BufferedReader reader)
+            throws IOException
+    {
+        StringBuilder line = new StringBuilder();
+        while (true) {
+            int value = reader.read();
+            if (value < 0) {
+                return line.isEmpty() ? null : line.toString();
+            }
+            if (value == '\n') {
+                return line.toString();
+            }
+            if (value != '\r') {
+                if (line.length() >= MAX_SSE_LINE_CHARS) {
+                    throw limit("provider SSE line");
+                }
+                line.append((char) value);
+            }
+        }
+    }
+
+    private static void appendBounded(
+            StringBuilder target, String value, int maximum, String subject)
+    {
+        if (value.length() > maximum - target.length()) {
+            throw limit(subject);
+        }
+        target.append(value);
+    }
+
+    private static int addBounded(
+            int current, int added, int maximum, String subject)
+    {
+        if (added > maximum - current) {
+            throw limit(subject);
+        }
+        return current + added;
+    }
+
+    private static IllegalStateException limit(String subject)
+    {
+        return new IllegalStateException(subject + " exceeded its bound");
     }
 
     private record Round(

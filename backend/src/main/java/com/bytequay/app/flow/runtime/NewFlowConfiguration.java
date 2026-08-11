@@ -20,12 +20,15 @@ import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
 import com.bytequay.app.flow.ci.CiFixReviewCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
+import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
 import com.bytequay.app.flow.github.GitHubEffects;
 import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.timeline.PrTimelineProjection;
 import com.bytequay.app.repository.CredentialStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.agents.TurnSpec;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +54,11 @@ public class NewFlowConfiguration
     // Exceeds the bounded sum of provisioning Git commands and inspections.
     private static final Duration CLAIM_TTL = Duration.ofMinutes(15);
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
+    private static final Duration AGENT_CLAIM_TTL = Duration.ofHours(4);
+    private static final Duration AGENT_BODY_TIMEOUT =
+            Duration.ofHours(3).plusMinutes(30);
+    private static final Duration AGENT_SHUTDOWN_TIMEOUT =
+            Duration.ofMinutes(6);
     private static final int CAPACITY = 1;
 
     @Bean(name = "newFlowClock", defaultCandidate = false)
@@ -149,6 +157,21 @@ public class NewFlowConfiguration
                         CLAIM_TTL, POLL_INTERVAL, CAPACITY));
     }
 
+    @Bean(initMethod = "start", destroyMethod = "close")
+    public GitHubCiUpdateDispatcher newFlowCiUpdatePublishDispatcher(
+            FlowRuntime runtime,
+            UserGates gates,
+            GitHubEffects effects,
+            CredentialStore credentials,
+            @Qualifier("newFlowClock") Clock clock)
+    {
+        return new GitHubCiUpdateDispatcher(
+                runtime, gates, effects, credentials, clock,
+                new GitHubCiUpdateDispatcher.Config(
+                        "new-flow-ci-update-publish",
+                        CLAIM_TTL, POLL_INTERVAL, CAPACITY));
+    }
+
     @Bean
     public CiAutofixCoordinator newFlowCiAutofixCoordinator(
             @Qualifier("newFlowDataSource") DataSource dataSource,
@@ -165,11 +188,12 @@ public class NewFlowConfiguration
     public GitHubCiObservationDispatcher newFlowCiObservationDispatcher(
             FlowRuntime runtime,
             CiAutofixCoordinator coordinator,
+            CiAutofixDispatcher ciAgents,
             CredentialStore credentials,
             @Qualifier("newFlowClock") Clock clock)
     {
         return new GitHubCiObservationDispatcher(
-                runtime, coordinator, credentials, clock,
+                runtime, coordinator, ciAgents, credentials, clock,
                 "new-flow-github-ci-observation",
                 Duration.ofMinutes(3), POLL_INTERVAL, CAPACITY);
     }
@@ -204,6 +228,88 @@ public class NewFlowConfiguration
             FlowRuntime runtime)
     {
         return new InProcessCiLearningAgentSupervisor(runtime);
+    }
+
+    @Bean
+    public NewFlowAgentLaunches newFlowAgentLaunches(
+            @Qualifier("newFlowDataSource") DataSource dataSource,
+            FlowRuntime runtime,
+            CredentialStore credentials,
+            @Qualifier("newFlowClock") Clock clock,
+            ObjectMapper objectMapper,
+            @Value("${bytequay.new-flow.agents.provider-name:openai}")
+                    String providerName,
+            @Value("${bytequay.new-flow.agents.transport:OPENAI_COMPAT}")
+                    TurnSpec.Transport transport,
+            @Value("${bytequay.new-flow.agents.endpoint:https://api.openai.com/v1/chat/completions}")
+                    String endpoint,
+            @Value("${bytequay.new-flow.agents.model:gpt-5.2-codex}")
+                    String model,
+            @Value("${bytequay.new-flow.agents.reasoning-effort:medium}")
+                    String reasoningEffort,
+            @Value("${bytequay.new-flow.agents.credential-name:openai}")
+                    String credentialName,
+            @Value("${bytequay.new-flow.agents.credential-instance:default api}")
+                    String credentialInstance,
+            @Value("${bytequay.new-flow.agents.max-output-tokens:8192}")
+                    int maxOutputTokens,
+            @Value("${bytequay.new-flow.agents.max-tool-iterations:2}")
+                    int maxToolIterations)
+    {
+        return new NewFlowAgentLaunches(
+                dataSource,
+                runtime,
+                credentials,
+                new NewFlowAgentLaunches.Config(
+                        providerName,
+                        transport,
+                        endpoint,
+                        model,
+                        reasoningEffort.isBlank() ? null : reasoningEffort,
+                        credentialName,
+                        credentialInstance,
+                        maxOutputTokens,
+                        maxToolIterations),
+                clock,
+                objectMapper);
+    }
+
+    @Bean
+    NewFlowAgentBodies newFlowAgentBodies(
+            NewFlowAgentLaunches launches,
+            TurnRunner turnRunner,
+            ObjectMapper objectMapper,
+            LocalChecks localChecks)
+    {
+        return new NewFlowAgentBodies(
+                launches, turnRunner, objectMapper, localChecks);
+    }
+
+    @Bean(initMethod = "start", destroyMethod = "close")
+    public CiAutofixDispatcher newFlowCiAutofixDispatcher(
+            FlowRuntime runtime,
+            CiAutofixCoordinator coordinator,
+            CiFixReviewCoordinator reviewCoordinator,
+            InProcessWriterAgentSupervisor writerSupervisor,
+            InProcessReviewerAgentSupervisor reviewerSupervisor,
+            InProcessCiLearningAgentSupervisor learningSupervisor,
+            NewFlowAgentBodies bodies)
+    {
+        return new CiAutofixDispatcher(
+                runtime,
+                coordinator,
+                reviewCoordinator,
+                writerSupervisor,
+                reviewerSupervisor,
+                learningSupervisor,
+                bodies,
+                new CiAutofixDispatcher.Config(
+                        "new-flow-ci-autofix",
+                        AGENT_CLAIM_TTL,
+                        POLL_INTERVAL,
+                        AGENT_BODY_TIMEOUT,
+                        AGENT_SHUTDOWN_TIMEOUT,
+                        CAPACITY));
     }
 
     @Bean

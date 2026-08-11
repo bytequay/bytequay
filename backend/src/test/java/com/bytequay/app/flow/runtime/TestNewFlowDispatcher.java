@@ -128,7 +128,9 @@ class TestNewFlowDispatcher
                 UPDATE flow_runtime_agent_process_attempt
                 SET state = 'STOPPED', capability_revoked_at = ?,
                     stop_type = 'NORMAL_RETURN', stop_proof_ref = 'proof',
-                    stopped_at = ?
+                    stopped_at = ?, completion_outcome = 'FAILED',
+                    completion_error_ref = 'TEST_STOPPED',
+                    completion_digest = 'test-completion-digest'
                 WHERE operation_id = ?
                 """,
                 NOW.toEpochMilli(), NOW.toEpochMilli(), first.operationId());
@@ -566,7 +568,7 @@ class TestNewFlowDispatcher
                 """
                 INSERT INTO flow_runtime_agent_session (
                     session_id, task_id, role, state, created_at, updated_at
-                ) VALUES ('capacity-session', ?, 'CI_LEARNER', 'RUNNING', ?, ?)
+                ) VALUES ('capacity-session', ?, 'CI_FIXER', 'RUNNING', ?, ?)
                 """,
                 taskId, NOW.toEpochMilli(), NOW.toEpochMilli());
         jdbc.update(
@@ -575,7 +577,7 @@ class TestNewFlowDispatcher
                     run_id, operation_id, session_id, role, head_sha,
                     prompt_manifest_ref, capability_set_ref, input_ref,
                     state, created_at, started_at
-                ) VALUES ('capacity-run', ?, 'capacity-session', 'CI_LEARNER',
+                ) VALUES ('capacity-run', ?, 'capacity-session', 'CI_FIXER',
                           'head', 'prompt', 'capabilities', 'input',
                           'RUNNING', ?, ?)
                 """,

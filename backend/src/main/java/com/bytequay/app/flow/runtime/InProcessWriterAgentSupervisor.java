@@ -18,6 +18,7 @@ import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.gate.UserGates.PreparedReadyRequest;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.ChangeSetRevision;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.CiFixReviewOrigin;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Claim;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.InProcessStopType;
@@ -169,6 +170,16 @@ public final class InProcessWriterAgentSupervisor
         {
             return execution.runChecks(
                     localChecks, programOwnedRepositoryRoot, profileName);
+        }
+
+        /** Program-only inspected adoption; no model owner ids are accepted. */
+        public ChangeSetRevision adoptChangeSet(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId)
+        {
+            return execution.adoptChangeSet(
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId);
         }
 
         /** Terminal Task tool; its immutable request durably seals all tools. */
@@ -433,6 +444,7 @@ public final class InProcessWriterAgentSupervisor
     {
         ManagedExecution execution = requireLive(handle);
         boolean alreadyStopped;
+        boolean cancellationStarted;
         synchronized (execution) {
             if (execution.result != null) {
                 return new Cancellation(
@@ -440,7 +452,19 @@ public final class InProcessWriterAgentSupervisor
                         execution.result);
             }
             alreadyStopped = execution.stoppedAttempt != null;
-            if (!alreadyStopped) {
+            if (execution.completion == null
+                    && !alreadyStopped
+                    && !execution.terminalCommandAccepted
+                    && execution.terminalCommandInProgress
+                    && execution.thread.isAlive()) {
+                execution.cancellationPending = true;
+            }
+            cancellationStarted = execution.completion == null
+                    && !alreadyStopped
+                    && !execution.terminalCommandAccepted
+                    && !execution.terminalCommandInProgress
+                    && execution.thread.isAlive();
+            if (cancellationStarted) {
                 execution.cancellationRequested = true;
                 execution.revocationRequested = true;
                 runtime.revokeInProcessWriterCapability(
@@ -454,6 +478,10 @@ public final class InProcessWriterAgentSupervisor
         if (!alreadyStopped) {
             join(execution.thread, timeout);
             if (execution.thread.isAlive()) {
+                if (!cancellationStarted) {
+                    throw new IllegalStateException(
+                            "accepted terminal writer body did not finish before the deadline");
+                }
                 synchronized (execution) {
                     if (!execution.quarantined) {
                         runtime.quarantineInProcessWriterAttempt(
@@ -469,7 +497,12 @@ public final class InProcessWriterAgentSupervisor
                         CancellationDisposition.QUARANTINED, null);
             }
         }
-        AgentResult result = finishEnded(execution, true);
+        boolean cancellationEffective;
+        synchronized (execution) {
+            cancellationEffective = cancellationStarted
+                    || execution.cancellationRequested;
+        }
+        AgentResult result = finishEnded(execution, cancellationEffective);
         CancellationDisposition disposition = result.terminalOutcome()
                 == TerminalOutcome.CANCELED
                 ? CancellationDisposition.CANCELED
@@ -519,7 +552,12 @@ public final class InProcessWriterAgentSupervisor
                                 finalizationClaim,
                                 finalizationFence,
                                 witness,
-                                execution.stopType);
+                                execution.stopType,
+                                execution.finalizationCompletion
+                                        .terminalOutcome(),
+                                execution.finalizationCompletion
+                                        .finalContent(),
+                                execution.finalizationCompletion.errorRef());
             }
             try {
                 AgentResult callbackResult = requireNonNull(
@@ -656,6 +694,9 @@ public final class InProcessWriterAgentSupervisor
         private boolean revocationRequested;
         private int activeToolCalls;
         private boolean cancellationRequested;
+        private boolean cancellationPending;
+        private boolean terminalCommandInProgress;
+        private boolean terminalCommandAccepted;
         private boolean quarantined;
         private boolean localCheckBoundaryUnproven;
         private AgentResult result;
@@ -792,6 +833,64 @@ public final class InProcessWriterAgentSupervisor
             }
         }
 
+        private <T> T callTerminalTool(Supplier<T> effect)
+        {
+            requireNonNull(effect, "effect is null");
+            synchronized (this) {
+                if (Thread.currentThread() != thread
+                        || revocationRequested
+                        || localCheckBoundaryUnproven
+                        || terminalCommandInProgress
+                        || terminalCommandAccepted) {
+                    throw new FlowRuntime.StaleCapabilityException(
+                            "writer terminal capability is revoked");
+                }
+                runtime.assertInProcessWriterToolCapability(
+                        runId,
+                        claim,
+                        fence,
+                        attempt.capabilityId());
+                terminalCommandInProgress = true;
+                activeToolCalls++;
+            }
+            boolean accepted = false;
+            boolean revokeAfterFailure = false;
+            try {
+                T result = effect.get();
+                synchronized (this) {
+                    terminalCommandAccepted = true;
+                    cancellationPending = false;
+                    revocationRequested = true;
+                    accepted = true;
+                }
+                return result;
+            }
+            finally {
+                synchronized (this) {
+                    if (!accepted) {
+                        terminalCommandInProgress = false;
+                        if (cancellationPending) {
+                            cancellationPending = false;
+                            cancellationRequested = true;
+                            revocationRequested = true;
+                            revokeAfterFailure = true;
+                        }
+                    }
+                    activeToolCalls--;
+                    notifyAll();
+                }
+                if (revokeAfterFailure) {
+                    try {
+                        runtime.revokeInProcessWriterCapability(
+                                attempt.processAttemptId(), claim, fence);
+                    }
+                    finally {
+                        thread.interrupt();
+                    }
+                }
+            }
+        }
+
         private List<LocalCheckRun> runChecks(
                 LocalChecks localChecks,
                 Path programOwnedRepositoryRoot,
@@ -823,6 +922,21 @@ public final class InProcessWriterAgentSupervisor
                     throw failure;
                 }
             });
+        }
+
+        private ChangeSetRevision adoptChangeSet(
+                Path programOwnedRepositoryRoot,
+                String expectedChangeSetRevisionId)
+        {
+            requireNonNull(programOwnedRepositoryRoot,
+                    "programOwnedRepositoryRoot is null");
+            requireText(expectedChangeSetRevisionId,
+                    "expectedChangeSetRevisionId");
+            return callTool(() -> runtime.adoptChangeSet(
+                    claim,
+                    fence,
+                    programOwnedRepositoryRoot,
+                    expectedChangeSetRevisionId));
         }
 
         private void renewFor(Duration requiredTtl)
@@ -860,7 +974,7 @@ public final class InProcessWriterAgentSupervisor
                             "terminal tool requires the owned writer thread");
                 }
             }
-            ReviewerRequest result = callTool(() -> {
+            return callTerminalTool(() -> {
                 FlowRuntime.PreparedReviewerRequest prepared =
                         runtime.prepareReviewerRequest(
                                 runId,
@@ -878,10 +992,6 @@ public final class InProcessWriterAgentSupervisor
                         attempt.capabilityId(),
                         prepared);
             });
-            synchronized (this) {
-                revocationRequested = true;
-            }
-            return result;
         }
 
         private ReviewerRequest replayAdversarialReviewer(
@@ -897,17 +1007,13 @@ public final class InProcessWriterAgentSupervisor
                             "terminal tool requires the owned writer thread");
                 }
             }
-            ReviewerRequest replayed = runtime.replayReviewerRequest(
+            return callTerminalTool(() -> runtime.replayReviewerRequest(
                     runId,
                     programOwnedRepositoryRoot,
                     expectedChangeSetRevisionId,
                     origin,
                     localCheckPolicyRevisionId,
-                    checkRunRefs);
-            synchronized (this) {
-                revocationRequested = true;
-            }
-            return replayed;
+                    checkRunRefs));
         }
 
         private ReadyForReviewAcceptance readyForReview(
@@ -925,14 +1031,10 @@ public final class InProcessWriterAgentSupervisor
                 }
             }
             if (runtime.readyForReviewRequestForRun(runId).isPresent()) {
-                ReadyForReviewAcceptance replay =
-                        userGates.replayReadyRequest(runId);
-                synchronized (this) {
-                    revocationRequested = true;
-                }
-                return replay;
+                return callTerminalTool(
+                        () -> userGates.replayReadyRequest(runId));
             }
-            ReadyForReviewAcceptance accepted = callTool(() -> {
+            return callTerminalTool(() -> {
                 PreparedReadyRequest prepared = userGates.prepareReadyRequest(
                         runId,
                         claim,
@@ -949,10 +1051,6 @@ public final class InProcessWriterAgentSupervisor
                         attempt.capabilityId(),
                         prepared);
             });
-            synchronized (this) {
-                revocationRequested = true;
-            }
-            return accepted;
         }
 
         private synchronized void adoptCurrentOwner(

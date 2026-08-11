@@ -239,11 +239,15 @@ public final class InProcessReviewerAgentSupervisor
     public AgentResult cancel(ExecutionHandle handle, Duration timeout)
     {
         ManagedExecution execution = requireLive(handle);
+        boolean cancellationStarted;
         synchronized (execution) {
             if (execution.result != null) {
                 return execution.result;
             }
-            if (execution.stoppedAttempt == null) {
+            cancellationStarted = execution.completion == null
+                    && execution.stoppedAttempt == null
+                    && execution.thread.isAlive();
+            if (cancellationStarted) {
                 execution.cancellationRequested = true;
                 execution.revocationRequested = true;
                 runtime.revokeInProcessReviewerCapability(
@@ -267,7 +271,7 @@ public final class InProcessReviewerAgentSupervisor
             throw new IllegalStateException(
                     "uncooperative reviewer was quarantined");
         }
-        return finishEnded(execution, true);
+        return finishEnded(execution, cancellationStarted);
     }
 
     private AgentResult finishEnded(
@@ -282,6 +286,7 @@ public final class InProcessReviewerAgentSupervisor
                         "reviewer has no terminal stop proof");
             }
             execution.freezeFinalization(cancellation);
+            AgentCompletion completion = execution.finalizationCompletion;
             if (execution.stoppedAttempt == null) {
                 execution.revocationRequested = true;
                 runtime.revokeInProcessReviewerCapability(
@@ -296,9 +301,11 @@ public final class InProcessReviewerAgentSupervisor
                                 execution.attempt.processAttemptId(),
                                 execution.claim,
                                 new TerminatedThreadWitness(execution.thread),
-                                execution.stopType);
+                                execution.stopType,
+                                completion.terminalOutcome(),
+                                completion.finalContent(),
+                                completion.errorRef());
             }
-            AgentCompletion completion = execution.finalizationCompletion;
             AgentResult result = runtime.finishReviewerAgentRun(
                     execution.runId,
                     execution.claim,

@@ -641,6 +641,52 @@ public final class FlowRuntime
         }
     }
 
+    /** Exact program completion sealed with one durable STOPPED proof. */
+    public record StoppedAgentCompletion(
+            String processAttemptId,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef,
+            String completionDigest)
+    {
+        public StoppedAgentCompletion
+        {
+            requireText(processAttemptId, "processAttemptId");
+            assertCompletion(terminalOutcome, errorRef);
+            requireText(completionDigest, "completionDigest");
+        }
+    }
+
+    /** Renewed same-generation authority for a proven STOPPED writer only. */
+    public record StoppedWriterRecovery(
+            AgentRun run,
+            Claim claim,
+            WriterFence fence,
+            StoppedAgentCompletion completion)
+    {
+        public StoppedWriterRecovery
+        {
+            requireNonNull(run, "run is null");
+            requireNonNull(claim, "claim is null");
+            requireNonNull(fence, "fence is null");
+            requireNonNull(completion, "completion is null");
+        }
+    }
+
+    /** Renewed same-generation authority for a proven STOPPED reviewer. */
+    public record StoppedReviewerRecovery(
+            AgentRun run,
+            Claim claim,
+            StoppedAgentCompletion completion)
+    {
+        public StoppedReviewerRecovery
+        {
+            requireNonNull(run, "run is null");
+            requireNonNull(claim, "claim is null");
+            requireNonNull(completion, "completion is null");
+        }
+    }
+
     public FlowRuntime(DataSource dataSource, Clock clock)
     {
         requireNonNull(dataSource, "dataSource is null");
@@ -2189,6 +2235,168 @@ public final class FlowRuntime
         return claimNext(workerId, claimTtl, exactKinds, capacity);
     }
 
+    /**
+     * Claims only the CI-autofix owner graph. In particular this cannot claim
+     * an INITIAL Task turn or a non-CI reviewer continuation merely because it
+     * shares an operation kind.
+     */
+    public synchronized Optional<Claim> claimNextCiAutofix(
+            String workerId, Duration claimTtl, int capacity)
+    {
+        requireText(workerId, "workerId");
+        requirePositive(claimTtl, "claimTtl");
+        if (capacity < 1) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
+        return inTransaction(() -> {
+            if (activeDispatchCount() >= capacity) {
+                return Optional.empty();
+            }
+            Instant now = clock.instant();
+            List<ClaimCandidate> candidates = jdbc.query(
+                    """
+                    SELECT o.operation_id, o.task_id, o.kind,
+                           d.claim_generation
+                    FROM flow_runtime_operation o
+                    JOIN flow_runtime_dispatch_ticket d
+                      ON d.operation_id = o.operation_id
+                    JOIN flow_runtime_task t ON t.task_id = o.task_id
+                    JOIN flow_runtime_agent_session ts
+                      ON ts.session_id = t.task_session_id
+                    WHERE o.state = 'READY'
+                      AND d.delivery_state = 'AVAILABLE'
+                      AND d.not_before <= ?
+                      AND t.status = 'ACTIVE'
+                      AND t.waiting_mutation_state_ref IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM flow_runtime_operation po
+                          WHERE po.task_id = t.task_id
+                            AND po.kind = 'PUBLISH'
+                            AND po.state IN (
+                                'READY', 'CLAIMED', 'WAITING', 'RETRYABLE'
+                            )
+                      )
+                      AND (
+                          (o.kind = 'RECONCILE_TASK'
+                           AND t.selected_writer_operation_id IS NULL
+                           AND ts.state <> 'PARKED_CHILD'
+                           AND EXISTS (
+                               SELECT 1 FROM flow_runtime_inbox i
+                               WHERE i.task_id = t.task_id
+                                 AND i.selected_by_operation_id IS NULL
+                                 AND i.handled_by_operation_id IS NULL
+                                 AND i.terminal_reason IS NULL
+                                 AND i.kind IN (
+                                     'FINAL_RED', 'CI_FIX_READY',
+                                     'AGENT_RESULT_READY'
+                                 )
+                                 AND (i.kind <> 'AGENT_RESULT_READY'
+                                      OR EXISTS (
+                                          SELECT 1
+                                          FROM flow_runtime_agent_run rr
+                                          JOIN flow_runtime_reviewer_request q
+                                            ON q.reviewer_operation_id =
+                                                rr.operation_id
+                                          WHERE rr.run_id = i.external_key
+                                            AND q.intended_gate_kind =
+                                                'CI_UPDATE'
+                                            AND q.origin_ci_fix_pending_id
+                                                IS NOT NULL
+                                      ))
+                           ))
+                          OR (o.kind = 'RUN_CI_FIXER'
+                              AND o.owner_kind IN ('CI_ROUND', 'CI_CLEANUP')
+                              AND t.selected_writer_operation_id =
+                                  o.operation_id)
+                          OR (o.kind = 'RUN_TASK_TURN'
+                              AND t.selected_writer_operation_id =
+                                  o.operation_id
+                              AND (
+                                  o.owner_kind = 'CI_ATTEMPT'
+                                  OR (o.owner_kind = 'AGENT_RUN' AND EXISTS (
+                                      SELECT 1
+                                      FROM flow_runtime_agent_run rr
+                                      JOIN flow_runtime_reviewer_request q
+                                        ON q.reviewer_operation_id =
+                                            rr.operation_id
+                                      WHERE rr.run_id = o.owner_id
+                                        AND q.intended_gate_kind = 'CI_UPDATE'
+                                        AND q.origin_ci_fix_pending_id
+                                            IS NOT NULL
+                                  ))
+                              ))
+                          OR (o.kind = 'RUN_REVIEWER'
+                              AND o.owner_kind = 'REVIEW_REQUEST'
+                              AND t.selected_writer_operation_id IS NULL
+                              AND ts.state = 'PARKED_CHILD'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM flow_runtime_writer_lease l
+                                  WHERE l.task_id = t.task_id
+                              )
+                              AND EXISTS (
+                                  SELECT 1
+                                  FROM flow_runtime_reviewer_request q
+                                  JOIN flow_runtime_operation p
+                                    ON p.operation_id = q.parent_operation_id
+                                  WHERE q.reviewer_operation_id =
+                                            o.operation_id
+                                    AND q.request_id = o.owner_id
+                                    AND q.intended_gate_kind = 'CI_UPDATE'
+                                    AND q.origin_ci_fix_pending_id IS NOT NULL
+                                    AND p.state IN (
+                                        'SUCCEEDED', 'FAILED', 'CANCELED'
+                                    )
+                                    AND p.result_ref IS NOT NULL
+                              ))
+                      )
+                    ORDER BY d.priority DESC, d.not_before, o.operation_id
+                    LIMIT 32
+                    """,
+                    (result, row) -> new ClaimCandidate(
+                            result.getString("operation_id"),
+                            result.getString("task_id"),
+                            OperationKind.valueOf(result.getString("kind")),
+                            result.getLong("claim_generation")),
+                    now.toEpochMilli());
+            for (ClaimCandidate candidate : candidates) {
+                long generation = candidate.generation() + 1;
+                String token = UUID.randomUUID().toString();
+                Instant expiresAt = now.plus(claimTtl);
+                int ticketUpdated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_dispatch_ticket
+                        SET claim_owner = ?, claim_expires_at = ?,
+                            claim_generation = ?, claim_token = ?,
+                            delivery_state = 'CLAIMED'
+                        WHERE operation_id = ?
+                          AND delivery_state = 'AVAILABLE'
+                          AND claim_generation = ?
+                        """,
+                        workerId, expiresAt.toEpochMilli(), generation, token,
+                        candidate.operationId(), candidate.generation());
+                if (ticketUpdated == 0) {
+                    continue;
+                }
+                int operationUpdated = jdbc.update(
+                        """
+                        UPDATE flow_runtime_operation
+                        SET state = 'CLAIMED', attempt = attempt + 1
+                        WHERE operation_id = ? AND state = 'READY'
+                        """,
+                        candidate.operationId());
+                if (operationUpdated != 1) {
+                    throw new IllegalStateException(
+                            "CI ticket claimed without its READY operation");
+                }
+                return Optional.of(new Claim(
+                        candidate.operationId(), candidate.taskId(),
+                        candidate.kind(), generation, token, workerId,
+                        expiresAt));
+            }
+            return Optional.empty();
+        });
+    }
+
     private Optional<Claim> claimNext(
             String workerId,
             Duration claimTtl,
@@ -2349,7 +2557,7 @@ public final class FlowRuntime
         });
     }
 
-    /** Counts claimed work and every process whose death is still unproven. */
+    /** Counts shared-capacity work; optional read-only learners are excluded. */
     private int activeDispatchCount()
     {
         Integer active = jdbc.queryForObject(
@@ -2362,10 +2570,13 @@ public final class FlowRuntime
                       ON d.operation_id = o.operation_id
                     WHERE o.state = 'CLAIMED'
                       AND d.delivery_state = 'CLAIMED'
+                      AND o.kind <> 'RUN_CI_LEARNING'
                     UNION ALL
                     SELECT p.operation_id
                     FROM flow_runtime_agent_process_attempt p
+                    JOIN flow_runtime_agent_run r ON r.run_id = p.run_id
                     WHERE p.state = 'ACTIVATED'
+                      AND r.role <> 'CI_LEARNER'
                 ) active
                 """,
                 Integer.class);
@@ -2388,6 +2599,17 @@ public final class FlowRuntime
         }
         return claimNextPublish(
                 workerId, claimTtl, "INITIAL_PUBLISH", capacity);
+    }
+
+    /** Claims only a CI_UPDATE plan for its disjoint owner-specific lane. */
+    public synchronized Optional<Claim> claimNextCiUpdatePublish(
+            String workerId, Duration claimTtl, int capacity)
+    {
+        if (capacity < 1) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
+        return claimNextPublish(
+                workerId, claimTtl, "CI_UPDATE", capacity);
     }
 
     private Optional<Claim> claimNextPublish(
@@ -2623,9 +2845,22 @@ public final class FlowRuntime
     public synchronized Optional<Claim> claimNextCiLearning(
             String workerId, Duration claimTtl)
     {
+        return claimNextCiLearning(
+                workerId, claimTtl, Integer.MAX_VALUE);
+    }
+
+    public synchronized Optional<Claim> claimNextCiLearning(
+            String workerId, Duration claimTtl, int capacity)
+    {
         requireText(workerId, "workerId");
         requirePositive(claimTtl, "claimTtl");
+        if (capacity < 1) {
+            throw new IllegalArgumentException("capacity must be positive");
+        }
         return inTransaction(() -> {
+            if (activeDispatchCount() >= capacity) {
+                return Optional.empty();
+            }
             Instant now = clock.instant();
             List<ClaimCandidate> candidates = jdbc.query(
                     """
@@ -3784,6 +4019,138 @@ public final class FlowRuntime
             recoverNeverLaunchedClaim(expired);
             return true;
         });
+    }
+
+    /**
+     * Renews only the same expired generation after its exact Java thread and
+     * completion were durably sealed. No body or provider call is redriven.
+     */
+    public synchronized StoppedWriterRecovery reviveExpiredStoppedWriter(
+            String operationId, long generation, Duration ttl)
+    {
+        requireText(operationId, "operationId");
+        requirePositive(ttl, "ttl");
+        return inTransaction(() -> {
+            ExpiredClaim expired = requireExpiredClaim(
+                    operationId, generation);
+            Operation operation = requireOperation(operationId);
+            if (expired.processAttemptState() != ProcessAttemptState.STOPPED
+                    || (operation.kind() != OperationKind.RUN_CI_FIXER
+                        && operation.kind()
+                            != OperationKind.RUN_TASK_TURN)) {
+                throw new IllegalArgumentException(
+                        "claim is not a stopped writer");
+            }
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    expired.processAttemptId());
+            AgentRun run = requireRun(expired.runId());
+            if (!attempt.operationId().equals(operationId)
+                    || attempt.claimGeneration() != generation
+                    || !run.operationId().equals(operationId)
+                    || (run.role() != AgentRole.CI_FIXER
+                        && run.role() != AgentRole.TASK_AGENT)) {
+                throw new IllegalStateException(
+                        "stopped writer recovery graph is invalid");
+            }
+            StoppedAgentCompletion completion = requireStoppedCompletion(
+                    attempt.processAttemptId());
+            Claim claim = renewExpiredStoppedClaim(
+                    operation, generation, ttl);
+            WriterFence current = writerFence(operation.taskId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "stopped writer lost its fence"));
+            if (!current.operationId().equals(operationId)
+                    || current.claimGeneration() != generation
+                    || !current.claimTokenDigest().equals(
+                            claimTokenDigest(claim))) {
+                throw new IllegalStateException(
+                        "stopped writer fence changed before recovery");
+            }
+            Instant expiry = claim.expiresAt();
+            int renewed = jdbc.update(
+                    "UPDATE flow_runtime_writer_lease SET expires_at = ? "
+                            + "WHERE task_id = ? AND operation_id = ? "
+                            + "AND claim_generation = ? "
+                            + "AND claim_token_digest = ?",
+                    expiry.toEpochMilli(), current.taskId(), operationId,
+                    generation, claimTokenDigest(claim));
+            if (renewed != 1) {
+                throw new StaleWriterFenceException(
+                        "stopped writer fence changed during recovery");
+            }
+            WriterFence fence = writerFence(operation.taskId())
+                    .orElseThrow();
+            return new StoppedWriterRecovery(
+                    run, claim, fence, completion);
+        });
+    }
+
+    public synchronized StoppedReviewerRecovery reviveExpiredStoppedReviewer(
+            String operationId, long generation, Duration ttl)
+    {
+        requireText(operationId, "operationId");
+        requirePositive(ttl, "ttl");
+        return inTransaction(() -> {
+            ExpiredClaim expired = requireExpiredClaim(
+                    operationId, generation);
+            Operation operation = requireOperation(operationId);
+            if (expired.processAttemptState() != ProcessAttemptState.STOPPED
+                    || operation.kind() != OperationKind.RUN_REVIEWER) {
+                throw new IllegalArgumentException(
+                        "claim is not a stopped reviewer");
+            }
+            AgentProcessAttempt attempt = requireProcessAttempt(
+                    expired.processAttemptId());
+            AgentRun run = requireRun(expired.runId());
+            if (!attempt.operationId().equals(operationId)
+                    || attempt.claimGeneration() != generation
+                    || !run.operationId().equals(operationId)
+                    || run.role() != AgentRole.ADVERSARIAL_REVIEWER) {
+                throw new IllegalStateException(
+                        "stopped reviewer recovery graph is invalid");
+            }
+            return new StoppedReviewerRecovery(
+                    run,
+                    renewExpiredStoppedClaim(operation, generation, ttl),
+                    requireStoppedCompletion(attempt.processAttemptId()));
+        });
+    }
+
+    private Claim renewExpiredStoppedClaim(
+            Operation operation, long generation, Duration ttl)
+    {
+        Instant expiresAt = clock.instant().plus(ttl);
+        Claim claim = jdbc.query(
+                """
+                SELECT d.claim_token, d.claim_owner
+                FROM flow_runtime_dispatch_ticket d
+                WHERE d.operation_id = ? AND d.delivery_state = 'CLAIMED'
+                  AND d.claim_generation = ? AND d.claim_expires_at <= ?
+                """,
+                (result, row) -> new Claim(
+                        operation.operationId(), operation.taskId(),
+                        operation.kind(), generation,
+                        result.getString("claim_token"),
+                        result.getString("claim_owner"), expiresAt),
+                operation.operationId(), generation,
+                clock.instant().toEpochMilli()).stream().findFirst()
+                .orElseThrow(() -> new StaleClaimException(
+                        "stopped claim is no longer expired"));
+        int renewed = jdbc.update(
+                "UPDATE flow_runtime_dispatch_ticket "
+                        + "SET claim_expires_at = ? "
+                        + "WHERE operation_id = ? "
+                        + "AND delivery_state = 'CLAIMED' "
+                        + "AND claim_generation = ? AND claim_token = ? "
+                        + "AND claim_owner = ? AND claim_expires_at <= ?",
+                expiresAt.toEpochMilli(), operation.operationId(),
+                generation, claim.claimToken(), claim.workerId(),
+                clock.instant().toEpochMilli());
+        if (renewed != 1) {
+            throw new StaleClaimException(
+                    "stopped claim changed during recovery");
+        }
+        return claim;
     }
 
     /** Owner-specific recovery for an isolated optional learner. */
@@ -6017,11 +6384,15 @@ public final class FlowRuntime
             String processAttemptId,
             Claim claim,
             InProcessCiLearningAgentSupervisor.TerminatedThreadWitness witness,
-            InProcessStopType stopType)
+            InProcessStopType stopType,
+            TerminalOutcome completionOutcome,
+            String completionContent,
+            String completionErrorRef)
     {
         requireText(processAttemptId, "processAttemptId");
         requireNonNull(witness, "witness is null");
         requireNonNull(stopType, "stopType is null");
+        assertCompletion(completionOutcome, completionErrorRef);
         return inTransaction(() -> {
             assertCiLearningTerminationAuthority(processAttemptId, claim);
             AgentProcessAttempt attempt = requireProcessAttempt(
@@ -6032,6 +6403,9 @@ public final class FlowRuntime
                     throw new IllegalStateException(
                             "CI learner stop replay changed type");
                 }
+                assertStoppedCompletion(
+                        processAttemptId, completionOutcome,
+                        completionContent, completionErrorRef);
                 return attempt;
             }
             if (attempt.state() != ProcessAttemptState.ACTIVATED
@@ -6048,16 +6422,23 @@ public final class FlowRuntime
                     Long.toString(witness.thread().threadId()),
                     Long.toString(attempt.capabilityRevokedAt()
                             .toEpochMilli()));
+            String completionDigest = stoppedCompletionDigest(
+                    processAttemptId, proof, completionOutcome,
+                    completionContent, completionErrorRef);
             int updated = jdbc.update(
                     """
                     UPDATE flow_runtime_agent_process_attempt
                     SET state = 'STOPPED', stop_type = ?, stop_proof_ref = ?,
-                        stopped_at = ?
+                        stopped_at = ?, completion_outcome = ?,
+                        completion_content = ?, completion_error_ref = ?,
+                        completion_digest = ?
                     WHERE process_attempt_id = ? AND state = 'ACTIVATED'
                       AND capability_revoked_at IS NOT NULL
                       AND quarantine_reason IS NULL
                     """,
                     stopType.name(), proof, now.toEpochMilli(),
+                    completionOutcome.name(), completionContent,
+                    completionErrorRef, completionDigest,
                     processAttemptId);
             if (updated != 1) {
                 throw new StaleOwnerRevisionException(
@@ -6086,9 +6467,14 @@ public final class FlowRuntime
             if (existing.isPresent()) {
                 AgentResult result = existing.orElseThrow();
                 assertFinalizedClaim(claim, result.resultId());
+                AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                        runId, claim.generation(), terminalOutcome,
+                        finalContent, errorRef);
                 if (result.terminalOutcome() != terminalOutcome
                         || !Objects.equals(result.finalContent(), finalContent)
-                        || !Objects.equals(result.errorRef(), errorRef)) {
+                        || !Objects.equals(result.errorRef(), errorRef)
+                        || !result.stopProofRef().equals(
+                                stopped.stopProofRef())) {
                     throw new IllegalStateException(
                             "CI learner result replay changed content");
                 }
@@ -6097,8 +6483,9 @@ public final class FlowRuntime
             Operation operation = assertCiLearningClaim(claim);
             AgentRun run = requireRun(runId);
             AgentSession session = requireSession(run.sessionId());
-            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
-                    runId, claim.generation());
+            AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                    runId, claim.generation(), terminalOutcome,
+                    finalContent, errorRef);
             if (!run.operationId().equals(operation.operationId())
                     || run.role() != AgentRole.CI_LEARNER
                     || run.state() != RunState.RUNNING
@@ -6464,11 +6851,15 @@ public final class FlowRuntime
             String processAttemptId,
             Claim claim,
             InProcessReviewerAgentSupervisor.TerminatedThreadWitness witness,
-            InProcessStopType stopType)
+            InProcessStopType stopType,
+            TerminalOutcome completionOutcome,
+            String completionContent,
+            String completionErrorRef)
     {
         requireText(processAttemptId, "processAttemptId");
         requireNonNull(witness, "witness is null");
         requireNonNull(stopType, "stopType is null");
+        assertCompletion(completionOutcome, completionErrorRef);
         return inTransaction(() -> {
             assertReviewerTerminationAuthority(processAttemptId, claim);
             AgentProcessAttempt attempt = requireProcessAttempt(
@@ -6479,6 +6870,9 @@ public final class FlowRuntime
                     throw new IllegalStateException(
                             "review stop redelivery changed type");
                 }
+                assertStoppedCompletion(
+                        processAttemptId, completionOutcome,
+                        completionContent, completionErrorRef);
                 return attempt;
             }
             if (attempt.state() != ProcessAttemptState.ACTIVATED
@@ -6497,11 +6891,16 @@ public final class FlowRuntime
                     Long.toString(witness.thread().threadId()),
                     Long.toString(attempt.capabilityRevokedAt()
                             .toEpochMilli()));
+            String completionDigest = stoppedCompletionDigest(
+                    processAttemptId, proofRef, completionOutcome,
+                    completionContent, completionErrorRef);
             int updated = jdbc.update(
                     """
                     UPDATE flow_runtime_agent_process_attempt
                     SET state = 'STOPPED', stop_type = ?,
-                        stop_proof_ref = ?, stopped_at = ?
+                        stop_proof_ref = ?, stopped_at = ?,
+                        completion_outcome = ?, completion_content = ?,
+                        completion_error_ref = ?, completion_digest = ?
                     WHERE process_attempt_id = ? AND state = 'ACTIVATED'
                       AND capability_revoked_at IS NOT NULL
                       AND quarantine_reason IS NULL
@@ -6509,6 +6908,8 @@ public final class FlowRuntime
                     stopType.name(),
                     proofRef,
                     now.toEpochMilli(),
+                    completionOutcome.name(), completionContent,
+                    completionErrorRef, completionDigest,
                     processAttemptId);
             if (updated != 1) {
                 throw new StaleOwnerRevisionException(
@@ -6606,10 +7007,15 @@ public final class FlowRuntime
             if (existing.isPresent()) {
                 AgentResult result = existing.get();
                 assertFinalizedClaim(claim, result.resultId());
+                AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                        runId, claim.generation(), terminalOutcome,
+                        finalContent, errorRef);
                 if (result.terminalOutcome() != terminalOutcome
                         || !Objects.equals(
                                 result.finalContent(), finalContent)
-                        || !Objects.equals(result.errorRef(), errorRef)) {
+                        || !Objects.equals(result.errorRef(), errorRef)
+                        || !result.stopProofRef().equals(
+                                stopped.stopProofRef())) {
                     throw new IllegalStateException(
                             "reviewer result replay changed terminal content");
                 }
@@ -6640,8 +7046,9 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "reviewer finalization subject is no longer current");
             }
-            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
-                    runId, claim.generation());
+            AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                    runId, claim.generation(), terminalOutcome,
+                    finalContent, errorRef);
             Instant now = clock.instant();
             String resultId = stableId("agent-result", runId);
             int resultStored = jdbc.update(
@@ -6744,6 +7151,13 @@ public final class FlowRuntime
                         "reviewer finalizer returned a noncanonical result");
             }
             assertFinalizedClaim(claim, stored.resultId());
+            AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                    runId, claim.generation(), stored.terminalOutcome(),
+                    stored.finalContent(), stored.errorRef());
+            if (!stored.stopProofRef().equals(stopped.stopProofRef())) {
+                throw new IllegalStateException(
+                        "finalized reviewer stop proof changed");
+            }
             AgentRun run = requireRun(runId);
             ReviewerRequest request = reviewerRequestForOperation(
                     run.operationId());
@@ -7019,11 +7433,15 @@ public final class FlowRuntime
             Claim claim,
             WriterFence fence,
             TerminatedThreadWitness witness,
-            InProcessStopType stopType)
+            InProcessStopType stopType,
+            TerminalOutcome completionOutcome,
+            String completionContent,
+            String completionErrorRef)
     {
         requireText(processAttemptId, "processAttemptId");
         requireNonNull(witness, "witness is null");
         requireNonNull(stopType, "stopType is null");
+        assertCompletion(completionOutcome, completionErrorRef);
         return inTransaction(() -> {
             assertTerminationAuthority(processAttemptId, claim, fence);
             AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
@@ -7033,6 +7451,9 @@ public final class FlowRuntime
                     throw new IllegalStateException(
                             "in-process stop redelivery changed type");
                 }
+                assertStoppedCompletion(
+                        processAttemptId, completionOutcome,
+                        completionContent, completionErrorRef);
                 return attempt;
             }
             if (attempt.state() != ProcessAttemptState.ACTIVATED
@@ -7051,11 +7472,16 @@ public final class FlowRuntime
                     Long.toString(witness.thread().threadId()),
                     Long.toString(attempt.capabilityRevokedAt()
                             .toEpochMilli()));
+            String completionDigest = stoppedCompletionDigest(
+                    processAttemptId, proofRef, completionOutcome,
+                    completionContent, completionErrorRef);
             int updated = jdbc.update(
                     """
                     UPDATE flow_runtime_agent_process_attempt
                     SET state = 'STOPPED', stop_type = ?,
-                        stop_proof_ref = ?, stopped_at = ?
+                        stop_proof_ref = ?, stopped_at = ?,
+                        completion_outcome = ?, completion_content = ?,
+                        completion_error_ref = ?, completion_digest = ?
                     WHERE process_attempt_id = ? AND state = 'ACTIVATED'
                       AND capability_revoked_at IS NOT NULL
                       AND quarantine_reason IS NULL
@@ -7063,6 +7489,8 @@ public final class FlowRuntime
                     stopType.name(),
                     proofRef,
                     now.toEpochMilli(),
+                    completionOutcome.name(), completionContent,
+                    completionErrorRef, completionDigest,
                     processAttemptId);
             if (updated != 1) {
                 throw new StaleOwnerRevisionException(
@@ -7365,10 +7793,15 @@ public final class FlowRuntime
             if (existing.isPresent()) {
                 AgentResult result = existing.get();
                 assertFinalizedClaim(claim, result.resultId());
+                AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                        runId, claim.generation(), terminalOutcome,
+                        finalContent, errorRef);
                 if (result.terminalOutcome() != terminalOutcome
                         || !Objects.equals(
                                 result.finalContent(), finalContent)
-                        || !Objects.equals(result.errorRef(), errorRef)) {
+                        || !Objects.equals(result.errorRef(), errorRef)
+                        || !result.stopProofRef().equals(
+                                stopped.stopProofRef())) {
                     throw new IllegalStateException(
                             "Task review finalization changed terminal content");
                 }
@@ -7388,8 +7821,9 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "Task review parent is no longer current");
             }
-            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
-                    runId, claim.generation());
+            AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                    runId, claim.generation(), terminalOutcome,
+                    finalContent, errorRef);
             boolean consumeReviewedResult = request.isEmpty()
                     && run.wakeKind() == WakeKind.AGENT_RESULT_READY
                     && terminalOutcome == TerminalOutcome.COMPLETED
@@ -7617,9 +8051,14 @@ public final class FlowRuntime
             if (existing.isPresent()) {
                 AgentResult result = existing.orElseThrow();
                 assertFinalizedClaim(claim, result.resultId());
+                AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                        runId, claim.generation(), terminalOutcome,
+                        finalContent, errorRef);
                 if (result.terminalOutcome() != terminalOutcome
                         || !Objects.equals(result.finalContent(), finalContent)
-                        || !Objects.equals(result.errorRef(), errorRef)) {
+                        || !Objects.equals(result.errorRef(), errorRef)
+                        || !result.stopProofRef().equals(
+                                stopped.stopProofRef())) {
                     throw new IllegalStateException(
                             "ready finalization changed terminal content");
                 }
@@ -7645,8 +8084,9 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "ready Task turn is no longer current");
             }
-            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
-                    runId, claim.generation());
+            AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                    runId, claim.generation(), terminalOutcome,
+                    finalContent, errorRef);
             if (gateRevisionRef != null) {
                 assertReadyGateRevision(runId, ready, gateRevisionRef);
             }
@@ -7940,8 +8380,10 @@ public final class FlowRuntime
                         "cleanup subject changed after non-clean inspection");
             }
             assertFenceOwnsOperation(fence, operation, AgentRole.CI_FIXER);
-            AgentProcessAttempt processAttempt = requireStoppedProcessAttempt(
-                    runId, claim.generation());
+            AgentProcessAttempt processAttempt =
+                    requireExactStoppedCompletion(
+                            runId, claim.generation(), terminalOutcome,
+                            finalContent, errorRef);
             if (!processAttempt.processAttemptId().equals(
                             prepared.processAttemptId)
                     || !processAttempt.stopProofRef().equals(
@@ -8410,8 +8852,9 @@ public final class FlowRuntime
                 throw new StaleOwnerRevisionException(
                         "cleanup attention subject is no longer current");
             }
-            AgentProcessAttempt stopped = requireStoppedProcessAttempt(
-                    runId, claim.generation());
+            AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                    runId, claim.generation(), terminalOutcome,
+                    finalContent, errorRef);
             NonCleanInspection finalState = null;
             FailureCode failureCode = null;
             if (prepared != null) {
@@ -8652,8 +9095,9 @@ public final class FlowRuntime
                     throw new IllegalStateException(
                             "AgentResult redelivery changed terminal content");
                 }
-                AgentProcessAttempt stopped = requireStoppedProcessAttempt(
-                        runId, claim.generation());
+                AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                        runId, claim.generation(), terminalOutcome,
+                        finalContent, errorRef);
                 if (!result.stopProofRef().equals(stopped.stopProofRef())) {
                     throw new IllegalStateException(
                             "AgentResult stop proof changed after finalization");
@@ -8699,8 +9143,10 @@ public final class FlowRuntime
             }
 
             Instant now = clock.instant();
-            AgentProcessAttempt processAttempt = requireStoppedProcessAttempt(
-                    runId, claim.generation());
+            AgentProcessAttempt processAttempt =
+                    requireExactStoppedCompletion(
+                            runId, claim.generation(), terminalOutcome,
+                            finalContent, errorRef);
             String resultId = stableId("agent-result", runId);
             int resultStored = jdbc.update(
                     """
@@ -9006,6 +9452,14 @@ public final class FlowRuntime
                         "stopped finalizer returned a noncanonical AgentResult");
             }
             assertFinalizedClaim(claim, stored.resultId());
+
+            AgentProcessAttempt stopped = requireExactStoppedCompletion(
+                    runId, claim.generation(), stored.terminalOutcome(),
+                    stored.finalContent(), stored.errorRef());
+            if (!stored.stopProofRef().equals(stopped.stopProofRef())) {
+                throw new IllegalStateException(
+                        "finalized writer stop proof changed");
+            }
 
             AgentRun run = requireRun(runId);
             Operation operation = requireOperation(claim.operationId());
@@ -10241,6 +10695,100 @@ public final class FlowRuntime
                                 "run has no stopped in-process proof for this claim"));
     }
 
+    private AgentProcessAttempt requireExactStoppedCompletion(
+            String runId,
+            long generation,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef)
+    {
+        AgentProcessAttempt stopped = requireStoppedProcessAttempt(
+                runId, generation);
+        assertStoppedCompletion(
+                stopped.processAttemptId(), terminalOutcome,
+                finalContent, errorRef);
+        return stopped;
+    }
+
+    private StoppedAgentCompletion requireStoppedCompletion(
+            String processAttemptId)
+    {
+        AgentProcessAttempt attempt = requireProcessAttempt(processAttemptId);
+        if (attempt.state() != ProcessAttemptState.STOPPED
+                || attempt.stopProofRef() == null) {
+            throw new IllegalStateException(
+                    "process attempt has no stopped completion");
+        }
+        StoppedAgentCompletion completion = jdbc.query(
+                """
+                SELECT process_attempt_id, completion_outcome,
+                       completion_content, completion_error_ref,
+                       completion_digest
+                FROM flow_runtime_agent_process_attempt
+                WHERE process_attempt_id = ? AND state = 'STOPPED'
+                """,
+                (result, row) -> new StoppedAgentCompletion(
+                        result.getString("process_attempt_id"),
+                        TerminalOutcome.valueOf(result.getString(
+                                "completion_outcome")),
+                        result.getString("completion_content"),
+                        result.getString("completion_error_ref"),
+                        result.getString("completion_digest")),
+                processAttemptId).stream().findFirst().orElseThrow(() ->
+                        new IllegalStateException(
+                                "stopped completion is missing"));
+        String expected = stoppedCompletionDigest(
+                processAttemptId, attempt.stopProofRef(),
+                completion.terminalOutcome(), completion.finalContent(),
+                completion.errorRef());
+        if (!completion.completionDigest().equals(expected)) {
+            throw new IllegalStateException(
+                    "stopped completion digest changed");
+        }
+        return completion;
+    }
+
+    private void assertStoppedCompletion(
+            String processAttemptId,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef)
+    {
+        StoppedAgentCompletion stored = requireStoppedCompletion(
+                processAttemptId);
+        if (stored.terminalOutcome() != terminalOutcome
+                || !Objects.equals(stored.finalContent(), finalContent)
+                || !Objects.equals(stored.errorRef(), errorRef)) {
+            throw new IllegalStateException(
+                    "stopped completion replay changed content");
+        }
+    }
+
+    private static String stoppedCompletionDigest(
+            String processAttemptId,
+            String stopProofRef,
+            TerminalOutcome terminalOutcome,
+            String finalContent,
+            String errorRef)
+    {
+        return stableId(
+                "in-process-stopped-completion",
+                processAttemptId,
+                stopProofRef,
+                terminalOutcome.name(),
+                finalContent == null ? "<null>" : finalContent,
+                errorRef == null ? "<null>" : errorRef);
+    }
+
+    private static void assertCompletion(
+            TerminalOutcome terminalOutcome, String errorRef)
+    {
+        requireNonNull(terminalOutcome, "terminalOutcome is null");
+        if (terminalOutcome != TerminalOutcome.COMPLETED) {
+            requireText(errorRef, "errorRef");
+        }
+    }
+
     private void assertTerminationAuthority(
             String processAttemptId, Claim claim, WriterFence fence)
     {
@@ -10677,20 +11225,29 @@ public final class FlowRuntime
                  AND x.result_id = o.result_ref
                 WHERE o.operation_id = ? AND o.kind = 'RUN_CI_LEARNING'
                   AND o.owner_kind = 'CI_UPDATE_RECEIPT'
-                  AND o.state = 'FAILED' AND o.result_ref = ?
+                  AND o.state IN ('SUCCEEDED', 'FAILED', 'CANCELED')
+                  AND o.result_ref = ?
                   AND d.delivery_state = 'DONE'
                   AND d.claim_generation = ?
-                  AND r.role = 'CI_LEARNER' AND r.state = 'FAILED'
-                  AND r.failure_reason_code =
-                        'CI_LEARNING_COMPLETION_LOST'
+                  AND r.role = 'CI_LEARNER'
+                  AND r.state IN ('COMPLETED', 'FAILED', 'CANCELED')
                   AND s.role = 'CI_LEARNER' AND s.state = 'CLOSED'
-                  AND s.close_reason = 'CI_LEARNING_COMPLETION_LOST'
-                  AND a.state = 'STOPPED' AND a.stop_type = 'NORMAL_RETURN'
+                  AND a.state = 'STOPPED'
                   AND a.stop_proof_ref IS NOT NULL
-                  AND x.terminal_outcome = 'FAILED'
-                  AND x.final_content IS NULL
-                  AND x.error_ref = 'CI_LEARNING_COMPLETION_LOST'
+                  AND a.completion_outcome = x.terminal_outcome
+                  AND a.completion_content IS x.final_content
+                  AND a.completion_error_ref IS x.error_ref
                   AND x.stop_proof_ref = a.stop_proof_ref
+                  AND r.state = CASE x.terminal_outcome
+                        WHEN 'COMPLETED' THEN 'COMPLETED'
+                        WHEN 'FAILED' THEN 'FAILED'
+                        ELSE 'CANCELED' END
+                  AND o.state = CASE x.terminal_outcome
+                        WHEN 'COMPLETED' THEN 'SUCCEEDED'
+                        WHEN 'FAILED' THEN 'FAILED'
+                        ELSE 'CANCELED' END
+                  AND s.close_reason =
+                        'CI_LEARNING_' || x.terminal_outcome
                 """,
                 Integer.class, operationId, resultId, generation);
         if (requireNonNull(exact,
@@ -10714,8 +11271,9 @@ public final class FlowRuntime
                 expired.processAttemptId());
         AgentRun run = requireRun(expired.runId());
         AgentSession session = requireSession(run.sessionId());
+        StoppedAgentCompletion completion = requireStoppedCompletion(
+                attempt.processAttemptId());
         if (attempt.state() != ProcessAttemptState.STOPPED
-                || attempt.stopType() != InProcessStopType.NORMAL_RETURN
                 || attempt.stopProofRef() == null
                 || run.role() != AgentRole.CI_LEARNER
                 || run.state() != RunState.RUNNING
@@ -10725,35 +11283,49 @@ public final class FlowRuntime
                     "stopped CI learner recovery graph is invalid");
         }
         Instant now = clock.instant();
-        String reason = "CI_LEARNING_COMPLETION_LOST";
         String resultId = stableId("agent-result", run.runId());
         int resultStored = jdbc.update(
                 """
                 INSERT INTO flow_runtime_agent_result (
                     result_id, run_id, terminal_outcome, final_content,
                     error_ref, stop_proof_ref, stored_at
-                ) VALUES (?, ?, 'FAILED', NULL, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                resultId, run.runId(), reason, attempt.stopProofRef(),
+                resultId, run.runId(),
+                completion.terminalOutcome().name(),
+                completion.finalContent(), completion.errorRef(),
+                attempt.stopProofRef(),
                 now.toEpochMilli());
+        RunState runState = switch (completion.terminalOutcome()) {
+            case COMPLETED -> RunState.COMPLETED;
+            case FAILED -> RunState.FAILED;
+            case CANCELED -> RunState.CANCELED;
+        };
         int runClosed = jdbc.update(
-                "UPDATE flow_runtime_agent_run SET state = 'FAILED', "
+                "UPDATE flow_runtime_agent_run SET state = ?, "
                         + "failure_reason_code = ?, completed_at = ? "
                         + "WHERE run_id = ? AND state = 'RUNNING'",
-                reason, now.toEpochMilli(), run.runId());
+                runState.name(), completion.errorRef(),
+                now.toEpochMilli(), run.runId());
         int sessionClosed = jdbc.update(
                 "UPDATE flow_runtime_agent_session SET state = 'CLOSED', "
                         + "close_reason = ?, updated_at = ? "
                         + "WHERE session_id = ? AND state = 'RUNNING' "
                         + "AND last_run_id = ?",
-                reason, now.toEpochMilli(), session.sessionId(), run.runId());
+                "CI_LEARNING_" + completion.terminalOutcome().name(),
+                now.toEpochMilli(), session.sessionId(), run.runId());
         if (resultStored != 1 || runClosed != 1
                 || sessionClosed != 1) {
             throw new StaleOwnerRevisionException(
                     "stopped CI learner changed during recovery");
         }
-        settleDispatch(
-                expired.operationId(), OperationState.FAILED, resultId);
+        OperationState operationState = switch (
+                completion.terminalOutcome()) {
+            case COMPLETED -> OperationState.SUCCEEDED;
+            case FAILED -> OperationState.FAILED;
+            case CANCELED -> OperationState.CANCELED;
+        };
+        settleDispatch(expired.operationId(), operationState, resultId);
         return new StoppedCiLearningResult(
                 requireResult(resultId), run.runId(), run.inputRef());
     }

@@ -359,7 +359,8 @@ reads, and one terminal durable lesson-seal command.
 `AgentProcessAttempt` records `{runId, claimGeneration, claimTokenDigest,
 executionId, capabilityId, state = RESERVED | ACTIVATED | STOPPED, jvmPid?,
 jvmStartedAt?, threadId?, threadName?, capabilityRevokedAt?, stopType?,
-stoppedAt?, stopProofRef?, quarantineReason?}`. The secret claim token is never
+stoppedAt?, stopProofRef?, completionOutcome?, completionContent?,
+completionErrorRef?, completionDigest?, quarantineReason?}`. The secret claim token is never
 placed in a prompt, result, capability object string, or process metadata.
 `threadName` is diagnostic only; the witness binds the exact terminated
 `Thread`, its ID, and its JVM PID/start identity.
@@ -391,24 +392,20 @@ binds one program-owned finalizer key and executable before exposing the handle
 or body. After `STOPPED`, the supervisor passes that stored finalizer only the
 exact run, current same-authority claim/fence snapshot, and immutable completion.
 A failure before durable settlement retains the stopped live-JVM entry,
-pointer, lease, session, and frozen completion. If settlement committed but its
+pointer, lease, session, and frozen completion. The completion and stop proof
+are sealed together before the finalizer. If settlement committed but its
 response was lost, the entry remains and exact retry reads the canonical stored
 result. Retry may use a safely renewed expiry snapshot but cannot rerun the
 body, switch finalizer routes, or change completion identity. The entry is
 removed only after runtime postconditions prove the returned `AgentResult`, run,
 claim, operation, session, pointer, and old lease were durably settled. If the
-claim expired while a writer ended, revocation and `STOPPED` are still stored and
-the typed outcome is
-`STOPPED_AWAITING_RECOVERY`; the supervisor removes the ended live-JVM entry
-because that expired authority can neither renew nor finalize. No `AgentResult`,
-pointer, or lease is released; durable runtime recovery remains the only owner
-of settlement.
-Recovery may mark that exact expired attempt `FAILED/DONE` first. Only
-termination commands may then use the retained exact claim generation/token,
-recovery result reference, selected pointer, and writer lease to revoke, capture
-STOPPED, or quarantine. Tool admission and `AgentRuns.finish` still require the
-current unexpired `CLAIMED` authority, so this narrow path cannot mutate or
-publish a result after recovery won the race.
+claim expired while a writer ended, revocation, exact completion, and `STOPPED`
+are still stored. Owner recovery renews only that same generation/token and
+writer fence for the bounded finalizer interval, then replays the role finalizer
+without another body or provider request. Transient finalizer failures retain
+the live handle; stale-claim handoff occurs only after the durable STOPPED
+completion exists. No `AgentResult`, pointer, or lease is released before that
+finalizer commits.
 
 CLI/shell agent transport is unsupported in the new flow. A future OS-process
 transport must own a complete process group and mechanical death receipt before
@@ -548,7 +545,7 @@ shapes.
 | `InProcessWriterAgentSupervisor.awaitAndFinalize(handle, deadline, expectedFinalizerKey)` | Task/CI dispatcher after launch | Join the exact thread, revoke capability, require no admitted tool remains, and durably store the private-witness `STOPPED` fact before invoking the launch-bound finalizer. A failed finalizer retains exact stopped ownership for retry; success removes the live entry only after a matching `AgentResult` is returned. Neither await nor cancel accepts a replacement callback. `awaitAndFinish` expects the ordinary runtime-result key. |
 | `InProcessReviewerAgentSupervisor.launch(...)` / `awaitAndFinish(...)` | claimed reviewer dispatcher | Reserve and activate one request-bound fresh in-process reviewer thread behind a dormant gate. Expose only immutable tree/base-blob/reviewed-blob/raw-diff reads, revoke and drain them at stop, then call the separate reviewer finalizer without a writer fence. Exact live-JVM redelivery reuses the execution. |
 | `FlowRuntime.startCiLearningAgent(claim, promptManifest, capabilitySet)` / `InProcessCiLearningAgentSupervisor.launch(...)` | claimed receipt-owned CI learner dispatcher | Create or exactly replay one isolated one-shot `CI_LEARNER` session/run, then reserve and activate one in-process read-only thread. It has no Task writer pointer/lease and exposes only its bound repair evidence/log reads plus one terminal lesson save. |
-| `CiAutofixCoordinator.recoverExpiredCiLearning(operationId, generation)` | CI-learning recovery dispatcher | Validate the complete immutable receipt/red-repair/GREEN subject graph. No-attempt recovery redrives the same operation; `RESERVED` also reuses an already-created run/session. These branches need not remain current GREEN because the next begin performs that check. Uncertain `ACTIVATED` quarantines only learner facts. For `STOPPED(NORMAL_RETURN)`, the runtime stores the lost-completion result while the CI owner locks and requires current GREEN for candidate creation, otherwise records `MISSED`, all in one transaction. Generic claim recovery rejects this operation kind. |
+| `CiAutofixCoordinator.recoverExpiredCiLearning(operationId, generation)` | CI-learning recovery dispatcher | Validate the complete immutable receipt/red-repair/GREEN subject graph. No-attempt recovery redrives the same operation; `RESERVED` also reuses an already-created run/session. These branches need not remain current GREEN because the next begin performs that check. Uncertain `ACTIVATED` quarantines only learner facts. For `STOPPED`, replay the exact sealed completion while the CI owner locks and requires current GREEN for candidate creation, otherwise record `MISSED`, all in one transaction. Generic claim recovery rejects this operation kind. |
 | `InProcessWriterAgentSupervisor.cancel(handle, deadline)` | authenticated Task/CI cancellation owner | Close local tool admission and durably revoke before interrupting, then wait for the exact thread and any admitted synchronous tool. Store a cooperative stop proof and finish only when both ended. Otherwise quarantine while retaining pointer/lease. An expired claim yields `STOPPED_AWAITING_RECOVERY` after truthful stop capture. |
 | `ProgramRunnerSupervisor.stopAndProve(operationId, writerFence)` | non-agent writer recovery | Terminate and prove a deterministic `UPSTREAM_SYNC`/other program runner dead before inspecting its worktree or transferring its fence; it has no `AgentRun` or model capability. |
 | `ReviewerRequests.create(parentSessionId, subjectManifest)` | terminal `spawn_agent` Task tool | Validate and create the frozen reviewer request plus one initially parent-blocked `RUN_REVIEWER` operation/ticket; seal the parent run against more tools and return `reviewRequestId`, but create no reviewer session/run. Parent finalization below parks the session and makes the ticket eligible only after its result/state and writer release are durable. |
@@ -621,7 +618,7 @@ attempt.
 
 The mandatory `CI_CLEANUP` successor is the narrow exception. Its distinct
 capability manifest does not expose this adopting `run_checks` path. Cleanup may
-execute bounded test commands, but it has exactly one mechanical adoption in
+use bounded read/edit and its fixed commit, but it has exactly one mechanical adoption in
 its STOPPED finalizer, directly from the logical input C1/H1 to the final clean
 revision. Formal check evidence is produced later against that adopted revision
 by the Task review/gate path; intermediate cleanup revisions are not supported.
@@ -724,8 +721,12 @@ are not inputs to this owner graph.
 
 The composed `NewFlowDispatcher` wires exactly the local `PROVISION_TASK`
 handler and never claims an unsupported kind merely to make the queue look
-active. Two concrete owner lanes separately claim only GitHub
-`INITIAL_PUBLISH` plans and receipt-owned `OBSERVE_CI` operations. All three
+active. Concrete owner lanes separately claim only GitHub `INITIAL_PUBLISH`,
+GitHub `CI_UPDATE`, receipt-owned `OBSERVE_CI`, and the bounded greenfield CI
+agent graph (`RECONCILE_TASK`, fixer/cleanup, CI Task continuations, reviewer,
+learner). The optional read-only learner is serialized by that sole lane but
+does not consume shared writer/effect capacity; a committed queued-red
+observation cooperatively cancels it before repair dispatch. All other lane
 paths use the runtime's shared capacity bound. Polling observes committed work
 even when a wake is lost or arrives early; shutdown interrupts the lane and
 leaves unfinished claims to the matching typed owner recovery. The generic
@@ -750,8 +751,9 @@ clone with a real `.git` directory. A linked-worktree `.git` file is rejected at
 this boundary. Supporting another repository layout requires a later typed
 catalog contract; this checkpoint performs no migration or fetch.
 
-This checkpoint still does not admit a live Task, expose `start_task`, invoke a
-model, disable old beans, or claim cutover. Those changes
+This checkpoint still does not admit a live Task, expose `start_task`, disable
+old beans, or claim cutover. The CI owner lane can invoke the neutral
+`TurnRunner` only for already-durable greenfield CI work. The remaining changes
 require their own complete composition and acceptance boundary.
 
 ## 7. Agent-to-agent protocol

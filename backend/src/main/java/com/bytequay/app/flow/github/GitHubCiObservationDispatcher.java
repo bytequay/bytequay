@@ -14,6 +14,8 @@
 package com.bytequay.app.flow.github;
 
 import com.bytequay.app.flow.ci.CiAutofixCoordinator;
+import com.bytequay.app.flow.ci.CiAutofixRecords.RoundState;
+import com.bytequay.app.flow.runtime.CiAutofixDispatcher;
 import com.bytequay.app.flow.runtime.FlowRuntime;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.OperationKind;
 import com.bytequay.app.repository.CredentialStore;
@@ -37,6 +39,7 @@ public final class GitHubCiObservationDispatcher
 
     private final FlowRuntime runtime;
     private final GitHubCiObservationExecutor executor;
+    private final CiAutofixDispatcher ciAgents;
     private final String workerId;
     private final Duration claimTtl;
     private final Duration pollInterval;
@@ -49,6 +52,7 @@ public final class GitHubCiObservationDispatcher
     public GitHubCiObservationDispatcher(
             FlowRuntime runtime,
             CiAutofixCoordinator coordinator,
+            CiAutofixDispatcher ciAgents,
             CredentialStore credentials,
             Clock clock,
             String workerId,
@@ -58,6 +62,7 @@ public final class GitHubCiObservationDispatcher
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
         requireNonNull(coordinator, "coordinator is null");
+        this.ciAgents = requireNonNull(ciAgents, "ciAgents is null");
         requireNonNull(credentials, "credentials is null");
         requireNonNull(clock, "clock is null");
         if (workerId == null || workerId.isBlank()
@@ -135,7 +140,9 @@ public final class GitHubCiObservationDispatcher
             return changed;
         }
         try {
-            executor.execute(claim.orElseThrow());
+            executor.execute(claim.orElseThrow())
+                    .filter(round -> round.state() == RoundState.QUEUED)
+                    .ifPresent(ignored -> ciAgents.repairAvailable());
         }
         catch (RuntimeException failure) {
             log.warn("GitHub CI observation failed; recovery owns retry",

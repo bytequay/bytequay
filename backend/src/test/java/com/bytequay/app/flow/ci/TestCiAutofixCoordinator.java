@@ -18,6 +18,7 @@ import com.bytequay.app.flow.ci.CiAutofixCoordinator.RepairBinding;
 import com.bytequay.app.flow.ci.CiAutofixRecords.AttemptState;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupCompletion;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiCleanupSeal;
+import com.bytequay.app.flow.ci.CiAutofixRecords.CiLesson;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRepairAttempt;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CiRound;
 import com.bytequay.app.flow.ci.CiAutofixRecords.CleanupOutcome;
@@ -42,6 +43,7 @@ import com.bytequay.app.flow.github.GitHubInitialPublishExecutor;
 import com.bytequay.app.flow.github.InitialPublishRecords.Outcome;
 import com.bytequay.app.flow.github.InitialPublishRecords.StepReceipt;
 import com.bytequay.app.flow.runtime.FlowRuntime;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentProcessAttempt;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentResult;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRole;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.AgentRun;
@@ -88,6 +90,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import javax.sql.DataSource;
 
@@ -95,11 +98,15 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -133,6 +140,9 @@ import static com.bytequay.app.flow.github.GitHubProviderFixtures.openInitialPub
 import static com.bytequay.app.flow.github.GitHubProviderFixtures.prepareCiObservation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestCiAutofixCoordinator
 {
@@ -3454,6 +3464,168 @@ class TestCiAutofixCoordinator
     }
 
     @Test
+    void acceptedTaskTerminalAndCompletedReviewerWinLateCancellation()
+            throws Exception
+    {
+        ReviewReady ready = prepareCleanReview("late-cancel-terminal");
+        CiFixReviewCoordinator.TaskToolContext taskContext =
+                ready.review().taskToolContext(ready.binding());
+        assertThat(taskContext.readCiFixContext())
+                .contains("taskGoal=" + task.goalText());
+        jdbc.update(
+                "UPDATE flow_runtime_task SET goal_text = ? WHERE task_id = ?",
+                "substituted task goal",
+                task.taskId());
+        assertThatThrownBy(taskContext::readCiFixContext)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("context changed");
+        jdbc.update(
+                "UPDATE flow_runtime_task SET goal_text = ? WHERE task_id = ?",
+                task.goalText(),
+                task.taskId());
+        CountDownLatch terminalAccepted = new CountDownLatch(1);
+        CountDownLatch releaseTaskBody = new CountDownLatch(1);
+        AtomicReference<ReviewerRequest> request = new AtomicReference<>();
+        var writerSupervisor = new InProcessWriterAgentSupervisor(runtime);
+        var writerHandle = ready.review().launchTaskInspection(
+                writerSupervisor,
+                ready.binding(),
+                ready.claim(),
+                capability -> {
+                    capability.runChecks();
+                    request.set(capability.spawnAdversarialReviewer());
+                    terminalAccepted.countDown();
+                    awaitLatch(releaseTaskBody);
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "accepted terminal result",
+                            null);
+                });
+        awaitLatch(terminalAccepted);
+        AtomicReference<InProcessWriterAgentSupervisor.Cancellation>
+                cancellation = new AtomicReference<>();
+        AtomicReference<Throwable> cancellationFailure =
+                new AtomicReference<>();
+        CountDownLatch cancelEntered = new CountDownLatch(1);
+        Thread cancelThread = Thread.ofVirtual().start(() -> {
+            cancelEntered.countDown();
+            try {
+                cancellation.set(writerSupervisor.cancel(writerHandle, TTL));
+            }
+            catch (Throwable failure) {
+                cancellationFailure.set(failure);
+            }
+        });
+        awaitLatch(cancelEntered);
+        awaitThreadBlockedOrEnded(cancelThread);
+        releaseTaskBody.countDown();
+        joinThread(cancelThread);
+
+        assertThat(cancellationFailure.get()).isNull();
+        assertThat(cancellation.get().disposition()).isEqualTo(
+                InProcessWriterAgentSupervisor.CancellationDisposition
+                        .ALREADY_FINISHED);
+        assertThat(cancellation.get().result().terminalOutcome())
+                .isEqualTo(TerminalOutcome.COMPLETED);
+        assertThat(request.get()).isNotNull();
+
+        Claim reviewerClaim = claim(OperationKind.RUN_REVIEWER);
+        var reviewerStart = ready.review().beginReviewer(
+                request.get().requestId(), reviewerClaim);
+        CountDownLatch reviewerReturning = new CountDownLatch(1);
+        var reviewerSupervisor = new InProcessReviewerAgentSupervisor(runtime);
+        var reviewerHandle = ready.review().launchReviewer(
+                reviewerSupervisor,
+                reviewerStart,
+                reviewerClaim,
+                capability -> {
+                    reviewerReturning.countDown();
+                    return new InProcessReviewerAgentSupervisor
+                            .AgentCompletion(
+                                    TerminalOutcome.COMPLETED,
+                                    "completed reviewer result",
+                                    null);
+                });
+        awaitLatch(reviewerReturning);
+        awaitNamedThreadTermination(
+                "flow-reviewer-agent-" + reviewerHandle.executionId());
+
+        AgentResult reviewerResult = reviewerSupervisor.cancel(
+                reviewerHandle, TTL);
+        assertThat(reviewerResult.terminalOutcome())
+                .isEqualTo(TerminalOutcome.COMPLETED);
+        assertThat(reviewerResult.finalContent())
+                .isEqualTo("completed reviewer result");
+    }
+
+    @Test
+    void canceledFailedTerminalEffectRevokesBeforeAnotherToolCanRun()
+    {
+        ReviewerResultReady ready = prepareReviewerResult(
+                "failed-terminal-cancel");
+        UserGates blockedGates = mock(UserGates.class);
+        CountDownLatch terminalEntered = new CountDownLatch(1);
+        CountDownLatch failTerminal = new CountDownLatch(1);
+        when(blockedGates.prepareReadyRequest(
+                any(), any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    terminalEntered.countDown();
+                    awaitLatch(failTerminal);
+                    throw new IllegalStateException(
+                            "forced terminal transaction rollback");
+                });
+        var blockedReview = new CiFixReviewCoordinator(
+                autofix, runtime, localChecks, blockedGates);
+        var supervisor = new InProcessWriterAgentSupervisor(runtime);
+        AtomicInteger laterToolEffects = new AtomicInteger();
+        AtomicReference<Throwable> laterToolFailure = new AtomicReference<>();
+        var handle = blockedReview.launchReviewerResultContinuation(
+                supervisor,
+                ready.binding(),
+                ready.claim(),
+                capability -> {
+                    assertThatThrownBy(capability::readyForReview)
+                            .isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("forced terminal");
+                    try {
+                        capability.runTool(laterToolEffects::incrementAndGet);
+                    }
+                    catch (Throwable failure) {
+                        laterToolFailure.set(failure);
+                    }
+                    return new InProcessWriterAgentSupervisor.AgentCompletion(
+                            TerminalOutcome.COMPLETED,
+                            "terminal failure was not authority",
+                            null);
+                });
+        awaitLatch(terminalEntered);
+        AtomicReference<InProcessWriterAgentSupervisor.Cancellation>
+                cancellation = new AtomicReference<>();
+        AtomicReference<Throwable> cancellationFailure =
+                new AtomicReference<>();
+        Thread cancelThread = Thread.ofVirtual().start(() -> {
+            try {
+                cancellation.set(supervisor.cancel(handle, TTL));
+            }
+            catch (Throwable failure) {
+                cancellationFailure.set(failure);
+            }
+        });
+        awaitThreadBlockedOrEnded(cancelThread);
+        failTerminal.countDown();
+        joinThread(cancelThread);
+
+        assertThat(cancellationFailure.get()).isNull();
+        assertThat(laterToolEffects).hasValue(0);
+        assertThat(laterToolFailure.get())
+                .isInstanceOf(FlowRuntime.StaleCapabilityException.class);
+        assertThat(cancellation.get().result().terminalOutcome())
+                .isEqualTo(TerminalOutcome.CANCELED);
+        assertThat(runtime.readyForReviewRequestForRun(
+                ready.binding().run().runId())).isEmpty();
+    }
+
+    @Test
     void terminalReadyOpensExactLocalGateAndWinsOverParentFailure()
     {
         ReviewerResultReady ready = prepareReviewerResult("ready-gate");
@@ -6212,8 +6384,22 @@ class TestCiAutofixCoordinator
         var handle = supervisor.launch(
                 start, learning, coordinator, capability -> {
                     assertThat(capability.readCiRepairEvidence())
-                            .contains("greenRound=" + green.roundId())
-                            .contains("repairResult=");
+                            .contains("publicationPolicy=")
+                            .contains("greenPolicy=")
+                            .contains("outputHead=" + subject.publishedHead())
+                            .contains("outputDiffDigest="
+                                    + subject.outputDiffDigest())
+                            .contains("repairOutcome=")
+                            .contains("repairResult=")
+                            .contains("failedLogCount=1")
+                            .doesNotContain(
+                                    subject.subjectId(),
+                                    subject.receiptId(),
+                                    subject.redRoundId(),
+                                    green.roundId(),
+                                    subject.repairAttemptId(),
+                                    subject.outputChangeSetRevisionId(),
+                                    failedLogRef);
                     assertThat(capability.readCiLog(
                             failedLogRef, 0, 1_024))
                             .contains("failure");
@@ -6258,6 +6444,302 @@ class TestCiAutofixCoordinator
                 });
         assertThat(runtime.task(task.taskId()).orElseThrow().status())
                 .isEqualTo(TaskStatus.ACTIVE);
+    }
+
+    @Test
+    void acceptedLessonWinsCancellationBeforeLearnerBodyReturns()
+    {
+        Claim greenClaim = observationClaim("learn-late-cancel");
+        var unused = executeCiObservation(
+                runtime,
+                coordinator,
+                greenClaim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                GREEN).orElseThrow();
+        Claim learning = runtime.claimNextCiLearning("learner", TTL)
+                .orElseThrow();
+        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+                learning).orElseThrow();
+        CountDownLatch lessonAccepted = new CountDownLatch(1);
+        CountDownLatch releaseBody = new CountDownLatch(1);
+        var supervisor = new InProcessCiLearningAgentSupervisor(runtime);
+        var handle = supervisor.launch(
+                start,
+                learning,
+                coordinator,
+                capability -> {
+                    capability.saveCiLesson(
+                            "Accepted before cancellation",
+                            "The exact saved lesson remains authoritative.");
+                    lessonAccepted.countDown();
+                    awaitLatch(releaseBody);
+                    return new InProcessCiLearningAgentSupervisor
+                            .AgentCompletion(
+                                    TerminalOutcome.COMPLETED,
+                                    "saved lesson",
+                                    null);
+                });
+        awaitLatch(lessonAccepted);
+        AtomicReference<AgentResult> cancellation = new AtomicReference<>();
+        AtomicReference<Throwable> cancellationFailure =
+                new AtomicReference<>();
+        CountDownLatch cancelEntered = new CountDownLatch(1);
+        Thread cancelThread = Thread.ofVirtual().start(() -> {
+            cancelEntered.countDown();
+            try {
+                cancellation.set(supervisor.cancel(handle, TTL));
+            }
+            catch (Throwable failure) {
+                cancellationFailure.set(failure);
+            }
+        });
+        awaitLatch(cancelEntered);
+        awaitThreadBlockedOrEnded(cancelThread);
+        releaseBody.countDown();
+        joinThread(cancelThread);
+
+        assertThat(cancellationFailure.get()).isNull();
+        assertThat(cancellation.get().terminalOutcome())
+                .isEqualTo(TerminalOutcome.COMPLETED);
+        assertThat(coordinator.learningCompletion(learning.operationId())
+                .orElseThrow().state())
+                .isEqualTo(LearningCompletionState.CANDIDATE);
+    }
+
+    @Test
+    void stoppedCompletionSealRejectsChangedWriterResult()
+    {
+        ReviewReady writerReady = prepareCleanReview("completion-seal-writer");
+        String writerContent = "sealed writer completion";
+        AgentProcessAttempt writerAttempt = ReflectionTestUtils.invokeMethod(
+                runtime,
+                "reserveInProcessWriterAttempt",
+                writerReady.binding().run().runId(),
+                writerReady.claim(),
+                writerReady.binding().fence());
+        ReflectionTestUtils.invokeMethod(
+                runtime,
+                "activateInProcessWriterAttempt",
+                writerAttempt.processAttemptId(),
+                writerReady.claim(),
+                writerReady.binding().fence(),
+                1L, NOW, 1L, "restarted-writer");
+        markAttemptStopped(
+                writerAttempt.processAttemptId(), TerminalOutcome.COMPLETED,
+                writerContent, null);
+
+        assertThatThrownBy(() -> runtime.finishTaskAgentReviewTurn(
+                writerReady.binding().run().runId(), writerReady.claim(),
+                writerReady.binding().fence(), TerminalOutcome.COMPLETED,
+                "changed writer completion", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("stopped completion");
+        assertThat(runtime.resultForRun(
+                writerReady.binding().run().runId())).isEmpty();
+        AgentResult writerResult = runtime.finishTaskAgentReviewTurn(
+                writerReady.binding().run().runId(), writerReady.claim(),
+                writerReady.binding().fence(), TerminalOutcome.COMPLETED,
+                writerContent, null);
+        assertThat(runtime.finishTaskAgentReviewTurn(
+                writerReady.binding().run().runId(), writerReady.claim(),
+                writerReady.binding().fence(), TerminalOutcome.COMPLETED,
+                writerContent, null))
+                .isEqualTo(writerResult);
+    }
+
+    @Test
+    void stoppedCompletionSealRejectsChangedReviewerResult()
+    {
+        ReviewerClaim reviewer = prepareReviewerClaim(
+                "completion-seal-reviewer");
+        String reviewerContent = "sealed reviewer completion";
+        AgentProcessAttempt reviewerAttempt =
+                ReflectionTestUtils.invokeMethod(
+                        runtime,
+                        "reserveInProcessReviewerAttempt",
+                        reviewer.start().run().runId(),
+                        reviewer.claim(),
+                        reviewer.request().requestId());
+        ReflectionTestUtils.invokeMethod(
+                runtime,
+                "activateInProcessReviewerAttempt",
+                reviewerAttempt.processAttemptId(),
+                reviewer.claim(),
+                1L, NOW, 1L, "restarted-reviewer");
+        markAttemptStopped(
+                reviewerAttempt.processAttemptId(), TerminalOutcome.COMPLETED,
+                reviewerContent, null);
+
+        assertThatThrownBy(() -> runtime.finishReviewerAgentRun(
+                reviewer.start().run().runId(), reviewer.claim(),
+                TerminalOutcome.COMPLETED,
+                "changed reviewer completion", null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("stopped completion");
+        assertThat(runtime.resultForRun(
+                reviewer.start().run().runId())).isEmpty();
+        AgentResult reviewerResult = runtime.finishReviewerAgentRun(
+                reviewer.start().run().runId(), reviewer.claim(),
+                TerminalOutcome.COMPLETED, reviewerContent, null);
+        assertThat(runtime.finishReviewerAgentRun(
+                reviewer.start().run().runId(), reviewer.claim(),
+                TerminalOutcome.COMPLETED, reviewerContent, null))
+                .isEqualTo(reviewerResult);
+    }
+
+    @Test
+    void stoppedCompletionSealRejectsChangedLearnerResult()
+    {
+        Claim greenClaim = observationClaim("completion-seal-learner");
+        CiRound green = executeCiObservation(
+                runtime, coordinator, greenClaim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+        assertThat(green.state()).isEqualTo(RoundState.GREEN);
+        Claim learning = runtime.claimNextCiLearning("learner", TTL)
+                .orElseThrow();
+        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+                learning).orElseThrow();
+        String learnerError = "SEALED_LEARNER_FAILURE";
+        AgentProcessAttempt learnerAttempt =
+                runtime.reserveInProcessCiLearningAttempt(
+                        start.run().runId(), learning);
+        runtime.activateInProcessCiLearningAttempt(
+                learnerAttempt.processAttemptId(), learning,
+                1L, NOW, 1L, "restarted-learner");
+        markAttemptStopped(
+                learnerAttempt.processAttemptId(), TerminalOutcome.FAILED,
+                null, learnerError);
+
+        assertThatThrownBy(() -> runtime.finishCiLearningAgentRun(
+                start.run().runId(), learning, TerminalOutcome.FAILED,
+                null, "CHANGED_LEARNER_FAILURE"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("stopped completion");
+        assertThat(runtime.resultForRun(start.run().runId())).isEmpty();
+        AgentResult learnerResult = runtime.finishCiLearningAgentRun(
+                start.run().runId(), learning, TerminalOutcome.FAILED,
+                null, learnerError);
+        assertThat(runtime.finishCiLearningAgentRun(
+                start.run().runId(), learning, TerminalOutcome.FAILED,
+                null, learnerError)).isEqualTo(learnerResult);
+    }
+
+    @Test
+    void finalizedCandidateIsOfferedOnlyToTheNextExactRepositoryRepair()
+    {
+        Claim greenClaim = observationClaim("lesson-next-repair-green");
+        List<CiLesson> lessons = new ArrayList<>();
+        for (int index = 0; index < 7; index++) {
+            CiRound green = executeCiObservation(
+                    runtime, coordinator, greenClaim,
+                    Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                    .orElseThrow();
+            assertThat(green.state()).isEqualTo(RoundState.GREEN);
+            Claim learning = runtime.claimNextCiLearning("learner", TTL)
+                    .orElseThrow();
+            FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+                    learning).orElseThrow();
+            int lessonIndex = index;
+            var supervisor = new InProcessCiLearningAgentSupervisor(runtime);
+            var handle = supervisor.launch(
+                    start, learning, coordinator, capability -> {
+                        capability.saveCiLesson(
+                                "Candidate lesson " + lessonIndex,
+                                "Bounded repair hint " + lessonIndex);
+                        return new InProcessCiLearningAgentSupervisor
+                                .AgentCompletion(
+                                        TerminalOutcome.COMPLETED,
+                                        "saved " + lessonIndex,
+                                        null);
+                    });
+            supervisor.awaitAndFinish(handle, TTL);
+            String lessonId = coordinator.learningCompletion(
+                    learning.operationId()).orElseThrow().lessonId();
+            lessons.add(coordinator.lesson(lessonId).orElseThrow());
+            if (index < 6) {
+                advancePublicationClock(Duration.ofMinutes(6));
+                Claim redClaim = runtime.claimNextCiObservation(
+                        "observer", TTL).orElseThrow();
+                CiRound red = executeCiObservation(
+                        runtime, coordinator, redClaim,
+                        Clock.fixed(runtimeNow, ZoneOffset.UTC),
+                        FAILED_ACTIONS).orElseThrow();
+                CompletedReady next = openReadyGate(
+                        "lesson-next-repair-" + index, red);
+                greenClaim = publishReadyAndClaimObservation(
+                        next, "lesson-next-repair-" + index);
+            }
+        }
+
+        CiLesson crossRepository = lessons.getLast();
+        jdbc.update(
+                "UPDATE flow_ci_lesson SET repository_id = 'other/repo' "
+                        + "WHERE lesson_id = ?",
+                crossRepository.lessonId());
+        long tiedAt = lessons.get(5).createdAt().toEpochMilli();
+        jdbc.update(
+                "UPDATE flow_ci_lesson SET created_at = ? "
+                        + "WHERE lesson_id = ?",
+                tiedAt, lessons.get(4).lessonId());
+        List<CiLesson> expected = new ArrayList<>();
+        for (int index = 0; index < 6; index++) {
+            expected.add(coordinator.lesson(
+                    lessons.get(index).lessonId()).orElseThrow());
+        }
+        expected.sort(Comparator.comparing(CiLesson::createdAt).reversed()
+                .thenComparing(CiLesson::lessonId));
+        expected = List.copyOf(expected.subList(0, 5));
+
+        advancePublicationClock(Duration.ofMinutes(6));
+        Claim redClaim = runtime.claimNextCiObservation("observer", TTL)
+                .orElseThrow();
+        CiRound red = executeCiObservation(
+                runtime, coordinator, redClaim,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
+                .orElseThrow();
+        StartedRepair repair = startRepair(red);
+        CiAutofixCoordinator.RepairToolContext context =
+                coordinator.repairToolContext(repair.binding());
+
+        assertThat(context.failureSummary())
+                .contains("taskGoal=" + task.goalText())
+                .contains("failedRemoteHead=" + red.remoteHead())
+                .contains("requiredCiPolicyRevision=");
+        List<String> expectedSummary = new ArrayList<>();
+        for (int index = 0; index < expected.size(); index++) {
+            CiLesson lesson = expected.get(index);
+            expectedSummary.add(index + ": " + lesson.title()
+                    + " [" + lesson.contentDigest() + "]");
+        }
+        String summary = context.candidateLessonSummary();
+        assertThat(summary.lines().toList())
+                .containsExactlyElementsOf(expectedSummary);
+        for (CiLesson lesson : lessons) {
+            assertThat(summary).doesNotContain(lesson.lessonId());
+        }
+        assertThat(summary)
+                .doesNotContain(lessons.getFirst().title())
+                .doesNotContain(crossRepository.title());
+        for (int index = 0; index < expected.size(); index++) {
+            CiLesson lesson = expected.get(index);
+            assertThat(context.readCandidateLesson(index))
+                    .contains("UNTRUSTED PRIOR HINT")
+                    .contains(lesson.title())
+                    .contains(lesson.contentDigest())
+                    .contains(lesson.markdown())
+                    .doesNotContain(lesson.lessonId());
+        }
+        assertThatThrownBy(() -> context.readCandidateLesson(5))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        jdbc.update(
+                "UPDATE flow_ci_lesson SET repository_id = 'other/repo' "
+                        + "WHERE lesson_id = ?",
+                expected.getFirst().lessonId());
+        assertThatThrownBy(context::candidateLessonSummary)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("context changed");
     }
 
     @Test
@@ -6556,6 +7038,82 @@ class TestCiAutofixCoordinator
     }
 
     @Test
+    void activeLearnerDoesNotBlockObservationOrRepairCapacity()
+    {
+        Claim observation = observationClaim("learn-live-capacity");
+        CiRound green = executeCiObservation(
+                runtime, coordinator, observation,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+        assertThat(green.state()).isEqualTo(RoundState.GREEN);
+        Duration learnerTtl = Duration.ofMinutes(10);
+        Claim learning = runtime.claimNextCiLearning(
+                "learner", learnerTtl, 1).orElseThrow();
+        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+                learning).orElseThrow();
+        var attempt = runtime.reserveInProcessCiLearningAttempt(
+                start.run().runId(), learning);
+        runtime.activateInProcessCiLearningAttempt(
+                attempt.processAttemptId(), learning, 1L, NOW, 1L,
+                "live-ci-learner");
+
+        advancePublicationClock(Duration.ofMinutes(6));
+        Claim redObservation = runtime.claimNextCiObservation(
+                "observer", TTL, 1).orElseThrow();
+        CiRound red = executeCiObservation(
+                runtime, coordinator, redObservation,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), FAILED_ACTIONS)
+                .orElseThrow();
+
+        assertThat(red.state()).isEqualTo(RoundState.QUEUED);
+        Claim repair = runtime.claimNextCiAutofix("repair", TTL, 1)
+                .orElseThrow();
+        assertThat(repair.kind()).isEqualTo(OperationKind.RECONCILE_TASK);
+        assertThat(runtime.operation(learning.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.CLAIMED);
+    }
+
+    @Test
+    void quarantinedLearnerDoesNotConsumeRepairCapacity()
+    {
+        Claim observation = observationClaim("learn-quarantine-capacity");
+        CiRound green = executeCiObservation(
+                runtime, coordinator, observation,
+                Clock.fixed(runtimeNow, ZoneOffset.UTC), GREEN)
+                .orElseThrow();
+        assertThat(green.state()).isEqualTo(RoundState.GREEN);
+        Claim learning = runtime.claimNextCiLearning("learner", TTL)
+                .orElseThrow();
+        FlowRuntime.CiLearningStart start = coordinator.beginCiLearning(
+                learning).orElseThrow();
+        var attempt = runtime.reserveInProcessCiLearningAttempt(
+                start.run().runId(), learning);
+        runtime.activateInProcessCiLearningAttempt(
+                attempt.processAttemptId(), learning, 1L, NOW, 1L,
+                "detached-ci-learner");
+
+        expireLearningRuntime();
+        assertThat(coordinator.recoverExpiredCiLearning(
+                learning.operationId(), learning.generation())).isFalse();
+
+        Claim redObservation = runtime.claimNextCiObservation(
+                "observer", TTL, 1).orElseThrow();
+        CiRound red = executeCiObservation(
+                runtime, coordinator, redObservation,
+                Clock.fixed(
+                        runtimeNow.plus(TTL).plusSeconds(1),
+                        ZoneOffset.UTC),
+                FAILED_ACTIONS).orElseThrow();
+        assertThat(red.state()).isEqualTo(RoundState.QUEUED);
+
+        Claim repair = runtime.claimNextCiAutofix("repair", TTL, 1)
+                .orElseThrow();
+        assertThat(repair.kind()).isEqualTo(OperationKind.RECONCILE_TASK);
+        assertThat(runtime.operation(learning.operationId()).orElseThrow()
+                .state()).isEqualTo(OperationState.FAILED);
+    }
+
+    @Test
     void stoppedRecoveryKeepsAcceptedSealAndNeverInventsOpaqueProse()
     {
         Claim observation = observationClaim("learn-stopped-recovery");
@@ -6593,7 +7151,7 @@ class TestCiAutofixCoordinator
                 .isEqualTo(TerminalOutcome.FAILED);
         assertThat(result.finalContent()).isNull();
         assertThat(result.errorRef())
-                .isEqualTo("CI_LEARNING_COMPLETION_LOST");
+                .isEqualTo("RECOVERED_STOPPED_TEST");
         assertThat(completion.state())
                 .isEqualTo(LearningCompletionState.CANDIDATE);
         assertThat(coordinator.lesson(completion.lessonId()).orElseThrow())
@@ -6604,8 +7162,8 @@ class TestCiAutofixCoordinator
                             "The accepted semantic command survives restart.");
                 });
         jdbc.update(
-                "UPDATE flow_runtime_agent_run "
-                        + "SET failure_reason_code = 'CORRUPT' "
+                "UPDATE flow_runtime_agent_result "
+                        + "SET error_ref = 'CORRUPT' "
                         + "WHERE run_id = ?",
                 start.run().runId());
         assertThatThrownBy(() -> coordinator.recoverExpiredCiLearning(
@@ -7693,16 +8251,63 @@ class TestCiAutofixCoordinator
 
     private void markLearningAttemptStopped(String attemptId)
     {
+        String error = "RECOVERED_STOPPED_TEST";
+        markAttemptStopped(
+                attemptId, TerminalOutcome.FAILED, null, error);
+    }
+
+    private void markAttemptStopped(
+            String attemptId,
+            TerminalOutcome outcome,
+            String content,
+            String error)
+    {
+        String proof = "stopped-proof:" + attemptId;
+        String completionDigest = testStableId(
+                "in-process-stopped-completion",
+                attemptId,
+                proof,
+                outcome.name(),
+                content == null ? "<null>" : content,
+                error == null ? "<null>" : error);
         int updated = jdbc.update(
                 """
                 UPDATE flow_runtime_agent_process_attempt
                 SET state = 'STOPPED', stop_type = 'NORMAL_RETURN',
-                    stop_proof_ref = ?, stopped_at = ?
+                    stop_proof_ref = ?, stopped_at = ?,
+                    capability_revoked_at = COALESCE(
+                        capability_revoked_at, ?),
+                    completion_outcome = ?, completion_content = ?,
+                    completion_error_ref = ?, completion_digest = ?
                 WHERE process_attempt_id = ? AND state = 'ACTIVATED'
-                  AND capability_revoked_at IS NOT NULL
                 """,
-                "stopped-proof:" + attemptId, NOW.toEpochMilli(), attemptId);
+                proof,
+                NOW.toEpochMilli(),
+                NOW.toEpochMilli(),
+                outcome.name(),
+                content,
+                error,
+                completionDigest,
+                attemptId);
         assertThat(updated).isEqualTo(1);
+    }
+
+    private static String testStableId(
+            String namespace, String... components)
+    {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(namespace.getBytes(StandardCharsets.UTF_8));
+            for (String component : components) {
+                digest.update((byte) 0);
+                digest.update(component.getBytes(StandardCharsets.UTF_8));
+            }
+            return namespace + "-" + HexFormat.of()
+                    .formatHex(digest.digest()).substring(0, 32);
+        }
+        catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     private void advancePublicationClock(Duration duration)
@@ -7961,6 +8566,41 @@ class TestCiAutofixCoordinator
         }
     }
 
+    private static void awaitThreadBlockedOrEnded(Thread thread)
+    {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (thread.isAlive()
+                && thread.getState() != Thread.State.WAITING
+                && thread.getState() != Thread.State.TIMED_WAITING
+                && thread.getState() != Thread.State.BLOCKED
+                && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        if (thread.isAlive()
+                && thread.getState() != Thread.State.WAITING
+                && thread.getState() != Thread.State.TIMED_WAITING
+                && thread.getState() != Thread.State.BLOCKED) {
+            throw new IllegalStateException(
+                    "test cancellation did not reach its wait boundary");
+        }
+    }
+
+    private static void awaitNamedThreadTermination(String threadName)
+    {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (System.nanoTime() < deadline) {
+            boolean alive = Thread.getAllStackTraces().keySet().stream()
+                    .anyMatch(thread -> thread.isAlive()
+                            && thread.getName().equals(threadName));
+            if (!alive) {
+                return;
+            }
+            Thread.onSpinWait();
+        }
+        throw new IllegalStateException(
+                "test thread did not terminate: " + threadName);
+    }
+
     private record ReviewReady(
             CiFixReviewCoordinator review,
             Claim claim,
@@ -8166,6 +8806,12 @@ class TestCiAutofixCoordinator
     private Claim observationClaim(String suffix)
     {
         CompletedReady ready = openReadyGate(suffix);
+        return publishReadyAndClaimObservation(ready, suffix);
+    }
+
+    private Claim publishReadyAndClaimObservation(
+            CompletedReady ready, String suffix)
+    {
         GateRevision revision = ready.revision();
         AuthorizedCiUpdate authorization = userGates.authorizeCiUpdate(
                 revision.gateId(), revision.revision(),
@@ -8179,6 +8825,8 @@ class TestCiAutofixCoordinator
                 Clock.fixed(runtimeNow, ZoneOffset.UTC), () -> {},
                 new AtomicInteger()).orElseThrow();
         assertThat(receipt.receiptId()).isNotBlank();
+        pr = runtime.pullRequest(pr.prId()).orElseThrow();
+        publishedHead = pr.currentRemoteHead();
         autofix.recordPolicy(
                 task.repositoryId(), pr.scopeKey(), pr.targetBaseRef(),
                 "github-check-policy:" + suffix,

@@ -237,15 +237,18 @@ public final class InProcessCiLearningAgentSupervisor
             execution.revoked = true;
             runtime.revokeInProcessCiLearningCapability(
                     execution.attempt.processAttemptId(), execution.claim);
+            AgentCompletion completion = requireNonNull(
+                    execution.completion,
+                    "CI learner ended without completion");
             AgentProcessAttempt stopped =
                     runtime.recordInProcessCiLearningStopped(
                             execution.attempt.processAttemptId(),
                             execution.claim,
                             new TerminatedThreadWitness(execution.thread),
-                            InProcessStopType.NORMAL_RETURN);
-            AgentCompletion completion = requireNonNull(
-                    execution.completion,
-                    "CI learner ended without completion");
+                            InProcessStopType.NORMAL_RETURN,
+                            completion.terminalOutcome(),
+                            completion.finalContent(),
+                            completion.errorRef());
             execution.result = execution.owner.finish(
                     execution.start,
                     execution.claim,
@@ -258,6 +261,33 @@ public final class InProcessCiLearningAgentSupervisor
             LIVE.remove(execution.attempt.executionId(), execution);
             return execution.result;
         }
+    }
+
+    /** Revokes first, then cooperatively stops and finalizes one learner. */
+    public AgentResult cancel(ExecutionHandle handle, Duration timeout)
+    {
+        ManagedExecution execution = requireLive(handle);
+        boolean cancellationStarted;
+        synchronized (execution) {
+            if (execution.result != null) {
+                return execution.result;
+            }
+            cancellationStarted = execution.completion == null
+                    && !execution.terminalCommandAccepted
+                    && execution.thread.isAlive();
+            if (cancellationStarted) {
+                execution.revoked = true;
+                runtime.revokeInProcessCiLearningCapability(
+                        execution.attempt.processAttemptId(), execution.claim);
+                execution.thread.interrupt();
+            }
+        }
+        join(execution.thread, timeout);
+        if (execution.thread.isAlive()) {
+            throw new IllegalStateException(
+                    "CI learner ignored cooperative cancellation");
+        }
+        return awaitAndFinish(handle, Duration.ofMillis(1));
     }
 
     private static ManagedExecution requireLive(ExecutionHandle handle)
@@ -287,6 +317,7 @@ public final class InProcessCiLearningAgentSupervisor
         private volatile boolean activated;
         private volatile boolean aborted;
         private boolean revoked;
+        private boolean terminalCommandAccepted;
         private AgentCompletion completion;
         private AgentResult result;
 
@@ -347,6 +378,7 @@ public final class InProcessCiLearningAgentSupervisor
             owner.saveLesson(
                     start, claim, attempt.processAttemptId(),
                     proposal.title(), proposal.markdown());
+            terminalCommandAccepted = true;
             revoked = true;
         }
 

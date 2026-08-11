@@ -227,10 +227,13 @@ lessonId, repositoryId, learningOperationId, runId, subjectId,
 status=CANDIDATE, title, markdown, contentDigest, createdAt
 ```
 
-The current owner stores only the immutable `CANDIDATE`. A future projector or
-retriever may index title/markdown after promotion; promotion, consumption, and
-retrieval are deferred. The program does not parse cause, commands, paths, or a
-success verdict out of the prose.
+The current owner stores only the immutable `CANDIDATE`. Repair admission offers
+at most the deterministic newest five candidates for the Task's exact
+repository, ordered by creation time then lesson identity. The model sees only
+an index, title, digest, and bounded opaque markdown; every read revalidates the
+stored repository and content. Search, ranking, promotion, and supersession are
+deferred. The program does not parse cause, commands, paths, or a success
+verdict out of the prose.
 
 ## Observation and dispatch APIs
 
@@ -399,8 +402,8 @@ CiFixLaunch
   toolPolicy = CI_FIX
 ```
 
-The program may retrieve a small relevance-ranked candidate lesson projection.
-It must label it as prior evidence, never as an instruction or guaranteed fix.
+The program may retrieve the small exact-repository candidate projection above.
+It labels it as prior evidence, never as an instruction or guaranteed fix.
 The agent reads raw logs before changing code, including when a lesson appears
 to match.
 
@@ -420,32 +423,31 @@ ordering heuristic without making the program classify arbitrary log prose.
 ## CI Fixer tools
 
 ```text
-list_failed_checks(round_id)
-read_ci_log(log_ref, query?, before?, after?, max_bytes?)
-use_ci_lesson(lesson_id)
-read_file(path, range?)
-search_repository(query, paths?)
-run_command(argv, timeout?)
-edit_file(...)
-commit_changes(message) -> commitRef
+read_ci_failure_context()
+read_ci_log(index, offset)
+list_candidate_lessons()
+read_candidate_lesson(index)
+list_repository()
+read_file(path)
+search_repository(query)
+write_file(path, content)
+delete_file(path)
+run_checks(profile?)
+commit_repair()
 ```
 
-`run_command` executes only inside the Task worktree under the current fixer
-capability policy. The host denies Git remote writes, GitHub mutation, branch
-switching, and destructive history commands regardless of the command text;
-`commit_changes` is the only fixer commit boundary.
-
-`use_ci_lesson` returns one relevance-selected candidate's opaque prose and
-records that the attempt consulted it. It does not apply edits or claim the
-lesson matches.
+No raw command, Git, owner ID, claim, fence, or arbitrary commit message is
+model-visible. Repository traversal, text I/O, search, checks, and the fixed
+commit are bounded program operations. Candidate tools accept only a
+program-derived index and never apply edits or claim a lesson matches.
 
 The cleanup run uses the distinct program-owned
-`ci-cleanup-capabilities:v1` set. It may use bounded read/edit/command/commit
-tools, but it cannot call the generic adopting `run_checks` tool or generic
+`ci-cleanup-capabilities:v1` set. It may use bounded read/edit and its fixed
+commit tool, but it cannot call the adopting `run_checks` tool or generic
 change-set adoption. Cleanup supports exactly one adoption, performed by its
-STOPPED finalizer from C1/H1 to the final clean state. Commands may run tests
-inside the live cleanup turn, but formal `LocalCheckRun` evidence for the final
-adopted revision is produced later by the Task review/gate path. This prevents
+STOPPED finalizer from C1/H1 to the final clean state. Formal `LocalCheckRun`
+evidence for the final adopted revision is produced later by the Task
+review/gate path. This prevents
 an intermediate C2 followed by more cleanup edits from stranding finalization.
 
 The fixer ends its turn normally; there is no `finish`, `passed`, `nothing`, or
@@ -470,8 +472,8 @@ unsupported. No missing model call can block recovery.
 The learning turn has a narrower tool policy:
 
 ```text
-read_ci_repair_evidence()
-read_ci_log(log_ref, offset, max_bytes)
+read_repair_evidence()
+read_ci_log(index, offset)
 save_ci_lesson(title, markdown) -> contentDigest
 ```
 
@@ -628,8 +630,8 @@ For an exact nonempty source-bound GREEN after an APPLIED repair publication,
 acceptance atomically reserves/replays the optional receipt-owned learner. It
 does not complete the Task or authorize ready/merge. Ready/merge decisions,
 test-merge and legacy-status selection, webhooks, timeline projection, general
-observation routing, learning retries, supersession, and promotion/consumption
-of candidate lessons remain deferred.
+observation routing, learning retries, lesson search/ranking, supersession, and
+promotion remain deferred.
 
 ## Lesson contract
 
@@ -647,11 +649,11 @@ opaque. The tool call supplies only program-owned provenance links.
 
 When a future round resembles a lesson:
 
-1. relevance search offers the candidate;
+1. the bounded latest-candidate list offers the prior hint;
 2. the CI Fixer still reads the current raw log and code;
 3. if following it fails, the failed attempt remains evidence; and
-4. after eventual exact-head remote green, the fixer may save a new candidate
-   linked through `supersedesLessonId`.
+4. after eventual exact-head remote green, the isolated learner may save a new
+   independent candidate. Supersession remains deferred.
 
 Old candidates are retained. Nothing automatically mutates or executes code
 because lesson text matched.
@@ -707,10 +709,10 @@ because lesson text matched.
   claim generation. Neither branch requires current GREEN; the next begin
   cancels if authority became stale. `ACTIVATED` without a STOPPED proof is
   fail-closed and quarantines only learner process/run/session/dispatch facts,
-  with no successor generation. `STOPPED(NORMAL_RETURN)` recovery stores a
-  program-owned failed `AgentResult`; the CI owner locks and requires current
-  GREEN before creating a candidate from an already accepted lesson seal,
-  otherwise it records `MISSED`. It never mutates Task lifecycle or writer
+  with no successor generation. `STOPPED` recovery replays the exact completion
+  sealed beside the stop proof; the CI owner locks and requires current GREEN
+  before creating a candidate from an already accepted lesson seal, otherwise
+  it records `MISSED`. It never mutates Task lifecycle or writer
   state.
 
 ## Timeline projection

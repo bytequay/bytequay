@@ -63,8 +63,11 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.RunState;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.Task;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TaskStatus;
+import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
+import com.bytequay.app.flow.runtime.FlowWorktreeInspector.Inspection;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
 import com.bytequay.app.flow.runtime.InProcessCiLearningAgentSupervisor;
@@ -96,6 +99,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -109,6 +114,7 @@ import static java.util.Objects.requireNonNull;
 public final class CiAutofixCoordinator
         implements LearningOwner
 {
+    private static final int MAX_REPAIR_LESSONS = 5;
     private static final String CI_PROMPT_MANIFEST = "ci-fix-prompt:v1";
     private static final String CI_CAPABILITY_SET = "ci-fix-capabilities:v1";
     private static final String CI_CLEANUP_PROMPT_MANIFEST =
@@ -126,6 +132,8 @@ public final class CiAutofixCoordinator
     private final FlowRuntime runtime;
     private final UserGates userGates;
     private final Clock clock;
+    private final FlowWorktreeInspector worktreeInspector =
+            new FlowWorktreeInspector();
 
     public CiAutofixCoordinator(
             DataSource dataSource,
@@ -151,6 +159,175 @@ public final class CiAutofixCoordinator
             requireNonNull(attempt, "attempt is null");
             requireNonNull(run, "run is null");
         }
+    }
+
+    /** Program-inspected writer admission; no caller-authored Git evidence. */
+    public record RepairLaunchBinding(
+            RepairBinding repair, WriterFence fence,
+            Path repositoryRoot, Path worktree)
+    {
+        public RepairLaunchBinding
+        {
+            requireNonNull(repair, "repair is null");
+            requireNonNull(fence, "fence is null");
+            requireNonNull(repositoryRoot, "repositoryRoot is null");
+            requireNonNull(worktree, "worktree is null");
+        }
+    }
+
+    /** Exact round evidence behind zero-ID model tools. */
+    public final class RepairToolContext
+    {
+        private final RepairBinding binding;
+        private final String repositoryId;
+        private final String goalText;
+        private final String policyRevisionId;
+        private final List<String> failures;
+        private final List<String> logRefs;
+        private final List<CiLesson> lessons;
+
+        private RepairToolContext(
+                RepairBinding binding,
+                String repositoryId,
+                String goalText,
+                String policyRevisionId,
+                List<String> failures,
+                List<String> logRefs,
+                List<CiLesson> lessons)
+        {
+            this.binding = binding;
+            this.repositoryId = repositoryId;
+            this.goalText = goalText;
+            this.policyRevisionId = policyRevisionId;
+            this.failures = List.copyOf(failures);
+            this.logRefs = List.copyOf(logRefs);
+            this.lessons = List.copyOf(lessons);
+        }
+
+        public String failureSummary()
+        {
+            assertRepairToolContext(this);
+            return "taskGoal=" + goalText
+                    + "\ninputLocalHead="
+                    + binding.attempt().inputLocalHead()
+                    + "\nfailedRemoteHead="
+                    + binding.attempt().inputRemoteHead()
+                    + "\nrequiredCiPolicyRevision=" + policyRevisionId
+                    + "\nfailures=" + (failures.isEmpty()
+                            ? "No failing check summary was stored."
+                            : String.join("\n", failures));
+        }
+
+        public String readLog(int index, long offset, int maxBytes)
+        {
+            assertRepairToolContext(this);
+            if (index < 0 || index >= logRefs.size()) {
+                throw new IllegalArgumentException("log index is invalid");
+            }
+            var window = autofix.readLogWindow(
+                    logRefs.get(index), offset, maxBytes);
+            return "offset=" + window.offset()
+                    + "\nnextOffset=" + window.nextOffset()
+                    + "\nendOfLog=" + window.endOfLog()
+                    + "\n" + window.content();
+        }
+
+        public String candidateLessonSummary()
+        {
+            assertRepairToolContext(this);
+            if (lessons.isEmpty()) {
+                return "No candidate lessons are available.";
+            }
+            return IntStream.range(0, lessons.size())
+                    .mapToObj(index -> index + ": "
+                            + lessons.get(index).title() + " ["
+                            + lessons.get(index).contentDigest() + "]")
+                    .collect(Collectors.joining("\n"));
+        }
+
+        public String readCandidateLesson(int index)
+        {
+            assertRepairToolContext(this);
+            if (index < 0 || index >= lessons.size()) {
+                throw new IllegalArgumentException(
+                        "candidate lesson index is invalid");
+            }
+            CiLesson lesson = lessons.get(index);
+            return "UNTRUSTED PRIOR HINT; CURRENT CI EVIDENCE WINS\n"
+                    + "title=" + lesson.title()
+                    + "\ndigest=" + lesson.contentDigest()
+                    + "\n" + lesson.markdown();
+        }
+    }
+
+    public RepairToolContext repairToolContext(RepairBinding binding)
+    {
+        requireNonNull(binding, "binding is null");
+        CiRound round = autofix.roundById(binding.attempt().roundId())
+                .orElseThrow();
+        Task task = runtime.task(round.taskId()).orElseThrow();
+        List<String> failures = round.checkObservationIds().stream()
+                .map(autofix::observation)
+                .flatMap(Optional::stream)
+                .map(observation -> observation.check().name()
+                        + ": status=" + observation.check().status()
+                        + ", conclusion="
+                        + Objects.toString(
+                                observation.check().conclusion(), "unknown"))
+                .toList();
+        RepairToolContext context = new RepairToolContext(
+                binding, task.repositoryId(), task.goalText(),
+                round.policyRevisionId(), failures,
+                round.failedLogRefs(), candidateLessons(task.repositoryId()));
+        assertRepairToolContext(context);
+        return context;
+    }
+
+    private void assertRepairToolContext(RepairToolContext context)
+    {
+        CiRepairAttempt stored = autofix.repairAttempt(
+                context.binding.attempt().attemptId()).orElseThrow();
+        CiRound round = autofix.roundById(stored.roundId()).orElseThrow();
+        Task task = runtime.task(round.taskId()).orElseThrow();
+        if (!stored.equals(context.binding.attempt())
+                || !stored.agentRunId().equals(
+                        context.binding.run().runId())
+                || !round.failedLogRefs().equals(context.logRefs)
+                || !task.repositoryId().equals(context.repositoryId)
+                || !task.goalText().equals(context.goalText)
+                || !round.policyRevisionId().equals(
+                        context.policyRevisionId)
+                || !candidateLessons(context.repositoryId).equals(
+                        context.lessons)
+                || context.lessons.stream().anyMatch(value ->
+                        !lesson(value.lessonId()).filter(value::equals)
+                                .isPresent())) {
+            throw new IllegalStateException(
+                    "CI repair tool context changed after binding");
+        }
+    }
+
+    private List<CiLesson> candidateLessons(String repositoryId)
+    {
+        requireText(repositoryId, "repositoryId");
+        return jdbc.query(
+                """
+                SELECT * FROM flow_ci_lesson
+                WHERE repository_id = ? AND status = 'CANDIDATE'
+                ORDER BY created_at DESC, lesson_id
+                LIMIT ?
+                """,
+                (result, row) -> new CiLesson(
+                        result.getString("lesson_id"),
+                        result.getString("repository_id"),
+                        result.getString("learning_operation_id"),
+                        result.getString("run_id"),
+                        result.getString("subject_id"),
+                        result.getString("title"),
+                        result.getString("markdown"),
+                        result.getString("content_digest"),
+                        Instant.ofEpochMilli(result.getLong("created_at"))),
+                repositoryId, MAX_REPAIR_LESSONS);
     }
 
     public record CleanupBinding(
@@ -1294,31 +1471,23 @@ public final class CiAutofixCoordinator
         ResultView cleanup = subject.cleanupResultId() == null
                 ? null
                 : resultView(subject.cleanupResultId()).orElseThrow();
-        return "subject=" + subject.subjectId()
-                + "\nreceipt=" + subject.receiptId()
-                + "\npublicationPolicy="
+        return "publicationPolicy="
                 + subject.publicationPolicyRevisionId()
                 + "\ngreenPolicy=" + subject.greenPolicyRevisionId()
-                + "\nredRound=" + subject.redRoundId()
-                + "\ngreenRound=" + subject.greenRoundId()
-                + "\nrepairAttempt=" + subject.repairAttemptId()
                 + "\noutputHead=" + subject.publishedHead()
-                + "\noutputChangeSet="
-                + subject.outputChangeSetRevisionId()
                 + "\noutputDiffDigest=" + subject.outputDiffDigest()
                 + "\nrepairOutcome=" + repair.terminalOutcome()
                 + "\nrepairError=" + nullToEmpty(repair.errorRef())
                 + "\nrepairResult=" + boundedEvidence(
                         repair.finalContent())
-                + "\ncleanup=" + nullToEmpty(subject.cleanupId())
+                + "\ncleanupPresent=" + (cleanup != null)
                 + (cleanup == null ? "" : "\ncleanupOutcome="
                         + cleanup.terminalOutcome()
                         + "\ncleanupError="
                         + nullToEmpty(cleanup.errorRef())
                         + "\ncleanupResult="
                         + boundedEvidence(cleanup.finalContent()))
-                + "\nfailedLogs=" + String.join(",",
-                        subject.failedLogRefs());
+                + "\nfailedLogCount=" + subject.failedLogRefs().size();
     }
 
     @Override
@@ -1889,6 +2058,72 @@ public final class CiAutofixCoordinator
         }), "repair begin transaction returned null");
     }
 
+    /**
+     * Production admission for a repair: derive the round and worktree from
+     * the claimed operation, mechanically inspect the immutable current
+     * change set, then consume that proof into the fence and run atomically.
+     */
+    public RepairLaunchBinding beginInspectedRepair(
+            Claim claim, Duration leaseTtl)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(leaseTtl, "leaseTtl is null");
+        Operation operation = runtime.operation(claim.operationId())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "unknown CI repair operation"));
+        if (operation.kind() != OperationKind.RUN_CI_FIXER
+                || !operation.ownerKind().equals("CI_ROUND")) {
+            throw new IllegalArgumentException(
+                    "claim is not a CI repair round");
+        }
+        Task task = runtime.task(operation.taskId()).orElseThrow();
+        ChangeSetRevision changeSet = runtime.currentChangeSet(task.taskId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "CI repair has no current change set"));
+        Path repositoryRoot = Path.of(task.repositoryRoot());
+        Path worktree = Path.of(task.worktreePath());
+        Inspection inspection = worktreeInspector.inspect(
+                repositoryRoot,
+                worktree,
+                task.branchName(),
+                task.currentBaseSha(),
+                task.currentHeadSha());
+        if (!inspection.headSha().equals(changeSet.headSha())
+                || !inspection.headTreeDigest().equals(
+                        changeSet.headTreeDigest())
+                || !inspection.baseToHeadDiffDigest().equals(
+                        changeSet.diffDigest())) {
+            throw new IllegalStateException(
+                    "CI repair worktree differs from its immutable change set");
+        }
+        return requireNonNull(transactions.execute(ignored -> {
+            Operation currentOperation = runtime.operation(
+                    operation.operationId()).orElseThrow();
+            Task currentTask = runtime.task(task.taskId()).orElseThrow();
+            ChangeSetRevision currentChangeSet = runtime.currentChangeSet(
+                    task.taskId()).orElseThrow();
+            if (!currentOperation.equals(operation)
+                    || !currentTask.equals(task)
+                    || !currentChangeSet.equals(changeSet)) {
+                throw new IllegalStateException(
+                        "CI repair owner changed after inspection");
+            }
+            WriterFence fence = runtime.acquireWriterLease(
+                    claim,
+                    AgentRole.CI_FIXER,
+                    new WorktreeSnapshot(
+                            inspection.headSha(),
+                            inspection.headTreeDigest(),
+                            "ci-change-set:"
+                                    + changeSet.changeSetRevisionId()),
+                    leaseTtl);
+            RepairBinding repair = beginRepair(
+                    operation.ownerId(), claim, fence);
+            return new RepairLaunchBinding(
+                    repair, fence, repositoryRoot, worktree);
+        }), "CI repair admission transaction returned null");
+    }
+
     /** Launches only with the attempt-bound CI finalizer route. */
     public ExecutionHandle launchRepair(
             InProcessWriterAgentSupervisor supervisor,
@@ -2045,6 +2280,39 @@ public final class CiAutofixCoordinator
                 handle,
                 timeout,
                 cleanupFinalizerKey(binding.seal().cleanupId()));
+    }
+
+    /** Replays only a durably STOPPED fixer completion; no body is relaunched. */
+    public AgentResult recoverExpiredStoppedFixer(
+            String operationId, long generation, Duration ttl)
+    {
+        FlowRuntime.StoppedWriterRecovery recovery =
+                runtime.reviveExpiredStoppedWriter(
+                        operationId, generation, ttl);
+        Operation operation = runtime.operation(operationId).orElseThrow();
+        Task task = runtime.task(operation.taskId()).orElseThrow();
+        AgentCompletion completion = new AgentCompletion(
+                recovery.completion().terminalOutcome(),
+                recovery.completion().finalContent(),
+                recovery.completion().errorRef());
+        if (operation.ownerKind().equals("CI_ROUND")) {
+            return finalizeRepairAttempt(
+                    operation.ownerId(), recovery.run().runId(),
+                    recovery.claim(), recovery.fence(), completion,
+                    Path.of(task.repositoryRoot()));
+        }
+        if (operation.ownerKind().equals("CI_CLEANUP")) {
+            CiCleanupSeal seal = autofix.cleanupSealForSuccessor(
+                    operationId).orElseThrow(() ->
+                            new IllegalStateException(
+                                    "stopped cleanup lost its seal"));
+            return finalizeCleanup(
+                    seal.cleanupId(), recovery.run().runId(),
+                    recovery.claim(), recovery.fence(), completion,
+                    Path.of(task.repositoryRoot()));
+        }
+        throw new IllegalArgumentException(
+                "stopped fixer has an unknown owner");
     }
 
     AgentResult finalizeCleanup(

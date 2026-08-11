@@ -14,6 +14,7 @@
 package com.bytequay.app.flow.runtime;
 
 import com.bytequay.app.flow.github.GitHubCiObservationDispatcher;
+import com.bytequay.app.flow.github.GitHubCiUpdateDispatcher;
 import com.bytequay.app.flow.github.GitHubInitialPublishDispatcher;
 import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
@@ -77,5 +78,8 @@ class TestNewFlowBootComposition
                 .isNotNull();
         assertThat(context.getBean(GitHubCiObservationDispatcher.class))
                 .isNotNull();
+        assertThat(context.getBean(GitHubCiUpdateDispatcher.class))
+                .isNotNull();
+        assertThat(context.getBean(CiAutofixDispatcher.class)).isNotNull();
     }
 }

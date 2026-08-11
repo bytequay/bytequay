@@ -92,9 +92,9 @@ class TestFlowRuntime
     void restartKeepsOneTaskPrSessionAndOperationBoundRun()
     {
         Task first = startAndProvision("one");
-        Task duplicate = runtime.startTask(
+        Task duplicate = FlowRuntimeTestSupport.startTask(runtime,
                 "request-one", "repo-1", "Implement the task",
-                "task/one", first.worktreePath());
+                first.worktreePath());
         assertThat(duplicate.taskId()).isEqualTo(first.taskId());
 
         Operation initialTurn = selectFromReconciliation();
@@ -377,11 +377,10 @@ class TestFlowRuntime
     @Test
     void terminalTaskTransitionSettlesProvisionAndWaitingReconciliation()
     {
-        Task neverProvisioned = runtime.startTask(
+        Task neverProvisioned = FlowRuntimeTestSupport.startTask(runtime,
                 "request-terminal-created",
                 "repo-1",
                 "Cancel before provisioning",
-                "task/terminal-created",
                 "/worktrees/terminal-created");
         runtime.transitionTask(
                 neverProvisioned.taskId(),
@@ -637,14 +636,13 @@ class TestFlowRuntime
         Path worktree = temporaryDirectory.resolve("worktree-" + suffix);
         initializeRepository(repository, worktree, "task/" + suffix);
         String base = gitOutput(repository, "rev-parse", "HEAD");
-        Task task = runtime.startTask(
+        Task task = FlowRuntimeTestSupport.startTask(runtime,
                 "request-" + suffix,
                 "repo-1",
                 "Implement the task",
-                "task/" + suffix,
                 worktree.toString());
         Claim provision = claim(OperationKind.PROVISION_TASK);
-        runtime.provisionTask(provision, base, base);
+        FlowRuntimeTestSupport.provisionTask(runtime, provision, base);
         repositoryRoots.put(task.taskId(), repository);
         return runtime.task(task.taskId()).orElseThrow();
     }

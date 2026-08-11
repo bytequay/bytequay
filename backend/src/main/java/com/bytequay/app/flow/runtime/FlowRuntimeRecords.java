@@ -306,7 +306,14 @@ public final class FlowRuntimeRecords
             String taskId,
             String requestKey,
             String repositoryId,
+            String repositoryOwner,
+            String repositoryName,
             String goalText,
+            String repositoryRoot,
+            String gitCommonDir,
+            String remoteName,
+            String baseRef,
+            String launchDigest,
             TaskStatus status,
             long epoch,
             String launchBaseSha,
@@ -332,7 +339,14 @@ public final class FlowRuntimeRecords
             requireNonNull(taskId, "taskId is null");
             requireNonNull(requestKey, "requestKey is null");
             requireNonNull(repositoryId, "repositoryId is null");
+            requireNonNull(repositoryOwner, "repositoryOwner is null");
+            requireNonNull(repositoryName, "repositoryName is null");
             requireNonNull(goalText, "goalText is null");
+            requireNonNull(repositoryRoot, "repositoryRoot is null");
+            requireNonNull(gitCommonDir, "gitCommonDir is null");
+            requireNonNull(remoteName, "remoteName is null");
+            requireNonNull(baseRef, "baseRef is null");
+            requireNonNull(launchDigest, "launchDigest is null");
             requireNonNull(status, "status is null");
             requireNonNull(branchName, "branchName is null");
             requireNonNull(worktreePath, "worktreePath is null");

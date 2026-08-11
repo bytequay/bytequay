@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.flow.runtime;
 
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.ci.CiAutofixRecords.PublishedPrSubject;
@@ -21,6 +22,7 @@ import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubEffects;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.PullRequestSubject;
 import com.bytequay.app.flow.timeline.PrTimelineProjection;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,7 +33,9 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import javax.sql.DataSource;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -41,7 +45,8 @@ import java.util.List;
 @Configuration(proxyBeanMethods = false)
 public class NewFlowConfiguration
 {
-    private static final Duration CLAIM_TTL = Duration.ofMinutes(5);
+    // Exceeds the bounded sum of provisioning Git commands and inspections.
+    private static final Duration CLAIM_TTL = Duration.ofMinutes(15);
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(2);
     private static final int CAPACITY = 1;
 
@@ -175,6 +180,100 @@ public class NewFlowConfiguration
             @Qualifier("newFlowDataSource") DataSource dataSource)
     {
         return new PrTimelineProjection(dataSource);
+    }
+
+    @Bean
+    public TaskProvisioning.RepositoryCatalog newFlowRepositoryCatalog(
+            WatchedRepoStore watchedRepos,
+            @Value("${bytequay.new-flow.worktree-root:${user.home}/Library/Application Support/ByteQuay/new-flow-worktrees}")
+                    String worktreeRoot)
+    {
+        Path configuredRoot = Path.of(worktreeRoot)
+                .toAbsolutePath().normalize();
+        ensureOwnedDirectory(configuredRoot);
+        Path root = realDirectory(configuredRoot);
+        return repositoryId -> {
+            int slash = repositoryId.indexOf('/');
+            if (slash < 1 || slash == repositoryId.length() - 1
+                    || repositoryId.indexOf('/', slash + 1) >= 0) {
+                throw new IllegalArgumentException(
+                        "repositoryId must be canonical owner/name");
+            }
+            WatchedRepo watched = watchedRepos.find(
+                    repositoryId.substring(0, slash),
+                    repositoryId.substring(slash + 1)).orElseThrow(() ->
+                            new IllegalArgumentException(
+                                    "repository is not configured"));
+            if (watched.localClonePath() == null
+                    || watched.localClonePath().isBlank()) {
+                throw new IllegalStateException(
+                        "repository has no configured local clone");
+            }
+            Path repositoryRoot = Path.of(watched.localClonePath())
+                    .toAbsolutePath().normalize();
+            String remote = watched.upstreamRemoteName() == null
+                    || watched.upstreamRemoteName().isBlank()
+                    ? "origin" : watched.upstreamRemoteName();
+            Path repositoryWorktrees = root
+                    .resolve(repositoryId.substring(0, slash))
+                    .resolve(repositoryId.substring(slash + 1))
+                    .normalize();
+            ensureOwnedDirectory(repositoryWorktrees);
+            if (!realDirectory(repositoryWorktrees).startsWith(root)) {
+                throw new IllegalStateException(
+                        "repository worktree root escaped the app-owned root");
+            }
+            return new TaskProvisioning.RepositoryConfig(
+                    repositoryId,
+                    repositoryId.substring(0, slash),
+                    repositoryId.substring(slash + 1),
+                    repositoryRoot,
+                    repositoryRoot.resolve(".git"),
+                    remote,
+                    "refs/remotes/" + remote + "/HEAD",
+                    repositoryWorktrees);
+        };
+    }
+
+    private static void ensureOwnedDirectory(Path directory)
+    {
+        try {
+            if (Files.isSymbolicLink(directory)) {
+                throw new IllegalStateException(
+                        "new-flow worktree root is a symbolic link");
+            }
+            Files.createDirectories(directory);
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+                    || Files.isSymbolicLink(directory)) {
+                throw new IllegalStateException(
+                        "new-flow worktree root is not a real directory");
+            }
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException(
+                    "cannot create new-flow worktree root", failure);
+        }
+    }
+
+    private static Path realDirectory(Path directory)
+    {
+        try {
+            return directory.toRealPath();
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException(
+                    "cannot canonicalize new-flow worktree root", failure);
+        }
+    }
+
+    @Bean
+    public TaskProvisioning newFlowTaskProvisioning(
+            @Qualifier("newFlowDataSource") DataSource dataSource,
+            FlowRuntime runtime,
+            TaskProvisioning.RepositoryCatalog catalog,
+            @Qualifier("newFlowClock") Clock clock)
+    {
+        return new TaskProvisioning(dataSource, runtime, catalog, clock);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

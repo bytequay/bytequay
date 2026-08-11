@@ -65,6 +65,7 @@ import com.bytequay.app.flow.runtime.FlowRuntimeRecords.TerminalOutcome;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WorktreeSnapshot;
 import com.bytequay.app.flow.runtime.FlowRuntimeRecords.WriterFence;
 import com.bytequay.app.flow.runtime.FlowRuntimeSchema;
+import com.bytequay.app.flow.runtime.FlowRuntimeTestSupport;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.FailureCode;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.InspectionFailure;
 import com.bytequay.app.flow.runtime.FlowWorktreeInspector.NonCleanInspection;
@@ -7129,11 +7130,11 @@ class TestCiAutofixCoordinator
         Path worktree = temporaryDirectory.resolve("worktree");
         initializeRepository(repositoryRoot, worktree, "task/one");
         String base = gitOutput(repositoryRoot, "rev-parse", "HEAD");
-        Task started = runtime.startTask(
-                "request-1", "repo-1", "Implement", "task/one",
+        Task started = FlowRuntimeTestSupport.startTask(runtime,
+                "request-1", "repo-1", "Implement",
                 worktree.toString());
         Claim provision = claim(OperationKind.PROVISION_TASK);
-        runtime.provisionTask(provision, base, base);
+        FlowRuntimeTestSupport.provisionTask(runtime, provision, base);
         finishInitialTaskTurn();
         Task adopted = runtime.task(started.taskId()).orElseThrow();
         publishedHead = adopted.currentHeadSha();

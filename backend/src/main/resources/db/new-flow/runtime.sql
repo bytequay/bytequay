@@ -2,7 +2,14 @@ CREATE TABLE flow_runtime_task (
     task_id TEXT PRIMARY KEY,
     request_key TEXT NOT NULL UNIQUE,
     repository_id TEXT NOT NULL,
+    repository_owner TEXT NOT NULL,
+    repository_name TEXT NOT NULL,
     goal_text TEXT NOT NULL,
+    repository_root TEXT NOT NULL,
+    git_common_dir TEXT NOT NULL,
+    remote_name TEXT NOT NULL,
+    base_ref TEXT NOT NULL,
+    launch_digest TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL CHECK (
         status IN (
             'CREATED',
@@ -31,6 +38,7 @@ CREATE TABLE flow_runtime_task (
     selected_writer_operation_id TEXT,
     waiting_mutation_state_ref TEXT,
     writer_fence_sequence INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (task_id, launch_digest),
     FOREIGN KEY (current_base_revision_id)
         REFERENCES flow_runtime_task_base_revision (base_revision_id),
     FOREIGN KEY (current_change_set_revision_id)
@@ -203,6 +211,7 @@ CREATE TABLE flow_runtime_operation (
     result_ref TEXT,
     created_at INTEGER NOT NULL,
     UNIQUE (owner_kind, owner_id, kind, subject_digest),
+    UNIQUE (operation_id, task_id),
     FOREIGN KEY (task_id) REFERENCES flow_runtime_task (task_id)
 );
 
@@ -224,6 +233,20 @@ CREATE TABLE flow_runtime_dispatch_ticket (
     ),
     FOREIGN KEY (operation_id)
         REFERENCES flow_runtime_operation (operation_id)
+);
+
+CREATE TABLE flow_runtime_provision_subject (
+    operation_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    launch_digest TEXT NOT NULL,
+    base_sha TEXT NOT NULL,
+    mutation_digest TEXT NOT NULL,
+    bound_at INTEGER NOT NULL,
+    PRIMARY KEY (operation_id),
+    FOREIGN KEY (operation_id, task_id)
+        REFERENCES flow_runtime_operation (operation_id, task_id),
+    FOREIGN KEY (task_id, launch_digest)
+        REFERENCES flow_runtime_task (task_id, launch_digest)
 );
 
 CREATE INDEX flow_runtime_claimable_ticket

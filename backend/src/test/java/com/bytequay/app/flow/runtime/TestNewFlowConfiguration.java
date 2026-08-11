@@ -17,6 +17,7 @@ import com.bytequay.app.flow.ci.CiAutofix;
 import com.bytequay.app.flow.ci.CiAutofixCoordinator;
 import com.bytequay.app.flow.gate.UserGates;
 import com.bytequay.app.flow.github.GitHubEffects;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,6 +32,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class TestNewFlowConfiguration
 {
@@ -55,8 +57,12 @@ class TestNewFlowConfiguration
                 .withBean("legacyPrimaryDataSource", DataSource.class,
                         () -> primary, definition -> definition.setPrimary(true))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(WatchedRepoStore.class,
+                        () -> mock(WatchedRepoStore.class))
                 .withPropertyValues(
-                        "bytequay.new-flow.database-path=" + newFlowPath)
+                        "bytequay.new-flow.database-path=" + newFlowPath,
+                        "bytequay.new-flow.worktree-root="
+                                + temporaryDirectory.resolve("worktrees"))
                 .withUserConfiguration(NewFlowConfiguration.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
@@ -74,6 +80,8 @@ class TestNewFlowConfiguration
                     UserGates gates = context.getBean(UserGates.class);
                     CiAutofixCoordinator coordinator = context.getBean(
                             CiAutofixCoordinator.class);
+                    TaskProvisioning provisioning = context.getBean(
+                            TaskProvisioning.class);
 
                     assertThat(ReflectionTestUtils.getField(checks, "runtime"))
                             .isSameAs(runtime);
@@ -94,7 +102,11 @@ class TestNewFlowConfiguration
                     assertThat(ReflectionTestUtils.getField(
                             coordinator, "userGates")).isSameAs(gates);
                     assertThat(context.getBeansOfType(
-                            NewFlowDispatcher.Handler.class)).isEmpty();
+                            NewFlowDispatcher.Handler.class))
+                            .containsOnlyKeys("newFlowTaskProvisioning")
+                            .containsValue(provisioning);
+                    assertThat(ReflectionTestUtils.getField(
+                            provisioning, "runtime")).isSameAs(runtime);
                     assertThat(newFlowPath).exists();
                 });
         assertThat(Files.readAllBytes(primaryPath))

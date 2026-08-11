@@ -38,17 +38,21 @@ digest, and fails closed on a partial install, drift, foreign-key violation, or
 failed integrity check. The existing application data source, JPA/Flyway
 history, and legacy readers/writers remain separate and unchanged.
 
-This is a composition foundation, not Task admission or flow cutover. The
-greenfield dispatcher has no production handlers yet, so it claims and executes
-no operation. Once an exact handler is wired, one synchronous worker selects
-the highest-priority eligible durable ticket across only those wired kinds in
-the same immediate transaction that enforces capacity one. Committed claims
-and unproven `ACTIVATED` process attempts consume that capacity. Durable polling
-is the correctness path; an after-commit wake is only a latency hint, and
-expired work is routed through its kind-specific recovery. No controller,
-Trunk tool, existing Task creator, provider/model call, or old dispatcher is
-connected to this foundation. Old execution beans remain active until a later
-explicit cutover proves the complete greenfield command and body graph.
+This is a composition foundation, not live Task admission or flow cutover. The
+only wired greenfield handler is local `PROVISION_TASK`. It can consume only a
+durable Task launch already accepted in the dedicated new-flow database; no
+controller, Trunk tool, or existing Task creator currently creates that launch.
+The handler resolves the frozen configured remote ref from the already-local
+object store, binds the exact SHA before mutation, and creates one derived
+branch/worktree without fetch, credentials, provider calls, or model calls.
+
+One synchronous worker selects the highest-priority eligible durable ticket
+across only the wired kind set in the same immediate transaction that enforces
+capacity one. Durable polling is the correctness path; an after-commit wake is
+only a latency hint, and expired provisioning uses its exact owner recovery.
+All other operation kinds remain unclaimed here. Old execution beans remain
+active until a later explicit cutover proves the complete greenfield command
+and body graph.
 
 ## System in one sentence
 

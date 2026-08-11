@@ -85,14 +85,18 @@ but their ownership and constraints must remain intact.
 | `task_id` | Stable application identity. |
 | `request_key` | Caller idempotency key; unique. |
 | `repository_id` | Repository configuration used to provision the Task. |
+| `repository_owner`, `repository_name` | Program-frozen canonical provider locator for the configured repository; never inferred from a later remote URL. |
 | `goal_text` | Exact confirmed user goal; never an agent-generated summary. |
+| `repository_root`, `git_common_dir` | Program-frozen canonical local repository and common Git directory. Provisioning revalidates both on every claimed generation. |
+| `remote_name`, `base_ref` | Program-frozen safe remote name and its literal full remote-tracking ref. The provision owner resolves this ref locally; callers cannot supply a SHA or revision expression. |
+| `launch_digest` | Digest of the complete set-once mechanical repository launch graph; every start replay and provisioning admission recomputes it. The exact goal is stored and compared separately. |
 | `status` | `CREATED`, `ACTIVE`, `WAITING_USER`, `NEEDS_ATTENTION`, `COMPLETED`, or `CANCELED`. Remote/CI/gate waiting is projected from owner records rather than copied here. |
 | `epoch` | Monotonic invalidation counter for leases and old operations. |
 | `launch_base_sha` | Immutable base used to create the worktree; nullable only while a normal Task is `CREATED` and provisioning has not resolved the configured base. |
 | `current_base_sha` | Current program-proven comparison/publication base; initialized to the launch base and changed only through an immutable `TaskBaseRevision`. Same narrow provisioning nullability. |
 | `current_base_revision_id` | Pointer to the latest immutable base revision; nullable only before base provisioning. |
-| `branch_name` | Unique Task branch. |
-| `worktree_path` | Isolated Task worktree. |
+| `branch_name` | Unique ref-safe Task branch derived by the program from `task_id`. |
+| `worktree_path` | Isolated Task worktree derived under the configured program-owned root from `task_id`. |
 | `current_head_sha` | Last program-observed clean committed head. |
 | `task_session_id` | Persistent Task Agent session. |
 | `ci_session_id` | Nullable persistent CI Fixer session. |
@@ -109,6 +113,23 @@ but their ownership and constraints must remain intact.
 `status` is intentionally coarse. Detailed UI state comes from the current
 operation, open gate, CI observation, and feedback batch. Do not add a new Task
 status for every screen.
+
+### `ProvisionSubject`
+
+```text
+ProvisionSubject {
+  operationId, taskId, launchDigest,
+  baseSha, mutationDigest, boundAt
+}
+```
+
+The claimed `PROVISION_TASK` owner resolves the literal local base ref and
+commits this immutable subject before any worktree mutation. Composite foreign
+keys bind `(operationId, taskId)` to the exact provision operation and
+`(taskId, launchDigest)` to the accepted Task launch. `mutationDigest` frames
+the frozen repository/common-dir/remote, derived branch/path, and exact
+`baseSha`. Redelivery therefore reuses the same mutation even after the local
+base ref advances; no caller supplies or replaces the SHA.
 
 The normal conversation/audit store retains the Trunk transcript and associates
 the accepted tool invocation through `request_key`. That transcript is not a
@@ -175,8 +196,10 @@ TaskBaseRevision {
 }
 ```
 
-For a normal Task, the claimed provision operation resolves the configured base
-and appends `INITIAL` before creating the branch/worktree. A confirmed upstream
+For a normal Task, the claimed provision operation resolves its frozen,
+configured remote-tracking ref from the already-local object store, durably
+binds the exact full SHA, and appends `INITIAL` only after the exact derived
+branch/worktree is proven. A confirmed upstream
 preview already owns the resolved target SHA and may append `INITIAL` in its
 Task-creation transaction. A later revision is valid only after a fenced
 operation proves the exact new target and the branch integration result. It
@@ -229,10 +252,14 @@ mechanical worktree observation. The first revision is appended only by
 require that exact `AgentRun`; only the future deterministic `UPSTREAM_SYNC`
 source may omit `sourceRunId`.
 
-The present provisioning command accepts full lowercase 40/64-hex object IDs
-only, but still trusts its program-owned provisioning adapter to have resolved
-those IDs. Moving that resolution inside the provisioning owner is pending; the
-provisioning input is never treated as inspected change-set evidence.
+The provisioning owner accepts no caller/model SHA. It locally resolves only a
+literal full ref with `rev-parse --verify --quiet`, where exit 1 is exact
+absence, binds one lowercase 40/64-hex object ID to the immutable provision
+subject before mutation, and reuses that ID across redelivery even if the
+configured ref later moves. It performs no fetch. Fresh
+authenticated remote synchronization remains required before live Task
+admission; the provisioning input is never treated as inspected change-set
+evidence.
 
 The current lease-admission API still accepts a program-side
 `WorktreeSnapshot` to freeze its admission head. That value is not change-set
@@ -497,7 +524,7 @@ shapes.
 | Method | Caller | Required behavior |
 |---|---|---|
 | `TaskCommands.startTask(requestKey, repositoryId, goalText)` | `start_task` Trunk tool | Require a self-contained `goalText`. In one transaction create `Task`, initial lifecycle revision, `PROVISION_TASK` operation, and ticket. Return `task_id` immediately; normal conversation storage remains audit only. |
-| `TaskProvisioning.provision(taskId, operationId)` | dispatcher | For a normal Task, fetch/resolve the configured base to an exact SHA and append the initial `TaskBaseRevision`; then create branch/worktree or fail the launch. Never fall back to a shared checkout. After isolation succeeds, create the persistent Task Agent session, append `CREATED -> ACTIVE`, but start no model call: persist `INITIAL` (ordinary) or first deterministic upstream work as pending and ensure reconciliation. A confirmed upstream Task reuses its already-proven initial base revision. |
+| `TaskProvisioning.execute(claim)` | dispatcher | For a normal Task, validate the exact current claim and frozen repository/remote/ref/path graph, resolve the already-local configured ref, and durably bind its exact SHA before one replayable `git worktree add -b` with the derived branch/path. Revalidate repository identity and safe Git state on every generation. Exact worktree proof atomically appends the initial `TaskBaseRevision`, creates the idle Task Agent session, appends `CREATED -> ACTIVE`, persists `INITIAL`, ensures reconciliation, and settles once. It performs no fetch, provider/model call, or shared-checkout fallback. |
 | `WorkflowCommands.enqueueTurn(taskId, kind, subjectManifest)` | domain coordinators | Persist/deduplicate the pending inbox fact, then call `Reconciliation.ensure`; never make a second writer operation directly eligible. |
 | `DispatchQueue.claim(workerId, now)` | dispatcher | Atomically claim one eligible ticket and issue its expiring monotonic `claimToken`. A writer ticket is eligible only when its operation matches the Task's selected or reserved writer pointer. A `RUN_REVIEWER` ticket is eligible only when its exact parent has a durable `AgentResult`, that parent session is `PARKED_CHILD`, its selected-writer pointer is clear, and no writer lease remains; this predicate is the enforceable representation of “parent-blocked.” A reconciliation ticket waits while `selected_writer_operation_id` is live, but may run ahead of a parked reservation when a terminal/effect/recovery cause outranks it. A reserved ticket's direct eligibility predicate—not `WorkSelector`—checks predecessor result/pointer/lease plus those higher blockers. A CI cleanup successor is different: its mandatory handoff swaps it directly into `selected_writer_operation_id`, and a newly observed terminal fact cannot admit unrelated work ahead of consuming or quarantining that exact seal. A GitHub effect claim also locks its `prId` and permits only that PR's oldest eligible nonterminal `ExternalEffectPlan.prSequence`. An expired agent claim is not eligible for a new generation until `stopAndProve` records the prior generation dead. |
 | `TaskLifecycle.appendRevision(taskId, expectedLifecycleRevisionId, nextStatus, reasonCode, evidenceRef?, operationId?)` | Task owner commands | Append the immutable transition and advance Task pointers in one transaction; reject an unexpected current revision. |
@@ -695,17 +722,28 @@ schema nor an accepted marker; concurrent starters serialize to one complete
 accepted marker. The legacy primary data source and its Flyway/JPA lifecycle
 are not inputs to this owner graph.
 
-The composed `NewFlowDispatcher` is deliberately inert because this foundation
-wires no operation handler. It never claims an unsupported kind merely to make
-the queue look active. When a concrete handler is added, the runtime atomically
-chooses the highest-priority eligible ticket from the exact wired-kind set and
-enforces the fixed single-worker capacity from distinct claimed operations plus
-unproven `ACTIVATED` process attempts. Polling observes committed tickets even
-when a wake is lost or arrives early; shutdown interrupts the live handler and
-leaves any unfinished claim to typed owner recovery. This checkpoint does not
-admit a Task, expose `start_task`, invoke a model/provider, disable old beans, or
-claim cutover. Those changes require their own complete composition and
-acceptance boundary.
+The composed `NewFlowDispatcher` wires exactly the local `PROVISION_TASK`
+handler and never claims an unsupported kind merely to make the queue look
+active. The runtime atomically chooses the highest-priority eligible ticket from
+that exact wired-kind set and enforces fixed single-worker capacity. Polling
+observes committed tickets even when a wake is lost or arrives early; shutdown
+interrupts the live handler and leaves any unfinished claim to typed owner
+recovery.
+
+Provisioning recovery is convergent and owner-specific: a proven exact
+worktree is rearmed for a fresh claim to finalize, proven absence is rearmed for
+the same bound mutation, and partial/mismatched or stable unsafe state moves the
+Task to attention without cleanup. Incomplete local proof is retryable; every
+individual command and observation attempt is time/output bounded.
+
+The current production catalog supports only an app-configured primary managed
+clone with a real `.git` directory. A linked-worktree `.git` file is rejected at
+this boundary. Supporting another repository layout requires a later typed
+catalog contract; this checkpoint performs no migration or fetch.
+
+This checkpoint still does not admit a live Task, expose `start_task`, fetch,
+invoke a model/provider, disable old beans, or claim cutover. Those changes
+require their own complete composition and acceptance boundary.
 
 ## 7. Agent-to-agent protocol
 
